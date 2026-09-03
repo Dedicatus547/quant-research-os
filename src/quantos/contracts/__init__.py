@@ -41,6 +41,13 @@ from quantos.contracts.qlib_view import (
     QlibViewSpec,
 )
 from quantos.contracts.refs import ArtifactRef, DataSnapshotRef
+from quantos.contracts.registry import (
+    RegistryExperimentIndexEntry,
+    RegistryExperimentManifest,
+    RegistryIndex,
+    RegistryStrategyRecord,
+    StrategyVersionRecord,
+)
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
     ExpressionAuthoringSpec,
@@ -152,6 +159,10 @@ __all__ = [
     "QlibViewSpec",
     "QualityGateResult",
     "ReasonCode",
+    "RegistryExperimentIndexEntry",
+    "RegistryExperimentManifest",
+    "RegistryIndex",
+    "RegistryStrategyRecord",
     "ReproducibilityComparison",
     "ResearchPolicy",
     "ResearchSegment",
@@ -177,6 +188,7 @@ __all__ = [
     "SoftMetric",
     "StrategyAuthoringSpec",
     "StrategyStatus",
+    "StrategyVersionRecord",
     "TemporalMetadata",
     "TemporalPolicyError",
     "ThresholdComparison",

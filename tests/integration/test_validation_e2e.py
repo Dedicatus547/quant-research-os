@@ -13,6 +13,7 @@ import pytest
 from quantos.application import resolve_experiment
 from quantos.backtest import QlibBacktestService
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
+from quantos.contracts.events import EventType
 from quantos.contracts.pit import OperatorDelayPolicy
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
@@ -23,10 +24,11 @@ from quantos.contracts.research import (
     ValidationPolicy,
     ValidationSubperiod,
 )
-from quantos.contracts.status import RunStatus, ValidationVerdict
+from quantos.contracts.status import RunStatus, StrategyStatus, ValidationVerdict
 from quantos.contracts.temporal import DecisionSchedule
 from quantos.data import QlibViewBuilder, SyntheticSnapshotBuilder, qlib_view
 from quantos.integrations.qlib import QLIB_COMMIT, QLIB_VERSION, OfficialQlibTools
+from quantos.registry import RegistryService
 from quantos.research.qlib import FactorSignalArtifactBuilder, build_pit_evidence_collection
 from quantos.validation import (
     CostStressLocator,
@@ -43,6 +45,7 @@ FIXTURE = Path(__file__).parents[1] / "fixtures" / "synthetic_backtest_snapshot"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 BACKTEST_SERVICE = importlib.import_module("quantos.backtest.service")
 SIGNAL_SERVICE = importlib.import_module("quantos.research.qlib.signal")
+VALIDATION_SERVICE = importlib.import_module("quantos.validation.service")
 
 
 class _Metric:
@@ -270,6 +273,9 @@ def test_synthetic_validation_e2e_passes_all_gates_and_detects_tampering(
         lambda *_args, **_kwargs: {"SZ000001": 0.012},
     )
     monkeypatch.setattr(BACKTEST_SERVICE, "verify_code_provenance", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        VALIDATION_SERVICE, "verify_code_provenance", lambda *_args, **_kwargs: None
+    )
     monkeypatch.setattr(BACKTEST_SERVICE.qlib, "init", lambda **_kwargs: None)
     monkeypatch.setattr(BACKTEST_SERVICE, "_QLIB_BACKTEST", _fake_backtest)
     monkeypatch.setattr(
@@ -370,7 +376,7 @@ def test_synthetic_validation_e2e_passes_all_gates_and_detects_tampering(
         locators,
         tmp_path / "validation",
         tmp_path / "events",
-        canonical=False,
+        canonical=True,
     )
     repeated = ValidationService().run(
         authoring,
@@ -379,7 +385,7 @@ def test_synthetic_validation_e2e_passes_all_gates_and_detects_tampering(
         locators,
         tmp_path / "validation",
         tmp_path / "events",
-        canonical=False,
+        canonical=True,
     )
 
     assert first.path == repeated.path
@@ -392,6 +398,40 @@ def test_synthetic_validation_e2e_passes_all_gates_and_detects_tampering(
     assert first.report.reproducibility.exact_content_hash is True
     assert verify_validation_report(first.path) == first.report
     assert len(tuple((tmp_path / "events").rglob("*.json"))) == 2
+
+    registry = RegistryService(tmp_path / "registry")
+    registration = registry.register_experiment(
+        first.path,
+        event_root=tmp_path / "events",
+        snapshot_path=snapshot.path,
+        qlib_view_path=view.path,
+        signal_path=baseline_signal.path,
+        registered_at=first.report.created_at,
+    )
+    version = registry.register_strategy(
+        "synthetic-momentum",
+        authoring.strategy.content_hash,
+        version=1,
+        occurred_at=first.report.created_at,
+    )
+    assert version.status is StrategyStatus.DRAFT
+    for event_type, status in (
+        (EventType.VALIDATION_STARTED, StrategyStatus.VALIDATING),
+        (EventType.VALIDATION_PASSED, StrategyStatus.CANDIDATE),
+        (EventType.STRATEGY_VERSION_VALIDATED, StrategyStatus.VALIDATED),
+    ):
+        version = registry.append_strategy_event(
+            "synthetic-momentum",
+            1,
+            event_type,
+            authoring.experiment_id,
+            occurred_at=first.report.created_at,
+        )
+        assert version.status is status
+    rebuilt = registry.verify()
+    assert registration.manifest.snapshot_source_kind.value == "SYNTHETIC_FIXTURE"
+    assert rebuilt.experiments[0].validation_report_hash == first.report.report_hash
+    assert rebuilt.strategies[0].versions[0].status is StrategyStatus.VALIDATED
 
     policy_path = first.path / "validation-policy.json"
     policy_bytes = policy_path.read_bytes()

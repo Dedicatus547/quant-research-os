@@ -1,0 +1,21 @@
+{
+  "backtest_result_hash": "ce13f2146c2ef3e37d049c6a7bee46f7c4fda465c24ce87727dacc70920908c9",
+  "code_commit_hash": "bac2356bcf2d23744e27de928f8d1702d7ff7760",
+  "data_qualified": false,
+  "experiment_manifest_hash": "d7ba614941a48792ac0769c7e14686d4408ab6d664aaeda37a7f119d3bfd1ba4",
+  "independent_release_pipelines": 2,
+  "principal_hashes_byte_exact": true,
+  "qlib_source_commit": "da920b7f954f48ab1bb64117c976710de198373e",
+  "qlib_version": "0.9.7",
+  "qlib_view_hash": "b6a5220a97a6e568d9eec1e4b2fb18b928d81c1c9a777ac5893c89c44ee0bb36",
+  "registry_index_hash": "9ab2ebe79a7334c3db9c9751316f5f4fbf1c6d3d79588f73124910f5523d0005",
+  "release_track": "OFFLINE_ENGINEERING",
+  "runtime_fingerprint_hash": "66d954a1ff034d6ecb555885e12926e585543a4d71c92ea35bb5720465730321",
+  "schema_version": "release-feasibility-report/v1",
+  "signal_artifact_hash": "be1c09cfbbfd0cb88bc4b9dd20f49db4ca236ca82792c8c4a7c214bab6f069c5",
+  "snapshot_hash": "2698fdcee8d153dab005050f451b5c8cae0b11d60bd23d20ced3605785858ec4",
+  "source_kind": "SYNTHETIC_FIXTURE",
+  "status": "PASS",
+  "strategy_status": "VALIDATED",
+  "validation_report_hash": "9fab806f7ff638fd3c6b7ba1afe104139b49cbc66ed95e436175bb56028afe83"
+}

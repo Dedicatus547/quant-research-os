@@ -8,6 +8,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from quantos.application import capture_code_provenance, resolve_experiment
@@ -185,6 +186,8 @@ def _run_pipeline(
     validation_policy: ValidationPolicy,
     base_cost: CostPolicy,
     backtest_policy: BacktestPolicy,
+    validation_now: datetime | None = None,
+    validation_event_id: UUID | None = None,
 ) -> _PipelineResult:
     provenance = capture_code_provenance(workspace)
     snapshot = SyntheticSnapshotBuilder().build(fixture_root, output_root / "snapshots")
@@ -302,6 +305,8 @@ def _run_pipeline(
         output_root / "events",
         workspace=workspace,
         canonical=True,
+        now=validation_now,
+        event_id=validation_event_id,
     )
     verified = verify_validation_report(validation.path)
     if (

@@ -2,8 +2,8 @@
 
 > 版本：v4（可信证据修正版）<br>
 > 更新日期：2026-09-03<br>
-> 当前仓库状态：P0-P6 的离线实现与 synthetic component gates 已通过；P7 尚未实施，因此
-> 第一阶段 Offline Engineering DoD 尚未完成。真实 Tushare capability probe 已执行且
+> 当前仓库状态：P0-P7 的离线实现与 synthetic component gates 已通过，第一阶段
+> Offline Engineering DoD 已完成。真实 Tushare capability probe 已执行且
 > `index_weight` 权限被拒；真实 snapshot 与 release-checkout Git provenance 仍是
 > Data-qualified 前置条件。锁定 Qlib 源码及当前 synthetic view 已验证。
 
@@ -1351,15 +1351,15 @@ Git Commit
 
 Offline Engineering checklist：
 
-- [ ] P0-P7 所有离线 exit criteria 完成
-- [ ] 无 token PR CI 全绿
-- [ ] DQ 与 PIT coverage matrix 中每个受支持语义均有 positive / negative / stable reason-code case
-- [ ] synthetic factor Release E2E 完成
+- [x] P0-P7 所有离线 exit criteria 完成
+- [x] 无 token CI 等价本地质量门全绿（151 tests；Ruff；Pyright；branch coverage 85.05%）
+- [x] DQ 与 PIT coverage matrix 中每个受支持语义均有 positive / negative / stable reason-code case
+- [x] synthetic factor Release E2E 完成
 - [x] 原生 Qlib `LGBModel + DatasetH + Workflow` offline smoke 完成（独立 component goal）
 - [x] 正常、PIT reject、运行失败、软门 reject 四类 golden cases
 - [x] P6 synthetic native-Qlib E2E double-run 在容差内一致
-- [ ] Registry tamper / partial write / duplicate / state-transition tests 完成
-- [ ] 工程成功不依赖 baseline 策略收益 PASS
+- [x] Registry tamper / partial write / duplicate / state-transition tests 完成
+- [x] 工程成功不依赖 baseline 策略收益 PASS
 
 ## 28.2 Data-qualified Release DoD
 
@@ -1748,6 +1748,23 @@ P7-11 HS300 Momentum Release E2E（Data-qualified）
 - 损坏、部分写入和篡改测试通过；v0.1 明确拒绝多 writer
 - Offline Engineering 与 Data-qualified Release 各自的最终 E2E 状态可独立报告
 
+实施状态（2026-09-03）：offline synthetic 路径已完成。`RegistryService` 以自哈希
+`RegistryExperimentManifest` 和链式 `ImmutableEvent` 为权威，索引每次都从 manifest / event
+重建，不保存可变 authority。PASS、REJECT 与 FAILED / NOT_EVALUATED 报告均可登记；策略版本严格
+单调，只有绑定同一 strategy spec 的 canonical `SUCCEEDED / PASS` 报告才能从 DRAFT 经
+VALIDATING、CANDIDATE 推进至 VALIDATED。重复 hash 幂等，重复逻辑 ID 冲突、非法迁移、event
+fork / 缺失前驱、非 canonical JSON、额外文件、manifest / event 篡改均 fail closed。P6 的
+`OOSAccessed` 原始 StoredEvent 会保留文件 hash 并导入 experiment event chain；atomic writer
+临时文件可显式恢复，权威 JSON 永不被 recovery 修改。v0.1 仍明确为 trusted single-user /
+single-writer，不引入数据库或并发锁。
+
+`scripts/release_feasibility.py` 已在临时 clean Git checkout 中执行两套独立真实 Qlib pipeline：
+Snapshot → official converter / health check → PIT → SignalArtifact → Qlib reference backtest / grid
+→ G0-G10 ValidationReport → Registry。两次 principal artifact、experiment manifest 与 registry
+index hash 完全一致，最终策略状态为 VALIDATED。该证据明确标记
+`OFFLINE_ENGINEERING / SYNTHETIC_FIXTURE / data_qualified=false`；真实 Tushare Release E2E 仍因
+`index_weight` 权限不足而 BLOCKED。
+
 ---
 
 # 37. 实施依赖 DAG
@@ -1851,7 +1868,10 @@ E2E             P6 validation pipeline / P7 release pipeline
 
 # 40. 第二阶段路线
 
-只有 Deterministic MVP v0.1 完成后才开始。先做 capability spike，再选定一个主 Agent harness，不同时集成三套栈：
+只有 Deterministic MVP v0.1 的 Offline Engineering 基线冻结后才开始第二阶段。Data-qualified
+Release 是独立的真实数据资格轨道，不应因外部 Tushare 权限长期阻塞 Agent 工程；但第二阶段的
+任何真实数据结论仍必须继承 Data-qualified 状态，不能用 synthetic evidence 代替。先做
+capability spike，再选定一个主 Agent harness，不同时集成三套栈：
 
 ```text
 P8  Pre-MCP Threat Hardening
@@ -1886,6 +1906,56 @@ quant.get_strategy
 Agent 可以读取 metadata / results、创建 proposal、请求 validation、读取 ValidationReport。
 
 Agent 不可以读取 `TUSHARE_TOKEN`、在线修改 snapshot、覆盖历史 artifact、修改 Gate verdict、绕过 PIT 或直接标记 `VALIDATED`。
+
+## 40.3 目标与阶段边界（2026-09-03 对齐）
+
+第二阶段的目标是 **Agent-assisted Research v0.2**，不是自动交易系统。Agent 负责提出研究
+假设、生成 proposal、请求确定性执行并解释结果；Spec 解析、数据读取、PIT、因子、Qlib 回测、
+Validation Gate 和 Registry 仍由确定性程序负责。工程验收继续以可审计、可复现和 fail-closed
+为准，不以策略盈利为准。
+
+### 40.3.1 M0：Deterministic MVP v0.1 基线冻结
+
+P0-P7 的 Offline Engineering DoD 已完成，但正式发布基线还应完成一次仓库级冻结：
+
+```text
+当前改动合入正式 Git commit
+→ clean checkout 运行 release_feasibility.py
+→ 固化该 commit / uv.lock / runtime fingerprint 对应的证据
+→ 标记 v0.1.0-oe（或等价 Offline Engineering 基线）
+```
+
+M0 不要求真实 Tushare 权限，也不要求基准策略收益通过。P7 当前保留的临时 clean-checkout
+证据是组件验收；正式基线应绑定发布仓库中的 clean commit。
+
+### 40.3.2 Data-qualified 独立轨道
+
+该轨道可与 P8-P11 并行，但其状态不能被 Offline Engineering 或 Agent proposal 掩盖：
+
+```text
+DQ-01 重新探测全部 required endpoints（尤其 index_weight / stock_st）
+DQ-02 固化账号 quota、rate policy 与数据许可
+DQ-03 构建不可变 2015-2025 snapshot、DQ report、Qlib view
+DQ-04 在正式 clean checkout 重跑 P3-P6
+DQ-05 执行 P7 registry / release double-run
+DQ-06 显式报告 PASS、REJECT 或 FAILED，以及 SINGLE_SOURCE_NON_VINTAGE
+```
+
+任何 endpoint 权限不足都是 Data-qualified Release 的 hard blocker；不得静默改用
+`namechange`、synthetic data 或其他未验证来源。
+
+### 40.3.3 P8-P11 实施顺序与退出条件
+
+| 阶段 | 实施重点 | 退出条件 |
+|---|---|---|
+| P8 | MCP 暴露前的威胁模型、root-confined 输入、path traversal / symlink 防护、恶意 JSON 与并发写入处理、权限边界 | 不可信输入不能越过 artifact/registry root；不会覆盖、分叉或破坏 authority；安全负例和无 token 门通过 |
+| P9 | 固定 RD-Agent / Vibe-Trading / QuantGPT 版本或 commit，使用同一 synthetic 任务做 capability spike | 以 Spec 结构化程度、Qlib 边界、沙箱、可复现、许可证和维护成本形成 ADR，只选一个主 harness |
+| P10 | 将 MCP 方法映射到现有 application service，固定 schema、请求幂等、审计和限额 | 无 shell、arbitrary Python/SQL、任意路径、force-pass 或直接 `VALIDATED` 能力；负向权限测试通过 |
+| P11 | 接入选定 harness，形成 proposal → deterministic execution → ValidationReport → Registry → explanation | 相同 resolved Spec 与冻结输入产生相同证据；Agent 始终只能提议、请求和解释，不能改 gate 或历史 artifact |
+
+P9 是评估阶段，不把三个框架同时带入产品；P10-P11 只能保留一个主 harness。Rank IC/ICIR
+ResearchResult adapter、第二数据源、基本面因子和实盘交易不进入这条关键路径，除非另行批准
+范围变更。
 
 ---
 

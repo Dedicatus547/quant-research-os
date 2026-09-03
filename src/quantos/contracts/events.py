@@ -12,6 +12,7 @@ from quantos.contracts.refs import SHA256_PATTERN
 
 
 class EventType(StrEnum):
+    EXPERIMENT_REGISTERED = "ExperimentRegistered"
     OOS_ACCESSED = "OOSAccessed"
     STRATEGY_CREATED = "StrategyCreated"
     VALIDATION_STARTED = "ValidationStarted"

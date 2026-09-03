@@ -111,6 +111,18 @@ fixture's suspended session makes window 2 non-finite, which remains a hard exec
 rather than being imputed. The latest compact hash summary is retained at
 [`artifacts/feasibility/validation-p6/report.json`](artifacts/feasibility/validation-p6/report.json).
 
+Run the final P7 offline release acceptance slice from a clean Git checkout:
+
+```bash
+UV_CACHE_DIR=/tmp/quantos-uv-cache uv run python scripts/release_feasibility.py
+```
+
+This executes two independent native-Qlib Snapshot → PIT → SignalArtifact → BacktestArtifact →
+G0-G10 → append-only Registry pipelines. It requires exact equality of every principal artifact,
+the experiment manifest, and the rebuilt registry index. The retained compact result is
+[`artifacts/feasibility/release-p7/report.json`](artifacts/feasibility/release-p7/report.json) and is
+explicitly synthetic Offline Engineering evidence, never Data-qualified evidence.
+
 For an already published, explicit SignalArtifact and matching view, the production CLI is:
 
 ```bash
@@ -153,6 +165,24 @@ and the locked numeric/runtime packages. Rank IC/ICIR thresholds currently fail 
 factor path has no immutable Qlib ResearchResult adapter; the v0.1 validation policies therefore do
 not enable those thresholds.
 
+Register and inspect already-published validation evidence with explicit immutable paths:
+
+```bash
+UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos registry register-experiment \
+  artifacts/validation/sha256-<validation_report_hash> \
+  --event-root artifacts/events \
+  --snapshot-path artifacts/data/snapshots/sha256-<snapshot_hash> \
+  --qlib-view-path artifacts/data/qlib-views/sha256-<view_hash> \
+  --signal-path artifacts/research/signals/sha256-<signal_hash>
+UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos registry verify artifacts/registry
+UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos registry list
+UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos registry show <experiment-or-strategy-id>
+```
+
+Registry registration reverifies the ValidationReport and every required explicit source before
+writing. Indexes are rebuilt projections, not authority. Strategy lifecycle commands reject
+invalid transitions; `registry recover` removes only abandoned atomic-writer temporary files.
+
 Python 3.11 and all dependency versions are locked by `uv.lock`. Tests deny network access by
 default through `pytest-socket`.
 
@@ -181,12 +211,15 @@ golden cases, and deterministic `backtest run/verify` commands. P6 adds the offl
 validation orchestrator, versioned robustness axes and soft thresholds, OOSAccessed events,
 independent-run comparison, immutable ValidationReport publication, and deterministic
 `experiment run/verify` commands. Its native feasibility runner executes two independent complete
-Qlib-backed pipelines and compares all principal content hashes. P7 remains unimplemented.
+Qlib-backed pipelines and compares all principal content hashes. P7 adds immutable experiment
+manifests, imported OOS event chains, monotonic strategy versions, fail-closed lifecycle
+transitions, rebuildable list/get indexes, registry CLI operations, tamper/partial-write recovery
+tests, and a two-run native-Qlib synthetic Release E2E.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
 [`docs/feasibility/qlib-0.9.7.md`](docs/feasibility/qlib-0.9.7.md).
 
 The token is configured and the bounded capability probe has run, but the account was denied the
 required `index_weight` endpoint; live release is therefore hard-blocked pending account access and
-an account-qualified rate policy. The locked Qlib source cache and current synthetic derived view
-are verified. This workspace is still not a usable Git repository, so canonical commit provenance
-also remains blocked.
+an account-qualified rate policy. The locked Qlib source cache, clean-checkout provenance gate, and
+current synthetic derived view are verified. The complete live snapshot and Data-qualified release
+rerun remain blocked.

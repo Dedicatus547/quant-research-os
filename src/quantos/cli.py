@@ -46,12 +46,14 @@ qlib_app = typer.Typer(no_args_is_help=True)
 pit_app = typer.Typer(no_args_is_help=True)
 backtest_app = typer.Typer(no_args_is_help=True)
 experiment_app = typer.Typer(no_args_is_help=True)
+registry_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tushare_app, name="tushare")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(qlib_app, name="qlib")
 app.add_typer(pit_app, name="pit")
 app.add_typer(backtest_app, name="backtest")
 app.add_typer(experiment_app, name="experiment")
+app.add_typer(registry_app, name="registry")
 
 
 @app.command()
@@ -610,6 +612,277 @@ def verify_validation_experiment(
                 "run_status": report.run_status,
                 "verdict": report.verdict,
             },
+            sort_keys=True,
+        )
+    )
+
+
+def _registry_failure(error: Exception, *, exit_code: int) -> None:
+    from quantos.registry import RegistryError
+
+    if not isinstance(error, RegistryError):  # pragma: no cover - internal CLI guard
+        raise error
+    typer.echo(
+        json.dumps(
+            {
+                "status": "FAILED",
+                "reason_code": error.reason_code,
+                "detail": str(error),
+            },
+            sort_keys=True,
+        )
+    )
+    raise typer.Exit(code=exit_code)
+
+
+@registry_app.command("register-experiment")
+def register_registry_experiment(
+    validation_path: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+    registry_root: Annotated[
+        Path,
+        typer.Option("--registry-root", file_okay=False, help="Append-only registry root."),
+    ] = Path("artifacts/registry"),
+    event_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--event-root",
+            exists=True,
+            file_okay=False,
+            readable=True,
+            help="Explicit root containing the ValidationReport OOSAccessed event.",
+        ),
+    ] = None,
+    snapshot_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--snapshot-path",
+            exists=True,
+            file_okay=False,
+            readable=True,
+            help="Explicit immutable snapshot directory bound by the report.",
+        ),
+    ] = None,
+    qlib_view_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--qlib-view-path",
+            exists=True,
+            file_okay=False,
+            readable=True,
+            help="Explicit immutable Qlib view directory bound by the report.",
+        ),
+    ] = None,
+    signal_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--signal-path",
+            exists=True,
+            file_okay=False,
+            readable=True,
+            help="Explicit immutable SignalArtifact directory bound by the report.",
+        ),
+    ] = None,
+) -> None:
+    """Reverify and register one PASS, REJECT, or FAILED ValidationReport."""
+
+    from quantos.registry import RegistryError, RegistryService
+
+    try:
+        result = RegistryService(registry_root).register_experiment(
+            validation_path,
+            event_root=event_root,
+            snapshot_path=snapshot_path,
+            qlib_view_path=qlib_view_path,
+            signal_path=signal_path,
+        )
+    except RegistryError as error:
+        _registry_failure(error, exit_code=17)
+        return
+    typer.echo(
+        json.dumps(
+            {
+                "status": "REGISTERED",
+                "experiment_id": result.manifest.experiment_id,
+                "manifest_hash": result.manifest.manifest_hash,
+                "run_status": result.manifest.run_status,
+                "verdict": result.manifest.verdict,
+                "index_hash": result.index.index_hash,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+@registry_app.command("register-strategy")
+def register_registry_strategy(
+    strategy_id: Annotated[str, typer.Argument()],
+    strategy_spec_hash: Annotated[str, typer.Argument()],
+    version: Annotated[int, typer.Option("--version", min=1)],
+    registry_root: Annotated[Path, typer.Option("--registry-root", file_okay=False)] = Path(
+        "artifacts/registry"
+    ),
+) -> None:
+    """Append exactly the next immutable logical strategy version."""
+
+    from quantos.registry import RegistryError, RegistryService
+
+    try:
+        record = RegistryService(registry_root).register_strategy(
+            strategy_id, strategy_spec_hash, version=version
+        )
+    except RegistryError as error:
+        _registry_failure(error, exit_code=17)
+        return
+    typer.echo(
+        json.dumps(
+            {"status": "REGISTERED", "strategy": record.model_dump(mode="json")},
+            sort_keys=True,
+        )
+    )
+
+
+@registry_app.command("transition")
+def transition_registry_strategy(
+    strategy_id: Annotated[str, typer.Argument()],
+    version: Annotated[int, typer.Argument(min=1)],
+    event_type: Annotated[str, typer.Argument()],
+    experiment_id: Annotated[str, typer.Argument()],
+    registry_root: Annotated[
+        Path, typer.Option("--registry-root", exists=True, file_okay=False)
+    ] = Path("artifacts/registry"),
+) -> None:
+    """Append a validation lifecycle event to a registered strategy version."""
+
+    from quantos.contracts.events import EventType
+    from quantos.registry import RegistryError, RegistryService
+
+    try:
+        parsed_type = EventType(event_type)
+        record = RegistryService(registry_root).append_strategy_event(
+            strategy_id, version, parsed_type, experiment_id
+        )
+    except ValueError:
+        typer.echo(
+            json.dumps(
+                {
+                    "status": "FAILED",
+                    "reason_code": "SCHEMA_INVALID",
+                    "detail": "event_type is not a known immutable event type",
+                },
+                sort_keys=True,
+            )
+        )
+        raise typer.Exit(code=17) from None
+    except RegistryError as error:
+        _registry_failure(error, exit_code=17)
+        return
+    typer.echo(
+        json.dumps(
+            {"status": "APPENDED", "strategy": record.model_dump(mode="json")},
+            sort_keys=True,
+        )
+    )
+
+
+@registry_app.command("list")
+def list_registry(
+    registry_root: Annotated[
+        Path, typer.Option("--registry-root", exists=True, file_okay=False)
+    ] = Path("artifacts/registry"),
+) -> None:
+    """List the complete rebuilt registry projection."""
+
+    from quantos.registry import RegistryError, RegistryService
+
+    try:
+        index = RegistryService(registry_root).rebuild_index()
+    except RegistryError as error:
+        _registry_failure(error, exit_code=18)
+        return
+    typer.echo(
+        json.dumps(
+            {"status": "PASS", "index": index.model_dump(mode="json")},
+            sort_keys=True,
+        )
+    )
+
+
+@registry_app.command("show")
+def show_registry_entry(
+    logical_id: Annotated[str, typer.Argument()],
+    registry_root: Annotated[
+        Path, typer.Option("--registry-root", exists=True, file_okay=False)
+    ] = Path("artifacts/registry"),
+) -> None:
+    """Show one experiment manifest or every version of one logical strategy."""
+
+    from quantos.contracts.status import ReasonCode
+    from quantos.registry import RegistryError, RegistryService
+
+    service = RegistryService(registry_root)
+    try:
+        index = service.rebuild_index()
+        experiment = next(
+            (item for item in index.experiments if item.experiment_id == logical_id), None
+        )
+        strategy = next((item for item in index.strategies if item.strategy_id == logical_id), None)
+        if experiment is not None:
+            payload: object = service.get_experiment(logical_id).model_dump(mode="json")
+            kind = "experiment"
+        elif strategy is not None:
+            payload = strategy.model_dump(mode="json")
+            kind = "strategy"
+        else:
+            raise RegistryError(ReasonCode.SOURCE_INCOMPLETE, "registry ID was not found")
+    except RegistryError as error:
+        _registry_failure(error, exit_code=18)
+        return
+    typer.echo(
+        json.dumps(
+            {"status": "PASS", "kind": kind, "entry": payload},
+            sort_keys=True,
+        )
+    )
+
+
+@registry_app.command("verify")
+def verify_registry(
+    registry_root: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+) -> None:
+    """Reverify every manifest/event and rebuild the authoritative index."""
+
+    from quantos.registry import RegistryError, RegistryService
+
+    try:
+        index = RegistryService(registry_root).verify()
+    except RegistryError as error:
+        _registry_failure(error, exit_code=18)
+        return
+    typer.echo(
+        json.dumps(
+            {
+                "status": "PASS",
+                "index_hash": index.index_hash,
+                "experiment_count": len(index.experiments),
+                "strategy_count": len(index.strategies),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+@registry_app.command("recover")
+def recover_registry_partial_writes(
+    registry_root: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+) -> None:
+    """Remove only abandoned atomic-writer temporary files."""
+
+    from quantos.registry import RegistryService
+
+    recovered = RegistryService(registry_root).recover_partial_writes()
+    typer.echo(
+        json.dumps(
+            {"status": "RECOVERED", "files": recovered, "count": len(recovered)},
             sort_keys=True,
         )
     )

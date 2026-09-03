@@ -16,6 +16,11 @@ __pycache__/
 # Runtime artifacts are immutable local data and are not source-controlled.
 artifacts/*
 !artifacts/.gitkeep
+!artifacts/feasibility/
+artifacts/feasibility/*
+!artifacts/feasibility/release-p7/
+artifacts/feasibility/release-p7/*
+!artifacts/feasibility/release-p7/report.json
 
 # Qlib / MLflow runtime state is not authoritative evidence.
 mlruns/

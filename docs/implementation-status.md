@@ -7,14 +7,36 @@ or injected-client pass never qualifies a live-data release.
 
 | Phase | Offline Engineering | Data-qualified / remaining work |
 |---|---|---|
-| P0 | Python 3.11/uv lock, CI gates, doctor, bounded 12-request capability probe with immutable redacted evidence, and locked Qlib source verification PASS | Live probe hard-rejected `index_weight` as `PERMISSION_DENIED`; Git fingerprinting is blocked because this workspace is not a usable Git repository |
+| P0 | Python 3.11/uv lock, CI gates, doctor, bounded 12-request capability probe with immutable redacted evidence, locked Qlib source verification, and clean-checkout Git fingerprinting PASS | Live probe hard-rejected `index_weight` as `PERMISSION_DENIED` |
 | P1 | Deterministic contracts/hashes, temporal types, refs, reason codes, immutable events, strict YAML loading, two-layer authoring/resolved experiment contracts, and separate engineering/research validation policies PASS | No live dependency |
 | P2 | All 9 endpoint-shaped fixtures; raw/canonical Parquet; lifecycle, bounded membership and sparse-status rules; content-addressed snapshot; exact file-set verification; resumable endpoint plans using `pyrate-limiter`/`tenacity`; redacted request ledgers; injected-client live-shaped publication; official Qlib view with historical-universe/tradability sidecars and two independent identical builds PASS | Obtain `index_weight` permission, set an account-qualified rate policy, acquire the immutable Tushare snapshot, and rebuild its derived view |
 | P3 | Canonical request selectors are bound to a verified snapshot hash; temporal lineage is loaded mechanically from Parquet; complete operator-delay policies, source windows, input lag, membership as-of, fake-hash rejection, and unbound-proposal publication denial PASS. Reports now bind the exact canonical request, expression, selectors, and decision schedule | Re-run the PIT audit against the live snapshot; every report retains `SINGLE_SOURCE_NON_VINTAGE` |
 | P4 | Safe-expression translation to official Qlib syntax, historical-universe resolution, cross-section PIT evidence bundles, provenance-gated immutable SignalArtifact publication/verification, locked cost/research policies, and real `DatasetH`/`LGBModel`/Workflow/Record Template smoke PASS. Two independent real-Qlib synthetic signal builds and two purged ML runs reproduced their content hashes | Re-run the complete P4 path on the live snapshot in a normal clean Git checkout; synthetic evidence is not data qualification |
 | P5 | Verified SignalArtifact-to-Qlib reference backtest, explicit Exchange/Simulator/Position/order-generator configuration, content-addressed BacktestArtifact, six arithmetic/schedule reconciliations, constraint golden cases, CLI run/verify, and clean-checkout double-run PASS | Re-run against the live snapshot in a normal release checkout; Qlib 0.9.7 blocked-trade evidence limitations remain explicit |
 | P6 | G0-G10 deterministic validation, hard-gate short circuit, frozen OOS access events, complete cost/parameter/subperiod evidence grids, policy-driven soft thresholds, independent-output-root reproducibility comparison, runtime-bound immutable ValidationReport v2, four golden outcomes, and native-Qlib full-pipeline synthetic double-run PASS | Rank IC/ICIR remain disabled and fail closed until an immutable Qlib ResearchResult adapter exists; re-run against the live snapshot in a normal clean Git checkout and retain the Data-qualified release-baseline rerun |
-| P7 | Not implemented | Append-only registry and final release E2E remain planned work |
+| P7 | Self-hashed experiment manifests, imported OOS event chains, append-only strategy lifecycle, monotonic versions, rebuildable indexes, single-writer atomic publication, CLI, tamper/partial/duplicate/transition gates, and native-Qlib synthetic Release E2E double-run PASS | Re-run the final release path against the live snapshot after all Data-qualified blockers are cleared |
+
+## 轨道对齐与下一阶段入口
+
+当前目标分为三条独立轨道：
+
+- `Deterministic MVP v0.1`：P0-P7 Offline Engineering DoD 已完成。正式发布前仍需将当前改动
+  合入 Git clean commit，并从该 commit 重跑一次 release feasibility，作为仓库级基线。
+- `Data-qualified Release`：独立等待真实 Tushare 权限、quota/rate policy、2015-2025 snapshot
+  及其 P3-P7 重跑；当前因 `index_weight: PERMISSION_DENIED` 保持 hard-blocked。
+- `Agent-assisted Research v0.2`：在 Offline Engineering 基线冻结后启动 P8-P11，不等待
+  Data-qualified 权限；Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
+
+后续顺序固定为：
+
+```text
+M0 基线冻结 → P8 Pre-MCP Threat Hardening → P9 Harness Capability Spike
+→ P10 单一 Harness + MCP Research API → P11 Harness Integration
+```
+
+P8-P11 不得引入自有回测/交易/组合引擎，也不得让 Agent 读取 token、修改快照、覆盖 artifact、
+修改 Gate verdict 或直接标记 `VALIDATED`。P9 必须用固定版本和统一 rubric 选择一个主 harness；
+P10-P11 的验收对象是相同 resolved Spec 与冻结输入的确定性证据，而不是 Agent 文本的逐字一致。
 
 ## P2-P4 baseline offline evidence
 
@@ -28,7 +50,7 @@ Signal content      31b8cc11c9b5f86fb62e2f3a6f7984e721a12ae2ffec597fdf4157d69a36
 PIT evidence bundle d53388be921ea723f4744091ce859385972b8f145492fa6ad840ba4c14709103
 LGB predictions     a57fc7297e6365cf9186c0063c0d4c4f7ca3f643d52a8a6507cc2b49c016739a
 LGB finite metrics  089f93946c959f4984888ba78df2c8966d3a53d5070d78ea0397b40b2cca40c8
-Quality suite       144 passed; Ruff PASS; Pyright 0 errors; branch coverage 85.41%
+Quality suite       151 passed; Ruff PASS; Pyright 0 errors; branch coverage 85.05%
 ```
 
 The P4 SignalArtifact above was regenerated after the P5 policy fields were frozen. It and the P5
@@ -131,6 +153,36 @@ shipped v0.1 validation policy enables them.
 Runtime timestamps and OOS event references are retained but excluded from their documented
 content-hash domains. Every referenced payload is individually hashed, and verifiers reject
 missing, changed, or additional files.
+
+## P7 registry and release evidence
+
+```text
+P7 component commit      bac2356bcf2d23744e27de928f8d1702d7ff7760
+Runtime fingerprint      66d954a1ff034d6ecb555885e12926e585543a4d71c92ea35bb5720465730321
+Snapshot                 2698fdcee8d153dab005050f451b5c8cae0b11d60bd23d20ced3605785858ec4
+Qlib view                b6a5220a97a6e568d9eec1e4b2fb18b928d81c1c9a777ac5893c89c44ee0bb36
+SignalArtifact           be1c09cfbbfd0cb88bc4b9dd20f49db4ca236ca82792c8c4a7c214bab6f069c5
+BacktestArtifact         ce13f2146c2ef3e37d049c6a7bee46f7c4fda465c24ce87727dacc70920908c9
+ValidationReport v2      9fab806f7ff638fd3c6b7ba1afe104139b49cbc66ed95e436175bb56028afe83
+Experiment manifest      d7ba614941a48792ac0769c7e14686d4408ab6d664aaeda37a7f119d3bfd1ba4
+Registry index           9ab2ebe79a7334c3db9c9751316f5f4fbf1c6d3d79588f73124910f5523d0005
+Final strategy status    VALIDATED
+Independent pipelines   2; all principal hashes byte-exact
+Release track            OFFLINE_ENGINEERING; SYNTHETIC_FIXTURE; data_qualified=false
+```
+
+The retained compact result is
+[`artifacts/feasibility/release-p7/report.json`](../artifacts/feasibility/release-p7/report.json).
+The runner uses Qlib's locked official converter/health check, expression provider, Exchange and
+Simulator; registry code only verifies and indexes the published P6 evidence. Experiment manifests
+bind code/lock/runtime, policies, snapshot/view, signal, backtest, ValidationReport, optional Qlib
+run ID, limitations, and the imported OOS event. Registry indexes exclude wall-clock generation
+time from their content domain and reproduce exactly from immutable authority files.
+
+The experiment and strategy event chains reject missing predecessors, forks, backward timestamps,
+invalid payloads and state transitions. REJECT and FAILED / NOT_EVALUATED reports remain registered
+evidence, while only canonical SUCCEEDED / PASS can produce a VALIDATED strategy version. This is
+synthetic component evidence, not live Tushare qualification.
 
 ## Deliberate reuse boundaries
 
