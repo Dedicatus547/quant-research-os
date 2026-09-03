@@ -157,15 +157,15 @@ missing, changed, or additional files.
 ## P7 registry and release evidence
 
 ```text
-P7 component commit      bac2356bcf2d23744e27de928f8d1702d7ff7760
+P7 component commit      4889f9c66782187b4796d0432f3948b2f899c2f2
 Runtime fingerprint      66d954a1ff034d6ecb555885e12926e585543a4d71c92ea35bb5720465730321
 Snapshot                 2698fdcee8d153dab005050f451b5c8cae0b11d60bd23d20ced3605785858ec4
 Qlib view                b6a5220a97a6e568d9eec1e4b2fb18b928d81c1c9a777ac5893c89c44ee0bb36
-SignalArtifact           be1c09cfbbfd0cb88bc4b9dd20f49db4ca236ca82792c8c4a7c214bab6f069c5
-BacktestArtifact         ce13f2146c2ef3e37d049c6a7bee46f7c4fda465c24ce87727dacc70920908c9
-ValidationReport v2      9fab806f7ff638fd3c6b7ba1afe104139b49cbc66ed95e436175bb56028afe83
-Experiment manifest      d7ba614941a48792ac0769c7e14686d4408ab6d664aaeda37a7f119d3bfd1ba4
-Registry index           9ab2ebe79a7334c3db9c9751316f5f4fbf1c6d3d79588f73124910f5523d0005
+SignalArtifact           4923c72f1cdf88c85aa2d4065869b9367e82c1284c67e41e2b49e0c52e956b1b
+BacktestArtifact         07dfdd6143cfca96c47ba7a1a46cd6596e1bf0869bf212a5ef3b57d76f2e8bf1
+ValidationReport v2      80694135b35676aeab885ceffb26993d3043839634dffa0bed5591fdb3433853
+Experiment manifest      8796366ad940af53461116aaa746209fe146753030f31d63f057c99ead266aee
+Registry index           80678c9466fa53321d45bd5bc5f899200a544050ffcf43ff062d971de6d50598
 Final strategy status    VALIDATED
 Independent pipelines   2; all principal hashes byte-exact
 Release track            OFFLINE_ENGINEERING; SYNTHETIC_FIXTURE; data_qualified=false
