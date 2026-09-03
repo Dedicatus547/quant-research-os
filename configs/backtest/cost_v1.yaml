@@ -1,0 +1,9 @@
+schema_version: cost-policy/v1
+policy_id: cn-equity-research-cost-v1
+deal_price: open
+open_cost_rate: 0.0005
+close_cost_rate: 0.0015
+minimum_cost_cny: 5.0
+trade_unit_shares: 100
+price_limit_fields: $limit_buy,$limit_sell
+volume_limit_fraction: 0.1

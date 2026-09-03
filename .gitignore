@@ -1,0 +1,27 @@
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pyright/
+.mypy_cache/
+.DS_Store
+.tools/
+/tmp/
+
+# Runtime artifacts are immutable local data and are not source-controlled.
+artifacts/*
+!artifacts/.gitkeep
+
+# Qlib / MLflow runtime state is not authoritative evidence.
+mlruns/
+.qlib/
+
+# Secrets
+.env
+.env.*
+!.env.example

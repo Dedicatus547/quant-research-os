@@ -1,0 +1,21 @@
+schema_version: research-policy/v1
+policy_id: synthetic_validation_research_v1
+train:
+  schema_version: research-segment/v1
+  start: 2023-01-01
+  end: 2023-03-31
+validation:
+  schema_version: research-segment/v1
+  start: 2023-04-01
+  end: 2023-06-30
+test:
+  schema_version: research-segment/v1
+  start: 2024-01-01
+  end: 2024-01-31
+purge_trading_days: 1
+label_horizon_trading_sessions: 1
+model: LGBModel
+random_seed: 1729
+num_threads: 1
+num_boost_round: 2
+early_stopping_rounds: 1

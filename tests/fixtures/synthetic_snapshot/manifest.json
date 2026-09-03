@@ -1,0 +1,8 @@
+{
+  "schema_version": "synthetic-snapshot/v1",
+  "dataset_id": "synthetic-cn-a-share-tiny",
+  "synthetic": true,
+  "redistributable": true,
+  "instruments": ["600000.SH", "000001.SZ"],
+  "date_range": {"start": "2024-01-02", "end": "2024-01-05"}
+}

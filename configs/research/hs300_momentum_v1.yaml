@@ -1,0 +1,20 @@
+schema_version: experiment-authoring/v1
+experiment_id: hs300-momentum-v1
+evaluation_start: 2015-01-01
+evaluation_end: 2025-12-31
+expression:
+  schema_version: expression-authoring/v1
+  expression_id: momentum_20d
+  operator: return
+  field: adjusted_close
+  window: 20
+strategy:
+  schema_version: strategy-authoring/v1
+  universe_index: 000300.SH
+  selection_method: top_k
+  top_k: 50
+  weighting_method: equal
+  rebalance_frequency: weekly
+  execution_mode: next_open
+  input_lag_trading_days: 0
+  execution_lag_trading_sessions: 1

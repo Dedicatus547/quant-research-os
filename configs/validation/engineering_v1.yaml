@@ -1,0 +1,35 @@
+schema_version: validation-policy/v1
+policy_id: engineering_v1
+hard_gates:
+  - schema
+  - snapshot_integrity
+  - data_quality
+  - pit
+  - reproducibility
+  - artifact_integrity
+soft_gates: []
+annualization_factor: 250
+minimum_oos_observations: 20
+cost_stress_multipliers: [1.0, 1.5, 2.0]
+parameter_windows: [15, 20, 25]
+parameter_top_k: [40, 50, 60]
+subperiods:
+  - schema_version: validation-subperiod/v1
+    period_id: 2015-2017
+    start: 2015-01-01
+    end: 2017-12-31
+  - schema_version: validation-subperiod/v1
+    period_id: 2018-2020
+    start: 2018-01-01
+    end: 2020-12-31
+  - schema_version: validation-subperiod/v1
+    period_id: 2021-2023
+    start: 2021-01-01
+    end: 2023-12-31
+  - schema_version: validation-subperiod/v1
+    period_id: 2024-2025
+    start: 2024-01-01
+    end: 2025-12-31
+minimum_subperiod_observations: 20
+reproducibility_absolute_tolerance: 1.0e-12
+reproducibility_relative_tolerance: 1.0e-9

@@ -1,0 +1,14 @@
+schema_version: backtest-policy/v1
+policy_id: qlib-reference-daily-v1
+engine: Qlib SimulatorExecutor
+strategy_adapter: FullReplacementTopKStrategy
+order_generator: Qlib OrderGenWOInteract
+benchmark: SH000300
+initial_cash_cny: 1000000.0
+frequency: day
+risk_degree: 1.0
+trade_type: serial
+settlement: None
+generate_portfolio_metrics: true
+limit_precheck_semantics: conservative_block_if_either_side_limited/v1
+blocked_trade_evidence: aggregate_fulfillment_without_reason_codes/v1

@@ -1,0 +1,21 @@
+schema_version: research-policy/v1
+policy_id: hs300_daily_research_v1
+train:
+  schema_version: research-segment/v1
+  start: 2015-01-01
+  end: 2019-12-31
+validation:
+  schema_version: research-segment/v1
+  start: 2020-01-01
+  end: 2022-12-31
+test:
+  schema_version: research-segment/v1
+  start: 2023-01-01
+  end: 2025-12-31
+purge_trading_days: 5
+label_horizon_trading_sessions: 1
+model: LGBModel
+random_seed: 1729
+num_threads: 1
+num_boost_round: 100
+early_stopping_rounds: 20

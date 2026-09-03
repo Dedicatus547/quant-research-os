@@ -1,0 +1,20 @@
+schema_version: snapshot-build-spec/v1
+dataset_id: cn-a-share-hs300-eval-2015-2025-v1
+source_kind: TUSHARE
+provider: tushare-pro
+# Acquisition begins before the evaluation window so the 20-session factor and
+# prior-month index membership can be resolved without mutable lookups.
+start_date: 2014-11-01
+end_date: 2025-12-31
+required_endpoints:
+  - stock_basic
+  - trade_cal
+  - daily
+  - adj_factor
+  - index_daily
+  - index_weight
+  - stock_st
+  - suspend_d
+  - stk_limit
+normalizer_version: quantos-tushare-normalizer/v1
+availability_policy_id: cn-daily-conservative/v1
