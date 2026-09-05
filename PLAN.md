@@ -1659,7 +1659,8 @@ SignalArtifact/view/provenance、把 hash-bound policy 翻译成显式 Qlib 配�
 输出；订单生成、Exchange、Simulator 和 Position/accounting 均由 Qlib 0.9.7 执行。运行配置显式
 记录 execution schedule、exchange codes、`OrderGenWOInteract`、`Position`、benchmark、现金、价格、
 费用、成交量阈值、涨跌停/ST 字段和 100 股单位。六项 reconciler 会核对资产恒等式、非负现金、
-持仓价值/权重、收益/费用/换手增量、PIT schedule 以及无做空/整手/绑定标的集合。
+持仓价值/权重、收益/费用/换手增量、PIT schedule，以及无做空、BUY 整手和绑定标的集合；
+SELL 清仓保留 Qlib 对公司行为后零股持仓的整仓卖出语义。
 
 专用 `synthetic_backtest_snapshot` 覆盖 2024-01-05 signal、2024-01-08 next-open execution 和
 2024-01-09 closeout calendar。`scripts/backtest_feasibility.py` 在干净 synthetic feasibility commit

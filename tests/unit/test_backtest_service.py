@@ -192,6 +192,40 @@ def test_reconciler_rejects_qlib_accounting_mismatch() -> None:
         reconcile_backtest_output(unexpected_instrument, _config(), (_schedule(),))
 
 
+def test_reconciler_allows_sell_all_odd_lots_but_rejects_odd_lot_buys() -> None:
+    raw_portfolio, raw_indicators = _raw_outputs()
+    normalized = normalize_qlib_outputs(
+        raw_portfolio,  # type: ignore[arg-type]
+        raw_indicators,  # type: ignore[arg-type]
+        inverse_mappings={"SH600000": "600000.SH"},
+        factors={(date(2024, 1, 8), "SH600000"): 1.0},
+    )
+    sell_orders = deepcopy(normalized.order_indicators)
+    sell_orders[0]["trade_direction"] = "SELL"
+    sell_orders[0]["requested_raw_shares"] = -150.5
+    sell_orders[0]["dealt_raw_shares"] = -150.5
+    sell_all = normalized.__class__(
+        portfolio=normalized.portfolio,
+        positions=normalized.positions,
+        trade_indicators=normalized.trade_indicators,
+        order_indicators=sell_orders,
+        risk_metrics=normalized.risk_metrics,
+    )
+    reconcile_backtest_output(sell_all, _config(), (_schedule(),))
+
+    buy_orders = deepcopy(sell_orders)
+    buy_orders[0]["trade_direction"] = "BUY"
+    odd_lot_buy = sell_all.__class__(
+        portfolio=sell_all.portfolio,
+        positions=sell_all.positions,
+        trade_indicators=sell_all.trade_indicators,
+        order_indicators=buy_orders,
+        risk_metrics=sell_all.risk_metrics,
+    )
+    with pytest.raises(QlibResearchError, match="trade_unit_and_no_short"):
+        reconcile_backtest_output(odd_lot_buy, _config(), (_schedule(),))
+
+
 def test_schedule_gate_requires_next_session_and_weekly_final_session(tmp_path: Path) -> None:
     calendar = tmp_path / "calendars"
     calendar.mkdir()

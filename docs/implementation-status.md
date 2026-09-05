@@ -124,8 +124,9 @@ Its one portfolio row, one position row, one aggregate trade-indicator row, one 
 and ten Qlib risk rows all pass the six reconciliations with zero maximum arithmetic error.
 
 The separate multi-session constraint golden backtest fixes normal execution, no orders on
-non-rebalance dates, limit-buy/ST/suspension blocking, raw 100-share lots, minimum commission, and
-all six reconciliations. Qlib's conservative target-weight precheck and lack of stable per-order
+non-rebalance dates, limit-buy/ST/suspension blocking, raw 100-share BUY lots, Qlib sell-all
+corporate-action odd-lot liquidation, minimum commission, and all six reconciliations. Qlib's
+conservative target-weight precheck and lack of stable per-order
 rejection reason codes remain recorded limitations; no substitute order or accounting engine was
 added.
 

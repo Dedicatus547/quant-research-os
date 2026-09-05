@@ -532,9 +532,12 @@ def reconcile_backtest_output(
 
     unit_errors: list[float] = []
     position_share_values = [cast(float, row["raw_shares"]) for row in output.positions]
-    order_share_values = [cast(float, row["dealt_raw_shares"]) for row in output.order_indicators]
-    lot_share_values = [*position_share_values, *(abs(value) for value in order_share_values)]
-    for shares in lot_share_values:
+    buy_share_values = [
+        abs(cast(float, row["dealt_raw_shares"]))
+        for row in output.order_indicators
+        if row["trade_direction"] == "BUY"
+    ]
+    for shares in buy_share_values:
         nearest_lot = round(shares / config.trade_unit_shares) * config.trade_unit_shares
         unit_errors.append(abs(shares - nearest_lot))
 
@@ -636,11 +639,12 @@ def reconcile_backtest_output(
         ),
         BacktestReconciliationCheck(
             name="trade_unit_and_no_short",
-            checked_rows=len(lot_share_values),
+            checked_rows=len(output.positions) + len(output.order_indicators),
             max_abs_error=max(unit_errors, default=0.0),
             detail=(
-                "factor-adjusted raw shares are nonnegative 100-share lots and belong to "
-                "the hash-bound exchange code set"
+                "factor-adjusted BUY executions are 100-share lots, holdings are nonnegative, "
+                "and all holdings/orders belong to the hash-bound exchange code set; Qlib "
+                "sell-all execution may liquidate corporate-action odd lots"
             ),
         ),
     )

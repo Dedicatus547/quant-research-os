@@ -94,8 +94,9 @@ The service used real `WeightStrategyBase`, explicitly supplied `OrderGenWOInter
 `Exchange`, `SimulatorExecutor`, and `Position`; it did not implement matching, orders, or portfolio
 accounting. The BacktestArtifact contains one portfolio row, one position row, one aggregate trade
 indicator row, one order row, and ten Qlib risk rows. Asset identity, nonnegative cash, position
-value/weight, return-cost-turnover deltas, temporal schedule, and trade-unit/no-short/bound-code
-checks all passed with zero maximum arithmetic error. A separate 12-session constraint run also
+value/weight, return-cost-turnover deltas, temporal schedule, and BUY-trade-unit/no-short/bound-code
+checks all passed with zero maximum arithmetic error. Sell-all orders retain Qlib's required ability
+to liquidate corporate-action odd lots. A separate 12-session constraint run also
 passed normal-order, non-rebalance, limit-buy, ST, suspension, minimum-commission, and 100-share-lot
 golden cases.
 
