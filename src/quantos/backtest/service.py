@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import math
 import tempfile
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -213,37 +214,64 @@ def _factor_lookup(
         ),
     )
     factors: dict[tuple[date, str], float] = {}
-    last_observed: dict[str, float] = {}
     series = cast("pd.Series[float]", frame.iloc[:, 0]).sort_index()
     for index, value in series.items():
         qlib_id, timestamp = cast(tuple[str, object], index)
         normalized_qlib_id = qlib_id.upper()
         # D.features materializes the requested instrument/calendar grid.  A
-        # cell may therefore be empty when a held instrument is suspended.
-        # Carry only the last factor already observed for that instrument; a
-        # leading gap remains absent and will still fail if Qlib reports a
-        # position or order before any factor is available.
+        # cell may therefore be empty when an instrument has no observation
+        # on that session.  Preserve only actual observations here.  Position
+        # normalization resolves its factor as-of the position date, while an
+        # order still requires an exact same-day observation.
         if bool(pd.isna(value)):
-            factor = last_observed.get(normalized_qlib_id)
-            if factor is None:
-                continue
-        else:
-            factor = _finite_float(value)
-            assert factor is not None
-            if factor <= 0:
-                raise QlibResearchError(
-                    ReasonCode.QLIB_EXECUTION_FAILED,
-                    "Qlib adjustment factor must be positive",
-                )
-            last_observed[normalized_qlib_id] = factor
+            continue
+        factor = _finite_float(value)
+        assert factor is not None
+        if factor <= 0:
+            raise QlibResearchError(
+                ReasonCode.QLIB_EXECUTION_FAILED,
+                "Qlib adjustment factor must be positive",
+            )
         factors[(_trade_date(timestamp), normalized_qlib_id)] = factor
     return factors
+
+
+FactorTimelines = Mapping[str, tuple[tuple[date, ...], tuple[float, ...]]]
+
+
+def _factor_timelines(
+    factors: Mapping[tuple[date, str], float],
+) -> FactorTimelines:
+    grouped: dict[str, list[tuple[date, float]]] = {}
+    for (observed_date, qlib_id), factor in factors.items():
+        grouped.setdefault(qlib_id, []).append((observed_date, factor))
+    timelines: dict[str, tuple[tuple[date, ...], tuple[float, ...]]] = {}
+    for qlib_id, observations in grouped.items():
+        ordered = sorted(observations)
+        timelines[qlib_id] = (
+            tuple(item[0] for item in ordered),
+            tuple(item[1] for item in ordered),
+        )
+    return timelines
+
+
+def _factor_at_or_before(
+    timelines: FactorTimelines,
+    trade_date: date,
+    qlib_id: str,
+) -> float | None:
+    timeline = timelines.get(qlib_id)
+    if timeline is None:
+        return None
+    dates, values = timeline
+    position = bisect_right(dates, trade_date) - 1
+    return values[position] if position >= 0 else None
 
 
 def _normalize_positions(
     history: Mapping[object, object],
     inverse_mappings: Mapping[str, str],
-    factors: Mapping[tuple[date, str], float],
+    factor_timelines: FactorTimelines,
 ) -> tuple[dict[str, object], ...]:
     rows: list[dict[str, object]] = []
     ordered_history = sorted(history.items(), key=lambda item: pd.Timestamp(cast(Any, item[0])))
@@ -270,7 +298,7 @@ def _normalize_positions(
             amount = _finite_float(position_values.get("amount"))
             close = _finite_float(position_values.get("price"))
             weight = _finite_float(position_values.get("weight"))
-            factor = factors.get((trade_date, qlib_id))
+            factor = _factor_at_or_before(factor_timelines, trade_date, qlib_id)
             if amount is None or close is None or weight is None or factor is None:
                 raise QlibResearchError(
                     ReasonCode.QLIB_EXECUTION_FAILED, "Qlib position fields are incomplete"
@@ -463,9 +491,10 @@ def normalize_qlib_outputs(
         )
     report, positions = portfolio_by_frequency["1day"]
     trade_frame, indicator_object = indicators_by_frequency["1day"]
+    factor_timelines = _factor_timelines(factors)
     return NormalizedBacktestOutput(
         portfolio=_normalize_portfolio(report),
-        positions=_normalize_positions(positions, inverse_mappings, factors),
+        positions=_normalize_positions(positions, inverse_mappings, factor_timelines),
         trade_indicators=_normalize_trade_indicators(trade_frame),
         order_indicators=_normalize_order_indicators(indicator_object, inverse_mappings, factors),
         risk_metrics=_normalize_risk_metrics(report),

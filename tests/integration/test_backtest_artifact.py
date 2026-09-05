@@ -120,7 +120,7 @@ def _raw_qlib_result(
     )
 
 
-def test_factor_lookup_carries_only_previously_observed_factor_across_sparse_cells(
+def test_factor_lookup_preserves_observations_and_position_lookup_is_as_of(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     index = pd.MultiIndex.from_tuples(
@@ -138,14 +138,16 @@ def test_factor_lookup_carries_only_previously_observed_factor_across_sparse_cel
         SimpleNamespace(features=lambda *_args, **_kwargs: frame),
     )
 
-    assert SERVICE._factor_lookup(
+    factors = SERVICE._factor_lookup(
         ("SH600000",),
         date(2015, 6, 8),
         date(2015, 6, 10),
-    ) == {
-        (date(2015, 6, 9), "SH600000"): 1.25,
-        (date(2015, 6, 10), "SH600000"): 1.25,
-    }
+    )
+    assert factors == {(date(2015, 6, 9), "SH600000"): 1.25}
+
+    timelines = SERVICE._factor_timelines(factors)
+    assert SERVICE._factor_at_or_before(timelines, date(2015, 6, 8), "SH600000") is None
+    assert SERVICE._factor_at_or_before(timelines, date(2015, 6, 10), "SH600000") == 1.25
 
 
 def test_backtest_service_publishes_idempotent_hash_bound_result(
