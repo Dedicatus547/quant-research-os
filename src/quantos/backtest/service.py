@@ -108,6 +108,11 @@ ORDER_INDICATOR_SCHEMA = pa.schema(
     ]
 )
 
+# Locked Qlib 0.9.7 adds 0.1 raw share before flooring an adjusted BUY to
+# the configured trade unit.  A cash-limited fill can therefore consume at
+# most this fraction of one raw share beyond the pre-rounding cash bound.
+_QLIB_RAW_SHARE_ROUNDING_EPSILON = 0.1
+
 RISK_METRIC_SCHEMA = pa.schema(
     [
         pa.field("scope", pa.string(), nullable=False),
@@ -519,6 +524,43 @@ def reconcile_backtest_output(
         for row in output.portfolio
     ]
     cash_values = [cast(float, row["cash"]) for row in output.portfolio]
+    executed_order_dates: set[date] = set()
+    cash_rounding_allowance_by_date: dict[date, float] = {}
+    for row in output.order_indicators:
+        trade_value = cast(float | None, row["trade_value"])
+        if trade_value is not None and abs(trade_value) > absolute_tolerance:
+            trade_date = cast(date, row["trade_date"])
+            executed_order_dates.add(trade_date)
+            dealt_raw_shares = abs(cast(float, row["dealt_raw_shares"]))
+            requested_raw_shares = abs(cast(float, row["requested_raw_shares"]))
+            if (
+                row["trade_direction"] == "BUY"
+                and dealt_raw_shares > absolute_tolerance
+                and requested_raw_shares - dealt_raw_shares > absolute_tolerance
+            ):
+                raw_share_price = abs(trade_value) / dealt_raw_shares
+                cash_rounding_allowance_by_date[trade_date] = max(
+                    cash_rounding_allowance_by_date.get(trade_date, 0.0),
+                    _QLIB_RAW_SHARE_ROUNDING_EPSILON * raw_share_price,
+                )
+
+    cash_checks: list[bool] = []
+    carried_rounding_allowance = 0.0
+    previous_cash: float | None = None
+    for row in output.portfolio:
+        trade_date = cast(date, row["trade_date"])
+        cash = cast(float, row["cash"])
+        account = cast(float, row["account"])
+        numerical_tolerance = absolute_tolerance + relative_tolerance * max(abs(account), 1.0)
+        if trade_date in executed_order_dates:
+            carried_rounding_allowance = cash_rounding_allowance_by_date.get(trade_date, 0.0)
+        elif previous_cash is None or cash < previous_cash - numerical_tolerance:
+            carried_rounding_allowance = 0.0
+        if cash >= 0.0:
+            carried_rounding_allowance = 0.0
+        cash_checks.append(cash >= -(numerical_tolerance + carried_rounding_allowance))
+        previous_cash = cash
+
     position_errors: list[float] = []
     for trade_date, portfolio in portfolio_by_date.items():
         position_rows = positions_by_date.get(trade_date, [])
@@ -575,13 +617,7 @@ def reconcile_backtest_output(
     )
     checks_pass = (
         all(error <= absolute_tolerance + relative_tolerance for error in asset_errors),
-        all(
-            cash
-            >= -(
-                absolute_tolerance + relative_tolerance * max(abs(cast(float, row["account"])), 1.0)
-            )
-            for cash, row in zip(cash_values, output.portfolio, strict=True)
-        ),
+        all(cash_checks),
         all(error <= absolute_tolerance + relative_tolerance for error in position_errors),
         all(error <= absolute_tolerance + relative_tolerance for error in delta_errors),
         schedule_passed,
@@ -625,7 +661,8 @@ def reconcile_backtest_output(
             max_abs_error=max(0.0, -min(cash_values)),
             detail=(
                 "Qlib available cash never crosses the per-row absolute plus account-scaled "
-                "relative numerical tolerance"
+                "relative numerical tolerance, with Qlib's 0.1-raw-share rounding epsilon "
+                "allowed only after a partially filled BUY and across no-trade carry days"
             ),
         ),
         BacktestReconciliationCheck(

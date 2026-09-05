@@ -268,6 +268,66 @@ def test_cash_gate_uses_account_scaled_float32_tolerance() -> None:
         reconcile_backtest_output(overdrawn, _config(), (_schedule(),))
 
 
+def test_cash_gate_allows_only_qlib_partially_filled_buy_rounding_residual() -> None:
+    raw_portfolio, raw_indicators = _raw_outputs()
+    normalized = normalize_qlib_outputs(
+        raw_portfolio,  # type: ignore[arg-type]
+        raw_indicators,  # type: ignore[arg-type]
+        inverse_mappings={"SH600000": "600000.SH"},
+        factors={(date(2024, 1, 8), "SH600000"): 1.0},
+    )
+
+    portfolio = list(deepcopy(normalized.portfolio))
+    portfolio[0]["cash"] = -0.4
+    portfolio[0]["account"] = 499.6
+    portfolio[0]["return"] = -0.4954
+    portfolio.append(
+        {
+            **portfolio[0],
+            "trade_date": date(2024, 1, 9),
+            "return": 0.0,
+            "turnover": 0.0,
+            "cost": 0.0,
+        }
+    )
+    positions = list(deepcopy(normalized.positions))
+    positions[0]["portfolio_weight"] = 500.0 / 499.6
+    positions.append({**positions[0], "trade_date": date(2024, 1, 9)})
+    orders = deepcopy(normalized.order_indicators)
+    orders[0]["requested_amount_adjusted"] = 200.0
+    orders[0]["requested_raw_shares"] = 200.0
+    clipped = normalized.__class__(
+        portfolio=portfolio,
+        positions=positions,
+        trade_indicators=normalized.trade_indicators,
+        order_indicators=orders,
+        risk_metrics=normalized.risk_metrics,
+    )
+    reconciliation = reconcile_backtest_output(clipped, _config(), (_schedule(),))
+    cash_check = next(row for row in reconciliation.checks if row.name == "cash_nonnegative")
+    assert cash_check.max_abs_error == 0.4
+    assert "0.1-raw-share rounding epsilon" in cash_check.detail
+
+    beyond_rounding_epsilon = deepcopy(portfolio)
+    beyond_rounding_epsilon[0]["cash"] = -0.6
+    beyond_rounding_epsilon[0]["account"] = 499.4
+    beyond_rounding_epsilon[0]["return"] = -0.4956
+    beyond_rounding_epsilon[1]["cash"] = -0.6
+    beyond_rounding_epsilon[1]["account"] = 499.4
+    positions_beyond = deepcopy(positions)
+    for row in positions_beyond:
+        row["portfolio_weight"] = 500.0 / 499.4
+    overdrawn = clipped.__class__(
+        portfolio=beyond_rounding_epsilon,
+        positions=positions_beyond,
+        trade_indicators=clipped.trade_indicators,
+        order_indicators=clipped.order_indicators,
+        risk_metrics=clipped.risk_metrics,
+    )
+    with pytest.raises(QlibResearchError, match="cash_nonnegative"):
+        reconcile_backtest_output(overdrawn, _config(), (_schedule(),))
+
+
 def test_schedule_gate_requires_next_session_and_weekly_final_session(tmp_path: Path) -> None:
     calendar = tmp_path / "calendars"
     calendar.mkdir()
