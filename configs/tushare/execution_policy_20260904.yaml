@@ -1,0 +1,9 @@
+schema_version: tushare-execution-policy/v1
+# All required regular endpoints passed the bounded capability probe. Tushare's
+# published 2000+ point tier permits 200 calls/minute; this policy deliberately
+# does not assume the higher 500 calls/minute tier.
+policy_id: required-endpoints-official-200rpm-20260904/v1
+requests_per_minute: 200
+max_attempts: 3
+retry_min_seconds: 1.0
+retry_max_seconds: 8.0

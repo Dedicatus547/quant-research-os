@@ -1,15 +1,15 @@
 # First-stage implementation status
 
-Status date: 2026-09-03
+Status date: 2026-09-05
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
 
 | Phase | Offline Engineering | Data-qualified / remaining work |
 |---|---|---|
-| P0 | Python 3.11/uv lock, CI gates, doctor, bounded 12-request capability probe with immutable redacted evidence, locked Qlib source verification, and clean-checkout Git fingerprinting PASS | Live probe hard-rejected `index_weight` as `PERMISSION_DENIED` |
+| P0 | Python 3.11/uv lock, CI gates, doctor, bounded 12-request capability probe with immutable redacted evidence, locked Qlib source verification, and clean-checkout Git fingerprinting PASS | The 2026-09-05 live probe confirmed all 12/12 probed endpoints are available; the account-qualified acquisition policy is fixed at the verified official 200 requests/minute tier |
 | P1 | Deterministic contracts/hashes, temporal types, refs, reason codes, immutable events, strict YAML loading, two-layer authoring/resolved experiment contracts, and separate engineering/research validation policies PASS | No live dependency |
-| P2 | All 9 endpoint-shaped fixtures; raw/canonical Parquet; lifecycle, bounded membership and sparse-status rules; content-addressed snapshot; exact file-set verification; resumable endpoint plans using `pyrate-limiter`/`tenacity`; redacted request ledgers; injected-client live-shaped publication; official Qlib view with historical-universe/tradability sidecars and two independent identical builds PASS | Obtain `index_weight` permission, set an account-qualified rate policy, acquire the immutable Tushare snapshot, and rebuild its derived view |
+| P2 | All 9 endpoint-shaped fixtures; raw/canonical Parquet; lifecycle, availability-aware bounded membership and sparse-status rules; content-addressed snapshot; exact file-set verification; resumable endpoint plans using a shared `pyrate-limiter`/`tenacity`; redacted request ledgers; injected-client live-shaped publication; scalable Arrow/PyArrow PIT, Signal and Qlib-view paths; official Qlib view with historical-universe/tradability sidecars and two independent identical builds PASS | Live acquisition completed 13,614/13,614 requests on the first attempt. The immutable snapshot passed 16/16 DQ gates; its official Qlib 0.9.7 view passed health checks, exact-file verification, and 668/668 binary32-aware semantic samples. P2 live qualification is complete |
 | P3 | Canonical request selectors are bound to a verified snapshot hash; temporal lineage is loaded mechanically from Parquet; complete operator-delay policies, source windows, input lag, membership as-of, fake-hash rejection, and unbound-proposal publication denial PASS. Reports now bind the exact canonical request, expression, selectors, and decision schedule | Re-run the PIT audit against the live snapshot; every report retains `SINGLE_SOURCE_NON_VINTAGE` |
 | P4 | Safe-expression translation to official Qlib syntax, historical-universe resolution, cross-section PIT evidence bundles, provenance-gated immutable SignalArtifact publication/verification, locked cost/research policies, and real `DatasetH`/`LGBModel`/Workflow/Record Template smoke PASS. Two independent real-Qlib synthetic signal builds and two purged ML runs reproduced their content hashes | Re-run the complete P4 path on the live snapshot in a normal clean Git checkout; synthetic evidence is not data qualification |
 | P5 | Verified SignalArtifact-to-Qlib reference backtest, explicit Exchange/Simulator/Position/order-generator configuration, content-addressed BacktestArtifact, six arithmetic/schedule reconciliations, constraint golden cases, CLI run/verify, and clean-checkout double-run PASS | Re-run against the live snapshot in a normal release checkout; Qlib 0.9.7 blocked-trade evidence limitations remain explicit |
@@ -22,21 +22,49 @@ or injected-client pass never qualifies a live-data release.
 
 - `Deterministic MVP v0.1`：P0-P7 Offline Engineering DoD 已完成。正式发布前仍需将当前改动
   合入 Git clean commit，并从该 commit 重跑一次 release feasibility，作为仓库级基线。
-- `Data-qualified Release`：独立等待真实 Tushare 权限、quota/rate policy、2015-2025 snapshot
-  及其 P3-P7 重跑；当前因 `index_weight: PERMISSION_DENIED` 保持 hard-blocked。
-- `Agent-assisted Research v0.2`：在 Offline Engineering 基线冻结后启动 P8-P11，不等待
+- `Data-qualified Release`：DQ-01 至 DQ-03 已完成；当前只等待把实现冻结为 clean commit 后执行
+  P3-P7 双重独立重跑与 Registry 发布。
+- `Agent-assisted Research v0.2`：在 Offline Engineering 基线冻结后启动 P8-P14，不等待
   Data-qualified 权限；Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
 
 后续顺序固定为：
 
 ```text
-M0 基线冻结 → P8 Pre-MCP Threat Hardening → P9 Harness Capability Spike
-→ P10 单一 Harness + MCP Research API → P11 Harness Integration
+M0 基线冻结 → P8 Agent Boundary & Threat Hardening
+→ P9 Research Semantic Contracts + Campaign Governance + Minimal DSL v2
+→ P10 GPT + Codex Capability Spike → P11 Quant Research MCP + Offline Proposal E2E
+→ P12 Real-world Evidence Acquisition → P13 Qualified Event Feature E2E
+→ P14 Research Ledger + Bounded Autonomous Research MVP
 ```
 
-P8-P11 不得引入自有回测/交易/组合引擎，也不得让 Agent 读取 token、修改快照、覆盖 artifact、
-修改 Gate verdict 或直接标记 `VALIDATED`。P9 必须用固定版本和统一 rubric 选择一个主 harness；
-P10-P11 的验收对象是相同 resolved Spec 与冻结输入的确定性证据，而不是 Agent 文本的逐字一致。
+P8-P14 不得引入自有回测/交易/组合/会计引擎，也不得让 Agent 读取 token、修改快照、覆盖
+artifact、修改 Gate verdict 或直接标记 `VALIDATED`。v0.2 将 GPT + Codex 作为单一目标栈，
+但 P10 必须先通过固定配置、统一 rubric 和硬性 go/no-go gate。确定性验收对象是相同 resolved
+Spec 与冻结输入产生的证据，而不是 Agent 文本的逐字一致。真实公告抽取在形成经过 admission
+policy 的 immutable EventFeatureArtifact 前始终只是 proposal；真实研究结论仍依赖独立的
+Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v6 第 40 节为准。
+
+## Current live qualification bindings
+
+```text
+Capability report       57c7d418a1eb871735813f7200ef8ab4f50ac54467aaedc493743f2d9bbf71b1
+Snapshot build spec     db80037b1bc30372d4128a79381a46213a30d4c293a1056948b5249023f3742e
+Execution policy        5173902191371a46f97d98097e4819f8b29bd3d1fafaa404837947ae43f4d1e4
+Data-quality policy     4514dfb419071d3e6d7ae852d6cb06eb421d772f8870570de6c4a2a52091e275
+Acquisition staging ID  71e560222361ce1a4ff55b7b23b05bcc0b9cd1d27b6e90fcf0cd632f0811e474
+Request ledger           cb043126d2bc7663a61aa9c5a491e87b490977c9227693571625be4b4e8cacdb
+Live snapshot            6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9
+Live quality report      e89933f2db98870e6a1143b6ca546713a2abfae30c0c5f00e79dea1d4d275ed8
+Live Qlib view           fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b
+```
+
+The capability artifact reports 12 requests and 12 `AVAILABLE` outcomes. The acquisition staging
+ID identifies resumable checkpoints, not a published snapshot. The snapshot contains 672
+instrument records, 1,596,969 aligned bar/factor/price-limit rows, 39,900 membership rows, and the
+explicit `SINGLE_SOURCE_NON_VINTAGE` limitation. The view contains 667 effective member securities
+plus the HS300 benchmark; all effective members resolve to both mappings and tradability data. Five
+constituents first seen in the provider's final 2025-12-31 membership snapshot remain raw-only
+because their next availability session is outside the build range.
 
 ## P2-P4 baseline offline evidence
 
@@ -50,8 +78,12 @@ Signal content      31b8cc11c9b5f86fb62e2f3a6f7984e721a12ae2ffec597fdf4157d69a36
 PIT evidence bundle d53388be921ea723f4744091ce859385972b8f145492fa6ad840ba4c14709103
 LGB predictions     a57fc7297e6365cf9186c0063c0d4c4f7ca3f643d52a8a6507cc2b49c016739a
 LGB finite metrics  089f93946c959f4984888ba78df2c8966d3a53d5070d78ea0397b40b2cca40c8
-Quality suite       151 passed; Ruff PASS; Pyright 0 errors; branch coverage 85.05%
+Quality suite       Historical v1 evidence: 151 passed; Ruff PASS; Pyright 0 errors; branch coverage 85.05%
 ```
+
+The current v6 working tree passes 171 tests, Ruff, Pyright with zero errors, and the 85% coverage
+gate (85.06%). The hashes below are retained historical synthetic component evidence; they must not
+be interpreted as hashes for the revised live-data semantics or as Data-qualified evidence.
 
 The P4 SignalArtifact above was regenerated after the P5 policy fields were frozen. It and the P5
 evidence below bind clean synthetic feasibility commit

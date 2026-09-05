@@ -96,7 +96,7 @@ def _proposal_spec(tmp_path: Path) -> PITAuditSpec:
     membership_row = next(
         row
         for row in membership_rows
-        if row["instrument_id"] == "000001.SZ" and row["effective_from"] == date(2024, 1, 4)
+        if row["instrument_id"] == "000001.SZ" and row["effective_from"] == date(2024, 1, 5)
     )
     membership = MembershipUse(
         index_id=membership_row["index_id"],

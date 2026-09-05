@@ -5,13 +5,22 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
 
 from quantos.contracts.base import CanonicalContract
-from quantos.contracts.pit import CanonicalPITAuditRequest, PITAuditReport, PITEvidenceMode
+from quantos.contracts.pit import (
+    CanonicalPITAuditRequest,
+    OperatorDelayPolicy,
+    PITAuditReport,
+    PITEvidenceMode,
+    PITGateId,
+    PITGateResult,
+    SafeQlibExpressionSpec,
+    SafeQlibOperator,
+)
 from quantos.contracts.refs import SHA256_PATTERN
 from quantos.contracts.status import ValidationVerdict
-from quantos.contracts.temporal import DecisionSchedule
+from quantos.contracts.temporal import DecisionSchedule, TemporalMetadata
 
 
 class QlibExpressionTranslation(CanonicalContract):
@@ -152,3 +161,191 @@ class PITAuditEvidenceCollection(CanonicalContract):
             if bundle.universe_index != self.universe_index:
                 raise ValueError("PIT evidence collection contains a different universe")
         return self
+
+
+class PITSourceSetEvidence(CanonicalContract):
+    """Digest and availability summary for one canonical source-table projection."""
+
+    schema_version: Literal["pit-source-set-evidence/v2"] = "pit-source-set-evidence/v2"
+    table_name: Literal["bars", "adjustment_factors"]
+    logical_field_name: Literal["close", "adjusted_close"]
+    source_field_name: Literal["close", "adjustment_factor"]
+    expected_row_count: PositiveInt
+    present_row_count: NonNegativeInt
+    missing_row_count: NonNegativeInt
+    row_set_hash: str = Field(pattern=SHA256_PATTERN)
+    maximum_temporal: TemporalMetadata | None
+
+    @model_validator(mode="after")
+    def counts_and_temporal_are_consistent(self) -> Self:
+        if self.present_row_count + self.missing_row_count != self.expected_row_count:
+            raise ValueError("PIT source-set counts do not reconcile")
+        if (self.present_row_count == 0) != (self.maximum_temporal is None):
+            raise ValueError("PIT source-set temporal summary does not match row presence")
+        return self
+
+
+class PITMembershipSetEvidence(CanonicalContract):
+    """Digest of the exact effective and available membership rows used."""
+
+    schema_version: Literal["pit-membership-set-evidence/v2"] = "pit-membership-set-evidence/v2"
+    row_count: PositiveInt
+    row_set_hash: str = Field(pattern=SHA256_PATTERN)
+    maximum_temporal: TemporalMetadata
+
+
+class PITCrossSectionEvidenceBundle(CanonicalContract):
+    """Compact PIT proof for one complete decision-time cross section."""
+
+    schema_version: Literal["pit-cross-section-evidence-bundle/v2"] = (
+        "pit-cross-section-evidence-bundle/v2"
+    )
+    snapshot_hash: str = Field(pattern=SHA256_PATTERN)
+    expression_spec_hash: str = Field(pattern=SHA256_PATTERN)
+    universe_index: str = Field(pattern=r"^[0-9]{6}\.(SH|SZ)$")
+    schedule: DecisionSchedule
+    required_observations: PositiveInt
+    source_window: tuple[date, ...]
+    members: tuple[str, ...]
+    source_sets: tuple[PITSourceSetEvidence, ...]
+    membership_set: PITMembershipSetEvidence
+    output_temporal: TemporalMetadata
+    gates: tuple[PITGateResult, ...]
+
+    @field_validator("source_window")
+    @classmethod
+    def source_window_is_complete_and_ordered(cls, value: tuple[date, ...]) -> tuple[date, ...]:
+        if not value or value != tuple(sorted(set(value))):
+            raise ValueError("PIT source window must be nonempty, sorted, and unique")
+        return value
+
+    @field_validator("members")
+    @classmethod
+    def members_are_supported_sorted_and_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        import re
+
+        if (
+            not value
+            or value != tuple(sorted(set(value)))
+            or any(re.fullmatch(r"[0-9]{6}\.(SH|SZ)", item) is None for item in value)
+        ):
+            raise ValueError("PIT members must be nonempty supported sorted unique identifiers")
+        return value
+
+    @model_validator(mode="after")
+    def compact_proof_is_consistent(self) -> Self:
+        if len(self.source_window) != self.required_observations:
+            raise ValueError("PIT source window does not match required observations")
+        if self.membership_set.row_count != len(self.members):
+            raise ValueError("PIT membership evidence must cover every member exactly once")
+        keys = [(item.table_name, item.source_field_name) for item in self.source_sets]
+        if not keys or keys != sorted(keys) or len(keys) != len(set(keys)):
+            raise ValueError("PIT source sets must be nonempty, sorted, and unique")
+        expected_rows = len(self.members) * len(self.source_window)
+        if any(item.expected_row_count != expected_rows for item in self.source_sets):
+            raise ValueError("PIT source sets must cover the complete cross-section window")
+        gate_ids = [item.gate_id for item in self.gates]
+        if gate_ids != list(PITGateId) or any(
+            item.verdict is not ValidationVerdict.PASS for item in self.gates
+        ):
+            raise ValueError("compact PIT evidence requires every ordered PIT gate to pass")
+        if self.output_temporal.available_at > self.schedule.signal_time:
+            raise ValueError("compact PIT output is unavailable at signal time")
+        if self.membership_set.maximum_temporal.available_at > self.schedule.decision_time:
+            raise ValueError("compact PIT membership is unavailable at decision time")
+        return self
+
+
+def required_expression_observations(expression: SafeQlibExpressionSpec) -> int:
+    observations: dict[str, int] = {}
+    for node in expression.nodes:
+        if node.operator is SafeQlibOperator.FIELD:
+            observations[node.node_id] = 1
+            continue
+        base = max(observations[item] for item in node.inputs)
+        if node.operator in {SafeQlibOperator.REF, SafeQlibOperator.RETURN}:
+            observations[node.node_id] = base + int(node.window or 0)
+        elif node.operator in {
+            SafeQlibOperator.ROLLING_MEAN,
+            SafeQlibOperator.ROLLING_STD,
+            SafeQlibOperator.RANK,
+        }:
+            observations[node.node_id] = base + int(node.window or 0) - 1
+        else:
+            observations[node.node_id] = base
+    return observations[expression.output_node_id]
+
+
+class PITCrossSectionEvidenceCollection(CanonicalContract):
+    """Scalable snapshot-recomputable PIT evidence for production signal grids."""
+
+    schema_version: Literal["pit-cross-section-evidence-collection/v2"] = (
+        "pit-cross-section-evidence-collection/v2"
+    )
+    snapshot_hash: str = Field(pattern=SHA256_PATTERN)
+    qlib_view_hash: str = Field(pattern=SHA256_PATTERN)
+    expression_spec_hash: str = Field(pattern=SHA256_PATTERN)
+    expression: SafeQlibExpressionSpec
+    operator_delays: tuple[OperatorDelayPolicy, ...]
+    universe_index: str = Field(pattern=r"^[0-9]{6}\.(SH|SZ)$")
+    bundles: tuple[PITCrossSectionEvidenceBundle, ...]
+
+    @model_validator(mode="after")
+    def bundles_and_expression_are_consistent(self) -> Self:
+        if self.expression.content_hash != self.expression_spec_hash:
+            raise ValueError("compact PIT expression hash is inconsistent")
+        required_operators = {
+            node.operator
+            for node in self.expression.nodes
+            if node.operator is not SafeQlibOperator.FIELD
+        }
+        provided_operators = [item.operator for item in self.operator_delays]
+        if (
+            len(provided_operators) != len(set(provided_operators))
+            or set(provided_operators) != required_operators
+        ):
+            raise ValueError("compact PIT operator-delay policies are incomplete")
+        keys = [
+            (
+                bundle.schedule.signal_time,
+                bundle.schedule.decision_time,
+                bundle.schedule.execution_time,
+            )
+            for bundle in self.bundles
+        ]
+        if not keys or keys != sorted(keys) or len(keys) != len(set(keys)):
+            raise ValueError("compact PIT bundles must be nonempty, ordered, and unique")
+        required_observations = required_expression_observations(self.expression)
+        logical_fields = {
+            node.field_name
+            for node in self.expression.nodes
+            if node.operator is SafeQlibOperator.FIELD
+        }
+        expected_sources: set[tuple[str, str, str]] = set()
+        if "close" in logical_fields:
+            expected_sources.add(("bars", "close", "close"))
+        if "adjusted_close" in logical_fields:
+            expected_sources.update(
+                {
+                    ("adjustment_factors", "adjusted_close", "adjustment_factor"),
+                    ("bars", "adjusted_close", "close"),
+                }
+            )
+        for bundle in self.bundles:
+            if (
+                bundle.snapshot_hash != self.snapshot_hash
+                or bundle.expression_spec_hash != self.expression_spec_hash
+                or bundle.universe_index != self.universe_index
+                or bundle.required_observations != required_observations
+            ):
+                raise ValueError("compact PIT bundle bindings are inconsistent")
+            actual_sources = {
+                (item.table_name, item.logical_field_name, item.source_field_name)
+                for item in bundle.source_sets
+            }
+            if actual_sources != expected_sources:
+                raise ValueError("compact PIT bundle source mapping is incomplete")
+        return self
+
+
+PITArtifactEvidence = PITAuditEvidenceCollection | PITCrossSectionEvidenceCollection

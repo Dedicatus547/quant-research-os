@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import json
 from datetime import date, datetime
 from pathlib import Path
+from struct import pack, unpack
 from subprocess import CompletedProcess
 from typing import cast
 from zoneinfo import ZoneInfo
@@ -158,8 +160,19 @@ def _build_view(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[object
         if "check_data" in command:
             return CompletedProcess(command, 0, stdout="healthy")
         if "-c" in command:
-            values = {"SZ000001": 12.1, "SH000300": 3320.0, "SH600000": 10.2}
-            return CompletedProcess(command, 0, stdout=f"QUANTOS_SAMPLE={values[command[-2]]}\n")
+            values = {
+                key: unpack("<f", pack("<f", value))[0]
+                for key, value in {
+                    "SZ000001": 12.1,
+                    "SH000300": 3320.0,
+                    "SH600000": 10.2,
+                }.items()
+            }
+            requests = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
+            actual = {item["qlib_id"]: values[item["qlib_id"]] for item in requests}
+            return CompletedProcess(
+                command, 0, stdout=f"QUANTOS_SAMPLES={json.dumps(actual, sort_keys=True)}\n"
+            )
         raise AssertionError(f"unexpected command: {command}")
 
     monkeypatch.setattr(qlib_view, "run_checked", fake_run)

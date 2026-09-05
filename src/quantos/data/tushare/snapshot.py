@@ -6,7 +6,9 @@ import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from quantos.artifacts.store import (
@@ -26,9 +28,11 @@ from quantos.contracts.snapshot import (
 )
 from quantos.contracts.status import ReasonCode
 from quantos.data.snapshot import (
+    RawCanonicalReconciliation,
     SnapshotBuildError,
     SnapshotBuildResult,
-    evaluate_snapshot_quality,
+    evaluate_snapshot_quality_streaming,
+    normalize_tushare_endpoint_rows,
     normalize_tushare_tables,
     plain_manifest,
     table_manifest,
@@ -40,11 +44,108 @@ from quantos.data.tushare.acquisition import (
     TusharePlanExecutor,
     TushareRequestLedger,
     TushareRequestPlan,
+    iter_acquired_response_tables,
     load_acquired_rows,
     plan_tushare_calendar_requests,
     plan_tushare_requests,
+    provider_table_rows,
     request_ledger_table,
 )
+
+_SMALL_ENDPOINTS = frozenset({"stock_basic", "trade_cal", "index_daily", "index_weight"})
+_STREAMING_ENDPOINTS = frozenset({"daily", "adj_factor", "stock_st", "suspend_d", "stk_limit"})
+
+
+def _normalize_acquired_tables(
+    spec: SnapshotBuildSpec,
+    plan: TushareRequestPlan,
+    ledger: TushareRequestLedger,
+    acquisition_root: Path,
+) -> tuple[dict[str, pa.Table], RawCanonicalReconciliation]:
+    """Normalize bounded response chunks without materializing all raw rows."""
+
+    small = load_acquired_rows(plan, ledger, acquisition_root, endpoints=_SMALL_ENDPOINTS)
+    base_raw = {endpoint: small.get(endpoint, []) for endpoint in DEFAULT_SYNTHETIC_ENDPOINTS}
+    base_tables = normalize_tushare_tables(base_raw, spec)
+    eligible = {
+        cast(str, row["instrument_id"])
+        for row in base_tables["index_membership"].select(["instrument_id"]).to_pylist()
+    }
+    chunks: dict[str, list[pa.Table]] = {
+        "bars": [],
+        "adjustment_factors": [],
+        "st_status": [],
+        "suspensions": [],
+        "price_limits": [],
+    }
+    expected_counts = {name: table.num_rows for name, table in base_tables.items()}
+    bar_pre_closes_by_trade_date: dict[str, dict[str, str]] = {}
+    adjustment_dates: set[str] = set()
+    for request, _entry, table in iter_acquired_response_tables(
+        plan, ledger, acquisition_root, endpoints=_STREAMING_ENDPOINTS
+    ):
+        rows = provider_table_rows(request, table)
+        scoped: list[dict[str, str]]
+        if request.endpoint == "daily":
+            scoped = [row for row in rows if row["ts_code"] in eligible]
+            scoped.sort(key=lambda row: (row["trade_date"], row["ts_code"]))
+            trade_date = request.params["trade_date"]
+            bar_pre_closes_by_trade_date[trade_date] = {
+                row["ts_code"]: row["pre_close"] for row in scoped
+            }
+        elif request.endpoint == "adj_factor":
+            trade_date = request.params["trade_date"]
+            try:
+                bar_pre_closes = bar_pre_closes_by_trade_date[trade_date]
+            except KeyError:
+                raise SnapshotBuildError(
+                    ReasonCode.SOURCE_INCOMPLETE,
+                    "adjustment-factor chunk does not follow its daily-bar partition",
+                ) from None
+            scoped = [row for row in rows if row["ts_code"] in bar_pre_closes]
+            scoped.sort(key=lambda row: (row["trade_date"], row["ts_code"]))
+            adjustment_dates.add(trade_date)
+        elif request.endpoint == "stk_limit":
+            trade_date = request.params["trade_date"]
+            try:
+                bar_pre_closes = bar_pre_closes_by_trade_date[trade_date]
+            except KeyError:
+                raise SnapshotBuildError(
+                    ReasonCode.SOURCE_INCOMPLETE,
+                    "price-limit chunk has no corresponding daily-bar partition",
+                ) from None
+            scoped = []
+            for row in rows:
+                if row["ts_code"] not in bar_pre_closes:
+                    continue
+                canonical_row = dict(row)
+                if canonical_row["pre_close"] == "":
+                    canonical_row["pre_close"] = bar_pre_closes[row["ts_code"]]
+                scoped.append(canonical_row)
+            scoped.sort(key=lambda row: (row["trade_date"], row["ts_code"]))
+        else:
+            scoped = [row for row in rows if row["ts_code"] in eligible]
+            scoped.sort(key=lambda row: (row["trade_date"], row["ts_code"]))
+        canonical_name, canonical_chunk = normalize_tushare_endpoint_rows(
+            request.endpoint, scoped, spec
+        )
+        chunks[canonical_name].append(canonical_chunk)
+        expected_counts[canonical_name] += canonical_chunk.num_rows
+    if set(bar_pre_closes_by_trade_date) != adjustment_dates:
+        raise SnapshotBuildError(
+            ReasonCode.SOURCE_INCOMPLETE,
+            "daily-bar partitions are missing adjustment-factor responses",
+        )
+    tables = dict(base_tables)
+    for name, parts in chunks.items():
+        tables[name] = pa.concat_tables(parts) if parts else base_tables[name]
+    raw_counts: dict[str, int] = {}
+    for entry in ledger.entries:
+        raw_counts[entry.endpoint] = raw_counts.get(entry.endpoint, 0) + entry.response_row_count
+    return tables, RawCanonicalReconciliation(
+        raw_row_counts=raw_counts,
+        expected_canonical_row_counts=expected_counts,
+    )
 
 
 class LiveTushareSnapshotBuilder:
@@ -75,11 +176,12 @@ class LiveTushareSnapshotBuilder:
                 ReasonCode.SOURCE_INCOMPLETE, "request plan is not bound to the snapshot spec"
             )
         try:
-            raw = load_acquired_rows(plan, ledger, acquisition_root)
+            tables, reconciliation = _normalize_acquired_tables(
+                spec, plan, ledger, acquisition_root
+            )
         except TushareAcquisitionError as error:
             raise SnapshotBuildError(error.reason_code, str(error)) from None
-        tables = normalize_tushare_tables(raw, spec)
-        report = evaluate_snapshot_quality(raw, tables, spec, self._policy)
+        report = evaluate_snapshot_quality_streaming(reconciliation, tables, spec, self._policy)
         if not report.passed:
             reason = next(
                 gate.reason_code

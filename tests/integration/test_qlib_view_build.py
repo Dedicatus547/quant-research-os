@@ -1,5 +1,7 @@
-from datetime import datetime
+import json
+from datetime import date, datetime
 from pathlib import Path
+from struct import pack, unpack
 from subprocess import CompletedProcess
 from zoneinfo import ZoneInfo
 
@@ -35,8 +37,44 @@ def _fake_tools(tmp_path: Path) -> OfficialQlibTools:
 
 
 def _semantic_output(command: list[str]) -> str:
-    values = {"SZ000001": 12.1, "SH000300": 3320.0, "SH600000": 10.2}
-    return f"QUANTOS_SAMPLE={values[command[-2]]}\n"
+    values = {
+        key: unpack("<f", pack("<f", value))[0]
+        for key, value in {
+            "SZ000001": 12.1,
+            "SH000300": 3320.0,
+            "SH600000": 10.2,
+        }.items()
+    }
+    requests = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
+    actual = {item["qlib_id"]: values[item["qlib_id"]] for item in requests}
+    return f"QUANTOS_SAMPLES={json.dumps(actual, sort_keys=True)}\n"
+
+
+def test_semantic_samples_require_exact_binary32_converter_round_trip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    official = _fake_tools(tmp_path)
+    monkeypatch.setattr(
+        qlib_view,
+        "run_checked",
+        lambda _command: CompletedProcess(
+            _command,
+            0,
+            stdout='QUANTOS_SAMPLES={"SZ000001": 12.1}\n',
+        ),
+    )
+
+    with pytest.raises(QlibViewBuildError) as captured:
+        qlib_view._semantic_samples(
+            official,
+            tmp_path / "qlib",
+            {"SZ000001": (date(2024, 1, 2), 12.1)},
+            ("SZ000001",),
+            tmp_path,
+        )
+
+    assert captured.value.reason_code is ReasonCode.QLIB_EXECUTION_FAILED
+    assert "exact binary32" in str(captured.value)
 
 
 def test_view_builder_uses_verified_official_tool_boundary(

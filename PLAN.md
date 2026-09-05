@@ -1,11 +1,13 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v4（可信证据修正版）<br>
-> 更新日期：2026-09-03<br>
+> 版本：v6（第一阶段真实数据与规模化执行修正版）<br>
+> 更新日期：2026-09-05<br>
 > 当前仓库状态：P0-P7 的离线实现与 synthetic component gates 已通过，第一阶段
-> Offline Engineering DoD 已完成。真实 Tushare capability probe 已执行且
-> `index_weight` 权限被拒；真实 snapshot 与 release-checkout Git provenance 仍是
-> Data-qualified 前置条件。锁定 Qlib 源码及当前 synthetic view 已验证。
+> Offline Engineering DoD 已完成，但正式 M0 发布基线尚未在仓库 clean commit 上冻结。
+> 真实 Tushare capability probe 已重跑且 12/12 endpoint 可用；2014-11 至 2025-12 的
+> immutable snapshot、16 项 DQ report 及锁定官方工具生成的 Qlib derived view 均已发布并
+> 独立验真。Data-qualified P3-P7 重跑与 release-checkout Git provenance 尚未完成。规模化
+> PIT/Signal/View 路径已验证；Rank IC/ICIR 的 immutable ResearchResult adapter 尚未实现。
 
 ---
 
@@ -225,8 +227,10 @@ registry           禁止网络
 | PyArrow / Parquet | Canonical local snapshot |
 | Pydantic v2 | Contracts / validation / serialization |
 | uv | Python 版本、虚拟环境与依赖锁定 |
-| RD-Agent / Vibe-Trading / QuantGPT | 第二阶段只做 capability spike，随后只选择一个主 harness |
-| AKShare 等开放源 | 未来 discovery only，不进入第一阶段验证链路 |
+| GPT + Codex | v0.2 的单一目标 Agent Stack；P10 capability spike 通过前不进入正式集成 |
+| RD-Agent / Vibe-Trading / QuantGPT | Reference implementation / capability donor / future benchmark；不是 v0.2 产品依赖 |
+| 上交所 / 深交所官方公告源 | P12 起作为首个 Evidence acquisition 候选；必须独立冻结、审计并与 Evaluation Plane 隔离 |
+| AKShare 等开放源 | 未来 discovery only；不得静默替代 canonical market-data source |
 
 长期原则：
 
@@ -374,7 +378,9 @@ ExperimentManifest
 RegistryEvent
 ```
 
-第一阶段不设计通用 `EvidenceSpec`；`GateResult` 直接引用 immutable `ArtifactRef`。只有 Agent 阶段出现多种外部证据消费者后，才评估是否提取通用证据模型。
+第一阶段不设计通用 `EvidenceSpec`；`GateResult` 直接引用 immutable `ArtifactRef`。第二阶段已决定
+引入真实公告 Evidence，因此 P9 必须先冻结 Evidence、proposal、admission、campaign 和 ledger
+contracts，再允许 P12 Collector 或 P11 Agent integration 依赖它们。
 
 Contract 不在 P1 一次性实现。P1 只冻结基础 hash、时间、snapshot / artifact ref、状态与最小事件原语；P2-P7 在各自 vertical slice 中先冻结所需 public schema，再完成对应集成。v0.1 发布时统一冻结上述 public schemas。
 
@@ -659,11 +665,16 @@ Manifest 至少保存 provider、逻辑数据集、日期范围、endpoint contr
 Tushare `index_weight` 提供月度成分和权重快照。Normalizer 必须把每次快照转换成有界 membership interval：
 
 ```text
-effective_from = 当前 index_weight.trade_date
-effective_to   = 下一次快照生效日前一交易日
+trade_date     = 原始 index_weight.trade_date
+available_from = trade_date 后的下一交易时段
+effective_from = available_from（本系统可执行区间）
+effective_to   = 下一快照 available_from 前一交易时段
 ```
 
-如果来源没有逐条公告时间，不得假设它在 `effective_from` 开盘前已知。第一阶段采用 versioned conservative policy：该快照最早从 `effective_from` 的下一个交易时段使用；实际 lag 由 P0 对接口更新行为实测后写入 policy。
+如果来源没有逐条公告时间，不得假设它在原始 `trade_date` 开盘前已知。第一阶段采用
+versioned conservative policy：原始日期保留为事件证据，可执行区间从下一交易时段开始；旧快照
+延续到新快照可用前一交易时段，避免“旧快照已失效而新快照尚未知”的空 universe。若快照在
+数据窗口结束前尚不可用，则只保留 raw 证据，不进入 canonical 可执行 membership。
 
 禁止：
 
@@ -815,6 +826,7 @@ signal_time
 decision_time
 available_at
 score
+score_valid
 tradable
 ```
 
@@ -1365,9 +1377,9 @@ Offline Engineering checklist：
 
 真实 Tushare 数据版本发布还必须满足：
 
-- [ ] capability probe 证明全部 required endpoints（包括 `stock_st`）可用
-- [ ] endpoint quota / fields / schema 与许可结果已留证
-- [ ] 2015-2025 snapshot、quality report 与 derived Qlib view cache 发布并校验
+- [x] capability probe 证明全部 required endpoints（包括 `stock_st`）可用
+- [x] endpoint quota / fields / schema 与许可结果已留证
+- [x] 2015-2025 snapshot、quality report 与 derived Qlib view cache 发布并校验
 - [ ] HS300 Momentum Validation E2E 完成
 - [ ] release baseline clean double-run 在容差内一致
 - [ ] ValidationReport 显式披露 `SINGLE_SOURCE_NON_VINTAGE`
@@ -1501,16 +1513,24 @@ P2-15 check_data_health.py / semantic sample verification
 - Qlib view cache 可从 snapshot + locked converter config 完全重建
 - view 与 snapshot 的抽样价格、日历、universe 一致
 
-截至 2026-09-01 的 Offline Engineering 证据：9 个 required endpoint 均有 provider-shaped
+截至 2026-09-05 的证据：9 个 snapshot required endpoint 均有 provider-shaped
 fixture；raw/canonical Parquet、生命周期、两市日历、有界 membership interval、稀疏 ST/停牌、
 实际涨跌停边界、raw-to-canonical reconciliation、内容寻址发布和精确文件集验证已闭环。
 实时路径已用注入 client 验证 calendar-first planning、逐交易日/逐年分片、`pyrate-limiter`、
 `tenacity` 有界重试、checkpoint/resume、跨分片去重、schema drift、脱敏 ledger 和 live-shaped
 immutable snapshot publication。Qlib view 绑定干净的固定 commit 与两个官方脚本 SHA-256，
-停牌日 OHLCV 为 NaN，并包含 historical-universe/tradability sidecar。真实权限、账号频次、
-live snapshot 仍是 Data-qualified blocker；真实 bounded probe 已确认 `index_weight` 为
-`PERMISSION_DENIED`。当前格式的 synthetic view 已由真实官方 converter 在两个独立目录得到
-相同 hash，但不能替代 live 数据证据。
+停牌日 OHLCV 为 NaN，并包含 historical-universe/tradability sidecar。真实 bounded probe 已
+确认全部 12 个探针 endpoint 可用；账号执行政策按官方已验证档位锁为 200 请求/分钟。live
+snapshot 已从 13,614 个全部首尝试成功的 checkpoint 发布并通过 16/16 DQ gates，snapshot
+hash 为 `6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9`，quality report hash
+为 `e89933f2db98870e6a1143b6ca546713a2abfae30c0c5f00e79dea1d4d275ed8`。锁定 Qlib 0.9.7
+官方 converter / health check 生成并验真的 derived view hash 为
+`fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b`。真实响应固定了四项规范
+语义：停复牌事件以完整事件键留 raw、canonical 只把 `S` 视为停牌；涨跌停只投影到实际 daily
+bar 键，且仅对空 `stk_limit.pre_close` 使用同键 `daily.pre_close`（非空值必须完全一致）；月度
+成分从下一交易时段起进入可执行区间；Qlib binary32 语义样本要求与官方 `<f` 存储结果精确
+一致。live P2 已完成，但在 DQ-04 至 DQ-06 clean-checkout 重跑前仍不能声称完整 Data-qualified
+Release。
 
 ---
 
@@ -1763,7 +1783,8 @@ Snapshot → official converter / health check → PIT → SignalArtifact → Ql
 → G0-G10 ValidationReport → Registry。两次 principal artifact、experiment manifest 与 registry
 index hash 完全一致，最终策略状态为 VALIDATED。该证据明确标记
 `OFFLINE_ENGINEERING / SYNTHETIC_FIXTURE / data_qualified=false`；真实 Tushare Release E2E 仍因
-`index_weight` 权限不足而 BLOCKED。
+历史上 `index_weight` 权限不足而 BLOCKED；2026-09-05 的重新探针已确认该权限恢复，当前改为
+等待 live snapshot / Qlib view 发布与 clean-checkout 重跑。
 
 ---
 
@@ -1792,10 +1813,40 @@ P4 Qlib Research ───────────┘
        P6 Validation E2E
                 │
                 ▼
- P7 Registry + Release E2E
+P7 Registry + Release E2E
 ```
 
 里程碑 Gate 仍严格：后续阶段不得声称完成，除非其依赖 exit criteria 已完成。
+
+第二阶段依赖保持单主线，Data-qualified Release 作为独立资格轨道并行：
+
+```text
+M0 Offline Engineering baseline freeze
+ │
+ ▼
+P8 Agent boundary / threat hardening
+ │
+ ▼
+P9 Research semantics / campaign governance / minimal DSL v2
+ │
+ ▼
+P10 GPT + Codex capability spike (go / no-go)
+ │
+ ▼
+P11 Quant Research MCP + offline proposal E2E
+ │
+ ▼
+P12 Immutable real-world Evidence acquisition
+ │
+ ▼
+P13 Qualified EventFeatureArtifact + announcement research E2E
+ │
+ ▼
+P14 Research Ledger + bounded autonomous campaign
+
+DQ-01 ... DQ-06 ───────────────┐
+                               └─ 只有通过后，P13/P14 才能产生 Data-qualified 真实研究结论
+```
 
 ---
 
@@ -1858,9 +1909,14 @@ E2E             P6 validation pipeline / P7 release pipeline
 | 复权因子被历史刷新 | 特征漂移 | raw + factor 同时冻结；ratio 测试；新 snapshot |
 | 单数据源错误 | 无法交叉证实 | Report 明示 single-source limitation；未来加第二 provider |
 | Qlib 不完全复刻交易制度 | 回测偏差 | reference 定位、显式规则与 known limitations |
-| OOS 被反复查看 | 研究过拟合 | version freeze、access event、contamination warning |
+| OOS 被反复查看 | 研究过拟合 | campaign freeze、trial accounting、sealed confirmation、access event、后继污染传播 |
 | Token 泄露 | 账号风险 | env-only、redaction tests、secret scanning |
 | 数据许可限制 | 无法共享/公共 CI | P0 记录条款；fixtures 使用 synthetic data |
+| LLM 抽取结果被误当事实 | 错误事件标签进入因子与验证 | 抽取永远是 proposal；必须经 admission policy 形成独立 EventFeatureArtifact |
+| 网络内容 prompt injection / 数据外传 | Agent 越权、秘密泄露或 authority 受损 | Collector 与 Agent/Evaluation 进程隔离；Agent 只读冻结 Evidence 且默认无网络 |
+| Harness / 模型别名漂移 | Agent provenance 不完整、行为不可比较 | 固定可获得的具体标识和配置；完整 AgentRunManifest；不声称逐字可复现 |
+| Ledger 检索结果漂移 | 研究上下文不可审计 | 绑定 ledger snapshot、query/result hash；搜索索引仅为可重建缓存 |
+| 自动候选搜索与多重检验 | 漂亮结果来自选择偏差 | 预冻结 ResearchFamily/Budget、完整 trial ledger、一次性 confirmation、multiple-testing policy |
 
 任何 Data-qualified Release No-Go 不允许通过降低测试或伪造 fixture 绕过；Offline Engineering 状态必须单独报告。
 
@@ -1868,69 +1924,294 @@ E2E             P6 validation pipeline / P7 release pipeline
 
 # 40. 第二阶段路线
 
-只有 Deterministic MVP v0.1 的 Offline Engineering 基线冻结后才开始第二阶段。Data-qualified
-Release 是独立的真实数据资格轨道，不应因外部 Tushare 权限长期阻塞 Agent 工程；但第二阶段的
-任何真实数据结论仍必须继承 Data-qualified 状态，不能用 synthetic evidence 代替。先做
-capability spike，再选定一个主 Agent harness，不同时集成三套栈：
+第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
+开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
+必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
+market-data evidence。
+
+后续主线固定为：
 
 ```text
-P8  Pre-MCP Threat Hardening
-P9  RD-Agent / Vibe-Trading / QuantGPT Capability Spike
-P10 Select One Harness + MCP Research API
-P11 Chosen Harness Integration
+M0  Deterministic MVP v0.1 Offline Engineering baseline freeze
+P8  Agent Boundary & Threat Hardening
+P9  Research Semantic Contracts + Campaign Governance + Minimal DSL v2
+P10 GPT + Codex Harness Capability Spike
+P11 Quant Research MCP + Codex Skills + Offline Proposal E2E
+P12 Real-world Evidence Acquisition
+P13 Qualified Event Feature + Announcement Research E2E
+P14 Research Ledger + Bounded Autonomous Research MVP
 ```
 
-评估顺序优先 RD-Agent，因为其与 Qlib 原生协作边界最接近；Vibe-Trading / QuantGPT 作为对照。P9 必须输出选择与淘汰理由，P10-P11 只能有一个主 harness。
+`GPT + Codex` 是 v0.2 的范围决策，不是已经证明优于其他 Harness 的事实。P10 仍是严格的
+go / no-go capability spike；如果硬性能力不满足，则停止 P11，记录 ADR 和 blocker，不得通过
+扩大权限、降低验证要求或静默替换另一套 Harness 继续推进。RD-Agent、Vibe-Trading、QuantGPT
+只作为 reference implementation、capability donor 或未来 benchmark。
 
-P8 在能力暴露前补齐 multi-writer coordination、path traversal、symlink escape、untrusted input 与权限边界测试；这些不反向膨胀 trusted single-user v0.1。
+## 40.1 Authority、网络与文件系统边界
 
-## 40.1 MCP 能力边界
-
-允许：
+三层信任域必须分离：
 
 ```text
-quant.list_datasets
-quant.get_dataset_schema
-quant.evaluate_factor
-quant.submit_experiment
-quant.run_validation
-quant.get_validation
-quant.list_strategies
-quant.get_strategy
+Discovery Plane（network enabled）
+  deterministic collector → bounded acquisition staging
+  无 QuantOS authority 写权限，无 TUSHARE_TOKEN，无 LLM
+        │
+        ▼
+Evidence Publisher（network denied）
+  verify exact-file set → publish raw bytes / metadata / content hashes
+        │
+        ▼
+Immutable Evidence Store
+  raw source evidence + deterministic derived parser artifacts
+        │
+        ├──────── Freeze Boundary ────────┐
+        ▼                                ▼
+Agent Workspace（network denied）     Evaluation Plane（network denied）
+  read-only typed refs                  PIT / Qlib / Validation / Registry
+  proposal / interpretation only       deterministic authority
 ```
 
-禁止 shell、arbitrary Python / SQL、修改 Gate / Artifact 或 force-pass。
+规则：
 
-## 40.2 Agent 权限
+- 网络 Collector 只写有界 staging，不调用 LLM，不运行研究、回测或 Validation；network-denied
+  Evidence Publisher 重新验证来源 metadata、原始字节和 exact-file set 后才发布 immutable Evidence；
+- Agent 默认无网络、无秘密、无 authority filesystem 路径，只通过 typed capability 读取冻结对象；
+- Agent 不得直接运行 `quantos` CLI，也不得直接写 snapshot、artifact、event chain 或 Registry；
+- MCP server 可以代表 Agent 接收 proposal 或发起受限执行请求，但 authority 写入只能由现有
+  deterministic application service 在重新验证全部输入后完成；
+- 外部文档是“来源声称的可审计记录”，不是天然正确的事实；QuantOS 维护来源、完整性、资格、
+  lineage 和 deterministic verdict，不宣称验证了来源内容的现实真实性；
+- `AGENTS.md` 是行为约束，不是安全边界；Sandbox、进程隔离、capability allowlist、root
+  confinement 和 domain authorization 才是强制边界。
 
-Agent 可以读取 metadata / results、创建 proposal、请求 validation、读取 ValidationReport。
+P12 引入新的网络采集面是明确的第二阶段架构变更。实现前必须有 ADR 固定进程边界、网络
+allowlist、用户代理、重试/限流、数据许可、原文保留政策、失败语义和审计格式；不得把它隐藏在
+研究或 Evaluation 进程中，也不得破坏“Tushare 只由 market snapshot acquisition 调用”的规则。
 
-Agent 不可以读取 `TUSHARE_TOKEN`、在线修改 snapshot、覆盖历史 artifact、修改 Gate verdict、绕过 PIT 或直接标记 `VALIDATED`。
+## 40.2 MCP Capability Boundary
 
-## 40.3 目标与阶段边界（2026-09-03 对齐）
+MCP 只暴露面向领域对象的窄接口，名称在 P9 contract freeze 后最终确定。目标能力为：
 
-第二阶段的目标是 **Agent-assisted Research v0.2**，不是自动交易系统。Agent 负责提出研究
-假设、生成 proposal、请求确定性执行并解释结果；Spec 解析、数据读取、PIT、因子、Qlib 回测、
-Validation Gate 和 Registry 仍由确定性程序负责。工程验收继续以可审计、可复现和 fail-closed
-为准，不以策略盈利为准。
+```text
+Evidence（P12 后）
+  evidence.search
+  evidence.get
 
-### 40.3.1 M0：Deterministic MVP v0.1 基线冻结
+Research（P14 后）
+  research.search_ledger
 
-P0-P7 的 Offline Engineering DoD 已完成，但正式发布基线还应完成一次仓库级冻结：
+Dataset
+  dataset.describe
+  dataset.fields
+
+Proposal
+  proposal.submit_hypothesis
+  proposal.submit_factor
+  proposal.submit_experiment
+
+Execution
+  experiment.resolve
+  experiment.request_execution
+  job.get
+
+Validation
+  validation.get
+
+Registry
+  registry.get
+  registry.search
+```
+
+接口只能接收 schema-valid logical IDs、content hashes、枚举和有界 payload；不得接收任意本地
+路径。每次写请求必须绑定 idempotency key、AgentRun、ResearchCampaign、预算、input hashes，
+并产生 append-only audit event 和稳定 reason code。异步执行必须提供有界队列、状态查询、取消、
+超时和重复请求语义；`request_execution` 只请求执行，绝不表示 PASS 或 Registry 准入。
+
+禁止暴露：
+
+```text
+shell / arbitrary process
+arbitrary Python / SQL / Qlib expression text
+arbitrary path or filesystem traversal
+raw snapshot / artifact / registry write
+secret or environment access
+validation verdict mutation / force-pass / gate override
+direct VALIDATED transition
+unbudgeted recursive execution
+```
+
+## 40.3 Research semantic contracts 与证据等级
+
+P9 先冻结与 Harness 无关的 contracts。最小对象集合：
+
+```text
+EvidenceRecord
+ExtractedTextArtifact
+ObservationProposal
+HypothesisProposal
+FactorProposalSpec
+ExperimentProposalSpec
+ResearchFamilySpec
+ResearchBudgetSpec
+ResearchCampaignSpec
+AgentCapabilityPolicy
+AgentRunSpec
+AgentRunManifest
+EvidenceExtractionProposal
+EventFeatureAdmissionRecord
+EventFeatureArtifact
+InterpretationProposal
+ResearchLedgerEvent
+ResearchLedgerSnapshot
+```
+
+对象权威等级固定为：
+
+```text
+raw publisher bytes / metadata  → immutable source evidence
+deterministic parsed text       → derived evidence with parser provenance
+LLM observation / extraction   → proposal
+admitted event feature         → qualified input artifact with admission evidence
+Qlib / Validation output       → deterministic experiment evidence
+LLM interpretation            → proposal, never a verdict
+```
+
+Contract 规则：
+
+- immutable payload 与 lifecycle 分离；`status` 通过 append-only events 和可重建 projection 表达，
+  不在不可变 Hypothesis payload 中原地修改；
+- Evidence 至少绑定 source locator、publisher、retrieval request/response metadata、raw byte hash、
+  media type、encoding、published/fetched/observed/available time、时区、availability policy、
+  revision/supersession/retraction、collector/parser version、许可与 limitations；
+- `available_at` 只能由冻结 policy 确定，不能由 Agent 自行声明；无法证明时使用保守时间或
+  `UNKNOWN_AVAILABILITY`，并按 PIT hard rejection 处理；
+- Agent 抽取必须引用原文 EvidenceRef 和页码/字符区间；schema、实体代码和时间可确定性校验，
+  但语义正确性必须通过预先冻结的 admission policy；
+- EventFeatureArtifact 必须绑定 Evidence、抽取 proposal、admission evidence、实体/交易日 resolver、
+  availability policy、代码和 runtime hashes；没有该 artifact，公告标签不得进入因子执行；
+- Research Ledger 中的 source assertion、Agent interpretation、human-reviewed statement 和
+  deterministic verdict 必须显式区分；语义搜索索引只是可重建缓存，AgentRun 绑定实际 ledger
+  snapshot、query 和 result hashes。
+
+`quantos.contracts` 继续保持纯领域依赖，不依赖 Tushare、Qlib、Codex 或任何 LLM SDK。
+
+## 40.4 Safe DSL v2 扩展规则
+
+继续扩展 `SafeQlibExpressionSpec`，绝不允许 Agent 提交 Python 或任意 Qlib expression string。
+候选操作符包括：
+
+```text
+delta
+rolling_sum
+rolling_min
+rolling_max
+correlation
+zscore
+cross_section_rank
+clip
+log
+abs
+```
+
+每个操作符必须逐个通过以下 admission gate 后才能进入 public enum：
+
+```text
+明确 arity / window / time-series or cross-section 语义
+明确 null / non-finite / zero denominator / minimum-period 语义
+明确 availability propagation 与 versioned operator delay
+使用锁定官方 Qlib 路径实现并有 translation golden tests
+在完整 PIT、SignalArtifact、reproducibility E2E 中通过
+只引用已在 verified Qlib view / FeatureArtifact 中注册的字段
+```
+
+当前带 `window` 的 `rank` 与未来 `cross_section_rank` 不得混为同一语义；`zscore` 也必须区分
+时序与截面版本。`correlation`、`zscore` 和截面算子若无法由锁定 Qlib 路径稳定表达，则保持
+NOT_IMPLEMENTED / fail-closed。`industry_neutralize`、`size_neutralize` 推迟到 Qlib 官方能力、
+输入行业/市值字段、PIT 和缺失值语义全部验证之后，不进入 P9 最小退出条件。
+
+## 40.5 Research campaign、OOS 与自动 p-hacking 治理
+
+每个 research campaign 在第一次执行前冻结：
+
+```text
+research question / family
+evidence snapshot / ledger snapshot
+dataset and feature hashes
+development / validation / sealed-confirmation periods
+candidate and parameter space
+compute / Agent / execution / validation budgets
+multiple-testing policy
+stopping rule
+```
+
+数据访问分层：
+
+```text
+development       允许在冻结预算内迭代
+validation        只允许预先声明的有限轮次
+sealed confirmation  每个 campaign 最多一次
+```
+
+所有执行尝试，包括 schema-invalid、PIT reject、execution failed、soft reject 和重复候选，都进入
+trial accounting。访问 sealed confirmation 时写入 `OOSAccessed`；访问后 campaign 关闭，基于该
+结果生成的任何 next hypothesis 都继承 contamination，不能再声称独立确认。需要新的确认只能使用
+事先未暴露的新时间窗/新冻结数据，并创建新的 campaign lineage。
+
+ResearchBudget 只是上限，不是统计修正。P14 前必须选择并冻结适合当前搜索空间的
+multiple-testing / selection-bias policy；BH-FDR、Deflated Sharpe Ratio、PBO 等仅在输入假设和
+实现验证后采用，不因名字出现就声称风险已经解决。
+
+## 40.6 GPT + Codex Harness 定位与 AgentRun provenance
+
+v0.2 只运行一个 Codex Runtime，通过三个仓库级 Skills 表达逻辑角色：
+
+```text
+quant-researcher  → frozen Evidence + optional Ledger（P14 后）→ Observation/Hypothesis proposal
+quant-formalizer  → Hypothesis → Factor/Experiment proposal
+quant-reviewer    → ValidationReport + history → Interpretation/Next-Hypothesis proposal
+```
+
+不实现多进程 Agent、Agent 间 consensus、冲突仲裁或多模型 Council。三个角色共享同一 authority
+boundary；Reviewer 不能覆盖 Gate，也不能绕过 40.5 的 sealed-confirmation 规则。
+
+每次 Agent execution 产生 immutable `AgentRunManifest`，至少绑定：
+
+```text
+provider-returned model identifier and model configuration
+harness / runtime version or build identifier
+sandbox / permission / runtime policy hashes
+complete instruction / AGENTS.md / skill hashes
+MCP tool schema hash
+tool request and response hashes
+Evidence / Ledger / Campaign input hashes
+output proposal / transcript hashes
+retry / failure / usage accounting
+```
+
+若 provider 不提供不可变模型快照标识，必须记录该 limitation。Manifest 提供可追溯 provenance，
+不承诺 LLM 文本或 proposal byte-for-byte 可复现；确定性验收对象始终是同一个 resolved Spec 与
+冻结输入产生的 QuantOS artifacts 和 verdict。
+
+## 40.7 M0：Deterministic MVP v0.1 基线冻结
+
+P0-P7 的 Offline Engineering DoD 已完成，但正式发布基线仍需：
 
 ```text
 当前改动合入正式 Git commit
 → clean checkout 运行 release_feasibility.py
-→ 固化该 commit / uv.lock / runtime fingerprint 对应的证据
+→ 固化 commit / uv.lock / runtime fingerprint / principal artifact hashes
+→ verify registry rebuild and exact-file sets
 → 标记 v0.1.0-oe（或等价 Offline Engineering 基线）
 ```
 
-M0 不要求真实 Tushare 权限，也不要求基准策略收益通过。P7 当前保留的临时 clean-checkout
-证据是组件验收；正式基线应绑定发布仓库中的 clean commit。
+M0 不要求真实 Tushare 权限，也不要求策略收益通过。P7 现有临时 clean-checkout 证据是组件验收，
+不是正式仓库发布 provenance。M0 未完成前不得开始 P8，也不得把“P0-P7 Offline Engineering
+DoD 完成”写成“Data-qualified”或“完整 Quant Research OS 已完成”。
 
-### 40.3.2 Data-qualified 独立轨道
+## 40.8 Data-qualified 独立轨道
 
-该轨道可与 P8-P11 并行，但其状态不能被 Offline Engineering 或 Agent proposal 掩盖：
+该轨道可与 P8-P14 工程实施并行，但状态不得被 Offline Engineering、真实公告或 Agent proposal
+掩盖：
 
 ```text
 DQ-01 重新探测全部 required endpoints（尤其 index_weight / stock_st）
@@ -1938,76 +2219,79 @@ DQ-02 固化账号 quota、rate policy 与数据许可
 DQ-03 构建不可变 2015-2025 snapshot、DQ report、Qlib view
 DQ-04 在正式 clean checkout 重跑 P3-P6
 DQ-05 执行 P7 registry / release double-run
-DQ-06 显式报告 PASS、REJECT 或 FAILED，以及 SINGLE_SOURCE_NON_VINTAGE
+DQ-06 显式报告 SUCCEEDED/PASS、SUCCEEDED/REJECT 或 FAILED/NOT_EVALUATED，
+      并保留 SINGLE_SOURCE_NON_VINTAGE
 ```
 
-任何 endpoint 权限不足都是 Data-qualified Release 的 hard blocker；不得静默改用
-`namechange`、synthetic data 或其他未验证来源。
+截至 2026-09-05：DQ-01 至 DQ-03 已完成；DQ-04 至 DQ-06 必须等待正式 clean commit，不能用
+当前 dirty workspace 或 synthetic evidence 提前勾选。
 
-### 40.3.3 P8-P11 实施顺序与退出条件
+任何 required endpoint 权限不足都是 Data-qualified Release 的 hard blocker；不得静默改用
+`namechange`、synthetic data、公告数据或其他未验证来源。P13/P14 可以先取得明确标记的
+Offline Engineering E2E，但只有 DQ-01 至 DQ-06 完成后才能发布真实市场研究 verdict。
+
+## 40.9 P8-P14 实施内容与退出条件
 
 | 阶段 | 实施重点 | 退出条件 |
 |---|---|---|
-| P8 | MCP 暴露前的威胁模型、root-confined 输入、path traversal / symlink 防护、恶意 JSON 与并发写入处理、权限边界 | 不可信输入不能越过 artifact/registry root；不会覆盖、分叉或破坏 authority；安全负例和无 token 门通过 |
-| P9 | 固定 RD-Agent / Vibe-Trading / QuantGPT 版本或 commit，使用同一 synthetic 任务做 capability spike | 以 Spec 结构化程度、Qlib 边界、沙箱、可复现、许可证和维护成本形成 ADR，只选一个主 harness |
-| P10 | 将 MCP 方法映射到现有 application service，固定 schema、请求幂等、审计和限额 | 无 shell、arbitrary Python/SQL、任意路径、force-pass 或直接 `VALIDATED` 能力；负向权限测试通过 |
-| P11 | 接入选定 harness，形成 proposal → deterministic execution → ValidationReport → Registry → explanation | 相同 resolved Spec 与冻结输入产生相同证据；Agent 始终只能提议、请求和解释，不能改 gate 或历史 artifact |
+| P8 | root-confined 输入、path traversal / symlink escape、恶意/超大/深层 payload、artifact spoofing、secret/OOS 越权、并发 writer、资源预算和审计边界 | 不可信输入不能越过 authority roots、读取 token、覆盖/分叉历史或改变 verdict；安全负例、无 token、现有 P0-P7 regression 全通过 |
+| P9 | 冻结 40.3 contracts、campaign/OOS 状态机、stable reason codes、admission policy 接口；按 40.4 gate 实现最小 DSL v2 | Contract/golden/PIT 测试固定 proposal 与 canonical object 的分界；sealed confirmation 和污染传播 fail-closed；未验证 operator 不进入 enum |
+| P10 | 对 GPT + Codex 固定当时可获得的具体版本/配置，使用 frozen synthetic task 和人工 proposal baseline 验证 thread、sandbox、MCP、Skills、失败恢复、transcript、usage 和 permission denial | 输出 ADR 与 AgentRunManifest 样例；所有硬性 capability 通过才 Go，任何关键边界失败则 No-Go；不以模型输出质量或盈利替代安全门 |
+| P11 | 将 MCP 映射到现有 application services；实现三个 Codex Skills；使用冻结 structured synthetic Evidence 完成 proposal → compiler → Qlib → ValidationReport → Registry/explanation | 相同 resolved Spec 与冻结输入产生相同 deterministic evidence；Agent 文本无需逐字相同；无 shell/path/secret/gate override/direct VALIDATED，幂等、预算、失败语义和负向权限测试通过 |
+| P12 | 隔离的 SSE/SZSE 公告 Collector、raw Evidence Store、deterministic text extraction、availability/revision/license policy | 原始字节与派生文本可按 hash 验证和重建；published/fetched/observed/available 不混用；Collector 无 LLM、无 authority 写权；Evaluation 和 Agent 仍无网络 |
+| P13 | 冻结公告抽取 benchmark；EvidenceExtractionProposal、admission policy、EventFeatureArtifact、事件到交易日/PIT 对齐；首个股份回购公告研究 vertical slice | 未通过 admission 的 LLM 标签不能执行；feature artifact 可追溯到原文位置与全部 policy/hash；支持的指标才可进入 Gate；分别报告 Offline Engineering 和 Data-qualified 状态，使用正式状态语义而非 ACCEPT |
+| P14 | append-only Research Ledger DAG、可重建检索索引、相似/失败/重复研究检索、完整 trial accounting、bounded campaign loop | Ledger 区分来源/提案/人工判断/确定性 verdict；AgentRun 绑定检索输入；预算和停止规则强制执行；sealed confirmation 一次性且污染传播通过 E2E；成功标准不含盈利 |
 
-P9 是评估阶段，不把三个框架同时带入产品；P10-P11 只能保留一个主 harness。Rank IC/ICIR
-ResearchResult adapter、第二数据源、基本面因子和实盘交易不进入这条关键路径，除非另行批准
-范围变更。
+Rank IC/ICIR immutable ResearchResult adapter、第二 canonical market-data provider、基本面因子和
+实盘交易不自动进入这条关键路径。若 P13 的批准验收指标需要 Rank IC/ICIR，必须单独完成 adapter
+contract、artifact、PIT 和验证测试后才能启用；否则继续 `SOURCE_INCOMPLETE` fail-closed。
 
 ---
 
 # 41. AGENTS.md 核心规则
 
-P0 必须把以下内容写入真实 `AGENTS.md`：
+真实 `AGENTS.md` 是仓库执行规则的 authority；本节与当前文件保持同步，PLAN 中其他建议不得
+放宽这些规则：
 
 ```text
-1. Do not implement a custom backtest engine.
+1. Do not implement a custom backtest, exchange, order, or portfolio accounting engine.
 
 2. Tushare may only be called by the snapshot acquisition layer.
-   Research, backtest, validation and registry must run offline.
+   All later stages are offline.
 
-3. Never commit or log TUSHARE_TOKEN.
+3. Never commit, persist, print, or log TUSHARE_TOKEN.
 
-4. Third-party systems must be integrated through thin adapters.
+4. Reuse Qlib dump_bin, data-health checks, Workflow, Record Templates,
+   DatasetH, LGBModel, Exchange, and Simulator before adding project code.
 
-5. quantos.contracts must not depend on Tushare, Qlib,
-   an Agent harness or an LLM SDK.
+5. quantos.contracts must not depend on Tushare, Qlib, an Agent harness,
+   or an LLM SDK.
 
-6. No LLM call is allowed inside data normalization, PIT validation,
-   factor calculation, model execution, backtest or validation gates.
+6. No LLM call is allowed in normalization, PIT validation, factor/model
+   execution, backtest, or validation gates.
 
-7. Agent outputs are proposals, never validated results.
+7. Agent output is a proposal, never validated evidence.
 
-8. Do not introduce live trading, brokers, OMS, EMS or order placement.
+8. Canonical runs bind explicit hashes and never use latest, current,
+   auto, or mutable data.
 
-9. Canonical experiments bind explicit hashes and never use latest,
-   current, auto or mutable data references.
+9. PIT failure is a hard rejection; execution failure is
+   FAILED / NOT_EVALUATED.
 
-10. PIT failure is always a hard rejection and cannot be overridden.
+10. Qlib .bin is a derived cache. Canonical data is the immutable
+    Parquet snapshot.
 
-11. Every experiment is reproducible from Git commit, uv.lock,
-    runtime fingerprint, Specs, Policy, Snapshot, and locked Qlib
-    converter version/config. Qlib .bin is a derived cache.
+11. MLflow is a Qlib runtime recorder only. Exported immutable artifacts
+    and hashes are authority.
 
-12. Data revisions create new snapshots; never overwrite old snapshots.
+12. Data revisions create new snapshots and never overwrite old snapshots.
 
 13. Profitability is not an engineering acceptance criterion.
 
-14. Rejected experiments are evidence and remain registered.
+14. Rejected and failed experiments remain immutable evidence.
 
-15. Multi-agent consensus is never sufficient validation evidence.
-
-16. Reuse Qlib dump_bin, data health, Workflow, Record Templates,
-    DatasetH, LGBModel, Exchange and Simulator before adding code.
-
-17. MLflow is a Qlib runtime recorder only. Registry authority comes
-    from immutable exported artifacts, hashes and ValidationReport.
-
-18. Do not claim historical vendor-vintage PIT when the source does
-    not provide historical vintages; report the limitation explicitly.
+15. Do not claim historical vendor-vintage PIT when the source does not
+    provide vintages.
 ```
 
 ---
@@ -2022,7 +2306,9 @@ P0 必须把以下内容写入真实 `AGENTS.md`：
 3. Snapshot / PIT / Provenance Rules
 4. Validation Gates
 5. Artifact / Strategy Registry
-6. MCP Capability Boundary（第二阶段）
+6. Immutable Evidence records / admission boundary（第二阶段）
+7. Research campaign / Ledger governance（第二阶段）
+8. MCP Capability Boundary（第二阶段）
 ```
 
 其他能力尽可能复用：
@@ -2034,7 +2320,8 @@ Factor / ML                → Qlib Expression / DatasetH / LGBModel / Workflow
 Research records           → Qlib SignalRecord / SigAnaRecord
 Reference backtest         → Qlib Strategy / Exchange / Simulator
 Runtime recorder UI        → Qlib local-file MLflow backend
-Agent Harness              → 第二阶段 spike 后只选择一个
+Agent Harness              → GPT + Codex（P10 go/no-go 通过后）
+Other Agent frameworks     → reference / donor / future benchmark
 ```
 
 项目的核心竞争力不是重新实现数据平台、ML 框架或回测引擎，而是：
@@ -2086,8 +2373,7 @@ Qlib：
 - [Qlib Exchange 参数与交易约束](https://github.com/microsoft/qlib/blob/main/qlib/backtest/exchange.py)
 - [Qlib 项目与 RD-Agent 入口](https://github.com/microsoft/qlib/blob/main/README.md)
 
-Agent harness 候选（第二阶段 capability spike）：
-
-- [Microsoft RD-Agent](https://github.com/microsoft/RD-Agent)
+Agent Harness、模型和官方公告源的具体版本、接口、许可与能力证据由 P10/P12 ADR 固定；本节不以
+网页描述代替实际 capability probe、冻结配置或本地验证。
 
 这些链接只用于记录设计依据。Canonical experiment 仍必须绑定实际安装版本、`uv.lock` 和本地输入 hashes。

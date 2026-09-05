@@ -70,7 +70,7 @@ class DataQualityPolicy(CanonicalContract):
     index_weight_total: float = Field(default=100.0, gt=0)
     index_weight_absolute_tolerance: float = Field(default=0.01, ge=0)
     allowed_st_types: tuple[str, ...] = ("ST", "*ST")
-    allowed_suspend_types: tuple[str, ...] = ("S", "R")
+    allowed_suspend_types: tuple[str, ...] = ("S",)
 
     @field_validator("allowed_st_types", "allowed_suspend_types")
     @classmethod
@@ -270,4 +270,4 @@ DEFAULT_SYNTHETIC_ENDPOINTS: tuple[str, ...] = (
     "trade_cal",
 )
 
-DEFAULT_NORMALIZER_VERSION = "quantos-tushare-normalizer/v1"
+DEFAULT_NORMALIZER_VERSION = "quantos-tushare-historical-index-union-normalizer/v2"

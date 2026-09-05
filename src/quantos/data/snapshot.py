@@ -1,5 +1,9 @@
 """Offline construction of immutable canonical snapshots from the synthetic fixture."""
 
+# PyArrow compute's overload stubs cannot preserve ChunkedArray types through
+# scalar kernels; runtime schemas and the integration matrix validate this block.
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportArgumentType=false
+
 from __future__ import annotations
 
 import csv
@@ -8,14 +12,15 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time
 from decimal import Decimal, InvalidOperation
 from itertools import pairwise
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from quantos.artifacts.store import (
@@ -79,6 +84,18 @@ class SnapshotBuildResult:
     manifest: DataSnapshotManifest
     quality_report: DataQualityReport
     path: Path
+
+
+@dataclass(frozen=True)
+class RawCanonicalReconciliation:
+    """Streaming raw counts and the exact canonical row counts they imply."""
+
+    raw_row_counts: Mapping[str, int]
+    expected_canonical_row_counts: Mapping[str, int]
+
+    @property
+    def raw_row_count(self) -> int:
+        return sum(self.raw_row_counts.values())
 
 
 def _read_csv(path: Path, required_columns: Sequence[str]) -> list[dict[str, str]]:
@@ -326,14 +343,175 @@ def _schemas() -> dict[str, pa.Schema]:
     }
 
 
+def normalize_tushare_endpoint_rows(
+    endpoint: str,
+    raw_rows: Sequence[Mapping[str, str]],
+    spec: SnapshotBuildSpec,
+) -> tuple[str, pa.Table]:
+    """Normalize one bounded acquired response into a canonical Arrow chunk."""
+
+    schemas = _schemas()
+    if endpoint == "daily":
+        rows = []
+        for row in raw_rows:
+            trade_date = _parse_date(row["trade_date"])
+            rows.append(
+                {
+                    "instrument_id": row["ts_code"],
+                    "trade_date": trade_date,
+                    "open": _parse_float(row["open"], "open"),
+                    "high": _parse_float(row["high"], "high"),
+                    "low": _parse_float(row["low"], "low"),
+                    "close": _parse_float(row["close"], "close"),
+                    "pre_close": _parse_float(row["pre_close"], "pre_close"),
+                    "volume_shares": _volume_shares(row["vol"]),
+                    "amount_cny": _parse_float(row["amount"], "amount") * 1000,
+                    **_temporal_payload(
+                        _event_time(trade_date),
+                        _available_at(trade_date),
+                        spec.availability_policy_id,
+                    ),
+                }
+            )
+        return "bars", _table(rows, schemas["bars"])
+    if endpoint == "adj_factor":
+        rows = []
+        for row in raw_rows:
+            trade_date = _parse_date(row["trade_date"])
+            rows.append(
+                {
+                    "instrument_id": row["ts_code"],
+                    "trade_date": trade_date,
+                    "adjustment_factor": _parse_float(row["adj_factor"], "adj_factor"),
+                    **_temporal_payload(
+                        _event_time(trade_date),
+                        _available_at(trade_date),
+                        spec.availability_policy_id,
+                    ),
+                }
+            )
+        return "adjustment_factors", _table(rows, schemas["adjustment_factors"])
+    if endpoint == "stock_st":
+        rows = []
+        for row in raw_rows:
+            trade_date = _parse_date(row["trade_date"])
+            rows.append(
+                {
+                    "instrument_id": row["ts_code"],
+                    "trade_date": trade_date,
+                    "type": row["type"],
+                    **_temporal_payload(
+                        _event_time(trade_date),
+                        _available_at(trade_date),
+                        spec.availability_policy_id,
+                    ),
+                }
+            )
+        return "st_status", _table(rows, schemas["st_status"])
+    if endpoint == "suspend_d":
+        return "suspensions", _normalize_suspension_rows(raw_rows, spec, schemas)
+    if endpoint == "stk_limit":
+        rows = []
+        for row in raw_rows:
+            trade_date = _parse_date(row["trade_date"])
+            rows.append(
+                {
+                    "instrument_id": row["ts_code"],
+                    "trade_date": trade_date,
+                    "pre_close": _parse_float(row["pre_close"], "limit pre_close"),
+                    "up_limit": _parse_float(row["up_limit"], "up_limit"),
+                    "down_limit": _parse_float(row["down_limit"], "down_limit"),
+                    **_temporal_payload(
+                        _event_time(trade_date),
+                        _available_at(trade_date),
+                        spec.availability_policy_id,
+                    ),
+                }
+            )
+        return "price_limits", _table(rows, schemas["price_limits"])
+    raise SnapshotBuildError(
+        ReasonCode.SCHEMA_INVALID, f"endpoint has no streaming normalizer: {endpoint}"
+    )
+
+
+def _normalize_suspension_rows(
+    raw_rows: Sequence[Mapping[str, str]],
+    spec: SnapshotBuildSpec,
+    schemas: Mapping[str, pa.Schema],
+) -> pa.Table:
+    """Collapse provider suspension events to one conservative nontradable day row.
+
+    Tushare can return both an ``S`` and an ``R`` event for the same security and
+    date.  Raw evidence retains both events; ``R`` is excluded because it denotes
+    resumed trading. Unsupported event values remain visible so the DQ gate can
+    reject them. Multiple intraday intervals use a stable semicolon-separated value.
+    """
+
+    values_by_key: dict[tuple[str, str], tuple[set[str], set[str]]] = {}
+    for row in raw_rows:
+        if row["suspend_type"] == "R":
+            continue
+        types, timings = values_by_key.setdefault(
+            (row["ts_code"], row["trade_date"]), (set(), set())
+        )
+        types.add(row["suspend_type"])
+        if row["suspend_timing"]:
+            timings.add(row["suspend_timing"])
+    normalized: list[dict[str, object]] = []
+    for (instrument_id, date_value), (types, timings) in sorted(values_by_key.items()):
+        trade_date = _parse_date(date_value)
+        normalized.append(
+            {
+                "instrument_id": instrument_id,
+                "trade_date": trade_date,
+                "suspend_type": ";".join(sorted(types)),
+                "suspend_timing": ";".join(sorted(timings)) or None,
+                **_temporal_payload(
+                    _event_time(trade_date),
+                    _available_at(trade_date),
+                    spec.availability_policy_id,
+                ),
+            }
+        )
+    return _table(normalized, schemas["suspensions"])
+
+
 def normalize_tushare_tables(
     raw: Mapping[str, list[dict[str, str]]], spec: SnapshotBuildSpec
 ) -> dict[str, pa.Table]:
-    """Normalize provider-shaped rows shared by synthetic and future live acquisition."""
+    """Normalize provider rows into the historical index-union research scope.
+
+    Raw acquisition remains complete and immutable.  Canonical instrument-shaped
+    tables contain only securities that occur in the acquired index-membership
+    history, which prevents all-market daily endpoints (including Beijing Stock
+    Exchange rows) from silently widening the declared HS300 dataset.
+    """
+
+    if spec.normalizer_version != DEFAULT_NORMALIZER_VERSION:
+        raise SnapshotBuildError(
+            ReasonCode.SCHEMA_INVALID,
+            "snapshot spec does not select the supported normalizer version",
+        )
+
+    eligible_instruments = {row["con_code"] for row in raw["index_weight"] if row["con_code"]}
+    if not eligible_instruments or any(
+        not instrument.endswith((".SH", ".SZ")) for instrument in eligible_instruments
+    ):
+        raise SnapshotBuildError(
+            ReasonCode.SCHEMA_INVALID,
+            "index membership must define a nonempty SH/SZ historical instrument union",
+        )
 
     schemas = _schemas()
+    eligible_bar_pre_closes = {
+        (row["ts_code"], row["trade_date"]): row["pre_close"]
+        for row in raw["daily"]
+        if row["ts_code"] in eligible_instruments
+    }
     bars: list[dict[str, object]] = []
     for row in raw["daily"]:
+        if row["ts_code"] not in eligible_instruments:
+            continue
         trade_date = _parse_date(row["trade_date"])
         bars.append(
             {
@@ -356,6 +534,8 @@ def normalize_tushare_tables(
 
     factors: list[dict[str, object]] = []
     for row in raw["adj_factor"]:
+        if (row["ts_code"], row["trade_date"]) not in eligible_bar_pre_closes:
+            continue
         trade_date = _parse_date(row["trade_date"])
         factors.append(
             {
@@ -372,6 +552,8 @@ def normalize_tushare_tables(
 
     instruments: list[dict[str, object]] = []
     for row in raw["stock_basic"]:
+        if row["ts_code"] not in eligible_instruments:
+            continue
         instruments.append(
             {
                 "instrument_id": row["ts_code"],
@@ -423,45 +605,54 @@ def normalize_tushare_tables(
             }
         )
 
-    memberships: list[dict[str, object]] = []
     membership_dates = sorted({_parse_date(row["trade_date"]) for row in raw["index_weight"]})
+    available_from_by_date = {
+        effective_from: future_sessions[0]
+        for effective_from in membership_dates
+        if (future_sessions := [session for session in open_calendar if session > effective_from])
+    }
+    usable_membership_dates = sorted(available_from_by_date)
     effective_to_by_date: dict[date, date] = {}
-    for position, effective_from in enumerate(membership_dates):
-        if position + 1 < len(membership_dates):
-            next_effective = membership_dates[position + 1]
+    for position, source_date in enumerate(usable_membership_dates):
+        available_from = available_from_by_date[source_date]
+        if position + 1 < len(usable_membership_dates):
+            next_available = available_from_by_date[usable_membership_dates[position + 1]]
             prior_sessions = [
-                session for session in open_calendar if effective_from <= session < next_effective
+                session for session in open_calendar if available_from <= session < next_available
             ]
             if not prior_sessions:
                 raise SnapshotBuildError(
                     ReasonCode.SOURCE_INCOMPLETE,
                     "index membership snapshots do not resolve to a bounded trading interval",
                 )
-            effective_to_by_date[effective_from] = prior_sessions[-1]
+            effective_to_by_date[source_date] = prior_sessions[-1]
         else:
             final_sessions = [
-                session for session in open_calendar if effective_from <= session <= spec.end_date
+                session for session in open_calendar if available_from <= session <= spec.end_date
             ]
-            effective_to_by_date[effective_from] = (
-                final_sessions[-1] if final_sessions else spec.end_date
-            )
+            if not final_sessions:
+                raise SnapshotBuildError(
+                    ReasonCode.SOURCE_INCOMPLETE,
+                    "usable membership snapshot has no in-range trading interval",
+                )
+            effective_to_by_date[source_date] = final_sessions[-1]
+    memberships: list[dict[str, object]] = []
     for row in raw["index_weight"]:
-        effective_from = _parse_date(row["trade_date"])
-        future_sessions = [session for session in open_calendar if session > effective_from]
-        available_from = (
-            future_sessions[0] if future_sessions else effective_from + timedelta(days=1)
-        )
+        source_date = _parse_date(row["trade_date"])
+        available_from = available_from_by_date.get(source_date)
+        if available_from is None:
+            continue
         memberships.append(
             {
                 "index_id": row["index_code"],
                 "instrument_id": row["con_code"],
-                "trade_date": effective_from,
-                "effective_from": effective_from,
-                "effective_to": effective_to_by_date[effective_from],
+                "trade_date": source_date,
+                "effective_from": available_from,
+                "effective_to": effective_to_by_date[source_date],
                 "available_from": available_from,
                 "weight_percent": _parse_float(row["weight"], "weight"),
                 **_temporal_payload(
-                    _event_time(effective_from),
+                    _event_time(source_date),
                     datetime.combine(available_from, time(9, 0), tzinfo=SHANGHAI),
                     spec.availability_policy_id,
                 ),
@@ -471,6 +662,8 @@ def normalize_tushare_tables(
     def sparse(endpoint: str, source_name: str, canonical_name: str) -> list[dict[str, object]]:
         normalized: list[dict[str, object]] = []
         for row in raw[endpoint]:
+            if row["ts_code"] not in eligible_instruments:
+                continue
             trade_date = _parse_date(row["trade_date"])
             normalized.append(
                 {
@@ -488,12 +681,20 @@ def normalize_tushare_tables(
 
     limits: list[dict[str, object]] = []
     for row in raw["stk_limit"]:
+        key = (row["ts_code"], row["trade_date"])
+        if key not in eligible_bar_pre_closes:
+            continue
         trade_date = _parse_date(row["trade_date"])
+        # On 2024-07-23 Tushare returned empty stk_limit.pre_close values while
+        # publishing valid bounds. The same-key daily field is the identical
+        # concept: all 1,603,215 nonempty live pairs matched exactly. Raw evidence
+        # remains unchanged; only an empty value receives this deterministic fill.
+        pre_close = row["pre_close"] or eligible_bar_pre_closes[key]
         limits.append(
             {
                 "instrument_id": row["ts_code"],
                 "trade_date": trade_date,
-                "pre_close": _parse_float(row["pre_close"], "limit pre_close"),
+                "pre_close": _parse_float(pre_close, "limit pre_close"),
                 "up_limit": _parse_float(row["up_limit"], "up_limit"),
                 "down_limit": _parse_float(row["down_limit"], "down_limit"),
                 **_temporal_payload(
@@ -512,19 +713,10 @@ def normalize_tushare_tables(
         "benchmark_bars": _table(benchmarks, schemas["benchmark_bars"]),
         "index_membership": _table(memberships, schemas["index_membership"]),
         "st_status": _table(sparse("stock_st", "type", "type"), schemas["st_status"]),
-        "suspensions": _table(
-            [
-                {
-                    **item,
-                    "suspend_timing": raw_row["suspend_timing"] or None,
-                }
-                for item, raw_row in zip(
-                    sparse("suspend_d", "suspend_type", "suspend_type"),
-                    raw["suspend_d"],
-                    strict=True,
-                )
-            ],
-            schemas["suspensions"],
+        "suspensions": _normalize_suspension_rows(
+            [row for row in raw["suspend_d"] if row["ts_code"] in eligible_instruments],
+            spec,
+            schemas,
         ),
         "price_limits": _table(limits, schemas["price_limits"]),
     }
@@ -701,18 +893,26 @@ def evaluate_snapshot_quality(
         "sparse status rows use endpoint-specific allowed values",
     )
 
+    daily_pre_closes = {
+        (cast(str, row["instrument_id"]), cast(date, row["trade_date"])): cast(
+            float, row["pre_close"]
+        )
+        for row in bars
+    }
     limits_valid = all(
         0
         < cast(float, row["down_limit"])
         < cast(float, row["pre_close"])
         < cast(float, row["up_limit"])
+        and daily_pre_closes.get((cast(str, row["instrument_id"]), cast(date, row["trade_date"])))
+        == cast(float, row["pre_close"])
         for row in rows["price_limits"]
     )
     gates.check(
         DataQualityRule.PRICE_LIMIT_BOUNDS,
         limits_valid,
         len(rows["price_limits"]),
-        "price-limit bounds surround a positive pre-close",
+        "price-limit bounds surround a positive pre-close that matches the daily bar",
     )
 
     instruments = {cast(str, row["instrument_id"]) for row in rows["instruments"]}
@@ -834,23 +1034,427 @@ def evaluate_snapshot_quality(
 
     bar_keys = {(row["instrument_id"], row["trade_date"]) for row in bars}
     factor_keys = {(row["instrument_id"], row["trade_date"]) for row in factors}
+    eligible_instruments = {cast(str, row["instrument_id"]) for row in rows["instruments"]}
+    membership_keys = {
+        (item["index_id"], item["instrument_id"], item["trade_date"]) for item in memberships
+    }
+
+    def scoped_count(endpoint: str, instrument_field: str) -> int:
+        return sum(row[instrument_field] in eligible_instruments for row in raw[endpoint])
+
     reconciliation = (
-        len(raw["stock_basic"]) == len(rows["instruments"])
+        scoped_count("stock_basic", "ts_code") == len(rows["instruments"])
         and len(raw["trade_cal"]) == len(rows["calendar"])
-        and len(raw["daily"]) == len(bars)
-        and len(raw["adj_factor"]) == len(factors)
+        and scoped_count("daily", "ts_code") == len(bars)
+        and sum(
+            (row["ts_code"], _parse_date(row["trade_date"])) in bar_keys
+            for row in raw["adj_factor"]
+        )
+        == len(factors)
         and len(raw["index_daily"]) == len(benchmark_bars)
-        and len(raw["index_weight"]) == len(memberships)
-        and len(raw["stock_st"]) == len(rows["st_status"])
-        and len(raw["suspend_d"]) == len(rows["suspensions"])
-        and len(raw["stk_limit"]) == len(rows["price_limits"])
+        and sum(
+            (
+                row["index_code"],
+                row["con_code"],
+                _parse_date(row["trade_date"]),
+            )
+            in membership_keys
+            for row in raw["index_weight"]
+        )
+        == len(memberships)
+        and scoped_count("stock_st", "ts_code") == len(rows["st_status"])
+        and len(
+            {
+                (row["ts_code"], row["trade_date"])
+                for row in raw["suspend_d"]
+                if row["ts_code"] in eligible_instruments and row["suspend_type"] != "R"
+            }
+        )
+        == len(rows["suspensions"])
+        and sum(
+            (row["ts_code"], _parse_date(row["trade_date"])) in bar_keys for row in raw["stk_limit"]
+        )
+        == len(rows["price_limits"])
         and bar_keys == factor_keys
     )
     gates.check(
         DataQualityRule.RAW_CANONICAL_RECONCILIATION,
         reconciliation,
         sum(len(value) for value in raw.values()),
-        "raw endpoint rows reconcile to canonical rows",
+        "raw endpoint rows reconcile to the historical index-membership union canonical scope",
+        ReasonCode.SOURCE_INCOMPLETE,
+    )
+    results = tuple(gates.results)
+    return DataQualityReport(
+        policy_hash=policy.content_hash,
+        passed=all(result.passed for result in results),
+        gates=results,
+    )
+
+
+def _all_true(value: Any) -> bool:
+    if len(value) == 0:
+        return True
+    result = pc.all(pc.fill_null(value, False)).as_py()
+    return result is True
+
+
+def _table_primary_keys_unique(table: pa.Table, keys: Sequence[str]) -> bool:
+    return table.select(list(keys)).group_by(list(keys)).aggregate([]).num_rows == table.num_rows
+
+
+def evaluate_snapshot_quality_streaming(
+    reconciliation: RawCanonicalReconciliation,
+    tables: Mapping[str, pa.Table],
+    spec: SnapshotBuildSpec,
+    policy: DataQualityPolicy,
+) -> DataQualityReport:
+    """Evaluate the live-sized canonical tables without Python row materialization."""
+
+    gates = _Gates()
+    total_rows = sum(table.num_rows for table in tables.values())
+    gates.check(DataQualityRule.SCHEMA, True, total_rows, "all locked Arrow schemas constructed")
+
+    primary_keys = {
+        "instruments": ("instrument_id",),
+        "calendar": ("exchange", "trade_date"),
+        "bars": ("instrument_id", "trade_date"),
+        "adjustment_factors": ("instrument_id", "trade_date"),
+        "benchmark_bars": ("benchmark_id", "trade_date"),
+        "index_membership": ("index_id", "instrument_id", "trade_date"),
+        "st_status": ("instrument_id", "trade_date"),
+        "suspensions": ("instrument_id", "trade_date"),
+        "price_limits": ("instrument_id", "trade_date"),
+    }
+    unique = all(
+        _table_primary_keys_unique(tables[name], keys) for name, keys in primary_keys.items()
+    )
+    gates.check(
+        DataQualityRule.PRIMARY_KEY,
+        unique,
+        sum(tables[name].num_rows for name in primary_keys),
+        "endpoint primary keys are unique",
+    )
+
+    dated_tables = tuple(name for name in tables if name != "instruments")
+    in_range = True
+    dated_rows = 0
+    for name in dated_tables:
+        table = tables[name]
+        dated_rows += table.num_rows
+        if table.num_rows:
+            bounds = cast(dict[str, date], pc.min_max(table["trade_date"]).as_py())
+            in_range = in_range and (
+                spec.start_date <= bounds["min"] <= bounds["max"] <= spec.end_date
+            )
+    gates.check(DataQualityRule.DATE_RANGE, in_range, dated_rows, "all records are in build range")
+
+    temporal_tables = tuple(
+        name for name, table in tables.items() if "event_time" in table.column_names
+    )
+    temporal_order = True
+    temporal_rows = 0
+    for name in temporal_tables:
+        table = tables[name]
+        temporal_rows += table.num_rows
+        condition = pc.and_(
+            pc.and_(
+                pc.less_equal(table["event_time"], table["known_at"]),
+                pc.less_equal(table["known_at"], table["available_at"]),
+            ),
+            pc.and_(
+                pc.less_equal(table["event_time"], table["observed_at"]),
+                pc.and_(
+                    pc.not_equal(table["availability_basis"], pa.scalar("UNKNOWN")),
+                    pc.greater(pc.utf8_length(table["availability_policy_id"]), pa.scalar(0)),
+                ),
+            ),
+        )
+        temporal_order = temporal_order and _all_true(condition)
+    gates.check(
+        DataQualityRule.TEMPORAL_ORDER,
+        temporal_order,
+        temporal_rows,
+        "temporal order and availability evidence are valid",
+        ReasonCode.LOOK_AHEAD,
+    )
+
+    ohlc_valid = True
+    nonnegative = True
+    all_bar_rows = 0
+    for name in ("bars", "benchmark_bars"):
+        table = tables[name]
+        all_bar_rows += table.num_rows
+        lower = pc.min_element_wise(table["open"], table["close"])
+        upper = pc.max_element_wise(table["open"], table["close"])
+        ohlc_valid = ohlc_valid and _all_true(
+            pc.and_(
+                pc.and_(
+                    pc.less_equal(table["low"], lower),
+                    pc.less_equal(lower, upper),
+                ),
+                pc.and_(
+                    pc.less_equal(upper, table["high"]),
+                    pc.greater(table["pre_close"], pa.scalar(0.0)),
+                ),
+            )
+        )
+        nonnegative = nonnegative and _all_true(
+            pc.and_(
+                pc.greater_equal(table["volume_shares"], pa.scalar(0)),
+                pc.greater_equal(table["amount_cny"], pa.scalar(0.0)),
+            )
+        )
+    gates.check(DataQualityRule.OHLC, ohlc_valid, all_bar_rows, "OHLC bounds are valid")
+    gates.check(
+        DataQualityRule.NONNEGATIVE_TRADING_VALUES,
+        nonnegative,
+        all_bar_rows,
+        "volume and amount are nonnegative",
+    )
+
+    factors = tables["adjustment_factors"]
+    gates.check(
+        DataQualityRule.POSITIVE_ADJUSTMENT_FACTOR,
+        _all_true(pc.greater(factors["adjustment_factor"], pa.scalar(0.0))),
+        factors.num_rows,
+        "adjustment factors are positive",
+    )
+
+    memberships = tables["index_membership"]
+    totals = memberships.group_by(["index_id", "trade_date"]).aggregate([("weight_percent", "sum")])
+    weights_ok = totals.num_rows > 0 and _all_true(
+        pc.less_equal(
+            pc.abs(pc.subtract(totals["weight_percent_sum"], pa.scalar(policy.index_weight_total))),
+            pa.scalar(policy.index_weight_absolute_tolerance),
+        )
+    )
+    gates.check(
+        DataQualityRule.INDEX_WEIGHT_TOTAL,
+        weights_ok,
+        memberships.num_rows,
+        "index weights sum to policy target",
+        ReasonCode.SOURCE_INCOMPLETE,
+    )
+
+    membership_intervals: dict[tuple[str, str], list[tuple[date, date]]] = {}
+    for row in memberships.select(
+        ["index_id", "instrument_id", "effective_from", "effective_to"]
+    ).to_pylist():
+        key = (cast(str, row["index_id"]), cast(str, row["instrument_id"]))
+        membership_intervals.setdefault(key, []).append(
+            (cast(date, row["effective_from"]), cast(date, row["effective_to"]))
+        )
+    intervals_valid = bool(membership_intervals)
+    for intervals in membership_intervals.values():
+        ordered = sorted(intervals)
+        intervals_valid = intervals_valid and all(start <= end for start, end in ordered)
+        intervals_valid = intervals_valid and all(
+            left_end < right_start for (_, left_end), (right_start, _) in pairwise(ordered)
+        )
+    gates.check(
+        DataQualityRule.MEMBERSHIP_INTERVAL,
+        intervals_valid,
+        memberships.num_rows,
+        "membership intervals are ordered, bounded, and non-overlapping",
+        ReasonCode.SOURCE_INCOMPLETE,
+    )
+
+    st_status = tables["st_status"]
+    suspensions = tables["suspensions"]
+    statuses_valid = _all_true(
+        pc.is_in(st_status["type"], value_set=pa.array(policy.allowed_st_types))
+    ) and _all_true(
+        pc.is_in(
+            suspensions["suspend_type"],
+            value_set=pa.array(policy.allowed_suspend_types),
+        )
+    )
+    gates.check(
+        DataQualityRule.SPARSE_STATUS_SEMANTICS,
+        statuses_valid,
+        st_status.num_rows + suspensions.num_rows,
+        "sparse status rows use endpoint-specific allowed values",
+    )
+
+    limits = tables["price_limits"]
+    bar_pre_closes = tables["bars"].select(["instrument_id", "trade_date", "pre_close"])
+    bar_pre_closes = bar_pre_closes.rename_columns(
+        ["instrument_id", "trade_date", "daily_pre_close"]
+    )
+    limits_with_daily = limits.join(
+        bar_pre_closes,
+        keys=["instrument_id", "trade_date"],
+        join_type="inner",
+        use_threads=False,
+    )
+    limits_valid = limits_with_daily.num_rows == limits.num_rows and _all_true(
+        pc.and_(
+            pc.and_(
+                pc.greater(limits_with_daily["down_limit"], pa.scalar(0.0)),
+                pc.less(limits_with_daily["down_limit"], limits_with_daily["pre_close"]),
+            ),
+            pc.and_(
+                pc.less(limits_with_daily["pre_close"], limits_with_daily["up_limit"]),
+                pc.equal(limits_with_daily["pre_close"], limits_with_daily["daily_pre_close"]),
+            ),
+        )
+    )
+    gates.check(
+        DataQualityRule.PRICE_LIMIT_BOUNDS,
+        limits_valid,
+        limits.num_rows,
+        "price-limit bounds surround a positive pre-close that matches the daily bar",
+    )
+
+    instrument_table = tables["instruments"]
+    instrument_ids = instrument_table["instrument_id"]
+    referenced_tables = (
+        "bars",
+        "adjustment_factors",
+        "index_membership",
+        "st_status",
+        "suspensions",
+        "price_limits",
+    )
+    reference_valid = all(
+        _all_true(pc.is_in(tables[name]["instrument_id"], value_set=instrument_ids))
+        for name in referenced_tables
+    )
+    referenced_rows = sum(tables[name].num_rows for name in referenced_tables)
+    gates.check(
+        DataQualityRule.INSTRUMENT_REFERENCE,
+        reference_valid,
+        referenced_rows,
+        "all table instruments resolve to instruments.parquet",
+        ReasonCode.SOURCE_INCOMPLETE,
+    )
+
+    lifecycle_status_valid = _all_true(
+        pc.and_(
+            pc.is_in(instrument_table["list_status"], value_set=pa.array(["L", "D", "P"])),
+            pc.and_(
+                pc.or_kleene(
+                    pc.not_equal(instrument_table["list_status"], pa.scalar("D")),
+                    pc.is_valid(instrument_table["delist_date"]),
+                ),
+                pc.or_kleene(
+                    pc.not_equal(instrument_table["list_status"], pa.scalar("L")),
+                    pc.is_null(instrument_table["delist_date"]),
+                ),
+            ),
+        )
+    )
+    lifecycle_dates_valid = True
+    for name in referenced_tables:
+        table = tables[name]
+        indices = pc.index_in(table["instrument_id"], value_set=instrument_ids)
+        found = pc.is_valid(indices)
+        list_dates = pc.take(instrument_table["list_date"], indices)
+        delist_dates = pc.take(instrument_table["delist_date"], indices)
+        lifecycle_dates_valid = lifecycle_dates_valid and _all_true(
+            pc.and_(
+                found,
+                pc.and_(
+                    pc.less_equal(list_dates, table["trade_date"]),
+                    pc.or_kleene(
+                        pc.is_null(delist_dates),
+                        pc.less_equal(table["trade_date"], delist_dates),
+                    ),
+                ),
+            )
+        )
+    gates.check(
+        DataQualityRule.INSTRUMENT_LIFECYCLE,
+        lifecycle_status_valid and lifecycle_dates_valid,
+        instrument_table.num_rows + referenced_rows,
+        "market rows fall within explicit listing and delisting lifecycles",
+        ReasonCode.SOURCE_INCOMPLETE,
+    )
+
+    calendar = tables["calendar"]
+    open_calendar = calendar.filter(calendar["is_open"])
+    open_dates = {
+        exchange: pa.array(
+            sorted(
+                cast(date, row["trade_date"])
+                for row in open_calendar.select(["exchange", "trade_date"]).to_pylist()
+                if row["exchange"] == exchange
+            ),
+            type=pa.date32(),
+        )
+        for exchange in ("SSE", "SZSE")
+    }
+
+    def market_calendar_valid(table: pa.Table, id_field: str) -> bool:
+        identifiers = table[id_field]
+        dates = table["trade_date"]
+        return _all_true(
+            pc.or_(
+                pc.and_(
+                    pc.ends_with(identifiers, ".SH"),
+                    pc.is_in(dates, value_set=open_dates["SSE"]),
+                ),
+                pc.and_(
+                    pc.ends_with(identifiers, ".SZ"),
+                    pc.is_in(dates, value_set=open_dates["SZSE"]),
+                ),
+            )
+        )
+
+    market_rows = sum(
+        tables[name].num_rows
+        for name in (
+            "bars",
+            "adjustment_factors",
+            "benchmark_bars",
+            "st_status",
+            "suspensions",
+            "price_limits",
+        )
+    )
+    calendar_valid = all(
+        market_calendar_valid(
+            tables[name], "benchmark_id" if name == "benchmark_bars" else "instrument_id"
+        )
+        for name in (
+            "bars",
+            "adjustment_factors",
+            "benchmark_bars",
+            "st_status",
+            "suspensions",
+            "price_limits",
+        )
+    ) and market_calendar_valid(memberships, "index_id")
+    gates.check(
+        DataQualityRule.CALENDAR_REFERENCE,
+        calendar_valid,
+        market_rows + memberships.num_rows,
+        "all market records resolve to an open session on the owning exchange",
+        ReasonCode.SOURCE_INCOMPLETE,
+    )
+
+    benchmark_ids = tables["benchmark_bars"]["benchmark_id"]
+    gates.check(
+        DataQualityRule.INSTRUMENT_REFERENCE,
+        _all_true(pc.is_in(memberships["index_id"], value_set=benchmark_ids)),
+        memberships.num_rows,
+        "all index memberships resolve to benchmark_bars.parquet",
+        ReasonCode.SOURCE_INCOMPLETE,
+    )
+
+    actual_counts = {name: table.num_rows for name, table in tables.items()}
+    keys_match = (
+        tables["bars"]
+        .select(["instrument_id", "trade_date"])
+        .equals(tables["adjustment_factors"].select(["instrument_id", "trade_date"]))
+    )
+    counts_match = dict(reconciliation.expected_canonical_row_counts) == actual_counts
+    gates.check(
+        DataQualityRule.RAW_CANONICAL_RECONCILIATION,
+        counts_match and keys_match,
+        reconciliation.raw_row_count,
+        "raw endpoint rows reconcile to the historical index-membership union canonical scope",
         ReasonCode.SOURCE_INCOMPLETE,
     )
     results = tuple(gates.results)

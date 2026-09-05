@@ -120,6 +120,51 @@ def test_acquired_responses_publish_a_live_shaped_immutable_snapshot(tmp_path: P
     assert b"TUSHARE_TOKEN" not in payload
 
 
+def test_live_empty_limit_pre_close_uses_daily_value_and_keeps_raw_empty(
+    tmp_path: Path,
+) -> None:
+    spec = _spec()
+    sessions = [date(2024, 1, day) for day in range(2, 6)]
+    plan = plan_tushare_requests(spec, sessions)
+    client = FixtureClient()
+    mask = (client.frames["stk_limit"]["ts_code"] == "600000.SH") & (
+        client.frames["stk_limit"]["trade_date"] == "20240102"
+    )
+    client.frames["stk_limit"].loc[mask, "pre_close"] = ""
+    policy = TushareExecutionPolicy(
+        policy_id="fixture-unlimited/v1",
+        requests_per_minute=10_000,
+        max_attempts=1,
+        retry_min_seconds=0,
+        retry_max_seconds=0,
+    )
+    acquisition_root = tmp_path / "acquisition"
+    ledger = TusharePlanExecutor(
+        client, policy, limiter=UnlimitedLimiter(), now=FixedClock()
+    ).execute(plan, acquisition_root)
+
+    result = LiveTushareSnapshotBuilder().build(
+        spec, plan, ledger, acquisition_root, tmp_path / "snapshots"
+    )
+
+    canonical = pq.read_table(result.path / "canonical" / "price_limits.parquet")
+    row = next(item for item in canonical.to_pylist() if item["instrument_id"] == "600000.SH")
+    assert row["pre_close"] == 10.0
+    request = next(
+        item
+        for item in plan.requests
+        if item.endpoint == "stk_limit" and item.params["trade_date"] == "20240102"
+    )
+    raw = pq.read_table(
+        result.path
+        / "raw"
+        / "stk_limit"
+        / f"{request.sequence:06d}-sha256-{request.content_hash}.parquet"
+    )
+    raw_row = next(item for item in raw.to_pylist() if item["ts_code"] == "600000.SH")
+    assert raw_row["pre_close"] == ""
+
+
 def test_calendar_first_orchestration_reuses_verified_bootstrap_responses(
     tmp_path: Path,
 ) -> None:
@@ -141,3 +186,51 @@ def test_calendar_first_orchestration_reuses_verified_bootstrap_responses(
     expected_plan = plan_tushare_requests(spec, [date(2024, 1, day) for day in range(2, 6)])
     assert client.calls == len(expected_plan.requests)
     assert result.quality_report.passed
+
+
+def test_suspend_and_resume_events_share_raw_date_but_only_suspend_is_canonical(
+    tmp_path: Path,
+) -> None:
+    spec = _spec()
+    sessions = [date(2024, 1, day) for day in range(2, 6)]
+    plan = plan_tushare_requests(spec, sessions)
+    client = FixtureClient()
+    client.frames["suspend_d"] = pd.concat(
+        [
+            client.frames["suspend_d"],
+            pd.DataFrame(
+                [["000001.SZ", "20240103", "R", ""]],
+                columns=["ts_code", "trade_date", "suspend_type", "suspend_timing"],
+            ),
+        ],
+        ignore_index=True,
+    )
+    policy = TushareExecutionPolicy(
+        policy_id="fixture-unlimited/v1",
+        requests_per_minute=10_000,
+        max_attempts=1,
+        retry_min_seconds=0,
+        retry_max_seconds=0,
+    )
+    acquisition_root = tmp_path / "acquisition"
+    ledger = TusharePlanExecutor(
+        client, policy, limiter=UnlimitedLimiter(), now=FixedClock()
+    ).execute(plan, acquisition_root)
+
+    result = LiveTushareSnapshotBuilder().build(
+        spec, plan, ledger, acquisition_root, tmp_path / "snapshots"
+    )
+
+    canonical = pq.read_table(result.path / "canonical" / "suspensions.parquet")
+    assert canonical.select(["instrument_id", "trade_date", "suspend_type"]).to_pylist() == [
+        {
+            "instrument_id": "000001.SZ",
+            "trade_date": date(2024, 1, 3),
+            "suspend_type": "S",
+        }
+    ]
+    raw_suspend_rows = sum(
+        pq.read_table(path).num_rows
+        for path in (result.path / "raw" / "suspend_d").glob("*.parquet")
+    )
+    assert raw_suspend_rows == 2

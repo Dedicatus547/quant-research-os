@@ -16,5 +16,5 @@ required_endpoints:
   - stock_st
   - suspend_d
   - stk_limit
-normalizer_version: quantos-tushare-normalizer/v1
+normalizer_version: quantos-tushare-historical-index-union-normalizer/v2
 availability_policy_id: cn-daily-conservative/v1

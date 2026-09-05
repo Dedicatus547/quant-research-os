@@ -45,7 +45,7 @@ from quantos.contracts.research import (
     ThresholdComparison,
     ValidationPolicy,
 )
-from quantos.contracts.research_execution import PITAuditEvidenceCollection
+from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
 from quantos.contracts.signal import SignalArtifactManifest
 from quantos.contracts.snapshot import DataQualityReport, DataSnapshotManifest
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
@@ -64,6 +64,10 @@ from quantos.contracts.validation import (
 )
 from quantos.data import QlibViewBuildError, SnapshotBuildError, verify_qlib_view, verify_snapshot
 from quantos.research.qlib import QlibResearchError, verify_signal_artifact
+from quantos.research.qlib.pit_evidence import (
+    load_pit_artifact_evidence,
+    verify_compact_pit_evidence,
+)
 from quantos.validation.locators import ValidationRunLocators, VariantArtifactLocator
 
 _GATE_SEVERITY: Mapping[ValidationGateId, GateSeverity] = {
@@ -751,7 +755,7 @@ class ValidationService:
         path = state.locators.signal_path / "pit-evidence.json"
         reference = _file_ref("pit_evidence_collection", path)
         try:
-            evidence = PITAuditEvidenceCollection.model_validate_json(path.read_bytes())
+            evidence = load_pit_artifact_evidence(path)
         except (OSError, ValueError) as error:
             raise _GateRejected(
                 ReasonCode.ARTIFACT_CORRUPTED,
@@ -771,7 +775,19 @@ class ValidationService:
                 "PIT evidence does not match the resolved experiment",
                 (reference,),
             )
-        return _StageOutput("all member-by-member PIT and lineage audits passed", (reference,))
+        if isinstance(evidence, PITCrossSectionEvidenceCollection):
+            try:
+                verify_compact_pit_evidence(
+                    evidence,
+                    state.locators.snapshot_path,
+                    state.locators.qlib_view_path,
+                )
+            except QlibResearchError as error:
+                raise _GateRejected(error.reason_code, str(error), (reference,)) from error
+        return _StageOutput(
+            "complete PIT and lineage evidence passed and compact proofs reproduced",
+            (reference,),
+        )
 
     def _g3(self, state: _RunState) -> _StageOutput:
         if state.locators.signal_path is None:

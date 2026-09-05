@@ -59,12 +59,14 @@ retry_max_seconds: 8.0
 
 ```bash
 UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos snapshot build-tushare \
-  configs/tushare/snapshot.yaml execution-policy.yaml
+  configs/tushare/snapshot.yaml configs/tushare/execution_policy_20260904.yaml \
+  --quality-policy configs/tushare/data_quality_20260905.yaml
 ```
 
-It first checkpoints SSE/SZSE calendars, then builds the complete row-limit-safe plan. Tushare is
-used only during acquisition; normalization, DQ, publication, research, and PIT verification are
-offline.
+The quality policy is explicit so observed provider precision (for example rounded index-weight
+totals) is never handled by an unrecorded tolerance. The command first checkpoints SSE/SZSE
+calendars, then builds the complete row-limit-safe plan. Tushare is used only during acquisition;
+normalization, DQ, publication, research, and PIT verification are offline.
 
 Cache and verify the official Qlib tools omitted from the wheel, then run the offline spike:
 
@@ -218,8 +220,20 @@ tests, and a two-run native-Qlib synthetic Release E2E.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
 [`docs/feasibility/qlib-0.9.7.md`](docs/feasibility/qlib-0.9.7.md).
 
-The token is configured and the bounded capability probe has run, but the account was denied the
-required `index_weight` endpoint; live release is therefore hard-blocked pending account access and
-an account-qualified rate policy. The locked Qlib source cache, clean-checkout provenance gate, and
-current synthetic derived view are verified. The complete live snapshot and Data-qualified release
-rerun remain blocked.
+The 2026-09-05 bounded capability probe confirmed all 12 probed endpoints, including
+`index_weight` and `stock_st`. The account-qualified execution policy is fixed at the verified
+official 200 requests/minute tier. All 13,614 acquisition requests completed on the first attempt;
+the immutable snapshot `6297a968...e3dd9` passed all 16 DQ gates, and its official Qlib 0.9.7 view
+`fc809bed...85716b` passed the health check, exact-file verification, and all 668 semantic samples.
+The normalizer preserves raw provider values, fills only empty `stk_limit.pre_close` values from the
+identical same-key `daily.pre_close`, and rejects nonempty cross-endpoint mismatches. Qlib semantic
+readback is checked exactly against the official converter's binary32 representation. The remaining
+Data-qualified work is the clean-checkout P3-P7 double run.
+
+After the implementation is frozen in a clean Git checkout, the complete P3-P7 qualification is
+invoked with the explicit content-addressed snapshot:
+
+```bash
+UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos release data-qualified \
+  artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9
+```

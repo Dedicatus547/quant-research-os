@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import json
 from datetime import datetime
 from pathlib import Path
+from struct import pack, unpack
 from subprocess import CompletedProcess
 from zoneinfo import ZoneInfo
 
@@ -23,7 +25,9 @@ from quantos.integrations.qlib import QLIB_COMMIT, QLIB_VERSION, OfficialQlibToo
 from quantos.research.qlib import (
     FactorSignalArtifactBuilder,
     QlibResearchError,
+    build_compact_pit_evidence_collection,
     build_pit_evidence_collection,
+    verify_compact_pit_evidence,
     verify_signal_artifact,
 )
 
@@ -68,8 +72,19 @@ def _build_view(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[object
         if "check_data" in command:
             return CompletedProcess(command, 0, stdout="healthy")
         if "-c" in command:
-            values = {"SZ000001": 12.1, "SH000300": 3320.0, "SH600000": 10.2}
-            return CompletedProcess(command, 0, stdout=f"QUANTOS_SAMPLE={values[command[-2]]}\n")
+            values = {
+                key: unpack("<f", pack("<f", value))[0]
+                for key, value in {
+                    "SZ000001": 12.1,
+                    "SH000300": 3320.0,
+                    "SH600000": 10.2,
+                }.items()
+            }
+            requests = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
+            actual = {item["qlib_id"]: values[item["qlib_id"]] for item in requests}
+            return CompletedProcess(
+                command, 0, stdout=f"QUANTOS_SAMPLES={json.dumps(actual, sort_keys=True)}\n"
+            )
         raise AssertionError(f"unexpected command: {command}")
 
     monkeypatch.setattr(qlib_view, "run_checked", fake_run)
@@ -168,6 +183,7 @@ def test_factor_signal_artifact_is_pit_bound_immutable_and_idempotent(
             "decision_time": _schedule().decision_time,
             "available_at": datetime(2024, 1, 5, 15, 31, tzinfo=SHANGHAI),
             "score": 0.025,
+            "score_valid": True,
             "tradable": True,
         }
     ]
@@ -178,7 +194,47 @@ def test_factor_signal_artifact_is_pit_bound_immutable_and_idempotent(
     assert corrupted.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
 
 
-def test_signal_build_rejects_incomplete_qlib_output_and_unbound_pit_pair(
+def test_compact_pit_evidence_recomputes_and_builds_the_same_signal_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot, view = _build_view(tmp_path, monkeypatch)
+    _, provisional = _evidence_and_resolved(snapshot, view)
+    compact = build_compact_pit_evidence_collection(
+        snapshot.path,
+        view.path,
+        expected_snapshot_hash=snapshot.manifest.snapshot_hash,
+        expected_view_hash=view.manifest.view_hash,
+        universe_index=provisional.strategy.universe_index,
+        expression=provisional.expression,
+        operator_delays=(
+            OperatorDelayPolicy(
+                policy_id="qlib-return-delay-60s/v1",
+                operator="return",
+                delay_seconds=60,
+            ),
+        ),
+        schedules=(_schedule(),),
+    )
+    verify_compact_pit_evidence(compact, snapshot.path, view.path)
+    resolved = provisional.model_copy(update={"pit_audit_evidence_hash": compact.content_hash})
+    monkeypatch.setattr(
+        SIGNAL_MODULE,
+        "_execute_expression",
+        lambda *_args, **_kwargs: {"SZ000001": 0.025},
+    )
+    monkeypatch.setattr(SIGNAL_MODULE, "verify_code_provenance", lambda *_args, **_kwargs: None)
+
+    result = FactorSignalArtifactBuilder().build(
+        resolved, compact, view.path, tmp_path / "compact-signals"
+    )
+
+    assert verify_signal_artifact(result.path) == result.manifest
+    assert compact.bundles[0].members == ("000001.SZ",)
+    assert all(item.missing_row_count == 0 for item in compact.bundles[0].source_sets)
+    assert pq.read_table(result.path / "signals.parquet").num_rows == 1
+
+
+def test_signal_build_retains_invalid_qlib_output_and_rejects_unbound_pit_pair(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     snapshot, view = _build_view(tmp_path, monkeypatch)
@@ -186,9 +242,12 @@ def test_signal_build_rejects_incomplete_qlib_output_and_unbound_pit_pair(
     monkeypatch.setattr(SIGNAL_MODULE, "_execute_expression", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(SIGNAL_MODULE, "verify_code_provenance", lambda *_args, **_kwargs: None)
 
-    with pytest.raises(QlibResearchError) as failed:
-        FactorSignalArtifactBuilder().build(resolved, evidence, view.path, tmp_path / "signals")
-    assert failed.value.reason_code is ReasonCode.QLIB_EXECUTION_FAILED
+    result = FactorSignalArtifactBuilder().build(
+        resolved, evidence, view.path, tmp_path / "signals"
+    )
+    rows = pq.read_table(result.path / "signals.parquet").to_pylist()
+    assert rows[0]["score"] is None
+    assert rows[0]["score_valid"] is False
 
     item = evidence.bundles[0].items[0]
     changed_request = item.request.model_copy(update={"instrument_id": "600000.SH"})

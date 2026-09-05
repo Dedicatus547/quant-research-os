@@ -21,7 +21,7 @@ from quantos.contracts.research import (
     ResolvedExperimentSpec,
     ValidationPolicy,
 )
-from quantos.contracts.snapshot import SnapshotBuildSpec
+from quantos.contracts.snapshot import DataQualityPolicy, SnapshotBuildSpec
 from quantos.data import (
     QlibViewBuilder,
     QlibViewBuildError,
@@ -32,6 +32,7 @@ from quantos.data import (
 )
 from quantos.data.tushare import (
     LiveTushareAcquisitionService,
+    LiveTushareSnapshotBuilder,
     TushareAcquisitionError,
     TushareExecutionPolicy,
     TusharePlanExecutor,
@@ -47,6 +48,7 @@ pit_app = typer.Typer(no_args_is_help=True)
 backtest_app = typer.Typer(no_args_is_help=True)
 experiment_app = typer.Typer(no_args_is_help=True)
 registry_app = typer.Typer(no_args_is_help=True)
+release_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tushare_app, name="tushare")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(qlib_app, name="qlib")
@@ -54,6 +56,7 @@ app.add_typer(pit_app, name="pit")
 app.add_typer(backtest_app, name="backtest")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(registry_app, name="registry")
+app.add_typer(release_app, name="release")
 
 
 @app.command()
@@ -151,6 +154,16 @@ def build_tushare_snapshot(
     execution_policy_path: Annotated[
         Path, typer.Argument(exists=True, dir_okay=False, readable=True)
     ],
+    quality_policy_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--quality-policy",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="Optional explicit live-data quality policy.",
+        ),
+    ] = None,
     acquisition_root: Annotated[
         Path,
         typer.Option(
@@ -181,6 +194,11 @@ def build_tushare_snapshot(
     try:
         spec = load_yaml_contract(spec_path, SnapshotBuildSpec)
         policy = load_yaml_contract(execution_policy_path, TushareExecutionPolicy)
+        quality_policy = (
+            load_yaml_contract(quality_policy_path, DataQualityPolicy)
+            if quality_policy_path is not None
+            else DataQualityPolicy(policy_id="default-live-tushare-dq/v1")
+        )
         acquisition_hash = sha256_bytes(
             canonical_json_bytes(
                 {
@@ -204,7 +222,9 @@ def build_tushare_snapshot(
     try:
         source = TushareSnapshotSource(os.environ["TUSHARE_TOKEN"])
         executor = TusharePlanExecutor(source.client, policy)
-        result = LiveTushareAcquisitionService(executor).acquire_and_build(
+        result = LiveTushareAcquisitionService(
+            executor, LiveTushareSnapshotBuilder(quality_policy)
+        ).acquire_and_build(
             spec,
             acquisition_root / f"sha256-{acquisition_hash}",
             output_root,
@@ -491,6 +511,78 @@ def verify_reference_backtest(
             sort_keys=True,
         )
     )
+
+
+@release_app.command("data-qualified")
+def data_qualified_release(
+    snapshot_path: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+    qlib_source: Annotated[
+        Path,
+        typer.Option("--qlib-source", exists=True, file_okay=False, readable=True),
+    ] = Path(".tools/qlib-0.9.7"),
+    output_root: Annotated[
+        Path,
+        typer.Option(
+            "--output-root",
+            file_okay=False,
+            help="Root for two independent immutable Data-qualified pipelines.",
+        ),
+    ] = Path("artifacts/releases/data-qualified-v0.1"),
+    workspace: Annotated[
+        Path,
+        typer.Option("--workspace", exists=True, file_okay=False, readable=True),
+    ] = Path("."),
+    authoring_path: Annotated[
+        Path, typer.Option("--authoring", exists=True, dir_okay=False, readable=True)
+    ] = Path("configs/research/hs300_momentum_v1.yaml"),
+    research_policy_path: Annotated[
+        Path,
+        typer.Option("--research-policy", exists=True, dir_okay=False, readable=True),
+    ] = Path("configs/research/policy_v1.yaml"),
+    validation_policy_path: Annotated[
+        Path,
+        typer.Option("--validation-policy", exists=True, dir_okay=False, readable=True),
+    ] = Path("configs/validation/research_candidate_v1.yaml"),
+    cost_policy_path: Annotated[
+        Path,
+        typer.Option("--cost-policy", exists=True, dir_okay=False, readable=True),
+    ] = Path("configs/backtest/cost_v1.yaml"),
+    backtest_policy_path: Annotated[
+        Path,
+        typer.Option("--backtest-policy", exists=True, dir_okay=False, readable=True),
+    ] = Path("configs/backtest/policy_v1.yaml"),
+    strategy_id: Annotated[str, typer.Option("--strategy-id")] = "hs300-momentum",
+) -> None:
+    """Run P3-P7 twice from one explicit real Tushare snapshot."""
+
+    from quantos.application.data_qualified_release import run_data_qualified_release
+
+    try:
+        report = run_data_qualified_release(
+            snapshot_path=snapshot_path,
+            qlib_source=qlib_source,
+            output_root=output_root,
+            workspace=workspace,
+            authoring=load_yaml_contract(authoring_path, ExperimentAuthoringSpec),
+            research_policy=load_yaml_contract(research_policy_path, ResearchPolicy),
+            validation_policy=load_yaml_contract(validation_policy_path, ValidationPolicy),
+            base_cost=load_yaml_contract(cost_policy_path, CostPolicy),
+            backtest_policy=load_yaml_contract(backtest_policy_path, BacktestPolicy),
+            strategy_id=strategy_id,
+        )
+    except Exception as error:
+        typer.echo(
+            json.dumps(
+                {
+                    "status": "FAILED",
+                    "reason_code": getattr(error, "reason_code", "SOURCE_INCOMPLETE"),
+                    "detail": str(error),
+                },
+                sort_keys=True,
+            )
+        )
+        raise typer.Exit(code=19) from error
+    typer.echo(json.dumps(report, sort_keys=True))
 
 
 @experiment_app.command("run")

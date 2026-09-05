@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
@@ -177,7 +178,7 @@ _ENDPOINT_FIELDS: Mapping[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "stock_st": (("ts_code", "trade_date", "type"), ("ts_code", "trade_date")),
     "suspend_d": (
         ("ts_code", "trade_date", "suspend_type", "suspend_timing"),
-        ("ts_code", "trade_date"),
+        ("ts_code", "trade_date", "suspend_type", "suspend_timing"),
     ),
     "stk_limit": (
         ("ts_code", "trade_date", "pre_close", "up_limit", "down_limit"),
@@ -315,6 +316,35 @@ def _validate_frame(request: TushareRequest, frame: pd.DataFrame) -> None:
         raise TushareAcquisitionError(
             ReasonCode.SCHEMA_INVALID, "provider response contains duplicate primary keys"
         )
+    for field in request.primary_key:
+        requested_value = request.params.get(field)
+        if requested_value is not None and not frame.empty:
+            returned = {str(value) for value in frame[field].tolist()}
+            if returned != {requested_value}:
+                raise TushareAcquisitionError(
+                    ReasonCode.SCHEMA_INVALID,
+                    "provider response repeats a primary key across request chunks",
+                )
+    date_field = next(
+        (field for field in ("trade_date", "cal_date") if field in request.primary_key),
+        None,
+    )
+    if (
+        date_field is not None
+        and "start_date" in request.params
+        and "end_date" in request.params
+        and not frame.empty
+    ):
+        returned_dates = frame[date_field].astype(str)
+        if not bool(
+            returned_dates.between(
+                request.params["start_date"], request.params["end_date"], inclusive="both"
+            ).all()
+        ):
+            raise TushareAcquisitionError(
+                ReasonCode.SCHEMA_INVALID,
+                "provider response repeats a primary key across request chunks",
+            )
 
 
 class TusharePlanExecutor:
@@ -338,18 +368,37 @@ class TusharePlanExecutor:
 
     def execute(self, plan: TushareRequestPlan, staging_root: Path) -> TushareRequestLedger:
         checkpoints_root = staging_root / "checkpoints"
-        entries: list[RequestLedgerEntry] = []
+        entries_by_sequence: dict[int, RequestLedgerEntry] = {}
+        pending: list[TushareRequest] = []
         for request in plan.requests:
             response_relative = Path("raw-requests") / f"sha256-{request.content_hash}.parquet"
             response_path = staging_root / response_relative
             checkpoint_path = checkpoints_root / f"sha256-{request.content_hash}.json"
             reused = self._load_checkpoint(request, response_path, checkpoint_path)
             if reused is not None:
-                entries.append(reused)
-                continue
-            entries.append(
-                self._execute_one(request, response_relative, response_path, checkpoint_path)
+                entries_by_sequence[request.sequence] = reused
+            else:
+                pending.append(request)
+
+        def execute_pending(request: TushareRequest) -> RequestLedgerEntry:
+            response_relative = Path("raw-requests") / f"sha256-{request.content_hash}.parquet"
+            return self._execute_one(
+                request,
+                response_relative,
+                staging_root / response_relative,
+                checkpoints_root / f"sha256-{request.content_hash}.json",
             )
+
+        workers = min(4, max(1, self._policy.requests_per_minute // 60))
+        with ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="tushare-acquisition"
+        ) as pool:
+            for offset in range(0, len(pending), workers):
+                batch = pending[offset : offset + workers]
+                futures = [pool.submit(execute_pending, request) for request in batch]
+                for request, future in zip(batch, futures, strict=True):
+                    entries_by_sequence[request.sequence] = future.result()
+        entries = [entries_by_sequence[request.sequence] for request in plan.requests]
         self._validate_cross_request_primary_keys(plan, staging_root)
         ledger = TushareRequestLedger(
             plan_hash=plan.content_hash,
@@ -364,8 +413,40 @@ class TusharePlanExecutor:
 
     @staticmethod
     def _validate_cross_request_primary_keys(plan: TushareRequestPlan, staging_root: Path) -> None:
+        partitions: set[tuple[str, str, str]] = set()
+        date_ranges: dict[str, list[tuple[str, str]]] = {}
         seen: dict[str, set[tuple[object, ...]]] = {}
         for request in plan.requests:
+            partition: tuple[str, str, str] | None = None
+            if "exchange" in request.primary_key and "exchange" in request.params:
+                partition = (request.endpoint, "exchange", request.params["exchange"])
+            elif "trade_date" in request.primary_key and "trade_date" in request.params:
+                partition = (request.endpoint, "trade_date", request.params["trade_date"])
+            if partition is not None:
+                if partition in partitions:
+                    raise TushareAcquisitionError(
+                        ReasonCode.SCHEMA_INVALID,
+                        "request plan repeats a primary-key partition",
+                    )
+                partitions.add(partition)
+                continue
+            if (
+                "trade_date" in request.primary_key
+                and "start_date" in request.params
+                and "end_date" in request.params
+            ):
+                candidate = (request.params["start_date"], request.params["end_date"])
+                ranges = date_ranges.setdefault(request.endpoint, [])
+                if any(
+                    not (candidate[1] < existing[0] or existing[1] < candidate[0])
+                    for existing in ranges
+                ):
+                    raise TushareAcquisitionError(
+                        ReasonCode.SCHEMA_INVALID,
+                        "request plan has overlapping primary-key date partitions",
+                    )
+                ranges.append(candidate)
+                continue
             response_path = staging_root / "raw-requests" / f"sha256-{request.content_hash}.parquet"
             table = pq.read_table(response_path)  # pyright: ignore[reportUnknownMemberType]
             endpoint_keys = seen.setdefault(request.endpoint, set())
@@ -396,6 +477,11 @@ class TusharePlanExecutor:
             if (
                 tuple(table.column_names) != request.fields
                 or table.num_rows != entry.response_row_count
+                or table.select(list(request.primary_key))
+                .group_by(list(request.primary_key))
+                .aggregate([])
+                .num_rows
+                != table.num_rows
             ):
                 raise ValueError("response metadata mismatch")
         except (OSError, ValueError, ArtifactIntegrityError):
@@ -441,6 +527,9 @@ class TusharePlanExecutor:
             )
             frame = retryer(query)
             _validate_frame(request, frame)
+            frame = frame.sort_values(list(request.primary_key), kind="mergesort").reset_index(
+                drop=True
+            )
         except TushareAcquisitionError:
             raise
         except Exception:
@@ -470,21 +559,26 @@ class TusharePlanExecutor:
         return entry
 
 
-def load_acquired_rows(
+def iter_acquired_response_tables(
     plan: TushareRequestPlan,
     ledger: TushareRequestLedger,
     acquisition_root: Path,
-) -> dict[str, list[dict[str, str]]]:
-    """Verify all request payloads and reconstruct provider-shaped endpoint rows."""
+    *,
+    endpoints: frozenset[str] | None = None,
+) -> Iterator[tuple[TushareRequest, RequestLedgerEntry, pa.Table]]:
+    """Yield verified response tables without materializing the complete acquisition."""
 
     if ledger.plan_hash != plan.content_hash or len(ledger.entries) != len(plan.requests):
         raise TushareAcquisitionError(
             ReasonCode.SOURCE_INCOMPLETE, "request ledger does not cover the locked plan"
         )
-    rows_by_endpoint: dict[str, list[dict[str, str]]] = {
-        endpoint: [] for endpoint in sorted({item.endpoint for item in plan.requests})
-    }
-    primary_keys: dict[str, tuple[str, ...]] = {}
+    available_endpoints = {item.endpoint for item in plan.requests}
+    selected_endpoints = endpoints or frozenset(available_endpoints)
+    if not selected_endpoints <= available_endpoints:
+        raise TushareAcquisitionError(
+            ReasonCode.SOURCE_INCOMPLETE,
+            "requested endpoint subset is absent from the acquisition plan",
+        )
     for request, entry in zip(plan.requests, ledger.entries, strict=True):
         if (
             entry.request_hash != request.content_hash
@@ -496,6 +590,8 @@ def load_acquired_rows(
             raise TushareAcquisitionError(
                 ReasonCode.SOURCE_INCOMPLETE, "request ledger entry differs from the locked plan"
             )
+        if request.endpoint not in selected_endpoints:
+            continue
         path = acquisition_root / entry.response_logical_path
         try:
             verify_file(path, entry.response_sha256)
@@ -511,11 +607,28 @@ def load_acquired_rows(
             raise TushareAcquisitionError(
                 ReasonCode.SCHEMA_INVALID, "acquired response metadata differs from request ledger"
             )
+        yield request, entry, table
+
+
+def load_acquired_rows(
+    plan: TushareRequestPlan,
+    ledger: TushareRequestLedger,
+    acquisition_root: Path,
+    *,
+    endpoints: frozenset[str] | None = None,
+) -> dict[str, list[dict[str, str]]]:
+    """Verify and materialize only the selected provider-shaped endpoint rows."""
+
+    selected_endpoints = endpoints or frozenset(item.endpoint for item in plan.requests)
+    rows_by_endpoint: dict[str, list[dict[str, str]]] = {
+        endpoint: [] for endpoint in sorted(selected_endpoints)
+    }
+    primary_keys: dict[str, tuple[str, ...]] = {}
+    for request, _entry, table in iter_acquired_response_tables(
+        plan, ledger, acquisition_root, endpoints=selected_endpoints
+    ):
         primary_keys[request.endpoint] = request.primary_key
-        rows_by_endpoint[request.endpoint].extend(
-            {field: _provider_string(row[field]) for field in request.fields}
-            for row in table.to_pylist()
-        )
+        rows_by_endpoint[request.endpoint].extend(provider_table_rows(request, table))
     for endpoint, rows in rows_by_endpoint.items():
         keys = primary_keys[endpoint]
         rows.sort(key=lambda row: tuple(row[field] for field in keys))
@@ -526,6 +639,15 @@ def load_acquired_rows(
                 "acquired endpoint contains duplicate primary keys after materialization",
             )
     return rows_by_endpoint
+
+
+def provider_table_rows(request: TushareRequest, table: pa.Table) -> tuple[dict[str, str], ...]:
+    """Convert one bounded provider response to its locked string representation."""
+
+    return tuple(
+        {field: _provider_string(row[field]) for field in request.fields}
+        for row in table.to_pylist()
+    )
 
 
 def request_ledger_table(ledger: TushareRequestLedger) -> pa.Table:

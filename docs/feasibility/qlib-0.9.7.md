@@ -115,11 +115,16 @@ golden cases.
 5. Qlib imports legacy `gym` 0.26.2, which emits an upstream NumPy 2.x maintenance warning. The
    tested research/backtest path passed; RL modules remain out of scope.
 
-## Environment blockers observed
+## Current environment qualifications
 
-- The workspace is not a usable Git repository. A normal writable checkout is required for
-  canonical Git fingerprinting.
-- `TUSHARE_TOKEN` is configured. The bounded live probe ran, but required `index_weight` was
-  `PERMISSION_DENIED`; a live release is therefore hard-blocked without expanded account access.
+- The workspace is a usable Git repository, but the first-stage implementation changes are not yet
+  frozen in a clean commit. Canonical experiment publication continues to fail closed on a dirty
+  checkout.
+- `TUSHARE_TOKEN` is configured. The 2026-09-05 bounded probe confirmed all 12/12 probed endpoints,
+  including `index_weight` and `stock_st`. All 13,614 snapshot requests completed on the first
+  attempt under the explicit 200 requests/minute policy; live snapshot
+  `6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9` passed 16/16 DQ gates.
 - `.tools/qlib-0.9.7` is present and verified at the locked commit with a clean tracked tree and
-  matching official script blobs.
+  matching official script blobs. Live derived view
+  `fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b` passed the official health
+  check and 668/668 exact binary32 readback samples.

@@ -22,7 +22,7 @@ from quantos.contracts.refs import ArtifactRef
 from quantos.contracts.research import ExperimentAuthoringSpec
 from quantos.contracts.status import ReasonCode
 from quantos.contracts.temporal import DecisionSchedule
-from quantos.data.snapshot import SyntheticSnapshotBuilder
+from quantos.data.snapshot import SnapshotBuildError, SyntheticSnapshotBuilder
 from quantos.research.qlib import QlibResearchError
 from quantos.validation import ValidationError
 
@@ -88,6 +88,89 @@ def test_live_snapshot_cli_blocks_without_token_and_suppresses_invalid_config(
     assert invalid.exit_code == 5
     assert json.loads(invalid.stdout)["reason_code"] == "SCHEMA_INVALID"
     assert secret not in invalid.stdout
+
+
+def test_live_snapshot_cli_loads_explicit_quality_policy_and_reports_hash(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    snapshot_hash = "a" * 64
+    quality_hash = "b" * 64
+    captured: dict[str, object] = {}
+
+    class Source:
+        def __init__(self, token: str) -> None:
+            assert token == "configured-but-never-printed"
+            self.client = object()
+
+    class Executor:
+        def __init__(self, client: object, policy: object) -> None:
+            captured["client"] = client
+            captured["execution_policy"] = policy
+
+    class Builder:
+        def __init__(self, policy: object) -> None:
+            captured["quality_policy"] = policy
+
+    class Service:
+        def __init__(self, executor: object, builder: object) -> None:
+            captured["executor"] = executor
+            captured["builder"] = builder
+
+        def acquire_and_build(self, *_args: object) -> object:
+            return SimpleNamespace(
+                reference=SimpleNamespace(
+                    model_dump=lambda **_kwargs: {
+                        "sha256": snapshot_hash,
+                        "kind": "data_snapshot",
+                    }
+                ),
+                quality_report=SimpleNamespace(content_hash=quality_hash),
+            )
+
+    monkeypatch.setenv("TUSHARE_TOKEN", "configured-but-never-printed")
+    monkeypatch.setattr("quantos.cli.TushareSnapshotSource", Source)
+    monkeypatch.setattr("quantos.cli.TusharePlanExecutor", Executor)
+    monkeypatch.setattr("quantos.cli.LiveTushareSnapshotBuilder", Builder)
+    monkeypatch.setattr("quantos.cli.LiveTushareAcquisitionService", Service)
+    arguments = [
+        "snapshot",
+        "build-tushare",
+        str(ROOT / "configs" / "tushare" / "snapshot.yaml"),
+        str(ROOT / "configs" / "tushare" / "execution_policy_20260904.yaml"),
+        "--quality-policy",
+        str(ROOT / "configs" / "tushare" / "data_quality_20260905.yaml"),
+        "--acquisition-root",
+        str(tmp_path / "acquisition"),
+        "--output-root",
+        str(tmp_path / "snapshots"),
+    ]
+    runner = CliRunner()
+    result = runner.invoke(app, arguments)
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["snapshot"]["sha256"] == snapshot_hash
+    assert json.loads(result.stdout)["quality_report_hash"] == quality_hash
+    assert captured["quality_policy"].index_weight_absolute_tolerance == 0.15
+    assert "configured-but-never-printed" not in result.stdout
+
+    class RejectedService(Service):
+        def acquire_and_build(self, *_args: object) -> object:
+            raise SnapshotBuildError(ReasonCode.SOURCE_INCOMPLETE, "quality rejected")
+
+    monkeypatch.setattr("quantos.cli.LiveTushareAcquisitionService", RejectedService)
+    rejected = runner.invoke(app, arguments)
+    assert rejected.exit_code == 5
+    assert json.loads(rejected.stdout)["reason_code"] == "SOURCE_INCOMPLETE"
+
+    class UnexpectedService(Service):
+        def acquire_and_build(self, *_args: object) -> object:
+            raise RuntimeError("private provider detail")
+
+    monkeypatch.setattr("quantos.cli.LiveTushareAcquisitionService", UnexpectedService)
+    unexpected = runner.invoke(app, arguments)
+    assert unexpected.exit_code == 5
+    assert json.loads(unexpected.stdout)["reason_code"] == "SOURCE_INCOMPLETE"
+    assert "private provider detail" not in unexpected.stdout
 
 
 def _pit_request(snapshot_hash: str, *, signal_hour: int = 16) -> CanonicalPITAuditRequest:
@@ -300,6 +383,39 @@ def test_backtest_cli_reports_invalid_input_and_stable_execution_failure(
     )
     assert failed.exit_code == 12
     assert json.loads(failed.stdout)["reason_code"] == "QLIB_EXECUTION_FAILED"
+
+
+def test_data_qualified_release_cli_loads_locked_configs_and_reports_result(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    snapshot_path = tmp_path / f"sha256-{'a' * 64}"
+    snapshot_path.mkdir()
+    expected = {
+        "schema_version": "data-qualified-release-report/v1",
+        "status": "PASS",
+        "data_qualified": True,
+        "validation_verdict": "REJECT",
+    }
+    monkeypatch.setattr(
+        "quantos.application.data_qualified_release.run_data_qualified_release",
+        lambda **_kwargs: expected,
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "release",
+            "data-qualified",
+            str(snapshot_path),
+            "--qlib-source",
+            str(ROOT / ".tools" / "qlib-0.9.7"),
+            "--output-root",
+            str(tmp_path / "release"),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == expected
 
 
 def _validation_locator_yaml(tmp_path: Path) -> Path:

@@ -39,11 +39,12 @@ from quantos.contracts.cost import BacktestPolicy, CostPolicy
 from quantos.contracts.qlib_view import QlibViewSpec
 from quantos.contracts.refs import ArtifactRef
 from quantos.contracts.research import ResolvedExperimentSpec
-from quantos.contracts.research_execution import PITAuditEvidenceCollection
+from quantos.contracts.research_execution import PITArtifactEvidence
 from quantos.contracts.signal import SignalRow
 from quantos.contracts.status import ReasonCode
 from quantos.contracts.temporal import DecisionSchedule
 from quantos.data.qlib_view import QlibViewBuildError, verify_qlib_view
+from quantos.research.qlib.pit_evidence import load_pit_artifact_evidence
 from quantos.research.qlib.signal import verify_signal_artifact
 from quantos.research.qlib.universe import QlibResearchError
 
@@ -618,14 +619,12 @@ def translate_backtest_config_schedule_hash(schedules: Sequence[DecisionSchedule
 
 def _read_signal_inputs(
     signal_path: Path,
-) -> tuple[ResolvedExperimentSpec, PITAuditEvidenceCollection, tuple[SignalRow, ...]]:
+) -> tuple[ResolvedExperimentSpec, PITArtifactEvidence, tuple[SignalRow, ...]]:
     try:
         resolved = ResolvedExperimentSpec.model_validate_json(
             (signal_path / "resolved-experiment.json").read_bytes()
         )
-        evidence = PITAuditEvidenceCollection.model_validate_json(
-            (signal_path / "pit-evidence.json").read_bytes()
-        )
+        evidence = load_pit_artifact_evidence(signal_path / "pit-evidence.json")
         rows = tuple(
             SignalRow.model_validate(row)
             for row in pq.read_table(  # pyright: ignore[reportUnknownMemberType]
@@ -704,7 +703,7 @@ def _signal_series(rows: tuple[SignalRow, ...], mappings: Mapping[str, str]) -> 
                 ReasonCode.SOURCE_INCOMPLETE, "signal instrument is absent from Qlib mappings"
             )
         index.append((pd.Timestamp(row.signal_time.date()), qlib_id))
-        values.append(row.score if row.tradable else math.nan)
+        values.append(cast(float, row.score) if row.tradable and row.score_valid else math.nan)
     result = pd.Series(
         values,
         index=pd.MultiIndex.from_tuples(index, names=["datetime", "instrument"]),

@@ -7,12 +7,18 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from quantos.contracts.snapshot import DataQualityRule
+from quantos.contracts.snapshot import (
+    DataQualityPolicy,
+    DataQualityRule,
+    SnapshotBuildSpec,
+)
 from quantos.contracts.status import ReasonCode
 from quantos.data.snapshot import (
+    RawCanonicalReconciliation,
     SnapshotBuildError,
     SyntheticSnapshotBuilder,
     diff_snapshots,
+    evaluate_snapshot_quality_streaming,
     verify_snapshot,
 )
 
@@ -67,8 +73,8 @@ def test_builds_canonical_content_addressed_snapshot(tmp_path: Path) -> None:
         }
     )
     assert intervals == [
-        (date(2024, 1, 2), date(2024, 1, 3)),
-        (date(2024, 1, 4), date(2024, 1, 5)),
+        (date(2024, 1, 3), date(2024, 1, 4)),
+        (date(2024, 1, 5), date(2024, 1, 5)),
     ]
 
     ledger = pq.read_table(result.path / "request-ledger.parquet").to_pylist()
@@ -88,6 +94,157 @@ def test_snapshot_hash_is_reproducible_and_publish_is_idempotent(tmp_path: Path)
     assert first.manifest.created_at != independent.manifest.created_at
 
 
+def test_canonical_scope_uses_historical_index_union_and_preserves_raw(tmp_path: Path) -> None:
+    fixture = _copy_fixture(tmp_path / "fixture")
+    additions = {
+        "stock_basic.csv": (
+            "430001.BJ,430001,OUT_OF_SCOPE_BJ,BSE,L,20200101,",
+            "600999.SH,600999,OUT_OF_SCOPE_SH,SSE,L,20200101,",
+        ),
+        "bars.csv": (
+            "430001.BJ,20240102,8.00,8.20,7.90,8.10,8.00,100,81",
+            "600999.SH,20240102,9.00,9.20,8.90,9.10,9.00,100,91",
+        ),
+        "adj_factor.csv": (
+            "430001.BJ,20240102,1.0000",
+            "600999.SH,20240102,1.0000",
+        ),
+        "stock_st.csv": ("600999.SH,20240103,ST",),
+        "suspend_d.csv": ("430001.BJ,20240103,S,",),
+        "stk_limit.csv": (
+            "430001.BJ,20240102,8.00,10.40,5.60",
+            "600999.SH,20240102,9.00,9.90,8.10",
+        ),
+    }
+    for filename, rows in additions.items():
+        path = fixture / filename
+        original = path.read_text(encoding="utf-8")
+        appended = "\n".join(rows)
+        path.write_text(f"{original.rstrip()}\n{appended}\n", encoding="utf-8")
+
+    result = SyntheticSnapshotBuilder().build(fixture, tmp_path / "snapshots")
+
+    for table_name in (
+        "instruments",
+        "bars",
+        "adjustment_factors",
+        "st_status",
+        "suspensions",
+        "price_limits",
+    ):
+        table = pq.read_table(result.path / "canonical" / f"{table_name}.parquet")
+        assert {row["instrument_id"] for row in table.to_pylist()} <= {"000001.SZ", "600000.SH"}
+    assert b"430001.BJ" in (result.path / "raw" / "stock_basic.csv").read_bytes()
+    reconciliation = next(
+        gate
+        for gate in result.quality_report.gates
+        if gate.rule is DataQualityRule.RAW_CANONICAL_RECONCILIATION
+    )
+    assert reconciliation.passed
+    assert "historical index-membership union" in reconciliation.detail
+
+
+def test_price_limits_without_daily_bars_remain_raw_only(tmp_path: Path) -> None:
+    fixture = _copy_fixture(tmp_path / "fixture")
+    path = fixture / "stk_limit.csv"
+    path.write_text(
+        f"{path.read_text(encoding='utf-8').rstrip()}\n600000.SH,20240105,0.00,11.50,9.50\n",
+        encoding="utf-8",
+    )
+
+    result = SyntheticSnapshotBuilder().build(fixture, tmp_path / "snapshots")
+
+    canonical = pq.read_table(result.path / "canonical" / "price_limits.parquet")
+    assert canonical.num_rows == 2
+    assert b"600000.SH,20240105,0.00" in (result.path / "raw" / "stk_limit.csv").read_bytes()
+
+
+def test_empty_price_limit_pre_close_uses_same_key_daily_value_only_in_canonical(
+    tmp_path: Path,
+) -> None:
+    fixture = _copy_fixture(tmp_path / "fixture")
+    path = fixture / "stk_limit.csv"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "600000.SH,20240102,10.00,11.00,9.00",
+            "600000.SH,20240102,,11.00,9.00",
+        ),
+        encoding="utf-8",
+    )
+
+    result = SyntheticSnapshotBuilder().build(fixture, tmp_path / "snapshots")
+
+    canonical = pq.read_table(result.path / "canonical" / "price_limits.parquet")
+    row = next(item for item in canonical.to_pylist() if item["instrument_id"] == "600000.SH")
+    assert row["pre_close"] == 10.0
+    assert b"600000.SH,20240102,,11.00,9.00" in (result.path / "raw" / "stk_limit.csv").read_bytes()
+
+
+def test_nonempty_price_limit_pre_close_must_match_daily_bar(tmp_path: Path) -> None:
+    fixture = _copy_fixture(tmp_path / "fixture")
+    path = fixture / "stk_limit.csv"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "600000.SH,20240102,10.00,11.00,9.00",
+            "600000.SH,20240102,10.01,11.00,9.00",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SnapshotBuildError) as raised:
+        SyntheticSnapshotBuilder().build(fixture, tmp_path / "snapshots")
+
+    assert raised.value.quality_report is not None
+    gate = next(
+        item
+        for item in raised.value.quality_report.gates
+        if item.rule is DataQualityRule.PRICE_LIMIT_BOUNDS
+    )
+    assert not gate.passed
+
+
+def test_membership_published_on_final_session_remains_raw_until_available(
+    tmp_path: Path,
+) -> None:
+    fixture = _copy_fixture(tmp_path / "fixture")
+    path = fixture / "index_weight.csv"
+    path.write_text(
+        f"{path.read_text(encoding='utf-8').rstrip()}\n000300.SH,000001.SZ,20240105,100.0\n",
+        encoding="utf-8",
+    )
+
+    result = SyntheticSnapshotBuilder().build(fixture, tmp_path / "snapshots")
+
+    memberships = pq.read_table(result.path / "canonical" / "index_membership.parquet")
+    assert date(2024, 1, 5) not in memberships["trade_date"].to_pylist()
+    assert b"20240105" in (result.path / "raw" / "index_weight.csv").read_bytes()
+
+
+def test_streaming_quality_matrix_rejects_invalid_arrow_values(tmp_path: Path) -> None:
+    result = SyntheticSnapshotBuilder().build(FIXTURE, tmp_path / "snapshots")
+    tables = {
+        path.stem: pq.read_table(path) for path in (result.path / "canonical").glob("*.parquet")
+    }
+    expected_counts = {name: table.num_rows for name, table in tables.items()}
+    reconciliation = RawCanonicalReconciliation(
+        raw_row_counts={"fixture": sum(expected_counts.values())},
+        expected_canonical_row_counts=expected_counts,
+    )
+    spec = SnapshotBuildSpec.model_validate_json((result.path / "snapshot-build.json").read_bytes())
+    policy = DataQualityPolicy(policy_id="streaming-test/v1")
+    assert evaluate_snapshot_quality_streaming(reconciliation, tables, spec, policy).passed
+
+    bars = tables["bars"]
+    invalid_high = bars["high"].to_pylist()
+    invalid_high[0] = 0.0
+    tables["bars"] = bars.set_column(
+        bars.schema.get_field_index("high"), "high", pa.array(invalid_high)
+    )
+    report = evaluate_snapshot_quality_streaming(reconciliation, tables, spec, policy)
+    failed = {gate.rule for gate in report.gates if not gate.passed}
+    assert DataQualityRule.OHLC in failed
+
+
 def test_backtest_fixture_builds_through_execution_and_closeout_session(tmp_path: Path) -> None:
     result = SyntheticSnapshotBuilder().build(BACKTEST_FIXTURE, tmp_path / "snapshots")
     bars = pq.read_table(result.path / "canonical" / "bars.parquet").to_pylist()
@@ -98,7 +255,7 @@ def test_backtest_fixture_builds_through_execution_and_closeout_session(tmp_path
     assert max(row["trade_date"] for row in bars) == date(2024, 1, 9)
     assert any(
         row["instrument_id"] == "000001.SZ"
-        and row["effective_from"] == date(2024, 1, 4)
+        and row["effective_from"] == date(2024, 1, 5)
         and row["effective_to"] == date(2024, 1, 9)
         for row in memberships
     )
@@ -161,7 +318,7 @@ def test_schema_drift_has_stable_reason_code(tmp_path: Path) -> None:
             "adj_factor.csv",
             "600000.SH,20240102,1.0000",
             "999999.SH,20240102,1.0000",
-            DataQualityRule.INSTRUMENT_REFERENCE,
+            DataQualityRule.RAW_CANONICAL_RECONCILIATION,
         ),
         (
             "trade_cal.csv",

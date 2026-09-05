@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import ClassVar, Literal, Self
@@ -13,12 +14,13 @@ from quantos.contracts.refs import SHA256_PATTERN
 
 
 class SignalRow(CanonicalContract):
-    schema_version: Literal["signal-row/v1"] = "signal-row/v1"
+    schema_version: Literal["signal-row/v2"] = "signal-row/v2"
     instrument_id: str = Field(pattern=r"^[0-9]{6}\.(SH|SZ)$")
     signal_time: datetime
     decision_time: datetime
     available_at: datetime
-    score: float
+    score: float | None
+    score_valid: bool = True
     tradable: bool
 
     @field_validator("signal_time", "decision_time", "available_at")
@@ -32,6 +34,10 @@ class SignalRow(CanonicalContract):
     def temporal_order_is_valid(self) -> Self:
         if not self.available_at <= self.signal_time <= self.decision_time:
             raise ValueError("signal row requires available_at <= signal_time <= decision_time")
+        if self.score_valid != (self.score is not None):
+            raise ValueError("score_valid must exactly describe score presence")
+        if self.score is not None and not math.isfinite(self.score):
+            raise ValueError("present signal scores must be finite")
         return self
 
 
@@ -64,7 +70,7 @@ class SignalInputHash(CanonicalContract):
 
 
 class SignalArtifactManifest(CanonicalContract):
-    schema_version: Literal["signal-artifact-manifest/v1"] = "signal-artifact-manifest/v1"
+    schema_version: Literal["signal-artifact-manifest/v2"] = "signal-artifact-manifest/v2"
     hash_exclude_fields: ClassVar[frozenset[str]] = frozenset({"artifact_hash", "created_at"})
 
     artifact_hash: str = Field(pattern=SHA256_PATTERN)
@@ -88,7 +94,8 @@ class SignalArtifactManifest(CanonicalContract):
         "signal_time:timestamp[us,Asia/Shanghai]:not_null",
         "decision_time:timestamp[us,Asia/Shanghai]:not_null",
         "available_at:timestamp[us,Asia/Shanghai]:not_null",
-        "score:float64:not_null",
+        "score:float64:nullable",
+        "score_valid:bool:not_null",
         "tradable:bool:not_null",
     )
     signal_content_hash: str = Field(pattern=SHA256_PATTERN)
@@ -128,11 +135,12 @@ class SignalArtifactManifest(CanonicalContract):
             "signal_time:timestamp[us,Asia/Shanghai]:not_null",
             "decision_time:timestamp[us,Asia/Shanghai]:not_null",
             "available_at:timestamp[us,Asia/Shanghai]:not_null",
-            "score:float64:not_null",
+            "score:float64:nullable",
+            "score_valid:bool:not_null",
             "tradable:bool:not_null",
         )
         if value != expected:
-            raise ValueError("signal_schema must match the locked v1 Arrow schema")
+            raise ValueError("signal_schema must match the locked v2 Arrow schema")
         return value
 
     @field_validator("files")
@@ -199,7 +207,7 @@ class SignalArtifactManifest(CanonicalContract):
             SignalInputHash(kind="snapshot", sha256=snapshot_hash),
         )
         payload = {
-            "schema_version": "signal-artifact-manifest/v1",
+            "schema_version": "signal-artifact-manifest/v2",
             "resolved_experiment_hash": resolved_experiment_hash,
             "source_expression_or_model_hash": source_expression_or_model_hash,
             "snapshot_hash": snapshot_hash,
@@ -220,7 +228,8 @@ class SignalArtifactManifest(CanonicalContract):
                 "signal_time:timestamp[us,Asia/Shanghai]:not_null",
                 "decision_time:timestamp[us,Asia/Shanghai]:not_null",
                 "available_at:timestamp[us,Asia/Shanghai]:not_null",
-                "score:float64:not_null",
+                "score:float64:nullable",
+                "score_valid:bool:not_null",
                 "tradable:bool:not_null",
             ),
             "signal_content_hash": signal_content_hash,

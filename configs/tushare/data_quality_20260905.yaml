@@ -1,0 +1,13 @@
+schema_version: data-quality-policy/v1
+policy_id: tushare-index-weight-rounded-0.15pp-20260905/v1
+index_weight_total: 100.0
+# The complete 2014-11 through 2025-12 probe contains 134 monthly HS300
+# observations. Tushare publishes weights to two decimals; the observed maximum
+# absolute sum deviation is 0.11 percentage point, so 0.15 is the smallest
+# one-decimal conservative bound above the acquired data.
+index_weight_absolute_tolerance: 0.15
+allowed_st_types:
+  - ST
+  - "*ST"
+allowed_suspend_types:
+  - S

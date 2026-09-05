@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from threading import Barrier, Lock
 
 import pandas as pd
 import pytest
@@ -97,6 +98,9 @@ def test_request_plan_is_endpoint_specific_and_row_limit_safe() -> None:
     assert sum(item.endpoint == "stock_basic" for item in plan.requests) == 3
     assert sum(item.endpoint == "trade_cal" for item in plan.requests) == 2
     assert sum(item.endpoint == "daily" for item in plan.requests) == 2
+    assert {item.primary_key for item in plan.requests if item.endpoint == "suspend_d"} == {
+        ("ts_code", "trade_date", "suspend_type", "suspend_timing")
+    }
     assert all("token" not in item.params for item in plan.requests)
 
 
@@ -135,6 +139,49 @@ def test_executor_retries_transient_failure_and_resumes_verified_checkpoint(
     assert first.entries[0].response_sha256 == resumed.entries[0].response_sha256
     persisted = b"".join(path.read_bytes() for path in tmp_path.rglob("*.json"))
     assert b"transient provider detail" not in persisted
+
+
+def test_executor_uses_bounded_workers_under_one_shared_rate_policy(tmp_path: Path) -> None:
+    class ConcurrentClient:
+        def __init__(self) -> None:
+            self.active = 0
+            self.maximum_active = 0
+            self.lock = Lock()
+            self.barrier = Barrier(3)
+
+        def query(self, api_name: str, fields: str = "", **kwargs: object) -> pd.DataFrame:
+            del api_name
+            with self.lock:
+                self.active += 1
+                self.maximum_active = max(self.maximum_active, self.active)
+            self.barrier.wait(timeout=2)
+            with self.lock:
+                self.active -= 1
+            return pd.DataFrame(
+                [["000001.SZ", kwargs["trade_date"], 12.1]], columns=fields.split(",")
+            )
+
+    plan = TushareRequestPlan(
+        build_spec_hash=_spec().content_hash,
+        requests=tuple(_request(sequence, f"2024010{sequence}") for sequence in range(1, 4)),
+    )
+    policy = TushareExecutionPolicy(
+        policy_id="bounded-workers-test/v1",
+        requests_per_minute=200,
+        max_attempts=1,
+        retry_min_seconds=0,
+        retry_max_seconds=0,
+    )
+    client = ConcurrentClient()
+    limiter = CountingLimiter()
+
+    ledger = TusharePlanExecutor(client, policy, limiter=limiter, now=FixedClock()).execute(
+        plan, tmp_path
+    )
+
+    assert len(ledger.entries) == 3
+    assert client.maximum_active == 3
+    assert limiter.acquisitions == 3
 
 
 def test_executor_rejects_schema_drift_without_persisting_provider_detail(

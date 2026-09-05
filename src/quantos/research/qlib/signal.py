@@ -29,13 +29,20 @@ from quantos.contracts.qlib_view import QlibViewSpec
 from quantos.contracts.refs import ArtifactRef
 from quantos.contracts.research import ResolvedExperimentSpec
 from quantos.contracts.research_execution import (
-    PITAuditEvidenceCollection,
+    PITArtifactEvidence,
+    PITCrossSectionEvidenceCollection,
     QlibExpressionTranslation,
 )
 from quantos.contracts.signal import SignalArtifactFile, SignalArtifactManifest, SignalRow
 from quantos.contracts.status import ReasonCode
 from quantos.data.qlib_view import QlibViewBuildError, verify_qlib_view
 from quantos.research.qlib.expression import translate_safe_expression
+from quantos.research.qlib.pit_evidence import (
+    load_pit_artifact_evidence,
+    pit_bundle_members,
+    pit_bundle_output_temporal,
+    pit_transform_lineage_hash,
+)
 from quantos.research.qlib.universe import QlibResearchError
 
 SIGNAL_SCHEMA = pa.schema(
@@ -44,7 +51,8 @@ SIGNAL_SCHEMA = pa.schema(
         pa.field("signal_time", pa.timestamp("us", tz="Asia/Shanghai"), nullable=False),
         pa.field("decision_time", pa.timestamp("us", tz="Asia/Shanghai"), nullable=False),
         pa.field("available_at", pa.timestamp("us", tz="Asia/Shanghai"), nullable=False),
-        pa.field("score", pa.float64(), nullable=False),
+        pa.field("score", pa.float64(), nullable=True),
+        pa.field("score_valid", pa.bool_(), nullable=False),
         pa.field("tradable", pa.bool_(), nullable=False),
     ]
 )
@@ -55,14 +63,6 @@ class SignalArtifactBuildResult:
     reference: ArtifactRef
     manifest: SignalArtifactManifest
     path: Path
-
-
-def _lineage_hash(evidence: PITAuditEvidenceCollection) -> str:
-    return sha256_bytes(
-        canonical_json_bytes(
-            [item.report.audit_spec_hash for bundle in evidence.bundles for item in bundle.items]
-        )
-    )
 
 
 def _signal_content_hash(rows: tuple[SignalRow, ...]) -> str:
@@ -78,6 +78,7 @@ def _write_signal_table(rows: tuple[SignalRow, ...], path: Path) -> None:
                 "decision_time": row.decision_time,
                 "available_at": row.available_at,
                 "score": row.score,
+                "score_valid": row.score_valid,
                 "tradable": row.tradable,
             }
             for row in rows
@@ -136,21 +137,58 @@ def _execute_expression(
     return scores
 
 
-def _load_tradability(view_path: Path, signal_date: date) -> dict[str, dict[str, object]]:
+def _execute_expression_grid(
+    view_path: Path,
+    qlib_ids: tuple[str, ...],
+    expression: str,
+    signal_dates: tuple[date, ...],
+) -> dict[date, dict[str, float]]:
+    """Execute one Qlib feature query for a complete production schedule grid."""
+
+    qlib.init(  # pyright: ignore[reportUnknownMemberType]
+        provider_uri=str(view_path), region=REG_CN
+    )
+    frame = cast(
+        pd.DataFrame,
+        D.features(  # pyright: ignore[reportUnknownMemberType]
+            list(qlib_ids),
+            [expression],
+            start_time=min(signal_dates),
+            end_time=max(signal_dates),
+            freq="day",
+        ),
+    )
+    requested_dates = set(signal_dates)
+    scores: dict[date, dict[str, float]] = {item: {} for item in signal_dates}
+    series = cast("pd.Series[float]", frame.iloc[:, 0])
+    for index, value in series.items():
+        instrument, timestamp = cast(tuple[str, object], index)
+        trade_date = cast("pd.Timestamp", timestamp).date()
+        if trade_date in requested_dates:
+            scores[trade_date][instrument.upper()] = value
+    return scores
+
+
+def _load_tradability(
+    view_path: Path, signal_dates: tuple[date, ...]
+) -> dict[tuple[date, str], dict[str, object]]:
     rows = pq.read_table(  # pyright: ignore[reportUnknownMemberType]
-        view_path / "sidecars" / "tradability.parquet"
+        view_path / "sidecars" / "tradability.parquet",
+        columns=[
+            "instrument_id",
+            "trade_date",
+            "is_suspended",
+            "is_st",
+            "available_at",
+        ],
+        filters=[("trade_date", "in", list(signal_dates))],
     ).to_pylist()
-    selected = {
-        cast(str, row["instrument_id"]): row
-        for row in rows
-        if cast(date, row["trade_date"]) == signal_date
-    }
-    return selected
+    return {(cast(date, row["trade_date"]), cast(str, row["instrument_id"])): row for row in rows}
 
 
 def _validate_execution_bindings(
     resolved: ResolvedExperimentSpec,
-    evidence: PITAuditEvidenceCollection,
+    evidence: PITArtifactEvidence,
     view_path: Path,
 ) -> tuple[QlibExpressionTranslation, dict[str, str]]:
     try:
@@ -172,6 +210,10 @@ def _validate_execution_bindings(
         or evidence.snapshot_hash != resolved.snapshot_hash
         or evidence.expression_spec_hash != resolved.expression.content_hash
         or evidence.universe_index != resolved.strategy.universe_index
+        or (
+            isinstance(evidence, PITCrossSectionEvidenceCollection)
+            and evidence.qlib_view_hash != resolved.qlib_view_hash
+        )
     ):
         raise QlibResearchError(
             ReasonCode.ARTIFACT_CORRUPTED,
@@ -235,16 +277,14 @@ def verify_signal_artifact(path: Path) -> SignalArtifactManifest:
         translation = QlibExpressionTranslation.model_validate_json(
             (path / "expression-translation.json").read_bytes()
         )
-        evidence = PITAuditEvidenceCollection.model_validate_json(
-            (path / "pit-evidence.json").read_bytes()
-        )
+        evidence = load_pit_artifact_evidence(path / "pit-evidence.json")
         table = pq.read_table(path / "signals.parquet")  # pyright: ignore[reportUnknownMemberType]
     except (OSError, ValueError) as error:
         raise QlibResearchError(
             ReasonCode.ARTIFACT_CORRUPTED, "signal artifact payload is invalid"
         ) from error
     if table.schema != SIGNAL_SCHEMA:
-        raise QlibResearchError(ReasonCode.ARTIFACT_CORRUPTED, "signal schema does not match v1")
+        raise QlibResearchError(ReasonCode.ARTIFACT_CORRUPTED, "signal schema does not match v2")
     try:
         rows = tuple(SignalRow.model_validate(row) for row in table.to_pylist())
     except ValueError as error:
@@ -254,22 +294,24 @@ def verify_signal_artifact(path: Path) -> SignalArtifactManifest:
         raise QlibResearchError(
             ReasonCode.ARTIFACT_CORRUPTED, "signal rows must be nonempty, sorted, and unique"
         )
-    reports = {
-        (item.report.schedule.signal_time, item.request.instrument_id): item.report
+    pit_rows = {
+        (bundle.schedule.signal_time, instrument_id): (
+            bundle.schedule,
+            pit_bundle_output_temporal(bundle, instrument_id),
+        )
         for bundle in evidence.bundles
-        for item in bundle.items
+        for instrument_id in pit_bundle_members(bundle)
     }
-    if set(reports) != {(row.signal_time, row.instrument_id) for row in rows}:
+    if set(pit_rows) != {(row.signal_time, row.instrument_id) for row in rows}:
         raise QlibResearchError(
             ReasonCode.ARTIFACT_CORRUPTED, "signal rows do not exactly match PIT evidence members"
         )
     for row in rows:
-        report = reports[(row.signal_time, row.instrument_id)]
+        schedule, output_temporal = pit_rows[(row.signal_time, row.instrument_id)]
         if (
-            row.signal_time != report.schedule.signal_time
-            or row.decision_time != report.schedule.decision_time
-            or report.output_temporal is None
-            or row.available_at != report.output_temporal.available_at
+            row.signal_time != schedule.signal_time
+            or row.decision_time != schedule.decision_time
+            or row.available_at != output_temporal.available_at
         ):
             raise QlibResearchError(
                 ReasonCode.ARTIFACT_CORRUPTED, "signal row does not match PIT temporal evidence"
@@ -285,7 +327,7 @@ def verify_signal_artifact(path: Path) -> SignalArtifactManifest:
         and evidence.content_hash == manifest.pit_evidence_hash
         and translation.content_hash == manifest.expression_translation_hash
         and translation.expression_spec_hash == resolved.expression.content_hash
-        and _lineage_hash(evidence) == manifest.transform_lineage_hash
+        and pit_transform_lineage_hash(evidence) == manifest.transform_lineage_hash
         and len(rows) == manifest.row_count
         and rows[0].signal_time == manifest.signal_start
         and rows[-1].signal_time == manifest.signal_end
@@ -304,7 +346,7 @@ class FactorSignalArtifactBuilder:
     def build(
         self,
         resolved: ResolvedExperimentSpec,
-        evidence: PITAuditEvidenceCollection,
+        evidence: PITArtifactEvidence,
         view_path: Path,
         output_root: Path,
         *,
@@ -319,9 +361,31 @@ class FactorSignalArtifactBuilder:
         except ProvenanceError as error:
             raise QlibResearchError(error.reason_code, str(error)) from None
         translation, mappings = _validate_execution_bindings(resolved, evidence, view_path)
+        bundles = evidence.bundles
+        tradability = _load_tradability(
+            view_path,
+            tuple(bundle.schedule.signal_time.date() for bundle in bundles),
+        )
+        grid_scores: dict[date, dict[str, float]] | None = None
+        if len(bundles) > 1:
+            all_members = sorted(
+                {member for bundle in bundles for member in pit_bundle_members(bundle)}
+            )
+            try:
+                grid_scores = _execute_expression_grid(
+                    view_path,
+                    tuple(mappings[item] for item in all_members),
+                    translation.output_expression,
+                    tuple(bundle.schedule.signal_time.date() for bundle in bundles),
+                )
+            except Exception:
+                raise QlibResearchError(
+                    ReasonCode.QLIB_EXECUTION_FAILED,
+                    "Qlib expression grid execution failed",
+                ) from None
         rows: list[SignalRow] = []
-        for bundle in evidence.bundles:
-            members = tuple(item.request.instrument_id for item in bundle.items)
+        for bundle in bundles:
+            members = pit_bundle_members(bundle)
             try:
                 qlib_ids = tuple(mappings[item] for item in members)
             except KeyError as error:
@@ -330,35 +394,41 @@ class FactorSignalArtifactBuilder:
                     "PIT member is absent from the Qlib view mapping",
                 ) from error
             signal_date = bundle.schedule.signal_time.date()
-            try:
-                scores = _execute_expression(
-                    view_path, qlib_ids, translation.output_expression, signal_date
-                )
-            except Exception:
-                raise QlibResearchError(
-                    ReasonCode.QLIB_EXECUTION_FAILED, "Qlib expression execution failed"
-                ) from None
-            if set(scores) != set(qlib_ids) or any(
-                not math.isfinite(value) for value in scores.values()
-            ):
+            if grid_scores is None:
+                try:
+                    scores = _execute_expression(
+                        view_path, qlib_ids, translation.output_expression, signal_date
+                    )
+                except Exception:
+                    raise QlibResearchError(
+                        ReasonCode.QLIB_EXECUTION_FAILED,
+                        "Qlib expression execution failed",
+                    ) from None
+            else:
+                scores = {
+                    qlib_id: value
+                    for qlib_id, value in grid_scores[signal_date].items()
+                    if qlib_id in set(qlib_ids)
+                }
+            if not set(scores) <= set(qlib_ids):
                 raise QlibResearchError(
                     ReasonCode.QLIB_EXECUTION_FAILED,
-                    "Qlib expression did not produce one finite score per PIT member",
+                    "Qlib expression returned an instrument outside the requested PIT universe",
                 )
-            tradability = _load_tradability(view_path, signal_date)
-            report_by_instrument = {
-                item.request.instrument_id: item.report for item in bundle.items
-            }
             for instrument_id in members:
-                status = tradability.get(instrument_id)
-                report = report_by_instrument[instrument_id]
-                if status is None or report.output_temporal is None:
+                status = tradability.get((signal_date, instrument_id))
+                output_temporal = pit_bundle_output_temporal(bundle, instrument_id)
+                qlib_score = scores.get(mappings[instrument_id])
+                score_valid = qlib_score is not None and math.isfinite(qlib_score)
+                if status is None and score_valid:
                     raise QlibResearchError(
                         ReasonCode.SOURCE_INCOMPLETE,
-                        f"signal inputs are incomplete for {instrument_id}",
+                        f"finite signal lacks tradability evidence for {instrument_id}",
                     )
-                status_available_at = cast(datetime, status["available_at"])
-                if status_available_at > report.schedule.signal_time:
+                if (
+                    status is not None
+                    and cast(datetime, status["available_at"]) > bundle.schedule.signal_time
+                ):
                     raise QlibResearchError(
                         ReasonCode.LOOK_AHEAD,
                         f"tradability is unavailable at signal time for {instrument_id}",
@@ -366,11 +436,13 @@ class FactorSignalArtifactBuilder:
                 rows.append(
                     SignalRow(
                         instrument_id=instrument_id,
-                        signal_time=report.schedule.signal_time,
-                        decision_time=report.schedule.decision_time,
-                        available_at=report.output_temporal.available_at,
-                        score=scores[mappings[instrument_id]],
-                        tradable=not cast(bool, status["is_st"])
+                        signal_time=bundle.schedule.signal_time,
+                        decision_time=bundle.schedule.decision_time,
+                        available_at=output_temporal.available_at,
+                        score=qlib_score if score_valid else None,
+                        score_valid=score_valid,
+                        tradable=status is not None
+                        and not cast(bool, status["is_st"])
                         and not cast(bool, status["is_suspended"]),
                     )
                 )
@@ -398,7 +470,7 @@ class FactorSignalArtifactBuilder:
                 qlib_view_hash=resolved.qlib_view_hash,
                 qlib_run_id=None,
                 pit_evidence_hash=evidence.content_hash,
-                transform_lineage_hash=_lineage_hash(evidence),
+                transform_lineage_hash=pit_transform_lineage_hash(evidence),
                 expression_translation_hash=translation.content_hash,
                 row_count=len(canonical_rows),
                 signal_start=canonical_rows[0].signal_time,
