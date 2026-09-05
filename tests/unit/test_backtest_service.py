@@ -226,6 +226,48 @@ def test_reconciler_allows_sell_all_odd_lots_but_rejects_odd_lot_buys() -> None:
         reconcile_backtest_output(odd_lot_buy, _config(), (_schedule(),))
 
 
+def test_cash_gate_uses_account_scaled_float32_tolerance() -> None:
+    raw_portfolio, raw_indicators = _raw_outputs()
+    normalized = normalize_qlib_outputs(
+        raw_portfolio,  # type: ignore[arg-type]
+        raw_indicators,  # type: ignore[arg-type]
+        inverse_mappings={"SH600000": "600000.SH"},
+        factors={(date(2024, 1, 8), "SH600000"): 1.0},
+    )
+
+    within_tolerance = deepcopy(normalized.portfolio)
+    within_tolerance[0]["cash"] = -0.00005
+    within_tolerance[0]["account"] = 499.99995
+    within_tolerance[0]["return"] = -0.49500005
+    positions = deepcopy(normalized.positions)
+    positions[0]["portfolio_weight"] = 500.0 / 499.99995
+    rounded = normalized.__class__(
+        portfolio=within_tolerance,
+        positions=positions,
+        trade_indicators=normalized.trade_indicators,
+        order_indicators=normalized.order_indicators,
+        risk_metrics=normalized.risk_metrics,
+    )
+    reconciliation = reconcile_backtest_output(rounded, _config(), (_schedule(),))
+    assert reconciliation.relative_tolerance == 1e-7
+
+    material_negative = deepcopy(within_tolerance)
+    material_negative[0]["cash"] = -0.001
+    material_negative[0]["account"] = 499.999
+    material_negative[0]["return"] = -0.495001
+    material_positions = deepcopy(positions)
+    material_positions[0]["portfolio_weight"] = 500.0 / 499.999
+    overdrawn = rounded.__class__(
+        portfolio=material_negative,
+        positions=material_positions,
+        trade_indicators=rounded.trade_indicators,
+        order_indicators=rounded.order_indicators,
+        risk_metrics=rounded.risk_metrics,
+    )
+    with pytest.raises(QlibResearchError, match="cash_nonnegative"):
+        reconcile_backtest_output(overdrawn, _config(), (_schedule(),))
+
+
 def test_schedule_gate_requires_next_session_and_weekly_final_session(tmp_path: Path) -> None:
     calendar = tmp_path / "calendars"
     calendar.mkdir()

@@ -507,7 +507,7 @@ def reconcile_backtest_output(
     schedules: Sequence[DecisionSchedule],
     *,
     absolute_tolerance: float = 1e-6,
-    relative_tolerance: float = 1e-9,
+    relative_tolerance: float = 1e-7,
 ) -> BacktestReconciliation:
     portfolio_by_date = {cast(date, row["trade_date"]): row for row in output.portfolio}
     positions_by_date: dict[date, list[dict[str, object]]] = {}
@@ -575,7 +575,13 @@ def reconcile_backtest_output(
     )
     checks_pass = (
         all(error <= absolute_tolerance + relative_tolerance for error in asset_errors),
-        min(cash_values) >= -absolute_tolerance,
+        all(
+            cash
+            >= -(
+                absolute_tolerance + relative_tolerance * max(abs(cast(float, row["account"])), 1.0)
+            )
+            for cash, row in zip(cash_values, output.portfolio, strict=True)
+        ),
         all(error <= absolute_tolerance + relative_tolerance for error in position_errors),
         all(error <= absolute_tolerance + relative_tolerance for error in delta_errors),
         schedule_passed,
@@ -617,7 +623,10 @@ def reconcile_backtest_output(
             name="cash_nonnegative",
             checked_rows=len(cash_values),
             max_abs_error=max(0.0, -min(cash_values)),
-            detail="Qlib available cash never crosses the allowed zero tolerance",
+            detail=(
+                "Qlib available cash never crosses the per-row absolute plus account-scaled "
+                "relative numerical tolerance"
+            ),
         ),
         BacktestReconciliationCheck(
             name="position_value_and_weight",
