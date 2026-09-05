@@ -215,6 +215,12 @@ def _factor_lookup(
     factors: dict[tuple[date, str], float] = {}
     for index, value in cast("pd.Series[float]", frame.iloc[:, 0]).items():
         qlib_id, timestamp = cast(tuple[str, object], index)
+        # D.features materializes the requested instrument/calendar grid.  A
+        # cell may therefore be empty when an instrument has no observation
+        # on that session.  Keep the lookup sparse; positions and orders still
+        # require an exact same-day factor during their normalization below.
+        if bool(pd.isna(value)):
+            continue
         factor = _finite_float(value)
         assert factor is not None
         if factor <= 0:

@@ -120,6 +120,30 @@ def _raw_qlib_result(
     )
 
 
+def test_factor_lookup_preserves_sparse_qlib_cells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = pd.MultiIndex.from_tuples(
+        [
+            ("SH600000", pd.Timestamp("2015-06-08")),
+            ("SH600000", pd.Timestamp("2015-06-09")),
+        ],
+        names=["instrument", "datetime"],
+    )
+    frame = pd.DataFrame({"$factor": [float("nan"), 1.25]}, index=index)
+    monkeypatch.setattr(
+        SERVICE,
+        "D",
+        SimpleNamespace(features=lambda *_args, **_kwargs: frame),
+    )
+
+    assert SERVICE._factor_lookup(
+        ("SH600000",),
+        date(2015, 6, 8),
+        date(2015, 6, 9),
+    ) == {(date(2015, 6, 9), "SH600000"): 1.25}
+
+
 def test_backtest_service_publishes_idempotent_hash_bound_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
