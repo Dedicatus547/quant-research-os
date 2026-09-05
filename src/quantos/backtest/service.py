@@ -213,21 +213,30 @@ def _factor_lookup(
         ),
     )
     factors: dict[tuple[date, str], float] = {}
-    for index, value in cast("pd.Series[float]", frame.iloc[:, 0]).items():
+    last_observed: dict[str, float] = {}
+    series = cast("pd.Series[float]", frame.iloc[:, 0]).sort_index()
+    for index, value in series.items():
         qlib_id, timestamp = cast(tuple[str, object], index)
+        normalized_qlib_id = qlib_id.upper()
         # D.features materializes the requested instrument/calendar grid.  A
-        # cell may therefore be empty when an instrument has no observation
-        # on that session.  Keep the lookup sparse; positions and orders still
-        # require an exact same-day factor during their normalization below.
+        # cell may therefore be empty when a held instrument is suspended.
+        # Carry only the last factor already observed for that instrument; a
+        # leading gap remains absent and will still fail if Qlib reports a
+        # position or order before any factor is available.
         if bool(pd.isna(value)):
-            continue
-        factor = _finite_float(value)
-        assert factor is not None
-        if factor <= 0:
-            raise QlibResearchError(
-                ReasonCode.QLIB_EXECUTION_FAILED, "Qlib adjustment factor must be positive"
-            )
-        factors[(_trade_date(timestamp), qlib_id.upper())] = factor
+            factor = last_observed.get(normalized_qlib_id)
+            if factor is None:
+                continue
+        else:
+            factor = _finite_float(value)
+            assert factor is not None
+            if factor <= 0:
+                raise QlibResearchError(
+                    ReasonCode.QLIB_EXECUTION_FAILED,
+                    "Qlib adjustment factor must be positive",
+                )
+            last_observed[normalized_qlib_id] = factor
+        factors[(_trade_date(timestamp), normalized_qlib_id)] = factor
     return factors
 
 
