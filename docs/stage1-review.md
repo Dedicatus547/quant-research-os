@@ -1,5 +1,31 @@
 # quant-research-os Agent 自动化量化研究系统架构评估与演进建议
 
+> 文档定位：这是 2026-09-05 的架构评审快照，保留当时的问题判断和路线建议；
+> 它不是当前实施状态或阶段编号的权威来源。当前计划以 [PLAN.md](../PLAN.md) v7 为准，
+> 第一阶段证据以 [implementation-status.md](implementation-status.md) 为准。
+
+## 0. 评审意见采纳状态
+
+截至 2026-09-06，评审中对第一阶段确定性内核的判断已经由正式证据确认：P0-P7
+Offline Engineering 与 DQ-01 至 DQ-06 均已完成。Data-qualified 工程发布为
+`PASS / data_qualified=true`，但真实 HS300 Momentum 候选因年化换手率超过软门槛而保留为
+`SUCCEEDED / REJECT`，策略状态为 `REJECTED`。这个结果符合本文对“确定性程序最终裁决”
+的要求，不是工程验收失败。
+
+本文的主要后续建议已纳入 PLAN v7，但编号和顺序在后续评审中进一步收敛：
+
+| 评审建议 | PLAN v7 处理 |
+|---|---|
+| 保留 P0-P7 作为 Research Authority | 已采纳并冻结第一阶段基线 |
+| Agent 接入前先收紧 capability / filesystem / secret 边界 | P8，下一实施入口 |
+| 补齐 Hypothesis、ResearchFamily、Budget 和 DSL 语义 | P9 |
+| 使用 GPT + Codex，但先执行硬性 go/no-go spike | P10 |
+| 只通过 typed MCP / Skills 请求确定性服务 | P11 |
+| 将真实 Evidence、首个公告研究和 Ledger/有界自治分步建设 | P12、P13、P14 |
+
+因此，本文第 16-22 节中的 P8-P13 编号只表示当时建议，不应用于下达实施任务；
+实施时必须使用 PLAN v7 的 P8-P14 编号。
+
 ## 1. 背景与目标
 
 `quant-research-os` 的目标不是构建一个由大模型自由生成并执行交易策略的 Agent 系统，而是构建一个可审计、可复现、可证伪的自动化量化研究系统。
@@ -896,7 +922,7 @@ OOS 失效
 
 # 16. 建议调整现有 P8-P11 路线
 
-当前项目的第二阶段路线仍然是：
+评审时项目的第二阶段路线是：
 
 ```text
 P8 Pre-MCP Hardening
@@ -905,7 +931,7 @@ P10 Select One Harness + MCP
 P11 Harness Integration
 ```
 
-当前 PLAN 还要求从 RD-Agent、Vibe-Trading、QuantGPT 中选择一个主 harness。
+评审时的 PLAN 还要求从 RD-Agent、Vibe-Trading、QuantGPT 中选择一个主 harness。
 
 建议调整为：
 

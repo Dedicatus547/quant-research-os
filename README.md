@@ -8,6 +8,21 @@ The implementation follows [PLAN.md](PLAN.md). Offline engineering and Data-qual
 are reported separately: lack of a Tushare token never turns synthetic evidence into live-data
 evidence.
 
+Documentation roles:
+
+- [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
+- [First-stage implementation status](docs/implementation-status.md) is the current P0-P7 release
+  and evidence summary.
+- [Stage-one architecture review](docs/stage1-review.md) is the historical review input that shaped
+  PLAN v7; its proposed phase numbers are not the current execution plan.
+- [Qlib 0.9.7 feasibility record](docs/feasibility/qlib-0.9.7.md) records component evidence and
+  explicit runtime limitations.
+
+Links under `artifacts/` refer to workspace-local immutable evidence. That tree is intentionally
+excluded from Git because it can contain licensed market data, so those links may be absent in a
+fresh clone; the tracked status document retains the content hashes and commands needed to locate
+or reproduce authorized evidence.
+
 ## Bootstrap
 
 ```bash

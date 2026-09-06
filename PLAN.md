@@ -1578,8 +1578,10 @@ instrument/universe selector、安全表达式、显式 versioned operator delay
 不能提供 temporal evidence。伪 hash、缺失窗口、unsupported field、input lag 越界、future/
 UNKNOWN input、无 operator policy 和无效 membership 均 hard REJECT。只有
 `CANONICAL_SNAPSHOT_BOUND` 报告能发布；`PROPOSAL_UNBOUND` 即使计算结果为 PASS 也不能成为验证
-证据。报告始终传播 `SINGLE_SOURCE_NON_VINTAGE`，live snapshot 的 PIT 证据仍须在
-Data-qualified run 中重新产生。
+证据。报告始终传播 `SINGLE_SOURCE_NON_VINTAGE`，live snapshot 的 PIT 证据必须在
+Data-qualified run 中重新产生。2026-09-06 的正式运行已完成该要求，live PIT
+evidence bundle hash 为
+`17f3a368d87142dcd877f30c71587991692b19c6ff9acf68753a6cafb282a71f`。
 
 ---
 
@@ -1629,8 +1631,10 @@ collection hash 为 `d53388be921ea723f4744091ce859385972b8f145492fa6ad840ba4c147
 1 日 label 和显式 purge boundary；两次独立运行的 prediction/finite-metrics hashes 分别为
 `a57fc7297e6365cf9186c0063c0d4c4f7ca3f643d52a8a6507cc2b49c016739a` 与
 `089f93946c959f4984888ba78df2c8966d3a53d5070d78ea0397b40b2cca40c8`。MLflow runtime 删除后导出
-仍可验证。以上均是 synthetic Offline Engineering 证据；live snapshot 与正常 Git release
-checkout 仍是 Data-qualified 前置。
+仍可验证。以上均是 synthetic Offline Engineering 证据，不会被冒充为 live evidence。
+2026-09-06 的正式 Data-qualified 双流水线已从显式 live snapshot 在冻结实现提交上执行，
+两次得到相同 SignalArtifact hash
+`dba57f2a5db23c36a58d705ef5be0dbd94df686002c35c9bf3286218788ce51e`。
 
 ---
 
@@ -1638,7 +1642,7 @@ checkout 仍是 Data-qualified 前置。
 
 ## 目标
 
-把 StrategySpec 和 P4 已验证的 SignalArtifact 转换成 reference backtest。adapter / normalizer 骨架可与 P4 并行开发，但最终集成必须等待 SignalArtifact contract 与 verifier 冻结。
+把 StrategySpec 和 P4 已验证的 SignalArtifact 转换成 reference backtest。adapter / normalizer 骨架可与 P4 并行开发，但最终集成以已冻结的 SignalArtifact contract 与 verifier 为前置。
 
 ## 任务
 
@@ -1684,7 +1688,11 @@ portfolio、1 行 position、1 行 aggregate trade indicator、1 行 order indic
 metrics，六项 reconciliation 均为零误差。独立 constraint golden backtest 还固定了正常成交、
 非调仓日无单、涨停/ST/停牌拦截、100 股整手与最低佣金行为。CLI 已提供显式路径的
 `quantos backtest run/verify`；不解析 `latest/current/auto`。以上是 synthetic 工程证据，不是 live
-数据或 release provenance。
+数据或 release provenance。2026-09-06 的正式 Data-qualified 双流水线另行重现了
+BacktestArtifact
+`ec318505caccead33188f909ab445acddc363334c0e96eb25af57ad05cea4270`、backtest config
+`49c804a3a46bf042ad2482ecd82b4179be9f4aa9783c36ed9f190064c2682844` 和 reconciliation
+`c01cd819ae4f773e4e441ed57882d05550f55959ea6445e2f897468ec7e540d1`。
 
 ---
 
@@ -1860,8 +1868,8 @@ P13 Qualified EventFeatureArtifact + announcement research E2E
  ▼
 P14 Research Ledger + bounded autonomous campaign
 
-DQ-01 ... DQ-06 ───────────────┐
-                               └─ 只有通过后，P13/P14 才能产生 Data-qualified 真实研究结论
+DQ-01 ... DQ-06 (2026-09-06 COMPLETE) ─┐
+                                         └─ P13/P14 的 market-data 资格前置已满足
 ```
 
 ---
@@ -1943,7 +1951,8 @@ E2E             P6 validation pipeline / P7 release pipeline
 第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
-market-data evidence。
+market-data evidence。截至 2026-09-06，M0 与 DQ-01 至 DQ-06 均已完成，P8 尚未开始；
+因此当前下一实施入口是 P8，而不是重跑第一阶段。
 
 后续主线固定为：
 

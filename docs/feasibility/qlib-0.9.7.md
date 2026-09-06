@@ -2,6 +2,10 @@
 
 Status: **PASS with explicit limitations**
 
+Status date: 2026-09-06. This record covers the Qlib component qualification and the decisions it
+forced. Overall first-stage release status is maintained in
+[`docs/implementation-status.md`](../implementation-status.md).
+
 Validated environment:
 
 - Python 3.11.15
@@ -45,12 +49,12 @@ metrics remain verifiable after the disposable MLflow runtime is deleted.
 
 Runtime reports remain under ignored `artifacts/feasibility/` and include their Qlib run ID.
 
-The current P2/P3 repair slice produces snapshot hash
+The historical synthetic P2/P3 repair slice produced snapshot hash
 `e5c43df461eec6fde43994ef27b740410ce74e16c7c0ca78aba84440a5196de0` and quality-report hash
 `e89da0a87dff72752266e53511eda2f11f6e17e6beaf725b1c27c6682788f70b`. The earlier view hash is
 superseded because the view contract now binds both official script hashes, includes historical
 universe/tradability sidecars, represents suspensions as NaN OHLCV, and enforces exact manifested
-file sets. Two independent real official-converter builds produced the current view hash
+file sets. Two independent real official-converter builds produced the resulting view hash
 `063e04060342e81bbaadf9f878af3b37ce81c79e03cef0ccf46554b7f0256138`; all three stock/benchmark
 `$close` samples and the official health check passed. These are synthetic engineering facts, not
 live Tushare release evidence.
@@ -71,8 +75,8 @@ rows                 1
 Every signal member has an exact canonical request/report pair. The report binds its expression,
 snapshot, instrument, universe, and complete decision schedule. The SignalArtifact additionally
 binds the clean Git commit, `uv.lock`, Qlib view/spec, translation, lineage, schema, semantic signal
-hash, and all file hashes. The repository's current non-Git workspace correctly fails this
-provenance gate; the temporary checkout is synthetic component evidence, not release provenance.
+hash, and all file hashes. A dirty or non-Git workspace correctly fails this provenance gate; the
+cited temporary checkout is synthetic component evidence, not release provenance.
 
 The P5 end-to-end runner is
 [`scripts/backtest_feasibility.py`](../../scripts/backtest_feasibility.py). Its dedicated fixture
@@ -116,16 +120,21 @@ golden cases.
 5. Qlib imports legacy `gym` 0.26.2, which emits an upstream NumPy 2.x maintenance warning. The
    tested research/backtest path passed; RL modules remain out of scope.
 
-## Current environment qualifications
+## First-stage environment qualifications
 
-- The workspace is a usable Git repository, but the first-stage implementation changes are not yet
-  frozen in a clean commit. Canonical experiment publication continues to fail closed on a dirty
-  checkout.
-- `TUSHARE_TOKEN` is configured. The 2026-09-05 bounded probe confirmed all 12/12 probed endpoints,
-  including `index_weight` and `stock_st`. All 13,614 snapshot requests completed on the first
-  attempt under the explicit 200 requests/minute policy; live snapshot
+- The first-stage implementation was frozen at
+  `f3fc7684d09ac351d72d76b2a0370c58bec8589c`. Canonical Offline Engineering and Data-qualified
+  double-runs both completed from that explicit code binding; later documentation commits do not
+  change the runtime evidence.
+- The token was supplied only to the 2026-09-05 acquisition process through the environment. This
+  document makes no claim about whether it is currently configured. The bounded probe confirmed
+  all 12/12 probed endpoints, including `index_weight` and `stock_st`; all 13,614 snapshot requests
+  completed on the first attempt under the explicit 200 requests/minute policy. Live snapshot
   `6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9` passed 16/16 DQ gates.
-- `.tools/qlib-0.9.7` is present and verified at the locked commit with a clean tracked tree and
-  matching official script blobs. Live derived view
+- The local `.tools/qlib-0.9.7` cache used for qualification was verified at the locked commit with
+  a clean tracked tree and matching official script blobs. Live derived view
   `fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b` passed the official health
   check and 668/668 exact binary32 readback samples.
+- The resulting Data-qualified release is engineering `PASS`; its ValidationReport is
+  `SUCCEEDED / REJECT` and Registry strategy state is `REJECTED`. This research rejection does not
+  alter the Qlib component `PASS` recorded here.

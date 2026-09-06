@@ -5,6 +5,10 @@ Status date: 2026-09-06
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
 
+Paths under `../artifacts/` point to workspace-local immutable evidence and are intentionally not
+distributed through Git. The full hashes below remain usable when those licensed-data artifacts are
+available in an authorized workspace.
+
 | Phase | Offline Engineering | Data-qualified result |
 |---|---|---|
 | P0 | Python 3.11/uv lock, CI gates, doctor, bounded 12-request capability probe with immutable redacted evidence, locked Qlib source verification, and clean-checkout Git fingerprinting PASS | The 2026-09-05 live probe confirmed all 12/12 probed endpoints are available; the account-qualified acquisition policy is fixed at the verified official 200 requests/minute tier |
@@ -82,7 +86,7 @@ because their next availability session is outside the build range.
 
 ## Formal first-stage release evidence
 
-The authoritative Data-qualified summary is
+The workspace-local authoritative Data-qualified summary is
 [`artifacts/releases/data-qualified-v0.1-f3fc768/report.json`](../artifacts/releases/data-qualified-v0.1-f3fc768/report.json).
 It binds the explicit live snapshot and implementation commit above, Qlib 0.9.7 source commit
 `da920b7f954f48ab1bb64117c976710de198373e`, two independent release pipelines, and exact equality
@@ -112,7 +116,13 @@ implementation now includes a schedule only when both decision and execution dat
 frozen interval. The corrected four execution ranges end on 2017-12-25, 2020-12-28, 2023-12-25,
 and 2025-12-29 respectively, and G8 passes.
 
-## P2-P4 baseline offline evidence
+The companion formal M0 rerun on the same implementation commit completed two independent
+`OFFLINE_ENGINEERING / SYNTHETIC_FIXTURE` pipelines with byte-exact principal hashes. It produced
+snapshot `4ae0b2ed...55fb`, Qlib view `82b584bc...4d23d`, SignalArtifact `0264d742...ceab`,
+BacktestArtifact `4cacc90e...43af`, ValidationReport `7651525b...c51a`, experiment manifest
+`1e86919a...50ba`, and Registry index `962f41d9...271e`; its strategy status is `VALIDATED`.
+
+## Historical P2-P4 offline component evidence
 
 ```text
 Synthetic snapshot  e5c43df461eec6fde43994ef27b740410ce74e16c7c0ca78aba84440a5196de0
@@ -134,9 +144,9 @@ be interpreted as hashes for the revised live-data semantics or as Data-qualifie
 The P4 SignalArtifact above was regenerated after the P5 policy fields were frozen. It and the P5
 evidence below bind clean synthetic feasibility commit
 `272eafb0b175b1f7a6c6f883e8cee68097c2253c`; that temporary checkout is component evidence, not
-release provenance for this non-Git workspace.
+release provenance for the formal first-stage baseline.
 
-## P5 complete offline backtest evidence
+## Historical P5 offline backtest component evidence
 
 ```text
 P5 snapshot          2698fdcee8d153dab005050f451b5c8cae0b11d60bd23d20ced3605785858ec4
@@ -180,7 +190,7 @@ The native ML smoke uses `DatasetH`, `LGBModel`, `SignalRecord`, and `SigAnaReco
 forward label has explicit purged boundary sessions between train/validation/test. Only finite
 metrics are exported; undefined IC/long-short metrics are named as omitted and are never coerced.
 
-## P6 validation evidence
+## Historical P6 validation component evidence
 
 ```text
 P6 component commit     54ee26fb029f024150cbafa252aa46bc18ef87f7
@@ -233,7 +243,7 @@ Runtime timestamps and OOS event references are retained but excluded from their
 content-hash domains. Every referenced payload is individually hashed, and verifiers reject
 missing, changed, or additional files.
 
-## P7 registry and release evidence
+## Historical P7 registry and release component evidence
 
 ```text
 P7 component commit      4889f9c66782187b4796d0432f3948b2f899c2f2
@@ -262,13 +272,6 @@ The experiment and strategy event chains reject missing predecessors, forks, bac
 invalid payloads and state transitions. REJECT and FAILED / NOT_EVALUATED reports remain registered
 evidence, while only canonical SUCCEEDED / PASS can produce a VALIDATED strategy version. This is
 synthetic component evidence, not live Tushare qualification.
-
-The formal M0 rerun on implementation commit
-`f3fc7684d09ac351d72d76b2a0370c58bec8589c` also completed two independent
-`OFFLINE_ENGINEERING / SYNTHETIC_FIXTURE` pipelines with byte-exact principal hashes. It produced
-snapshot `4ae0b2ed...55fb`, Qlib view `82b584bc...4d23d`, SignalArtifact `0264d742...ceab`,
-BacktestArtifact `4cacc90e...43af`, ValidationReport `7651525b...c51a`, experiment manifest
-`1e86919a...50ba`, and Registry index `962f41d9...271e`; its strategy status is `VALIDATED`.
 
 ## Deliberate reuse boundaries
 
