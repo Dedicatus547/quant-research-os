@@ -54,6 +54,25 @@ def _schedule(year: int) -> DecisionSchedule:
     )
 
 
+def test_subperiod_schedule_projection_excludes_cross_boundary_execution() -> None:
+    inside = _schedule(2017)
+    boundary_signal = date(2017, 12, 29)
+    crosses_end = DecisionSchedule(
+        signal_time=datetime.combine(boundary_signal, time(16), tzinfo=UTC),
+        signal_available_at=datetime.combine(boundary_signal, time(16, 1), tzinfo=UTC),
+        decision_time=datetime.combine(boundary_signal, time(16, 10), tzinfo=UTC),
+        execution_time=datetime.combine(date(2018, 1, 2), time(9, 30), tzinfo=UTC),
+    )
+
+    selected = release._schedules_within_subperiod(
+        (inside, crosses_end),
+        start=date(2015, 1, 1),
+        end=date(2017, 12, 31),
+    )
+
+    assert selected == (inside,)
+
+
 def _variant(tmp_path: Path, value: int = 1) -> release._Variant:
     digest = f"{value:064x}"
     return release._Variant(

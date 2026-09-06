@@ -89,6 +89,22 @@ class _RegisteredPipeline:
     strategy_status: StrategyStatus
 
 
+def _schedules_within_subperiod(
+    schedules: tuple[DecisionSchedule, ...],
+    *,
+    start: date,
+    end: date,
+) -> tuple[DecisionSchedule, ...]:
+    """Keep only schedules whose decision and execution both belong to the period."""
+
+    return tuple(
+        schedule
+        for schedule in schedules
+        if start <= schedule.decision_time.date() <= end
+        and start <= schedule.execution_time.date() <= end
+    )
+
+
 def _variant_authoring(
     baseline: ExperimentAuthoringSpec,
     *,
@@ -295,8 +311,10 @@ def _run_pipeline(
 
     subperiod_variants: dict[str, _Variant] = {}
     for period in validation_policy.subperiods:
-        period_schedules = tuple(
-            item for item in schedules if period.start <= item.decision_time.date() <= period.end
+        period_schedules = _schedules_within_subperiod(
+            schedules,
+            start=period.start,
+            end=period.end,
         )
         period_evidence = subset_compact_pit_evidence(baseline.evidence, period_schedules)
         subperiod_variants[period.period_id] = build_variant(
