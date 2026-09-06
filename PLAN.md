@@ -1,13 +1,14 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v6（第一阶段真实数据与规模化执行修正版）<br>
-> 更新日期：2026-09-05<br>
-> 当前仓库状态：P0-P7 的离线实现与 synthetic component gates 已通过，第一阶段
-> Offline Engineering DoD 已完成，但正式 M0 发布基线尚未在仓库 clean commit 上冻结。
-> 真实 Tushare capability probe 已重跑且 12/12 endpoint 可用；2014-11 至 2025-12 的
-> immutable snapshot、16 项 DQ report 及锁定官方工具生成的 Qlib derived view 均已发布并
-> 独立验真。Data-qualified P3-P7 重跑与 release-checkout Git provenance 尚未完成。规模化
-> PIT/Signal/View 路径已验证；Rank IC/ICIR 的 immutable ResearchResult adapter 尚未实现。
+> 版本：v7（第一阶段资格冻结版）<br>
+> 更新日期：2026-09-06<br>
+> 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
+> 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
+> Offline Engineering 基线为 `PASS / VALIDATED`；真实 Tushare Data-qualified 发布为工程
+> `PASS`，其 ValidationReport 为 `SUCCEEDED / REJECT`、策略状态为 `REJECTED`，唯一未达标的
+> 候选软门是年化换手率 `29.5344 > 12`。该 REJECT 是应保留的研究事实，不是工程验收失败。
+> 全部报告保留 `SINGLE_SOURCE_NON_VINTAGE`；Rank IC/ICIR 的 immutable ResearchResult adapter
+> 仍未实现，不得宣称该指标已被验证。
 
 ---
 
@@ -1364,7 +1365,7 @@ Git Commit
 Offline Engineering checklist：
 
 - [x] P0-P7 所有离线 exit criteria 完成
-- [x] 无 token CI 等价本地质量门全绿（151 tests；Ruff；Pyright；branch coverage 85.05%）
+- [x] 无 token CI 等价本地质量门全绿（176 tests；Ruff；Pyright；branch coverage 85.30%）
 - [x] DQ 与 PIT coverage matrix 中每个受支持语义均有 positive / negative / stable reason-code case
 - [x] synthetic factor Release E2E 完成
 - [x] 原生 Qlib `LGBModel + DatasetH + Workflow` offline smoke 完成（独立 component goal）
@@ -1380,9 +1381,20 @@ Offline Engineering checklist：
 - [x] capability probe 证明全部 required endpoints（包括 `stock_st`）可用
 - [x] endpoint quota / fields / schema 与许可结果已留证
 - [x] 2015-2025 snapshot、quality report 与 derived Qlib view cache 发布并校验
-- [ ] HS300 Momentum Validation E2E 完成
-- [ ] release baseline clean double-run 在容差内一致
-- [ ] ValidationReport 显式披露 `SINGLE_SOURCE_NON_VINTAGE`
+- [x] HS300 Momentum Validation E2E 完成
+- [x] release baseline clean double-run 主要内容哈希逐字节一致
+- [x] ValidationReport 显式披露 `SINGLE_SOURCE_NON_VINTAGE`
+
+2026-09-06 的 Data-qualified 权威汇总为
+`artifacts/releases/data-qualified-v0.1-f3fc768/report.json`。它绑定 snapshot
+`6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9`、Qlib view
+`fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b`、SignalArtifact
+`dba57f2a5db23c36a58d705ef5be0dbd94df686002c35c9bf3286218788ce51e`、BacktestArtifact
+`ec318505caccead33188f909ab445acddc363334c0e96eb25af57ad05cea4270`、ValidationReport
+`553d49a710d97d49af536e8950001c5f91c3d88dddce3fa2b29cb8f788d855a7` 和 Registry index
+`04a276a2e8c7bd08b6b925b7b81590536269f371534fb0a2115b897215a0396a`。两条 pipeline 各产生
+15 个唯一 SignalArtifact/BacktestArtifact，集合完全相同；ValidationReport 字节完全相同，
+16 个 robustness cases 为 3 个 cost、9 个 parameter 和 4 个 subperiod case。
 
 Token、积分或接口权限不足只阻止 Data-qualified Release，不阻止 Offline Engineering DoD。不得以 `namechange` 或 synthetic data 静默冒充真实 `stock_st` 证据。
 
@@ -1529,8 +1541,7 @@ hash 为 `6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9`，qu
 语义：停复牌事件以完整事件键留 raw、canonical 只把 `S` 视为停牌；涨跌停只投影到实际 daily
 bar 键，且仅对空 `stk_limit.pre_close` 使用同键 `daily.pre_close`（非空值必须完全一致）；月度
 成分从下一交易时段起进入可执行区间；Qlib binary32 语义样本要求与官方 `<f` 存储结果精确
-一致。live P2 已完成，但在 DQ-04 至 DQ-06 clean-checkout 重跑前仍不能声称完整 Data-qualified
-Release。
+一致。live P2 已完成，并已在 2026-09-06 的 DQ-04 至 DQ-06 正式发布中被再验证。
 
 ---
 
@@ -1724,8 +1735,11 @@ component gate 运行，不要求 CI 临时下载 Qlib 源码。
 
 Rank IC/ICIR 只在既有 Qlib Workflow component smoke 中留有输出；factor Validation E2E 尚无
 immutable ResearchResult adapter，因此请求这两个软指标时会 fail closed。v0.1 的 engineering 与
-research-candidate ValidationPolicy 均未启用它们。真实数据与 clean release provenance 仍属于
-Data-qualified 阻塞项，不能由 synthetic PASS 替代。
+research-candidate ValidationPolicy 均未启用它们。Rank IC/ICIR adapter 仍是未实现能力，
+但不是 v0.1 Data-qualified 政策启用的指标，不能由 synthetic PASS 或其他指标替代。
+2026-09-06 的真实数据正式运行已完成该节 P3-P6：
+G0-G4、G6-G10 全部 PASS，G5 只因年化换手超过版本化候选阈值而 REJECT，运行状态为
+`SUCCEEDED`，全部 16 个 robustness cases 均已评估。
 
 最新 P6 native synthetic component evidence 绑定临时 clean commit
 `54ee26fb029f024150cbafa252aa46bc18ef87f7`、runtime fingerprint
@@ -1783,9 +1797,10 @@ single-writer，不引入数据库或并发锁。
 Snapshot → official converter / health check → PIT → SignalArtifact → Qlib reference backtest / grid
 → G0-G10 ValidationReport → Registry。两次 principal artifact、experiment manifest 与 registry
 index hash 完全一致，最终策略状态为 VALIDATED。该证据明确标记
-`OFFLINE_ENGINEERING / SYNTHETIC_FIXTURE / data_qualified=false`；真实 Tushare Release E2E 仍因
-历史上 `index_weight` 权限不足而 BLOCKED；2026-09-05 的重新探针已确认该权限恢复，当前改为
-等待 live snapshot / Qlib view 发布与 clean-checkout 重跑。
+`OFFLINE_ENGINEERING / SYNTHETIC_FIXTURE / data_qualified=false`。2026-09-06 又在正式实现提交
+`f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上重跑，两条主哈希逐字节一致，最终状态仍为
+`PASS / VALIDATED`。同一提交上的真实 Tushare Release E2E 也已完成；Registry 不得把
+`SUCCEEDED / REJECT` 提升为 `VALIDATED`，因此真实 HS300 基线被正确保留为 `REJECTED`。
 
 ---
 
@@ -2195,7 +2210,7 @@ retry / failure / usage accounting
 
 ## 40.7 M0：Deterministic MVP v0.1 基线冻结
 
-P0-P7 的 Offline Engineering DoD 已完成，但正式发布基线仍需：
+P0-P7 Offline Engineering 基线的固定流程是：
 
 ```text
 当前改动合入正式 Git commit
@@ -2205,9 +2220,13 @@ P0-P7 的 Offline Engineering DoD 已完成，但正式发布基线仍需：
 → 标记 v0.1.0-oe（或等价 Offline Engineering 基线）
 ```
 
-M0 不要求真实 Tushare 权限，也不要求策略收益通过。P7 现有临时 clean-checkout 证据是组件验收，
-不是正式仓库发布 provenance。M0 未完成前不得开始 P8，也不得把“P0-P7 Offline Engineering
-DoD 完成”写成“Data-qualified”或“完整 Quant Research OS 已完成”。
+M0 不要求真实 Tushare 权限，也不要求策略收益通过。2026-09-06 已在 clean
+implementation commit `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上执行
+`scripts/release_feasibility.py`；两条 `OFFLINE_ENGINEERING / SYNTHETIC_FIXTURE` pipeline 主哈希
+逐字节一致，ValidationReport 为
+`7651525b68c7b865ff49590caeecec6d25a2b3e7f7acb3fc4e7b3190f126c51a`，Registry index 为
+`962f41d948a7667e38b127e354bc43a2b0b6273f9d82692cee12cb0a89d5271e`，策略状态为 `VALIDATED`。
+这是 M0 的等价 hash-bound 正式基线；是否创建 Git tag 是发布管理选择，不改变该证据状态。
 
 ## 40.8 Data-qualified 独立轨道
 
@@ -2224,8 +2243,11 @@ DQ-06 显式报告 SUCCEEDED/PASS、SUCCEEDED/REJECT 或 FAILED/NOT_EVALUATED，
       并保留 SINGLE_SOURCE_NON_VINTAGE
 ```
 
-截至 2026-09-05：DQ-01 至 DQ-03 已完成；DQ-04 至 DQ-06 必须等待正式 clean commit，不能用
-当前 dirty workspace 或 synthetic evidence 提前勾选。
+截至 2026-09-06：DQ-01 至 DQ-06 已全部完成。正式命令在 clean commit
+`f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上从显式 snapshot hash 运行两条独立 P3-P7 pipeline；
+顶层发布状态为 `PASS / data_qualified=true`，Validation 为 `SUCCEEDED / REJECT`，Registry 策略
+状态为 `REJECTED`，限制为 `SINGLE_SOURCE_NON_VINTAGE`。两条 pipeline 的 snapshot、view、
+baseline signal、baseline backtest、ValidationReport、experiment manifest 和 registry index 主哈希均一致。
 
 任何 required endpoint 权限不足都是 Data-qualified Release 的 hard blocker；不得静默改用
 `namechange`、synthetic data、公告数据或其他未验证来源。P13/P14 可以先取得明确标记的

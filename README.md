@@ -216,7 +216,9 @@ independent-run comparison, immutable ValidationReport publication, and determin
 Qlib-backed pipelines and compares all principal content hashes. P7 adds immutable experiment
 manifests, imported OOS event chains, monotonic strategy versions, fail-closed lifecycle
 transitions, rebuildable list/get indexes, registry CLI operations, tamper/partial-write recovery
-tests, and a two-run native-Qlib synthetic Release E2E.
+tests, and a two-run native-Qlib synthetic Release E2E. P0-P7 Offline Engineering and
+Data-qualified DoD are complete on implementation commit
+`f3fc7684d09ac351d72d76b2a0370c58bec8589c`.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
 [`docs/feasibility/qlib-0.9.7.md`](docs/feasibility/qlib-0.9.7.md).
 
@@ -227,13 +229,23 @@ the immutable snapshot `6297a968...e3dd9` passed all 16 DQ gates, and its offici
 `fc809bed...85716b` passed the health check, exact-file verification, and all 668 semantic samples.
 The normalizer preserves raw provider values, fills only empty `stk_limit.pre_close` values from the
 identical same-key `daily.pre_close`, and rejects nonempty cross-endpoint mismatches. Qlib semantic
-readback is checked exactly against the official converter's binary32 representation. The remaining
-Data-qualified work is the clean-checkout P3-P7 double run.
+readback is checked exactly against the official converter's binary32 representation.
 
-After the implementation is frozen in a clean Git checkout, the complete P3-P7 qualification is
-invoked with the explicit content-addressed snapshot:
+The complete P3-P7 qualification was run from the frozen implementation commit with the explicit
+content-addressed snapshot and a commit-specific output root:
 
 ```bash
 UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos release data-qualified \
-  artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9
+  artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9 \
+  --output-root artifacts/releases/data-qualified-v0.1-f3fc768
 ```
+
+Its authoritative summary is
+[`artifacts/releases/data-qualified-v0.1-f3fc768/report.json`](artifacts/releases/data-qualified-v0.1-f3fc768/report.json):
+engineering release `PASS / data_qualified=true`, ValidationReport `SUCCEEDED / REJECT`, and
+Registry strategy state `REJECTED`. The only rejected candidate soft threshold is annualized
+turnover (`29.5344 > 12`); this is retained research evidence, not an engineering failure. Both
+independent pipelines reproduced the baseline SignalArtifact `dba57f2a...e51e`, BacktestArtifact
+`ec318505...4270`, ValidationReport `553d49a7...855a7`, and Registry index `04a276a2...396a`
+exactly. All live evidence retains `SINGLE_SOURCE_NON_VINTAGE`; Rank IC/ICIR remain unclaimed until
+an immutable Qlib ResearchResult adapter exists.

@@ -1,31 +1,33 @@
 # First-stage implementation status
 
-Status date: 2026-09-05
+Status date: 2026-09-06
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
 
-| Phase | Offline Engineering | Data-qualified / remaining work |
+| Phase | Offline Engineering | Data-qualified result |
 |---|---|---|
 | P0 | Python 3.11/uv lock, CI gates, doctor, bounded 12-request capability probe with immutable redacted evidence, locked Qlib source verification, and clean-checkout Git fingerprinting PASS | The 2026-09-05 live probe confirmed all 12/12 probed endpoints are available; the account-qualified acquisition policy is fixed at the verified official 200 requests/minute tier |
 | P1 | Deterministic contracts/hashes, temporal types, refs, reason codes, immutable events, strict YAML loading, two-layer authoring/resolved experiment contracts, and separate engineering/research validation policies PASS | No live dependency |
 | P2 | All 9 endpoint-shaped fixtures; raw/canonical Parquet; lifecycle, availability-aware bounded membership and sparse-status rules; content-addressed snapshot; exact file-set verification; resumable endpoint plans using a shared `pyrate-limiter`/`tenacity`; redacted request ledgers; injected-client live-shaped publication; scalable Arrow/PyArrow PIT, Signal and Qlib-view paths; official Qlib view with historical-universe/tradability sidecars and two independent identical builds PASS | Live acquisition completed 13,614/13,614 requests on the first attempt. The immutable snapshot passed 16/16 DQ gates; its official Qlib 0.9.7 view passed health checks, exact-file verification, and 668/668 binary32-aware semantic samples. P2 live qualification is complete |
-| P3 | Canonical request selectors are bound to a verified snapshot hash; temporal lineage is loaded mechanically from Parquet; complete operator-delay policies, source windows, input lag, membership as-of, fake-hash rejection, and unbound-proposal publication denial PASS. Reports now bind the exact canonical request, expression, selectors, and decision schedule | Re-run the PIT audit against the live snapshot; every report retains `SINGLE_SOURCE_NON_VINTAGE` |
-| P4 | Safe-expression translation to official Qlib syntax, historical-universe resolution, cross-section PIT evidence bundles, provenance-gated immutable SignalArtifact publication/verification, locked cost/research policies, and real `DatasetH`/`LGBModel`/Workflow/Record Template smoke PASS. Two independent real-Qlib synthetic signal builds and two purged ML runs reproduced their content hashes | Re-run the complete P4 path on the live snapshot in a normal clean Git checkout; synthetic evidence is not data qualification |
-| P5 | Verified SignalArtifact-to-Qlib reference backtest, explicit Exchange/Simulator/Position/order-generator configuration, content-addressed BacktestArtifact, six arithmetic/schedule reconciliations, constraint golden cases, CLI run/verify, and clean-checkout double-run PASS | Re-run against the live snapshot in a normal release checkout; Qlib 0.9.7 blocked-trade evidence limitations remain explicit |
-| P6 | G0-G10 deterministic validation, hard-gate short circuit, frozen OOS access events, complete cost/parameter/subperiod evidence grids, policy-driven soft thresholds, independent-output-root reproducibility comparison, runtime-bound immutable ValidationReport v2, four golden outcomes, and native-Qlib full-pipeline synthetic double-run PASS | Rank IC/ICIR remain disabled and fail closed until an immutable Qlib ResearchResult adapter exists; re-run against the live snapshot in a normal clean Git checkout and retain the Data-qualified release-baseline rerun |
-| P7 | Self-hashed experiment manifests, imported OOS event chains, append-only strategy lifecycle, monotonic versions, rebuildable indexes, single-writer atomic publication, CLI, tamper/partial/duplicate/transition gates, and native-Qlib synthetic Release E2E double-run PASS | Re-run the final release path against the live snapshot after all Data-qualified blockers are cleared |
+| P3 | Canonical request selectors are bound to a verified snapshot hash; temporal lineage is loaded mechanically from Parquet; complete operator-delay policies, source windows, input lag, membership as-of, fake-hash rejection, and unbound-proposal publication denial PASS. Reports now bind the exact canonical request, expression, selectors, and decision schedule | Live PIT audit completed and retained `SINGLE_SOURCE_NON_VINTAGE`; evidence bundle `17f3a368...a71f` |
+| P4 | Safe-expression translation to official Qlib syntax, historical-universe resolution, cross-section PIT evidence bundles, provenance-gated immutable SignalArtifact publication/verification, locked cost/research policies, and real `DatasetH`/`LGBModel`/Workflow/Record Template smoke PASS. Two independent real-Qlib synthetic signal builds and two purged ML runs reproduced their content hashes | Two independent live-data pipelines reproduced SignalArtifact `dba57f2a...e51e`; Rank IC/ICIR remain disabled and fail closed until an immutable ResearchResult adapter exists |
+| P5 | Verified SignalArtifact-to-Qlib reference backtest, explicit Exchange/Simulator/Position/order-generator configuration, content-addressed BacktestArtifact, six arithmetic/schedule reconciliations, constraint golden cases, CLI run/verify, and clean-checkout double-run PASS | Two independent live-data pipelines reproduced BacktestArtifact `ec318505...4270` and reconciliation `c01cd819...0d1`; Qlib 0.9.7 blocked-trade evidence limitations remain explicit |
+| P6 | G0-G10 deterministic validation, hard-gate short circuit, frozen OOS access events, complete cost/parameter/subperiod evidence grids, policy-driven soft thresholds, independent-output-root reproducibility comparison, runtime-bound immutable ValidationReport v2, four golden outcomes, and native-Qlib full-pipeline synthetic double-run PASS | Live Validation E2E completed: `SUCCEEDED / REJECT`; G0-G4 and G6-G10 PASS, while G5 soft-rejected annualized turnover `29.5344 > 12` |
+| P7 | Self-hashed experiment manifests, imported OOS event chains, append-only strategy lifecycle, monotonic versions, rebuildable indexes, single-writer atomic publication, CLI, tamper/partial/duplicate/transition gates, and native-Qlib synthetic Release E2E double-run PASS | Live Registry/release double-run completed; engineering release `PASS / data_qualified=true`, rejected strategy immutably retained as `REJECTED` |
 
 ## 轨道对齐与下一阶段入口
 
 当前目标分为三条独立轨道：
 
-- `Deterministic MVP v0.1`：P0-P7 Offline Engineering DoD 已完成。正式发布前仍需将当前改动
-  合入 Git clean commit，并从该 commit 重跑一次 release feasibility，作为仓库级基线。
-- `Data-qualified Release`：DQ-01 至 DQ-03 已完成；当前只等待把实现冻结为 clean commit 后执行
-  P3-P7 双重独立重跑与 Registry 发布。
-- `Agent-assisted Research v0.2`：在 Offline Engineering 基线冻结后启动 P8-P14，不等待
-  Data-qualified 权限；Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
+- `Deterministic MVP v0.1`：P0-P7 Offline Engineering DoD 已完成，并已在实现提交
+  `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上执行两条独立正式流水线；结果为
+  `PASS / VALIDATED`。
+- `Data-qualified Release`：DQ-01 至 DQ-06 已全部完成。工程发布为
+  `PASS / data_qualified=true`；真实 HS300 Momentum 候选的研究 verdict 为
+  `SUCCEEDED / REJECT`，Registry 状态为 `REJECTED`。
+- `Agent-assisted Research v0.2`：P8-P14 可从已冻结的第一阶段基线启动，但尚未开始；
+  Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
 
 后续顺序固定为：
 
@@ -42,12 +44,15 @@ artifact、修改 Gate verdict 或直接标记 `VALIDATED`。v0.2 将 GPT + Code
 但 P10 必须先通过固定配置、统一 rubric 和硬性 go/no-go gate。确定性验收对象是相同 resolved
 Spec 与冻结输入产生的证据，而不是 Agent 文本的逐字一致。真实公告抽取在形成经过 admission
 policy 的 immutable EventFeatureArtifact 前始终只是 proposal；真实研究结论仍依赖独立的
-Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v6 第 40 节为准。
+Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v7 第 40 节为准。
 
 ## Current live qualification bindings
 
 ```text
 Capability report       57c7d418a1eb871735813f7200ef8ab4f50ac54467aaedc493743f2d9bbf71b1
+Implementation commit   f3fc7684d09ac351d72d76b2a0370c58bec8589c
+Lockfile                 31ca517e4de3fc7d539a903a2a96a2ba6d92399b6f3dbda51dffca6407a008d4
+Runtime fingerprint      66d954a1ff034d6ecb555885e12926e585543a4d71c92ea35bb5720465730321
 Snapshot build spec     db80037b1bc30372d4128a79381a46213a30d4c293a1056948b5249023f3742e
 Execution policy        5173902191371a46f97d98097e4819f8b29bd3d1fafaa404837947ae43f4d1e4
 Data-quality policy     4514dfb419071d3e6d7ae852d6cb06eb421d772f8870570de6c4a2a52091e275
@@ -56,6 +61,15 @@ Request ledger           cb043126d2bc7663a61aa9c5a491e87b490977c9227693571625be4
 Live snapshot            6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9
 Live quality report      e89933f2db98870e6a1143b6ca546713a2abfae30c0c5f00e79dea1d4d275ed8
 Live Qlib view           fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b
+Live PIT evidence        17f3a368d87142dcd877f30c71587991692b19c6ff9acf68753a6cafb282a71f
+Live SignalArtifact      dba57f2a5db23c36a58d705ef5be0dbd94df686002c35c9bf3286218788ce51e
+Live signal content      9e993232d2d1d20c73031b48f31ac83562c614ddef1910e1ab8cfe273e643502
+Live BacktestArtifact    ec318505caccead33188f909ab445acddc363334c0e96eb25af57ad05cea4270
+Backtest config          49c804a3a46bf042ad2482ecd82b4179be9f4aa9783c36ed9f190064c2682844
+Reconciliation           c01cd819ae4f773e4e441ed57882d05550f55959ea6445e2f897468ec7e540d1
+ValidationReport         553d49a710d97d49af536e8950001c5f91c3d88dddce3fa2b29cb8f788d855a7
+Experiment manifest      ba2c794ef8a0f96beb68f33472ca09b963a5125cb301a8b1979b6d581974e49c
+Registry index           04a276a2e8c7bd08b6b925b7b81590536269f371534fb0a2115b897215a0396a
 ```
 
 The capability artifact reports 12 requests and 12 `AVAILABLE` outcomes. The acquisition staging
@@ -65,6 +79,38 @@ explicit `SINGLE_SOURCE_NON_VINTAGE` limitation. The view contains 667 effective
 plus the HS300 benchmark; all effective members resolve to both mappings and tradability data. Five
 constituents first seen in the provider's final 2025-12-31 membership snapshot remain raw-only
 because their next availability session is outside the build range.
+
+## Formal first-stage release evidence
+
+The authoritative Data-qualified summary is
+[`artifacts/releases/data-qualified-v0.1-f3fc768/report.json`](../artifacts/releases/data-qualified-v0.1-f3fc768/report.json).
+It binds the explicit live snapshot and implementation commit above, Qlib 0.9.7 source commit
+`da920b7f954f48ab1bb64117c976710de198373e`, two independent release pipelines, and exact equality
+of every principal content hash. Each pipeline produced the same set of 15 SignalArtifacts and 15
+BacktestArtifacts; the two ValidationReport files are byte-identical. Independent CLI verification
+of both snapshots, views, baseline signals, baseline backtests, reports, and registries passed.
+
+The release outcome deliberately separates engineering qualification from research acceptance:
+
+```text
+Release                         PASS / DATA_QUALIFIED / data_qualified=true
+Validation execution           SUCCEEDED
+Validation verdict             REJECT
+Registry strategy status       REJECTED
+Hard and structural gates      G0-G4, G6-G10 PASS
+Soft-gate result               G5 REJECT: annualized_turnover 29.53442815294007 > 12
+Robustness evidence            3 cost + 9 parameter + 4 subperiod = 16 cases
+Limitation                     SINGLE_SOURCE_NON_VINTAGE
+```
+
+The baseline annualized return was `0.034215151782246364`, OOS Sharpe
+`0.21195024879335697`, and maximum drawdown `0.2902119289878075`; these research metrics are
+reported evidence, not engineering acceptance criteria. A prior candidate report
+`b40fa4b122c174ff82e78768a23a113f266899a84b571cab4f51c98bf8200ff7` remains immutable evidence of
+a valid G8 rejection: its last decision in a frozen subperiod executed in the next subperiod. The
+implementation now includes a schedule only when both decision and execution dates lie inside the
+frozen interval. The corrected four execution ranges end on 2017-12-25, 2020-12-28, 2023-12-25,
+and 2025-12-29 respectively, and G8 passes.
 
 ## P2-P4 baseline offline evidence
 
@@ -81,8 +127,8 @@ LGB finite metrics  089f93946c959f4984888ba78df2c8966d3a53d5070d78ea0397b40b2cca
 Quality suite       Historical v1 evidence: 151 passed; Ruff PASS; Pyright 0 errors; branch coverage 85.05%
 ```
 
-The current v6 working tree passes 171 tests, Ruff, Pyright with zero errors, and the 85% coverage
-gate (85.06%). The hashes below are retained historical synthetic component evidence; they must not
+The implementation commit passes 176 tests, Ruff, Pyright with zero errors, and the 85% coverage
+gate (85.30%). The hashes below are retained historical synthetic component evidence; they must not
 be interpreted as hashes for the revised live-data semantics or as Data-qualified evidence.
 
 The P4 SignalArtifact above was regenerated after the P5 policy fields were frozen. It and the P5
@@ -216,6 +262,13 @@ The experiment and strategy event chains reject missing predecessors, forks, bac
 invalid payloads and state transitions. REJECT and FAILED / NOT_EVALUATED reports remain registered
 evidence, while only canonical SUCCEEDED / PASS can produce a VALIDATED strategy version. This is
 synthetic component evidence, not live Tushare qualification.
+
+The formal M0 rerun on implementation commit
+`f3fc7684d09ac351d72d76b2a0370c58bec8589c` also completed two independent
+`OFFLINE_ENGINEERING / SYNTHETIC_FIXTURE` pipelines with byte-exact principal hashes. It produced
+snapshot `4ae0b2ed...55fb`, Qlib view `82b584bc...4d23d`, SignalArtifact `0264d742...ceab`,
+BacktestArtifact `4cacc90e...43af`, ValidationReport `7651525b...c51a`, experiment manifest
+`1e86919a...50ba`, and Registry index `962f41d9...271e`; its strategy status is `VALIDATED`.
 
 ## Deliberate reuse boundaries
 
