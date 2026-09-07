@@ -318,6 +318,7 @@ class AgentUsage(CanonicalContract):
 class AgentRunManifest(CanonicalContract):
     schema_version: Literal["agent-run-manifest/v1"] = "agent-run-manifest/v1"
     run_spec_hash: str = Field(pattern=SHA256_PATTERN)
+    provider_thread_id: str = Field(min_length=1, max_length=500)
     provider_model_identifier: str = Field(min_length=1, max_length=500)
     model_snapshot_immutable: bool
     model_configuration_hash: str = Field(pattern=SHA256_PATTERN)

@@ -11,7 +11,7 @@ evidence.
 Documentation roles:
 
 - [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
-- [Implementation status](docs/implementation-status.md) tracks the completed P0-P9 stages
+- [Implementation status](docs/implementation-status.md) tracks the completed P0-P10 stages
   and evidence summary.
 - [Stage-one architecture review](docs/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
@@ -239,11 +239,13 @@ root-confined, artifact reads reject links, and concurrent immutable/Registry wr
 P9 Research Semantic Contracts is complete: Agent output remains proposal-only, evidence admission
 and campaign/OOS governance fail closed, and the five admitted DSL v2 operators are bound to
 official Qlib semantics and the full PIT/Signal reproducibility chain. P10 GPT + Codex Capability
-Spike is the next implementation entry.
+Spike is complete with a 9/9 hard-capability Go for the frozen synthetic configuration; P11 Quant
+Research MCP + Offline Proposal E2E is the next implementation entry.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
 [`docs/p8-security.md`](docs/p8-security.md),
-[`docs/p9-research-semantics.md`](docs/p9-research-semantics.md); the locked Qlib feasibility record
-remains at
+[`docs/p9-research-semantics.md`](docs/p9-research-semantics.md), and
+[`docs/adr/0001-gpt-codex-harness.md`](docs/adr/0001-gpt-codex-harness.md). The locked Qlib
+feasibility record remains at
 [`docs/feasibility/qlib-0.9.7.md`](docs/feasibility/qlib-0.9.7.md).
 
 The 2026-09-05 bounded capability probe confirmed all 12 probed endpoints, including

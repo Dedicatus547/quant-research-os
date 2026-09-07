@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "const": "AGENT_PROPOSAL",
+      "type": "string"
+    },
+    "dataset_hash": {
+      "const": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "type": "string"
+    },
+    "fields": {
+      "items": {
+        "enum": [
+          "adjusted_close",
+          "membership",
+          "tradable"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "const": "SYNTHETIC_CAPABILITY_SPIKE",
+        "type": "string"
+      },
+      "maxItems": 1,
+      "minItems": 1,
+      "type": "array"
+    },
+    "proposal_id": {
+      "const": "p10-synthetic-observation",
+      "type": "string"
+    },
+    "proposal_kind": {
+      "const": "observation",
+      "type": "string"
+    },
+    "statement": {
+      "const": "The synthetic dataset exposes three registered fields.",
+      "type": "string"
+    },
+    "verdict": {
+      "type": "null"
+    }
+  },
+  "required": [
+    "authority",
+    "dataset_hash",
+    "fields",
+    "limitations",
+    "proposal_id",
+    "proposal_kind",
+    "statement",
+    "verdict"
+  ],
+  "type": "object"
+}

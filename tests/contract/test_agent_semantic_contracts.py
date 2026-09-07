@@ -282,6 +282,7 @@ def test_agent_run_manifest_binds_provenance_but_never_claims_reproducible_text(
     )
     manifest = AgentRunManifest(
         run_spec_hash=run_spec.content_hash,
+        provider_thread_id="thread-synthetic-001",
         provider_model_identifier="provider/model-version",
         model_snapshot_immutable=False,
         model_configuration_hash=run_spec.requested_model_configuration_hash,

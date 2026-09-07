@@ -1,0 +1,28 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Describe the frozen synthetic QuantOS P10 dataset by content hash.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "dataset_hash": {
+        "const": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "type": "string"
+      },
+      "skill_nonce": {
+        "const": "P10_SKILL_20260907",
+        "type": "string"
+      }
+    },
+    "required": [
+      "dataset_hash",
+      "skill_nonce"
+    ],
+    "type": "object"
+  },
+  "name": "dataset_describe"
+}

@@ -64,6 +64,13 @@ from quantos.contracts.evidence import (
     ExtractedTextArtifact,
     ProposedAttribute,
 )
+from quantos.contracts.harness import (
+    CodexHarnessSpikeReport,
+    CodexHarnessSpikeSpec,
+    HarnessCapability,
+    HarnessCapabilityCheck,
+    HarnessDecision,
+)
 from quantos.contracts.ledger import (
     LedgerAssertionAuthority,
     ResearchLedgerEvent,
@@ -192,6 +199,8 @@ __all__ = [
     "CanonicalPITAuditRequest",
     "CanonicalizationError",
     "CodeProvenance",
+    "CodexHarnessSpikeReport",
+    "CodexHarnessSpikeSpec",
     "ColumnManifest",
     "ConverterInputDigest",
     "CostPolicy",
@@ -222,6 +231,9 @@ __all__ = [
     "GateResult",
     "GateSeverity",
     "HardGateId",
+    "HarnessCapability",
+    "HarnessCapabilityCheck",
+    "HarnessDecision",
     "HistoricalUniverseMember",
     "HistoricalUniverseResolution",
     "HypothesisProposal",

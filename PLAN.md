@@ -1,6 +1,6 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v9（P9 Research Semantics 冻结版）<br>
+> 版本：v10（P10 GPT + Codex Harness 冻结版）<br>
 > 更新日期：2026-09-07<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
@@ -9,7 +9,8 @@
 > 候选软门是年化换手率 `29.5344 > 12`。该 REJECT 是应保留的研究事实，不是工程验收失败。
 > 全部报告保留 `SINGLE_SOURCE_NON_VINTAGE`；Rank IC/ICIR 的 immutable ResearchResult adapter
 > 仍未实现，不得宣称该指标已被验证。
-> P8 Agent Boundary & Threat Hardening 与 P9 Research Semantic Contracts 已完成；当前下一实施入口为 P10。
+> P8 Agent Boundary & Threat Hardening、P9 Research Semantic Contracts 与 P10 GPT + Codex
+> Harness Capability Spike 已完成；当前下一实施入口为 P11。
 
 ---
 
@@ -2287,7 +2288,15 @@ P9 已于 2026-09-07 完成。冻结实现包括 Evidence/Proposal/Admission/Age
 传播，以及只纳入 `abs`、`delta`、`rolling_sum`、`rolling_min`、`rolling_max` 的 Safe Qlib DSL v2。
 全部新算子绑定锁定官方 Qlib 语义、完整 PIT window、显式 operator delay、SignalArtifact 与独立输出
 hash 重现；未通过 gate 的候选算子不进入 enum。详细冻结边界见
-[`docs/p9-research-semantics.md`](docs/p9-research-semantics.md)。当前下一入口为 P10。
+[`docs/p9-research-semantics.md`](docs/p9-research-semantics.md)。
+
+P10 已于 2026-09-07 完成。冻结 `gpt-5.6-sol`、`codex-cli 0.153.4`、medium reasoning、
+read-only sandbox、`approval_policy=never`、禁用 login shell、固定最小 shell 环境、单一 read-only
+MCP tool、repo Skill、structured output 和人工 proposal baseline。最终真实 JSONL transcript 的
+thread、sandbox、MCP、Skills、失败恢复、transcript、usage、permission denial 与 proposal authority
+九项硬能力全部通过，决策为 Go；模型标识不可作为 immutable weights snapshot 的限制保持显式。
+详细配置、失败恢复过程、哈希和 AgentRunManifest 样例见
+[`docs/adr/0001-gpt-codex-harness.md`](docs/adr/0001-gpt-codex-harness.md)。当前下一入口为 P11。
 
 Rank IC/ICIR immutable ResearchResult adapter、第二 canonical market-data provider、基本面因子和
 实盘交易不自动进入这条关键路径。若 P13 的批准验收指标需要 Rank IC/ICIR，必须单独完成 adapter

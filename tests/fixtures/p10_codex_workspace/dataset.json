@@ -1,0 +1,9 @@
+{
+  "dataset_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "fixture_kind": "SYNTHETIC",
+  "registered_fields": [
+    "adjusted_close",
+    "membership",
+    "tradable"
+  ]
+}
