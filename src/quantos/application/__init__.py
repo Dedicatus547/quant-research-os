@@ -23,6 +23,12 @@ from quantos.application.pit import (
     propagate_availability,
     temporal_from_canonical_row,
 )
+from quantos.application.proposal_mcp import (
+    ProposalMcpError,
+    ProposalMcpService,
+    proposal_mcp_policy,
+)
+from quantos.application.proposals import ProposalCompilationError, compile_experiment_proposal
 from quantos.application.provenance import (
     ProvenanceError,
     capture_code_provenance,
@@ -51,6 +57,9 @@ __all__ = [
     "EventFeatureAdmissionPolicy",
     "HarnessTranscriptError",
     "PITAuditService",
+    "ProposalCompilationError",
+    "ProposalMcpError",
+    "ProposalMcpService",
     "ProvenanceError",
     "ResearchCampaignGovernor",
     "ResourceBudget",
@@ -60,6 +69,7 @@ __all__ = [
     "build_event_feature_artifact",
     "capture_code_provenance",
     "capture_runtime_fingerprint",
+    "compile_experiment_proposal",
     "evaluate_codex_capture",
     "expression_field_names",
     "load_bounded_json_object",
@@ -67,6 +77,7 @@ __all__ = [
     "load_pit_spec_json",
     "parse_codex_exec_jsonl",
     "propagate_availability",
+    "proposal_mcp_policy",
     "publish_capability_report",
     "resolve_experiment",
     "restricted_agent_environment",

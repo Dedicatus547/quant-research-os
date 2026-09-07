@@ -92,6 +92,12 @@ from quantos.contracts.pit import (
     SafeQlibOperator,
     TransformLineage,
 )
+from quantos.contracts.proposals import (
+    CompiledExperimentProposal,
+    ProposalSubmissionReceipt,
+    ProposalSubmissionRequest,
+    SubmittableProposalKind,
+)
 from quantos.contracts.provenance import CodeProvenance, RuntimeFingerprint, RuntimePackageVersion
 from quantos.contracts.qlib_view import (
     ConverterInputDigest,
@@ -202,6 +208,7 @@ __all__ = [
     "CodexHarnessSpikeReport",
     "CodexHarnessSpikeSpec",
     "ColumnManifest",
+    "CompiledExperimentProposal",
     "ConverterInputDigest",
     "CostPolicy",
     "DataQualityPolicy",
@@ -259,6 +266,8 @@ __all__ = [
     "PITMembershipSetEvidence",
     "PITSourceSetEvidence",
     "ParameterDimension",
+    "ProposalSubmissionReceipt",
+    "ProposalSubmissionRequest",
     "ProposedAttribute",
     "QlibBacktestConfig",
     "QlibExpressionTranslation",
@@ -307,6 +316,7 @@ __all__ = [
     "StrategyAuthoringSpec",
     "StrategyStatus",
     "StrategyVersionRecord",
+    "SubmittableProposalKind",
     "TemporalMetadata",
     "TemporalPolicyError",
     "ThresholdComparison",
