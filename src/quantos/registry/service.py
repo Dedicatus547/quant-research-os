@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
-from typing import cast
+from typing import ParamSpec, TypeVar, cast
 from uuid import UUID, uuid5
 
 from quantos.artifacts.store import (
@@ -15,6 +17,8 @@ from quantos.artifacts.store import (
     ImmutableEventWriter,
     StoredEvent,
     atomic_write_bytes,
+    exclusive_directory_lock,
+    regular_tree_files,
     sha256_file,
 )
 from quantos.contracts.base import canonical_json_bytes
@@ -40,6 +44,8 @@ from quantos.validation import ValidationError, verify_validation_report
 
 _EVENT_NAMESPACE = UUID("f52d4cbe-06f4-5d21-a00d-d76c86fc99e7")
 _PARTIAL_FILE = re.compile(r"^\..+\.json\..+$")
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 
 
 class RegistryError(RuntimeError):
@@ -55,6 +61,20 @@ class RegistryConflictError(RegistryError):
 
     def __init__(self, message: str) -> None:
         super().__init__(ReasonCode.DUPLICATE_ID_CONFLICT, message)
+
+
+def _serialized_write(method: Callable[_P, _R]) -> Callable[_P, _R]:
+    @wraps(method)
+    def guarded(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        service = cast("RegistryService", args[0])
+        if service.root.is_symlink():
+            raise RegistryError(ReasonCode.ARTIFACT_CORRUPTED, "registry root is unsafe")
+        with exclusive_directory_lock(service.root.parent):
+            if service.root.is_symlink():
+                raise RegistryError(ReasonCode.ARTIFACT_CORRUPTED, "registry root is unsafe")
+            return method(*args, **kwargs)
+
+    return guarded
 
 
 @dataclass(frozen=True)
@@ -169,6 +189,7 @@ class RegistryService:
         self._experiment_event_root = root / "events" / "experiments"
         self._strategy_event_root = root / "events" / "strategies"
 
+    @_serialized_write
     def register_experiment(
         self,
         validation_path: Path,
@@ -480,6 +501,7 @@ class RegistryService:
             hashes.add(validated.oos_access_event.sha256)
         return tuple(sorted(hashes))
 
+    @_serialized_write
     def register_strategy(
         self,
         strategy_id: str,
@@ -527,6 +549,7 @@ class RegistryService:
             raise RegistryConflictError("strategy creation event identifier conflicts") from error
         return self.get_strategy(strategy_id, version=version)
 
+    @_serialized_write
     def append_strategy_event(
         self,
         strategy_id: str,
@@ -651,13 +674,20 @@ class RegistryService:
             item.versions for item in index.strategies if item.strategy_id == latest.strategy_id
         )
 
+    @_serialized_write
     def recover_partial_writes(self) -> tuple[str, ...]:
         """Remove only atomic-writer temporary files; authoritative JSON is never modified."""
 
         if not self.root.exists():
             return ()
         recovered: list[str] = []
-        for path in sorted(item for item in self.root.rglob("*") if item.is_file()):
+        try:
+            paths = regular_tree_files(self.root)
+        except ArtifactIntegrityError as error:
+            raise RegistryError(
+                ReasonCode.ARTIFACT_CORRUPTED, "registry tree is unsafe"
+            ) from error
+        for path in paths:
             if _PARTIAL_FILE.fullmatch(path.name):
                 recovered.append(path.relative_to(self.root).as_posix())
                 path.unlink()
@@ -1006,7 +1036,13 @@ class RegistryService:
     def _reject_unexpected_files(self) -> None:
         if not self.root.exists():
             return
-        for path in (item for item in self.root.rglob("*") if item.is_file()):
+        try:
+            paths = regular_tree_files(self.root)
+        except ArtifactIntegrityError as error:
+            raise RegistryError(
+                ReasonCode.ARTIFACT_CORRUPTED, "registry tree is unsafe"
+            ) from error
+        for path in paths:
             if _PARTIAL_FILE.fullmatch(path.name):
                 continue
             relative = path.relative_to(self.root)

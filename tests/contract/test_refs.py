@@ -15,7 +15,18 @@ def test_artifact_ref_accepts_safe_content_addressed_reference() -> None:
     assert reference.kind == "data_snapshot"
 
 
-@pytest.mark.parametrize("path", ["/absolute", "../escape", "folder\\escape"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/absolute",
+        "../escape",
+        "folder\\escape",
+        ".",
+        "folder/./file",
+        "folder//file",
+        "file\x00name",
+    ],
+)
 def test_artifact_ref_rejects_unsafe_path(path: str) -> None:
     with pytest.raises(ValidationError):
         ArtifactRef(

@@ -1,7 +1,7 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v7（第一阶段资格冻结版）<br>
-> 更新日期：2026-09-06<br>
+> 版本：v8（P8 Agent 边界冻结版）<br>
+> 更新日期：2026-09-07<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
 > Offline Engineering 基线为 `PASS / VALIDATED`；真实 Tushare Data-qualified 发布为工程
@@ -9,6 +9,7 @@
 > 候选软门是年化换手率 `29.5344 > 12`。该 REJECT 是应保留的研究事实，不是工程验收失败。
 > 全部报告保留 `SINGLE_SOURCE_NON_VINTAGE`；Rank IC/ICIR 的 immutable ResearchResult adapter
 > 仍未实现，不得宣称该指标已被验证。
+> P8 Agent Boundary & Threat Hardening 已完成；当前下一实施入口为 P9。
 
 ---
 
@@ -1951,8 +1952,8 @@ E2E             P6 validation pipeline / P7 release pipeline
 第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
-market-data evidence。截至 2026-09-06，M0 与 DQ-01 至 DQ-06 均已完成，P8 尚未开始；
-因此当前下一实施入口是 P8，而不是重跑第一阶段。
+market-data evidence。截至 2026-09-07，M0、DQ-01 至 DQ-06 与 P8 均已完成；
+因此当前下一实施入口是 P9，而不是重跑第一阶段或提前接入 Harness。
 
 后续主线固定为：
 
@@ -2273,6 +2274,13 @@ Offline Engineering E2E，但只有 DQ-01 至 DQ-06 完成后才能发布真实�
 | P12 | 隔离的 SSE/SZSE 公告 Collector、raw Evidence Store、deterministic text extraction、availability/revision/license policy | 原始字节与派生文本可按 hash 验证和重建；published/fetched/observed/available 不混用；Collector 无 LLM、无 authority 写权；Evaluation 和 Agent 仍无网络 |
 | P13 | 冻结公告抽取 benchmark；EvidenceExtractionProposal、admission policy、EventFeatureArtifact、事件到交易日/PIT 对齐；首个股份回购公告研究 vertical slice | 未通过 admission 的 LLM 标签不能执行；feature artifact 可追溯到原文位置与全部 policy/hash；支持的指标才可进入 Gate；分别报告 Offline Engineering 和 Data-qualified 状态，使用正式状态语义而非 ACCEPT |
 | P14 | append-only Research Ledger DAG、可重建检索索引、相似/失败/重复研究检索、完整 trial accounting、bounded campaign loop | Ledger 区分来源/提案/人工判断/确定性 verdict；AgentRun 绑定检索输入；预算和停止规则强制执行；sealed confirmation 一次性且污染传播通过 E2E；成功标准不含盈利 |
+
+P8 已于 2026-09-07 完成。冻结实现包括 capability allowlist、有界且不记录正文的请求审计、
+最小 Agent 环境、只接受 domain + content hash 的 authority root resolver、规范 logical path、全权威
+artifact tree 的 symlink/special-file 拒绝、atomic create-if-absent，以及 Registry 多文件写串行化。
+安全负例和完整 P0-P7 regression 均通过。P8 只冻结 pre-integration 边界，不宣称某个 Harness 已经
+被沙箱隔离，也不提前冻结 P9 contracts；详细边界与剩余 P10 证明义务见
+[`docs/p8-security.md`](docs/p8-security.md)。
 
 Rank IC/ICIR immutable ResearchResult adapter、第二 canonical market-data provider、基本面因子和
 实盘交易不自动进入这条关键路径。若 P13 的批准验收指标需要 Rank IC/ICIR，必须单独完成 adapter

@@ -10,11 +10,21 @@ from quantos.contracts.base import CanonicalContract
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
 
-def _validate_logical_path(value: str) -> str:
+def validate_logical_path(value: str) -> str:
+    """Return a canonical relative POSIX path or reject it."""
+
     path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or "\\" in value:
+    normalized = path.as_posix()
+    if (
+        path.is_absolute()
+        or normalized in {"", "."}
+        or ".." in path.parts
+        or "\\" in value
+        or "\x00" in value
+        or normalized != value
+    ):
         raise ValueError("logical_path must be a safe relative POSIX path")
-    return path.as_posix()
+    return normalized
 
 
 class ArtifactRef(CanonicalContract):
@@ -28,7 +38,7 @@ class ArtifactRef(CanonicalContract):
     @field_validator("logical_path")
     @classmethod
     def logical_path_is_relative(cls, value: str) -> str:
-        return _validate_logical_path(value)
+        return validate_logical_path(value)
 
 
 class DataSnapshotRef(CanonicalContract):
@@ -42,4 +52,4 @@ class DataSnapshotRef(CanonicalContract):
     @field_validator("logical_path")
     @classmethod
     def logical_path_is_relative(cls, value: str) -> str:
-        return _validate_logical_path(value)
+        return validate_logical_path(value)

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import PurePosixPath
 from typing import Any, ClassVar, Literal, Self
 
 from pydantic import Field, NonNegativeInt, field_validator, model_validator
 
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.provenance import RuntimeFingerprint
-from quantos.contracts.refs import SHA256_PATTERN, ArtifactRef
+from quantos.contracts.refs import SHA256_PATTERN, ArtifactRef, validate_logical_path
 from quantos.contracts.research import SoftMetric
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
 
@@ -121,10 +120,7 @@ class ValidationArtifactFile(CanonicalContract):
     @field_validator("logical_path")
     @classmethod
     def path_is_safe(cls, value: str) -> str:
-        path = PurePosixPath(value)
-        if path.is_absolute() or ".." in path.parts or "\\" in value:
-            raise ValueError("validation file path must be a safe relative POSIX path")
-        return path.as_posix()
+        return validate_logical_path(value)
 
 
 class ValidationReport(CanonicalContract):

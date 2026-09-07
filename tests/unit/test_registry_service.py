@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 from typer.testing import CliRunner
@@ -246,6 +248,28 @@ def test_registry_detects_duplicate_ids_and_enforces_strategy_state_machine(
             occurred_at=NOW,
         )
     assert invalid.value.reason_code is ReasonCode.STATE_TRANSITION_INVALID
+
+
+def test_registry_serializes_conflicting_strategy_writers(tmp_path: Path) -> None:
+    service = RegistryService(tmp_path / "registry-concurrent")
+    barrier = Barrier(2)
+
+    def register(digest: str) -> str:
+        barrier.wait()
+        try:
+            service.register_strategy("concurrent", digest, version=1, occurred_at=NOW)
+        except RegistryConflictError:
+            return "conflict"
+        return "published"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(register, ("a" * 64, "b" * 64)))
+
+    assert sorted(outcomes) == ["conflict", "published"]
+    versions = service.get_strategy_versions("concurrent")
+    assert len(versions) == 1
+    assert versions[0].strategy_spec_hash in {"a" * 64, "b" * 64}
+    assert len(tuple((tmp_path / "registry-concurrent" / "events").rglob("*.json"))) == 1
 
 
 def test_registry_rebuild_detects_tampering_and_recovers_writer_temporary_files(

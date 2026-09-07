@@ -26,6 +26,7 @@ from quantos.artifacts.store import (
     ImmutableEventWriter,
     atomic_write_bytes,
     publish_directory,
+    regular_tree_files,
     sha256_file,
     verify_file,
 )
@@ -1389,9 +1390,10 @@ class ValidationService:
 
 def verify_validation_report(path: Path) -> ValidationReport:
     try:
+        tree_files = regular_tree_files(path)
         report_bytes = (path / "report.json").read_bytes()
         report = ValidationReport.model_validate_json(report_bytes)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, ArtifactIntegrityError) as error:
         raise ValidationError(
             ReasonCode.ARTIFACT_CORRUPTED, "validation report is invalid"
         ) from error
@@ -1406,7 +1408,7 @@ def verify_validation_report(path: Path) -> ValidationReport:
             "validation directory does not match the report hash",
         )
     expected = {item.logical_path for item in report.files} | {"report.json"}
-    actual = {item.relative_to(path).as_posix() for item in path.rglob("*") if item.is_file()}
+    actual = {item.relative_to(path).as_posix() for item in tree_files}
     if actual != expected:
         raise ValidationError(
             ReasonCode.ARTIFACT_CORRUPTED,

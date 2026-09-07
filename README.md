@@ -233,8 +233,12 @@ manifests, imported OOS event chains, monotonic strategy versions, fail-closed l
 transitions, rebuildable list/get indexes, registry CLI operations, tamper/partial-write recovery
 tests, and a two-run native-Qlib synthetic Release E2E. P0-P7 Offline Engineering and
 Data-qualified DoD are complete on implementation commit
-`f3fc7684d09ac351d72d76b2a0370c58bec8589c`.
+`f3fc7684d09ac351d72d76b2a0370c58bec8589c`. P8 Agent Boundary & Threat Hardening is also
+complete: untrusted ingress is capability- and resource-bounded, authority lookup is hash-only and
+root-confined, artifact reads reject links, and concurrent immutable/Registry writers fail closed.
+P9 Research Semantic Contracts is the next implementation entry.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
+[`docs/p8-security.md`](docs/p8-security.md); the locked Qlib feasibility record remains at
 [`docs/feasibility/qlib-0.9.7.md`](docs/feasibility/qlib-0.9.7.md).
 
 The 2026-09-05 bounded capability probe confirmed all 12 probed endpoints, including

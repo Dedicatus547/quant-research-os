@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from importlib.metadata import version
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Literal, Protocol, Self, cast
 
 import pandas as pd
@@ -26,7 +26,7 @@ from quantos.artifacts.store import (
     verify_file,
 )
 from quantos.contracts.base import CanonicalContract
-from quantos.contracts.refs import SHA256_PATTERN
+from quantos.contracts.refs import SHA256_PATTERN, validate_logical_path
 from quantos.contracts.snapshot import SnapshotBuildSpec
 from quantos.contracts.status import ReasonCode
 
@@ -120,10 +120,7 @@ class RequestLedgerEntry(CanonicalContract):
     @field_validator("response_logical_path")
     @classmethod
     def response_path_is_safe(cls, value: str) -> str:
-        path = PurePosixPath(value)
-        if path.is_absolute() or ".." in path.parts or "\\" in value:
-            raise ValueError("response path must be relative and safe")
-        return path.as_posix()
+        return validate_logical_path(value)
 
     @model_validator(mode="after")
     def ledger_entry_is_consistent(self) -> Self:

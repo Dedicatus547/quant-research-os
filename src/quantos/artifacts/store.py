@@ -5,7 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
+from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 from typing import Literal, Self
 
@@ -29,6 +33,12 @@ class ArtifactIntegrityError(ArtifactError):
 
 
 def sha256_file(path: Path) -> str:
+    try:
+        mode = path.lstat().st_mode
+    except OSError as error:
+        raise ArtifactIntegrityError("artifact file is unavailable") from error
+    if path.is_symlink() or not stat.S_ISREG(mode):
+        raise ArtifactIntegrityError("artifact path must be a regular file, not a link")
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
@@ -62,13 +72,16 @@ def atomic_write_bytes(path: Path, data: bytes, *, expected_sha256: str | None =
             stream.flush()
             os.fsync(stream.fileno())
 
-        if path.exists():
+        try:
+            # A hard link is an atomic create-if-absent operation.  Unlike a
+            # pre-check followed by os.replace, it cannot overwrite a winner
+            # racing us between those two operations.
+            os.link(temporary_path, path)
+        except FileExistsError:
             if sha256_file(path) == digest:
-                temporary_path.unlink()
                 return digest
-            raise ArtifactConflictError(f"immutable target already exists: {path}")
-
-        os.replace(temporary_path, path)
+            raise ArtifactConflictError(f"immutable target already exists: {path}") from None
+        temporary_path.unlink()
         temporary_path = None
         _fsync_directory(path.parent)
         return digest
@@ -89,12 +102,96 @@ def verify_file(path: Path, expected_sha256: str) -> None:
         )
 
 
+def _regular_tree(root: Path) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    try:
+        root_mode = root.lstat().st_mode
+    except OSError as error:
+        raise ArtifactIntegrityError("artifact root is unavailable") from error
+    if root.is_symlink() or not stat.S_ISDIR(root_mode):
+        raise ArtifactIntegrityError("artifact root must be a real directory")
+    files: list[Path] = []
+    directories: list[Path] = []
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as scan:
+                entries = sorted(scan, key=lambda item: item.name)
+        except OSError as error:
+            raise ArtifactIntegrityError("artifact tree cannot be enumerated") from error
+        for entry in entries:
+            path = Path(entry.path)
+            if entry.is_symlink():
+                raise ArtifactIntegrityError("artifact tree contains a symbolic link")
+            if entry.is_dir(follow_symlinks=False):
+                directories.append(path)
+                pending.append(path)
+            elif entry.is_file(follow_symlinks=False):
+                files.append(path)
+            else:
+                raise ArtifactIntegrityError("artifact tree contains a non-regular object")
+    return tuple(sorted(files)), tuple(sorted(directories))
+
+
+def regular_tree_files(root: Path) -> tuple[Path, ...]:
+    """List a tree while rejecting symlinks and non-regular filesystem objects."""
+
+    files, _ = _regular_tree(root)
+    return files
+
+
+def confined_regular_file(root: Path, logical_path: str) -> Path:
+    """Resolve an existing logical file without following any symbolic link."""
+
+    from quantos.contracts.refs import validate_logical_path
+
+    relative = Path(validate_logical_path(logical_path))
+    if root.is_symlink() or not root.is_dir():
+        raise ArtifactIntegrityError("artifact root must be a real directory")
+    root_resolved = root.resolve(strict=True)
+    current = root
+    for part in relative.parts:
+        current = current / part
+        try:
+            mode = current.lstat().st_mode
+        except OSError as error:
+            raise ArtifactIntegrityError("artifact logical path is unavailable") from error
+        if current.is_symlink():
+            raise ArtifactIntegrityError("artifact logical path contains a symbolic link")
+        if current != root / relative and not stat.S_ISDIR(mode):
+            raise ArtifactIntegrityError("artifact logical path parent is not a directory")
+    resolved = current.resolve(strict=True)
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError as error:
+        raise ArtifactIntegrityError("artifact logical path escaped its root") from error
+    if not resolved.is_file():
+        raise ArtifactIntegrityError("artifact logical path is not a regular file")
+    return resolved
+
+
+@contextmanager
+def exclusive_directory_lock(path: Path) -> Generator[None, None, None]:
+    """Serialize a multi-file authority mutation without creating lock artifacts."""
+
+    path.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink() or not path.is_dir():
+        raise ArtifactIntegrityError("writer lock root must be a real directory")
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        flock(descriptor, LOCK_EX)
+        yield
+    finally:
+        flock(descriptor, LOCK_UN)
+        os.close(descriptor)
+
+
 def _fsync_tree(root: Path) -> None:
-    for path in sorted(root.rglob("*")):
-        if path.is_file():
-            with path.open("rb") as stream:
-                os.fsync(stream.fileno())
-    for path in sorted((item for item in root.rglob("*") if item.is_dir()), reverse=True):
+    files, directories = _regular_tree(root)
+    for path in files:
+        with path.open("rb") as stream:
+            os.fsync(stream.fileno())
+    for path in sorted(directories, reverse=True):
         _fsync_directory(path)
     _fsync_directory(root)
 
@@ -107,12 +204,12 @@ def publish_directory(staging: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if staging.stat().st_dev != destination.parent.stat().st_dev:
         raise ArtifactError("staging and destination must be on the same filesystem")
-    if destination.exists():
-        raise ArtifactConflictError(f"immutable destination already exists: {destination}")
-
     _fsync_tree(staging)
-    os.replace(staging, destination)
-    _fsync_directory(destination.parent)
+    with exclusive_directory_lock(destination.parent):
+        if destination.exists() or destination.is_symlink():
+            raise ArtifactConflictError(f"immutable destination already exists: {destination}")
+        os.replace(staging, destination)
+        _fsync_directory(destination.parent)
 
 
 class StoredEvent(CanonicalContract):
@@ -154,7 +251,7 @@ class ImmutableEventWriter:
         )
 
     def read(self, reference: ArtifactRef) -> ImmutableEvent:
-        path = self._root / reference.logical_path
+        path = confined_regular_file(self._root, reference.logical_path)
         verify_file(path, reference.sha256)
         raw = json.loads(path.read_bytes())
         return StoredEvent.model_validate(raw).event

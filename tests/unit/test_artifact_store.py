@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -25,6 +26,24 @@ def test_atomic_write_is_idempotent_but_never_overwrites(tmp_path: Path) -> None
     assert target.read_bytes() == b"first"
 
 
+def test_atomic_write_never_overwrites_under_concurrent_writers(tmp_path: Path) -> None:
+    target = tmp_path / "artifact.bin"
+
+    def publish(payload: bytes) -> str:
+        try:
+            atomic_write_bytes(target, payload)
+        except ArtifactConflictError:
+            return "conflict"
+        return "published"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(publish, (bytes([index]) for index in range(8))))
+
+    assert outcomes.count("published") == 1
+    assert outcomes.count("conflict") == 7
+    assert target.read_bytes() in {bytes([index]) for index in range(8)}
+
+
 def test_verify_file_detects_tampering(tmp_path: Path) -> None:
     target = tmp_path / "artifact.bin"
     digest = atomic_write_bytes(target, b"trusted")
@@ -32,6 +51,21 @@ def test_verify_file_detects_tampering(tmp_path: Path) -> None:
 
     with pytest.raises(ArtifactIntegrityError, match="hash mismatch"):
         verify_file(target, digest)
+
+
+def test_verify_file_and_directory_publish_reject_symlinks(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"trusted")
+    linked = tmp_path / "linked"
+    linked.symlink_to(outside)
+    with pytest.raises(ArtifactIntegrityError, match="regular file"):
+        verify_file(linked, __import__("hashlib").sha256(b"trusted").hexdigest())
+
+    staging = tmp_path / "staging-linked"
+    staging.mkdir()
+    (staging / "payload").symlink_to(outside)
+    with pytest.raises(ArtifactIntegrityError, match="symbolic link"):
+        publish_directory(staging, tmp_path / "published-linked")
 
 
 def test_publish_directory_uses_immutable_destination(tmp_path: Path) -> None:
@@ -48,6 +82,30 @@ def test_publish_directory_uses_immutable_destination(tmp_path: Path) -> None:
     replacement.mkdir()
     with pytest.raises(ArtifactConflictError):
         publish_directory(replacement, destination)
+
+
+def test_publish_directory_serializes_concurrent_writers(tmp_path: Path) -> None:
+    destination = tmp_path / "published" / "sha256-race"
+    staging_roots: list[Path] = []
+    for index in range(8):
+        staging = tmp_path / f"staging-{index}"
+        staging.mkdir()
+        (staging / "payload").write_bytes(bytes([index]))
+        staging_roots.append(staging)
+
+    def publish(staging: Path) -> str:
+        try:
+            publish_directory(staging, destination)
+        except ArtifactConflictError:
+            return "conflict"
+        return "published"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(publish, staging_roots))
+
+    assert outcomes.count("published") == 1
+    assert outcomes.count("conflict") == 7
+    assert (destination / "payload").read_bytes() in {bytes([index]) for index in range(8)}
 
 
 def test_event_writer_is_hashed_idempotent_and_readable(tmp_path: Path) -> None:

@@ -27,6 +27,7 @@ from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
     publish_directory,
+    regular_tree_files,
     sha256_file,
     verify_file,
 )
@@ -502,9 +503,10 @@ def _semantic_samples(
 
 def verify_qlib_view(path: Path) -> QlibViewManifest:
     try:
+        tree_files = regular_tree_files(path)
         payload = json.loads((path / "manifest.json").read_bytes())
         manifest = QlibViewManifest.model_validate(payload)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, json.JSONDecodeError, ArtifactIntegrityError) as error:
         raise QlibViewBuildError(
             ReasonCode.ARTIFACT_CORRUPTED, "Qlib view manifest is invalid"
         ) from error
@@ -515,8 +517,8 @@ def verify_qlib_view(path: Path) -> QlibViewManifest:
     expected_paths = {item.logical_path for item in manifest.files}
     actual_paths = {
         item.relative_to(path).as_posix()
-        for item in path.rglob("*")
-        if item.is_file() and item.name != "manifest.json"
+        for item in tree_files
+        if item.name != "manifest.json"
     }
     if actual_paths != expected_paths:
         raise QlibViewBuildError(

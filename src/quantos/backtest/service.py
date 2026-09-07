@@ -24,6 +24,7 @@ from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
     publish_directory,
+    regular_tree_files,
     sha256_file,
     verify_file,
 )
@@ -834,10 +835,11 @@ def _write_table(rows: Sequence[dict[str, object]], schema: pa.Schema, path: Pat
 
 def verify_backtest_artifact(path: Path) -> BacktestArtifactManifest:
     try:
+        tree_files = regular_tree_files(path)
         manifest = BacktestArtifactManifest.model_validate_json(
             (path / "manifest.json").read_bytes()
         )
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, ArtifactIntegrityError) as error:
         raise QlibResearchError(
             ReasonCode.ARTIFACT_CORRUPTED, "backtest manifest is invalid"
         ) from error
@@ -848,8 +850,8 @@ def verify_backtest_artifact(path: Path) -> BacktestArtifactManifest:
     expected_paths = {item.logical_path for item in manifest.files}
     actual_paths = {
         item.relative_to(path).as_posix()
-        for item in path.rglob("*")
-        if item.is_file() and item.name != "manifest.json"
+        for item in tree_files
+        if item.name != "manifest.json"
     }
     if actual_paths != expected_paths:
         raise QlibResearchError(

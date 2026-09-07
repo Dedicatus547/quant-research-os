@@ -432,3 +432,16 @@ def test_snapshot_verifier_rejects_unmanifested_files(tmp_path: Path) -> None:
     with pytest.raises(SnapshotBuildError) as captured:
         verify_snapshot(result.path)
     assert captured.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
+
+
+def test_snapshot_verifier_rejects_hash_matching_symlink_spoof(tmp_path: Path) -> None:
+    result = SyntheticSnapshotBuilder().build(FIXTURE, tmp_path / "snapshots")
+    target = result.path / "raw" / "bars.csv"
+    outside = tmp_path / "outside-bars.csv"
+    outside.write_bytes(target.read_bytes())
+    target.unlink()
+    target.symlink_to(outside)
+
+    with pytest.raises(SnapshotBuildError) as captured:
+        verify_snapshot(result.path)
+    assert captured.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED

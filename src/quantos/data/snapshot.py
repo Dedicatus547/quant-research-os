@@ -28,6 +28,7 @@ from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
     publish_directory,
+    regular_tree_files,
     sha256_file,
     verify_file,
 )
@@ -1562,6 +1563,12 @@ def verify_snapshot(path: Path) -> DataSnapshotManifest:
     """Validate a published manifest and every immutable file it references."""
 
     try:
+        tree_files = regular_tree_files(path)
+    except ArtifactIntegrityError as error:
+        raise SnapshotBuildError(
+            ReasonCode.ARTIFACT_CORRUPTED, "snapshot tree is unsafe"
+        ) from error
+    try:
         payload = json.loads((path / "manifest.json").read_bytes())
         manifest = DataSnapshotManifest.model_validate(payload)
     except (OSError, json.JSONDecodeError, ValueError) as error:
@@ -1575,8 +1582,8 @@ def verify_snapshot(path: Path) -> DataSnapshotManifest:
     expected_paths = {item.logical_path for item in manifest.files}
     actual_paths = {
         item.relative_to(path).as_posix()
-        for item in path.rglob("*")
-        if item.is_file() and item.name != "manifest.json"
+        for item in tree_files
+        if item.name != "manifest.json"
     }
     if actual_paths != expected_paths:
         raise SnapshotBuildError(
