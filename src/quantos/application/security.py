@@ -42,13 +42,16 @@ class ResourceBudget:
     max_requests: int = 1_000
 
     def __post_init__(self) -> None:
-        if min(
-            self.max_payload_bytes,
-            self.max_depth,
-            self.max_nodes,
-            self.max_string_bytes,
-            self.max_requests,
-        ) < 1:
+        if (
+            min(
+                self.max_payload_bytes,
+                self.max_depth,
+                self.max_nodes,
+                self.max_string_bytes,
+                self.max_requests,
+            )
+            < 1
+        ):
             raise ValueError("resource budget limits must be positive")
 
 
@@ -110,9 +113,7 @@ _AUTHORITY_CONTROL_KEYS: Final[frozenset[str]] = frozenset(
         "verdict",
     }
 )
-_SAFE_ENVIRONMENT_KEYS: Final[frozenset[str]] = frozenset(
-    {"LANG", "LC_ALL", "LC_CTYPE", "TZ"}
-)
+_SAFE_ENVIRONMENT_KEYS: Final[frozenset[str]] = frozenset({"LANG", "LC_ALL", "LC_CTYPE", "TZ"})
 _CAPABILITY_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 
 
@@ -175,9 +176,7 @@ def _validate_payload_graph(value: object, budget: ResourceBudget) -> None:
             sequence = cast(list[object], item)
             stack.extend((child, depth + 1) for child in sequence)
         elif isinstance(item, float) and not math.isfinite(item):
-            raise SecurityBoundaryError(
-                ReasonCode.SCHEMA_INVALID, "payload numbers must be finite"
-            )
+            raise SecurityBoundaryError(ReasonCode.SCHEMA_INVALID, "payload numbers must be finite")
         elif item is not None and not isinstance(item, (bool, int, float)):
             raise SecurityBoundaryError(
                 ReasonCode.SCHEMA_INVALID, "payload contains an invalid value"
@@ -219,11 +218,20 @@ def load_bounded_json_object(
     return result
 
 
-def restricted_agent_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
+def restricted_agent_environment(
+    source: Mapping[str, str] | None = None,
+    *,
+    allowlist: tuple[str, ...] | None = None,
+) -> dict[str, str]:
     """Return the complete environment permitted for an isolated Agent process."""
 
     environment = os.environ if source is None else source
-    return {key: environment[key] for key in sorted(_SAFE_ENVIRONMENT_KEYS) if key in environment}
+    allowed = _SAFE_ENVIRONMENT_KEYS if allowlist is None else frozenset(allowlist)
+    if not allowed.issubset(_SAFE_ENVIRONMENT_KEYS):
+        raise SecurityBoundaryError(
+            ReasonCode.SECRET_ACCESS_DENIED, "Agent environment key is not permitted"
+        )
+    return {key: environment[key] for key in sorted(allowed) if key in environment}
 
 
 class AgentRequestBoundary:
@@ -244,6 +252,23 @@ class AgentRequestBoundary:
         self._allowed = allowed_capabilities
         self._budget = budget or ResourceBudget()
         self._decisions: list[BoundaryAuditDecision] = []
+
+    @classmethod
+    def from_policy(cls, policy: object) -> AgentRequestBoundary:
+        from quantos.contracts.agent import AgentCapabilityPolicy
+
+        if not isinstance(policy, AgentCapabilityPolicy):
+            raise ValueError("capability policy contract is invalid")
+        return cls(
+            frozenset(item.value for item in policy.capabilities),
+            budget=ResourceBudget(
+                max_payload_bytes=policy.max_payload_bytes,
+                max_depth=policy.max_payload_depth,
+                max_nodes=policy.max_payload_nodes,
+                max_string_bytes=policy.max_string_bytes,
+                max_requests=policy.max_requests,
+            ),
+        )
 
     @property
     def audit_decisions(self) -> tuple[BoundaryAuditDecision, ...]:

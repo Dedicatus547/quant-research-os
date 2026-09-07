@@ -1581,9 +1581,7 @@ def verify_snapshot(path: Path) -> DataSnapshotManifest:
         )
     expected_paths = {item.logical_path for item in manifest.files}
     actual_paths = {
-        item.relative_to(path).as_posix()
-        for item in tree_files
-        if item.name != "manifest.json"
+        item.relative_to(path).as_posix() for item in tree_files if item.name != "manifest.json"
     }
     if actual_paths != expected_paths:
         raise SnapshotBuildError(

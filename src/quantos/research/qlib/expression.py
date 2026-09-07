@@ -29,14 +29,24 @@ def translate_safe_expression(spec: SafeQlibExpressionSpec) -> QlibExpressionTra
         window = cast(int, node.window)
         if node.operator is SafeQlibOperator.REF:
             expression = f"Ref({inputs[0]},{window})"
+        elif node.operator is SafeQlibOperator.DELTA:
+            expression = f"Delta({inputs[0]},{window})"
         elif node.operator is SafeQlibOperator.RETURN:
             expression = f"(({inputs[0]})/(Ref({inputs[0]},{window}))-1)"
         elif node.operator is SafeQlibOperator.ROLLING_MEAN:
             expression = f"Mean({inputs[0]},{window})"
         elif node.operator is SafeQlibOperator.ROLLING_STD:
             expression = f"Std({inputs[0]},{window})"
+        elif node.operator is SafeQlibOperator.ROLLING_SUM:
+            expression = f"Sum({inputs[0]},{window})"
+        elif node.operator is SafeQlibOperator.ROLLING_MIN:
+            expression = f"Min({inputs[0]},{window})"
+        elif node.operator is SafeQlibOperator.ROLLING_MAX:
+            expression = f"Max({inputs[0]},{window})"
         elif node.operator is SafeQlibOperator.RANK:
             expression = f"Rank({inputs[0]},{window})"
+        elif node.operator is SafeQlibOperator.ABS:
+            expression = f"Abs({inputs[0]})"
         elif node.operator is SafeQlibOperator.ADD:
             expression = f"({inputs[0]}+{inputs[1]})"
         elif node.operator is SafeQlibOperator.SUBTRACT:

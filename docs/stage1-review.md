@@ -1,7 +1,7 @@
 # quant-research-os Agent 自动化量化研究系统架构评估与演进建议
 
 > 文档定位：这是 2026-09-05 的架构评审快照，保留当时的问题判断和路线建议；
-> 它不是当前实施状态或阶段编号的权威来源。当前计划以 [PLAN.md](../PLAN.md) v8 为准，
+> 它不是当前实施状态或阶段编号的权威来源。当前计划以 [PLAN.md](../PLAN.md) v9 为准，
 > 第一阶段证据以 [implementation-status.md](implementation-status.md) 为准。
 
 ## 0. 评审意见采纳状态
@@ -17,14 +17,14 @@ Offline Engineering 与 DQ-01 至 DQ-06 均已完成。Data-qualified 工程发�
 | 评审建议 | PLAN v7 处理 |
 |---|---|
 | 保留 P0-P7 作为 Research Authority | 已采纳并冻结第一阶段基线 |
-| Agent 接入前先收紧 capability / filesystem / secret 边界 | P8，下一实施入口 |
-| 补齐 Hypothesis、ResearchFamily、Budget 和 DSL 语义 | P9 |
+| Agent 接入前先收紧 capability / filesystem / secret 边界 | P8，已完成 |
+| 补齐 Hypothesis、ResearchFamily、Budget 和 DSL 语义 | P9，已完成 |
 | 使用 GPT + Codex，但先执行硬性 go/no-go spike | P10 |
 | 只通过 typed MCP / Skills 请求确定性服务 | P11 |
 | 将真实 Evidence、首个公告研究和 Ledger/有界自治分步建设 | P12、P13、P14 |
 
 因此，本文第 16-22 节中的 P8-P13 编号只表示当时建议，不应用于下达实施任务；
-实施时必须使用 PLAN v7 的 P8-P14 编号。
+实施时必须使用当前 PLAN v9 的 P8-P14 编号。
 
 ## 1. 背景与目标
 

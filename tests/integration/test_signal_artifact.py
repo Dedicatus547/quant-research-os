@@ -13,7 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from quantos.application import resolve_experiment
-from quantos.contracts.pit import OperatorDelayPolicy
+from quantos.contracts.pit import OperatorDelayPolicy, SafeQlibExpressionSpec
 from quantos.contracts.research import ExperimentAuthoringSpec
 from quantos.contracts.research_execution import PITAuditEvidenceItem
 from quantos.contracts.status import ReasonCode
@@ -192,6 +192,99 @@ def test_factor_signal_artifact_is_pit_bound_immutable_and_idempotent(
     with pytest.raises(QlibResearchError) as corrupted:
         verify_signal_artifact(first.path)
     assert corrupted.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
+
+
+def test_dsl_v2_runs_through_pit_signal_and_reproducibility_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot, view = _build_view(tmp_path, monkeypatch)
+    _, provisional = _evidence_and_resolved(snapshot, view)
+    expression = SafeQlibExpressionSpec.model_validate(
+        {
+            "schema_version": "safe-qlib-expression/v2",
+            "expression_id": "v2_admitted_operator_chain",
+            "nodes": [
+                {
+                    "schema_version": "safe-expression-node/v1",
+                    "node_id": "price",
+                    "operator": "field",
+                    "field_name": "adjusted_close",
+                },
+                {
+                    "schema_version": "safe-expression-node/v1",
+                    "node_id": "delta",
+                    "operator": "delta",
+                    "inputs": ["price"],
+                    "window": 2,
+                },
+                {
+                    "schema_version": "safe-expression-node/v1",
+                    "node_id": "sum",
+                    "operator": "rolling_sum",
+                    "inputs": ["delta"],
+                    "window": 1,
+                },
+                {
+                    "schema_version": "safe-expression-node/v1",
+                    "node_id": "min",
+                    "operator": "rolling_min",
+                    "inputs": ["sum"],
+                    "window": 1,
+                },
+                {
+                    "schema_version": "safe-expression-node/v1",
+                    "node_id": "max",
+                    "operator": "rolling_max",
+                    "inputs": ["min"],
+                    "window": 1,
+                },
+                {
+                    "schema_version": "safe-expression-node/v1",
+                    "node_id": "output",
+                    "operator": "abs",
+                    "inputs": ["max"],
+                },
+            ],
+            "output_node_id": "output",
+        }
+    )
+    provisional = provisional.model_copy(update={"expression": expression})
+    delays = (
+        OperatorDelayPolicy(policy_id="qlib-abs-delay/v1", operator="abs"),
+        OperatorDelayPolicy(policy_id="qlib-delta-delay/v1", operator="delta"),
+        OperatorDelayPolicy(policy_id="qlib-max-delay/v1", operator="rolling_max"),
+        OperatorDelayPolicy(policy_id="qlib-min-delay/v1", operator="rolling_min"),
+        OperatorDelayPolicy(policy_id="qlib-sum-delay/v1", operator="rolling_sum"),
+    )
+    evidence = build_pit_evidence_collection(
+        snapshot.path,
+        view.path,
+        expected_snapshot_hash=snapshot.manifest.snapshot_hash,
+        expected_view_hash=view.manifest.view_hash,
+        universe_index=provisional.strategy.universe_index,
+        expression=expression,
+        operator_delays=delays,
+        schedules=(_schedule(),),
+    )
+    resolved = provisional.model_copy(update={"pit_audit_evidence_hash": evidence.content_hash})
+    monkeypatch.setattr(
+        SIGNAL_MODULE,
+        "_execute_expression",
+        lambda *_args, **_kwargs: {"SZ000001": 0.025},
+    )
+    monkeypatch.setattr(SIGNAL_MODULE, "verify_code_provenance", lambda *_args, **_kwargs: None)
+
+    first = FactorSignalArtifactBuilder().build(
+        resolved, evidence, view.path, tmp_path / "signals-v2-a"
+    )
+    second = FactorSignalArtifactBuilder().build(
+        resolved, evidence, view.path, tmp_path / "signals-v2-b"
+    )
+
+    assert first.manifest.artifact_hash == second.manifest.artifact_hash
+    assert first.manifest.signal_content_hash == second.manifest.signal_content_hash
+    assert verify_signal_artifact(first.path) == first.manifest
+    assert verify_signal_artifact(second.path) == second.manifest
 
 
 def test_compact_pit_evidence_recomputes_and_builds_the_same_signal_shape(

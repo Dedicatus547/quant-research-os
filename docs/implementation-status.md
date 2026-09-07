@@ -1,4 +1,4 @@
-# First-stage implementation status
+# Implementation status
 
 Status date: 2026-09-07
 
@@ -20,6 +20,7 @@ available in an authorized workspace.
 | P6 | G0-G10 deterministic validation, hard-gate short circuit, frozen OOS access events, complete cost/parameter/subperiod evidence grids, policy-driven soft thresholds, independent-output-root reproducibility comparison, runtime-bound immutable ValidationReport v2, four golden outcomes, and native-Qlib full-pipeline synthetic double-run PASS | Live Validation E2E completed: `SUCCEEDED / REJECT`; G0-G4 and G6-G10 PASS, while G5 soft-rejected annualized turnover `29.5344 > 12` |
 | P7 | Self-hashed experiment manifests, imported OOS event chains, append-only strategy lifecycle, monotonic versions, rebuildable indexes, single-writer atomic publication, CLI, tamper/partial/duplicate/transition gates, and native-Qlib synthetic Release E2E double-run PASS | Live Registry/release double-run completed; engineering release `PASS / data_qualified=true`, rejected strategy immutably retained as `REJECTED` |
 | P8 | Capability allowlist, bounded/secret-free JSON ingress, payload-free audit decisions, minimal Agent environment, hash-only root-confined authority resolution, symlink/special-file rejection across authority artifacts, atomic create-if-absent, and serialized Registry writers PASS. Full P0-P7 regression remains green | No live-data dependency; no Agent/LLM output is treated as evidence |
+| P9 | Harness-independent Evidence/proposal/admission/AgentRun/Ledger contracts; finite-family and budget contracts; append-only campaign/OOS governance with complete attempt accounting and contamination propagation; Safe Qlib DSL v2 with five individually admitted official operators PASS. Full P0-P8 regression remains green | No live-data or Agent-runtime dependency; unknown-availability or unadmitted event labels cannot become executable features |
 
 ## 轨道对齐与下一阶段入口
 
@@ -31,15 +32,15 @@ available in an authorized workspace.
 - `Data-qualified Release`：DQ-01 至 DQ-06 已全部完成。工程发布为
   `PASS / data_qualified=true`；真实 HS300 Momentum 候选的研究 verdict 为
   `SUCCEEDED / REJECT`，Registry 状态为 `REJECTED`。
-- `Agent-assisted Research v0.2`：P8 已完成，P9-P14 继续基于已冻结的第一阶段基线实施；
+- `Agent-assisted Research v0.2`：P8-P9 已完成，P10-P14 继续基于已冻结的第一阶段基线实施；
   Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
 
 后续顺序固定为：
 
 ```text
 M0 基线冻结 → P8 Agent Boundary & Threat Hardening（完成）
-→ P9 Research Semantic Contracts + Campaign Governance + Minimal DSL v2（下一入口）
-→ P10 GPT + Codex Capability Spike → P11 Quant Research MCP + Offline Proposal E2E
+→ P9 Research Semantic Contracts + Campaign Governance + Minimal DSL v2（完成）
+→ P10 GPT + Codex Capability Spike（下一入口）→ P11 Quant Research MCP + Offline Proposal E2E
 → P12 Real-world Evidence Acquisition → P13 Qualified Event Feature E2E
 → P14 Research Ledger + Bounded Autonomous Research MVP
 ```
@@ -49,7 +50,9 @@ artifact、修改 Gate verdict 或直接标记 `VALIDATED`。v0.2 将 GPT + Code
 但 P10 必须先通过固定配置、统一 rubric 和硬性 go/no-go gate。确定性验收对象是相同 resolved
 Spec 与冻结输入产生的证据，而不是 Agent 文本的逐字一致。真实公告抽取在形成经过 admission
 policy 的 immutable EventFeatureArtifact 前始终只是 proposal；真实研究结论仍依赖独立的
-Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v8 第 40 节为准。
+Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v9 第 40 节为准。P9 的冻结对象、
+authority 分层、campaign 状态机和 DSL v2 运算符语义见
+[`p9-research-semantics.md`](p9-research-semantics.md)。
 
 ## Current live qualification bindings
 

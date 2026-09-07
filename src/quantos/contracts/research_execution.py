@@ -263,11 +263,18 @@ def required_expression_observations(expression: SafeQlibExpressionSpec) -> int:
             observations[node.node_id] = 1
             continue
         base = max(observations[item] for item in node.inputs)
-        if node.operator in {SafeQlibOperator.REF, SafeQlibOperator.RETURN}:
+        if node.operator in {
+            SafeQlibOperator.DELTA,
+            SafeQlibOperator.REF,
+            SafeQlibOperator.RETURN,
+        }:
             observations[node.node_id] = base + int(node.window or 0)
         elif node.operator in {
             SafeQlibOperator.ROLLING_MEAN,
             SafeQlibOperator.ROLLING_STD,
+            SafeQlibOperator.ROLLING_SUM,
+            SafeQlibOperator.ROLLING_MIN,
+            SafeQlibOperator.ROLLING_MAX,
             SafeQlibOperator.RANK,
         }:
             observations[node.node_id] = base + int(node.window or 0) - 1

@@ -1,6 +1,6 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v8（P8 Agent 边界冻结版）<br>
+> 版本：v9（P9 Research Semantics 冻结版）<br>
 > 更新日期：2026-09-07<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
@@ -9,7 +9,7 @@
 > 候选软门是年化换手率 `29.5344 > 12`。该 REJECT 是应保留的研究事实，不是工程验收失败。
 > 全部报告保留 `SINGLE_SOURCE_NON_VINTAGE`；Rank IC/ICIR 的 immutable ResearchResult adapter
 > 仍未实现，不得宣称该指标已被验证。
-> P8 Agent Boundary & Threat Hardening 已完成；当前下一实施入口为 P9。
+> P8 Agent Boundary & Threat Hardening 与 P9 Research Semantic Contracts 已完成；当前下一实施入口为 P10。
 
 ---
 
@@ -2281,6 +2281,13 @@ artifact tree 的 symlink/special-file 拒绝、atomic create-if-absent，以及
 安全负例和完整 P0-P7 regression 均通过。P8 只冻结 pre-integration 边界，不宣称某个 Harness 已经
 被沙箱隔离，也不提前冻结 P9 contracts；详细边界与剩余 P10 证明义务见
 [`docs/p8-security.md`](docs/p8-security.md)。
+
+P9 已于 2026-09-07 完成。冻结实现包括 Evidence/Proposal/Admission/AgentRun/Ledger contracts、
+有限 ResearchFamily 与预算、append-only campaign/OOS 状态机、sealed-confirmation 一次访问与污染
+传播，以及只纳入 `abs`、`delta`、`rolling_sum`、`rolling_min`、`rolling_max` 的 Safe Qlib DSL v2。
+全部新算子绑定锁定官方 Qlib 语义、完整 PIT window、显式 operator delay、SignalArtifact 与独立输出
+hash 重现；未通过 gate 的候选算子不进入 enum。详细冻结边界见
+[`docs/p9-research-semantics.md`](docs/p9-research-semantics.md)。当前下一入口为 P10。
 
 Rank IC/ICIR immutable ResearchResult adapter、第二 canonical market-data provider、基本面因子和
 实盘交易不自动进入这条关键路径。若 P13 的批准验收指标需要 Rank IC/ICIR，必须单独完成 adapter

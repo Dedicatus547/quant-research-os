@@ -15,6 +15,7 @@ from quantos.contracts.temporal import DecisionSchedule, TemporalMetadata
 
 
 class SafeQlibOperator(StrEnum):
+    ABS = "abs"
     FIELD = "field"
     REF = "ref"
     RETURN = "return"
@@ -25,6 +26,10 @@ class SafeQlibOperator(StrEnum):
     MULTIPLY = "multiply"
     DIVIDE = "divide"
     RANK = "rank"
+    DELTA = "delta"
+    ROLLING_SUM = "rolling_sum"
+    ROLLING_MIN = "rolling_min"
+    ROLLING_MAX = "rolling_max"
 
 
 class SafeExpressionNode(CanonicalContract):
@@ -38,10 +43,14 @@ class SafeExpressionNode(CanonicalContract):
     @model_validator(mode="after")
     def operator_shape_is_valid(self) -> Self:
         unary_window = {
+            SafeQlibOperator.DELTA,
             SafeQlibOperator.REF,
             SafeQlibOperator.RETURN,
             SafeQlibOperator.ROLLING_MEAN,
             SafeQlibOperator.ROLLING_STD,
+            SafeQlibOperator.ROLLING_SUM,
+            SafeQlibOperator.ROLLING_MIN,
+            SafeQlibOperator.ROLLING_MAX,
             SafeQlibOperator.RANK,
         }
         binary = {
@@ -53,6 +62,9 @@ class SafeExpressionNode(CanonicalContract):
         if self.operator is SafeQlibOperator.FIELD:
             if self.field_name is None or self.inputs or self.window is not None:
                 raise ValueError("field node requires only field_name")
+        elif self.operator is SafeQlibOperator.ABS:
+            if len(self.inputs) != 1 or self.window is not None or self.field_name is not None:
+                raise ValueError("unary element operator requires one input and no window")
         elif self.operator in unary_window:
             if len(self.inputs) != 1 or self.window is None or self.field_name is not None:
                 raise ValueError("window operator requires one input and window")
@@ -64,7 +76,9 @@ class SafeExpressionNode(CanonicalContract):
 
 
 class SafeQlibExpressionSpec(CanonicalContract):
-    schema_version: Literal["safe-qlib-expression/v1"] = "safe-qlib-expression/v1"
+    schema_version: Literal["safe-qlib-expression/v1", "safe-qlib-expression/v2"] = (
+        "safe-qlib-expression/v1"
+    )
     expression_id: str = Field(min_length=1, pattern=r"^[a-zA-Z][a-zA-Z0-9_.-]*$")
     nodes: tuple[SafeExpressionNode, ...]
     output_node_id: str
@@ -81,6 +95,17 @@ class SafeQlibExpressionSpec(CanonicalContract):
             known.add(node.node_id)
         if not known or self.output_node_id not in known:
             raise ValueError("output_node_id must resolve to an expression node")
+        v2_operators = {
+            SafeQlibOperator.ABS,
+            SafeQlibOperator.DELTA,
+            SafeQlibOperator.ROLLING_MAX,
+            SafeQlibOperator.ROLLING_MIN,
+            SafeQlibOperator.ROLLING_SUM,
+        }
+        if self.schema_version == "safe-qlib-expression/v1" and any(
+            node.operator in v2_operators for node in self.nodes
+        ):
+            raise ValueError("DSL v2 operators require safe-qlib-expression/v2")
         return self
 
 

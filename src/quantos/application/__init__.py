@@ -1,5 +1,11 @@
 """Application services exposed through deterministic entry points."""
 
+from quantos.application.admission import (
+    EventFeatureAdmissionError,
+    EventFeatureAdmissionPolicy,
+    build_event_feature_artifact,
+)
+from quantos.application.campaigns import CampaignGovernanceError, ResearchCampaignGovernor
 from quantos.application.capabilities import publish_capability_report
 from quantos.application.doctor import DoctorReport, build_doctor_report
 from quantos.application.pit import (
@@ -31,12 +37,17 @@ __all__ = [
     "AgentRequestBoundary",
     "AuthorityRootResolver",
     "BoundaryAuditDecision",
+    "CampaignGovernanceError",
     "DoctorReport",
+    "EventFeatureAdmissionError",
+    "EventFeatureAdmissionPolicy",
     "PITAuditService",
     "ProvenanceError",
+    "ResearchCampaignGovernor",
     "ResourceBudget",
     "SecurityBoundaryError",
     "build_doctor_report",
+    "build_event_feature_artifact",
     "capture_code_provenance",
     "capture_runtime_fingerprint",
     "expression_field_names",

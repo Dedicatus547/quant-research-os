@@ -418,11 +418,18 @@ def _required_observations(nodes: tuple[SafeExpressionNode, ...], output_node_id
             continue
         inputs = [observations[item] for item in node.inputs]
         base = max(inputs)
-        if node.operator in {SafeQlibOperator.REF, SafeQlibOperator.RETURN}:
+        if node.operator in {
+            SafeQlibOperator.DELTA,
+            SafeQlibOperator.REF,
+            SafeQlibOperator.RETURN,
+        }:
             observations[node.node_id] = base + cast(int, node.window)
         elif node.operator in {
             SafeQlibOperator.ROLLING_MEAN,
             SafeQlibOperator.ROLLING_STD,
+            SafeQlibOperator.ROLLING_SUM,
+            SafeQlibOperator.ROLLING_MIN,
+            SafeQlibOperator.ROLLING_MAX,
             SafeQlibOperator.RANK,
         }:
             observations[node.node_id] = base + cast(int, node.window) - 1

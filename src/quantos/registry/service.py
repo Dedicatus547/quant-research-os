@@ -684,9 +684,7 @@ class RegistryService:
         try:
             paths = regular_tree_files(self.root)
         except ArtifactIntegrityError as error:
-            raise RegistryError(
-                ReasonCode.ARTIFACT_CORRUPTED, "registry tree is unsafe"
-            ) from error
+            raise RegistryError(ReasonCode.ARTIFACT_CORRUPTED, "registry tree is unsafe") from error
         for path in paths:
             if _PARTIAL_FILE.fullmatch(path.name):
                 recovered.append(path.relative_to(self.root).as_posix())
@@ -1039,9 +1037,7 @@ class RegistryService:
         try:
             paths = regular_tree_files(self.root)
         except ArtifactIntegrityError as error:
-            raise RegistryError(
-                ReasonCode.ARTIFACT_CORRUPTED, "registry tree is unsafe"
-            ) from error
+            raise RegistryError(ReasonCode.ARTIFACT_CORRUPTED, "registry tree is unsafe") from error
         for path in paths:
             if _PARTIAL_FILE.fullmatch(path.name):
                 continue
