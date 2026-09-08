@@ -11,8 +11,10 @@ evidence.
 Documentation roles:
 
 - [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
-- [Implementation status](docs/implementation-status.md) tracks the completed P0-P11 stages
-  and evidence summary.
+- [Implementation status](docs/implementation-status.md) tracks the completed P0-P11 stages,
+  the P12 implementation candidate, and evidence summary.
+- [P12 progress](docs/p12-progress.md) records the exchange Evidence boundary, live bounded probe,
+  and remaining clean-commit freeze gate.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records
@@ -32,6 +34,28 @@ UV_CACHE_DIR=/tmp/quantos-uv-cache uv sync --frozen
 UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos doctor
 UV_CACHE_DIR=/tmp/quantos-uv-cache uv run pytest
 ```
+
+P12 deliberately separates network acquisition from authority publication. Run the collector in a
+sandbox where only the staging root is writable, then run the publisher with network denied and the
+staging directory read-only:
+
+```bash
+env -u TUSHARE_TOKEN UV_CACHE_DIR=/tmp/quantos-uv-cache \
+  uv run quantos-evidence-collector \
+  configs/evidence/collection_example.yaml configs/evidence/collector_v1.yaml \
+  --staging-root artifacts/acquisition/evidence
+
+UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos-evidence-publisher publish \
+  artifacts/acquisition/evidence/sha256-<staging_hash> \
+  configs/evidence/availability_v1.yaml configs/evidence/parser_v1.yaml \
+  --code-commit-hash <clean-implementation-commit> \
+  --runtime-fingerprint-hash <runtime-fingerprint-hash>
+```
+
+The commands do not create the OS sandbox themselves. A canonical run must enforce those mounts and
+network rules externally. The collector strips `TUSHARE_TOKEN` without reading or logging it; the
+publisher accepts only an explicit hash-addressed staging directory and explicit provenance hashes.
+SZSE permission remains `UNKNOWN`, so its records fail closed before P13 admission.
 
 Build and verify the deterministic, network-free synthetic snapshot vertical slice:
 

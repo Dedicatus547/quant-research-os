@@ -1,0 +1,15 @@
+schema_version: evidence-collector-policy/v1
+policy_id: exchange-announcements/v1
+user_agent: quant-research-os-evidence-collector/0.1 (+offline-research; contact local operator)
+requests_per_minute: 30
+max_attempts: 3
+retry_min_seconds: 1.0
+retry_max_seconds: 8.0
+request_timeout_seconds: 20.0
+max_response_bytes: 52428800
+allowed_hosts:
+  - disc.static.szse.cn
+  - query.sse.com.cn
+  - static.sse.com.cn
+  - www.szse.cn
+collector_version: quantos-evidence-collector/0.1

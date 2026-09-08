@@ -1,0 +1,14 @@
+schema_version: evidence-availability-policy/v1
+policy_id: exchange-announcement-availability/v1
+source_timezone: Asia/Shanghai
+date_only_available_at_end_of_day: true
+unknown_time_requires_next_trading_session: true
+venue_permissions:
+  SSE: RESEARCH_ALLOWED
+  SZSE: UNKNOWN
+venue_license_ids:
+  SSE: sse-legal-statement/noncommercial/2026-09-08
+  SZSE: szse-copyright-disclaimer/unknown/2026-09-08
+limitations:
+  - SOURCE_CONTENT_NOT_INDEPENDENTLY_VERIFIED
+  - SOURCE_REVISION_HISTORY_NOT_GUARANTEED

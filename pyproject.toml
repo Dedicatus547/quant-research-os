@@ -16,6 +16,7 @@ dependencies = [
   "pandas>=2.2,<3",
   "pyarrow>=17,<24",
   "pydantic>=2.10,<3",
+  "pypdf>=6,<7",
   "pyqlib>=0.9.7,<0.10",
   "pyrate-limiter>=3.7,<4",
   "ruamel-yaml>=0.18,<0.19",
@@ -26,6 +27,8 @@ dependencies = [
 
 [project.scripts]
 quantos = "quantos.cli:app"
+quantos-evidence-collector = "quantos.evidence.collector_cli:app"
+quantos-evidence-publisher = "quantos.evidence.publisher_cli:app"
 
 [dependency-groups]
 dev = [

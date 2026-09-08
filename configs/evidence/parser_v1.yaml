@@ -1,0 +1,7 @@
+schema_version: evidence-parser-config/v1
+config_id: deterministic-exchange-text/v1
+normalize_unicode: NFC
+newline: LF
+page_separator: "\n\f\n"
+strip_trailing_space: true
+allow_empty_text: true

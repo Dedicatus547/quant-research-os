@@ -1,0 +1,11 @@
+schema_version: evidence-collection-spec/v1
+collection_id: exchange-announcements-2025-01-02
+venues:
+  - SSE
+  - SZSE
+start_date: 2025-01-02
+end_date: 2025-01-02
+page_size: 25
+max_announcements: 50
+security_code: "300777"
+title_keyword: null
