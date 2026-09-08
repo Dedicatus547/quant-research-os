@@ -448,6 +448,40 @@ def test_read_surfaces_fail_closed_and_registry_search_is_bounded(tmp_path) -> N
     assert missing.value.reason_code is ReasonCode.SOURCE_INCOMPLETE
 
 
+def test_registry_search_prefix_selects_only_its_resource_kind(tmp_path, monkeypatch) -> None:
+    service, _, _ = _service(tmp_path)
+
+    class _ExperimentIndex:
+        index_hash = "a" * 64
+        experiments = ()
+
+        @property
+        def strategies(self):
+            raise AssertionError("experiment-only search inspected strategies")
+
+    monkeypatch.setattr(service._registry, "verify", lambda: _ExperimentIndex())
+    experiments = service.call(
+        "registry.search",
+        canonical_json_bytes(RegistrySearchRequest(experiment_id_prefix="synthetic", limit=10)),
+    )
+    assert experiments.hits == ()  # type: ignore[attr-defined]
+
+    class _StrategyIndex:
+        index_hash = "b" * 64
+        strategies = ()
+
+        @property
+        def experiments(self):
+            raise AssertionError("strategy-only search inspected experiments")
+
+    monkeypatch.setattr(service._registry, "verify", lambda: _StrategyIndex())
+    strategies = service.call(
+        "registry.search",
+        canonical_json_bytes(RegistrySearchRequest(strategy_id_prefix="momentum", limit=10)),
+    )
+    assert strategies.hits == ()  # type: ignore[attr-defined]
+
+
 def test_security_boundary_denies_paths_authority_and_unmapped_capabilities(tmp_path) -> None:
     service, dataset, _ = _service(tmp_path)
     base = {

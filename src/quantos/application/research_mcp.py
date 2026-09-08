@@ -532,7 +532,13 @@ class ResearchMcpService:
         request = RegistrySearchRequest.model_validate(payload)
         index = self._require_registry().verify()
         hits: list[RegistrySearchHit] = []
-        for item in index.experiments:
+        include_experiments = (
+            request.experiment_id_prefix is not None or request.strategy_id_prefix is None
+        )
+        include_strategies = (
+            request.strategy_id_prefix is not None or request.experiment_id_prefix is None
+        )
+        for item in index.experiments if include_experiments else ():
             if request.experiment_id_prefix is None or item.experiment_id.startswith(
                 request.experiment_id_prefix
             ):
@@ -543,7 +549,7 @@ class ResearchMcpService:
                         artifact_hash=item.manifest_hash,
                     )
                 )
-        for strategy in index.strategies:
+        for strategy in index.strategies if include_strategies else ():
             if request.strategy_id_prefix is None or strategy.strategy_id.startswith(
                 request.strategy_id_prefix
             ):
