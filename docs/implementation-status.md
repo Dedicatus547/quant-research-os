@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-08
+Status date: 2026-09-09
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
@@ -24,7 +24,7 @@ workspace.
 | P9 | Harness-independent Evidence/proposal/admission/AgentRun/Ledger contracts; finite-family and budget contracts; append-only campaign/OOS governance with complete attempt accounting and contamination propagation; Safe Qlib DSL v2 with five individually admitted official operators PASS. Full P0-P8 regression remains green | No live-data or Agent-runtime dependency; unknown-availability or unadmitted event labels cannot become executable features |
 | P10 | Frozen `gpt-5.6-sol` + `codex-cli 0.153.4` synthetic spike: thread, read-only sandbox, single allowlisted MCP tool, repo Skill, failure recovery, bounded JSONL transcript, usage, permission denial, and exact proposal boundary all PASS (9/9), yielding Go. Spec/report/manifest/transcript are atomically retained by hash | No market-data dependency; output remains `AGENT_PROPOSAL`, model identifier is explicitly non-immutable, and P10 authorizes only the narrow P11 integration boundary |
 | P11 | Three validated repo Skills; typed proposal/compiler plus dataset/resolve/execution/job/validation/registry mappings; immutable receipts/audit events; bounded durable queue with duplicate/cancel/timeout/restart/failure gates; clean-commit frozen structured-Evidence proposal E2E through two native-Qlib release pipelines PASS with exact authority hashes | Synthetic-only `data_qualified=false`; the E2E uses a code-defined proposal and direct typed facades, not a production stdio/JSON-RPC transport or Agent-generated chain; Agent and reviewer outputs remain proposals and never mutate ValidationReport or Registry verdicts |
-| P12 | Implementation candidate: isolated SSE/SZSE collector, count-backed completeness witnesses, raw staging, network-free Evidence publisher, deterministic PDF/text/HTML extraction, availability/license policy, exact-file verification, and full P0-P11 regression PASS. A bounded real-source collector probe returned SSE 0/0 and SZSE 3/3 and verified three PDFs; clean-commit publication freeze remains pending | NOT FROZEN. The live probe is non-authoritative `/tmp` staging; no canonical real Evidence Store was published from the dirty implementation worktree. SZSE permission remains `UNKNOWN`, and no announcement has become an admitted EventFeature or market conclusion |
+| P12 | Isolated SSE/SZSE collector, count-backed completeness witnesses, raw staging, network-free Evidence publisher, deterministic PDF/text/HTML extraction, availability/license policy, exact-file verification, and full P0-P11 regression PASS. Clean commit `60b8c811...d6f7` reproduced Evidence Store `c55e9ba4...66a7f` byte-for-byte in two independent roots | Bounded official-source acquisition returned SSE 0/0 and SZSE 3/3; all three PDFs extracted successfully. SZSE permission remains `UNKNOWN`, so no announcement has become an admitted EventFeature or market conclusion |
 
 ## 轨道对齐与下一阶段入口
 
@@ -36,8 +36,8 @@ workspace.
 - `Data-qualified Release`：DQ-01 至 DQ-06 已全部完成。工程发布为
   `PASS / data_qualified=true`；真实 HS300 Momentum 候选的研究 verdict 为
   `SUCCEEDED / REJECT`，Registry 状态为 `REJECTED`。
-- `Agent-assisted Research v0.2`：P8-P11 已完成，P12 implementation candidate 已实现但尚待
-  clean-commit freeze，P13-P14 继续基于已冻结的第一阶段基线实施；
+- `Agent-assisted Research v0.2`：P8-P12 已完成，当前入口为 P13；P13-P14 继续基于已冻结的
+  第一阶段基线与 P12 Evidence Store 实施；
   Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
 
 后续顺序固定为：
@@ -46,8 +46,7 @@ workspace.
 M0 基线冻结 → P8 Agent Boundary & Threat Hardening（完成）
 → P9 Research Semantic Contracts + Campaign Governance + Minimal DSL v2（完成）
 → P10 GPT + Codex Capability Spike（完成）→ P11 Quant Research MCP + Offline Proposal E2E（完成）
-→ P12 Real-world Evidence Acquisition（implementation candidate；freeze pending）
-→ P13 Qualified Event Feature E2E
+→ P12 Real-world Evidence Acquisition（完成）→ P13 Qualified Event Feature E2E（下一入口）
 → P14 Research Ledger + Bounded Autonomous Research MVP
 ```
 
@@ -67,7 +66,7 @@ artifact、修改 Gate verdict 或直接标记 `VALIDATED`。v0.2 将 GPT + Code
 但 P10 必须先通过固定配置、统一 rubric 和硬性 go/no-go gate。确定性验收对象是相同 resolved
 Spec 与冻结输入产生的证据，而不是 Agent 文本的逐字一致。真实公告抽取在形成经过 admission
 policy 的 immutable EventFeatureArtifact 前始终只是 proposal；真实研究结论仍依赖独立的
-Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v12 第 40 节为准。P9 的冻结对象、
+Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v13 第 40 节为准。P9 的冻结对象、
 authority 分层、campaign 状态机和 DSL v2 运算符语义见
 [`p9-research-semantics.md`](p9-research-semantics.md)。
 
@@ -109,6 +108,10 @@ Reconciliation           c01cd819ae4f773e4e441ed57882d05550f55959ea6445e2f897468
 ValidationReport         553d49a710d97d49af536e8950001c5f91c3d88dddce3fa2b29cb8f788d855a7
 Experiment manifest      ba2c794ef8a0f96beb68f33472ca09b963a5125cb301a8b1979b6d581974e49c
 Registry index           04a276a2e8c7bd08b6b925b7b81590536269f371534fb0a2115b897215a0396a
+P12 implementation      60b8c811eba175af9914d55668f341a7b332d6f7
+P12 Evidence staging    e63ecc4b73c166eb202676d9776ff9d24aeb04eab8aaf9216810585bddf6d301
+P12 Evidence Store      c55e9ba41c60c8443c979396277cfad5ed5d4f7c2344a4348a91b1b63b566a7f
+P12 freeze report       9a97dc04ba74de26bbd3cd02932db9f90c911fac001cc773651d68643db374f4
 ```
 
 The capability artifact reports 12 requests and 12 `AVAILABLE` outcomes. The acquisition staging

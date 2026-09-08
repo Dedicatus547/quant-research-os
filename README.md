@@ -11,10 +11,10 @@ evidence.
 Documentation roles:
 
 - [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
-- [Implementation status](docs/implementation-status.md) tracks the completed P0-P11 stages,
-  the P12 implementation candidate, and evidence summary.
-- [P12 progress](docs/p12-progress.md) records the exchange Evidence boundary, live bounded probe,
-  and remaining clean-commit freeze gate.
+- [Implementation status](docs/implementation-status.md) tracks the completed P0-P12 stages and
+  evidence summary.
+- [P12 progress](docs/p12-progress.md) records the exchange Evidence boundary, bounded official-source
+  probe, and clean-commit reproducibility freeze.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records

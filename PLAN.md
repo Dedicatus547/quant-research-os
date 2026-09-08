@@ -1,7 +1,7 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v12（P11 边界复盘与 P12-P14 入口修订版）<br>
-> 更新日期：2026-09-08<br>
+> 版本：v13（P12 冻结与 P13 入口修订版）<br>
+> 更新日期：2026-09-09<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
 > Offline Engineering 基线为 `PASS / VALIDATED`；真实 Tushare Data-qualified 发布为工程
@@ -10,7 +10,8 @@
 > 全部报告保留 `SINGLE_SOURCE_NON_VINTAGE`；Rank IC/ICIR 的 immutable ResearchResult adapter
 > 仍未实现，不得宣称该指标已被验证。
 > P8 Agent Boundary & Threat Hardening、P9 Research Semantic Contracts、P10 GPT + Codex
-> Harness Capability Spike 与 P11 Quant Research MCP 已完成；当前下一实施入口为 P12。
+> Harness Capability Spike、P11 Quant Research MCP 与 P12 Real-world Evidence Acquisition
+> 已完成；当前下一实施入口为 P13。
 > P11 资格证明对象是 typed Python application facades 与代码内构造的 structured-fixture
 > E2E，不包含 production stdio/JSON-RPC transport、Agent 真实生成的 proposal chain 或
 > Agent-to-Data-qualified 组合运行。P14 前必须并行完成既有 admitted DSL 的全链路通用化和
@@ -1964,8 +1965,8 @@ E2E             P6 validation pipeline / P7 release pipeline
 第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
-market-data evidence。截至 2026-09-08，M0、DQ-01 至 DQ-06 与 P8-P11 均已完成；
-因此当前下一实施入口是 P12，而不是重跑第一阶段或提前启动 P14。
+market-data evidence。截至 2026-09-09，M0、DQ-01 至 DQ-06 与 P8-P12 均已完成；
+因此当前下一实施入口是 P13，而不是重跑第一阶段或提前启动 P14。
 
 后续主线固定为：
 
@@ -2361,9 +2362,17 @@ P11 已于 2026-09-08 完成。三个 repo Skills 均通过结构校验；11 个
 进入既有 native-Qlib/Validation/Registry 双管线，两次 resolved Spec、PIT、signal、backtest、
 ValidationReport 与 Registry manifest 哈希逐字节一致。最终报告 payload hash 为
 `4c920a513705dc0125f4f2d2e4886e6599cb15f91901c700b7ded4dba4c85baf`；解释仍是 proposal，
-且 `data_qualified=false`。详细证据见 [`docs/p11-progress.md`](docs/p11-progress.md)。当前下一入口为 P12。
+且 `data_qualified=false`。详细证据见 [`docs/p11-progress.md`](docs/p11-progress.md)。
 该证据使用代码内构造的冻结 proposal 直接调用 typed facades；production MCP transport、
 真实 Agent-generated chain 与 Agent-to-Data-qualified 组合运行继续作为明示未资格化能力。
+
+P12 已于 2026-09-09 完成。隔离 Collector 按官方计数冻结 SSE 0/0 与 SZSE 3/3 的有界
+完整性证据；network-restricted publisher 在 clean implementation commit
+`60b8c811eba175af9914d55668f341a7b332d6f7` 上将同一 staging 发布到两个独立输出根，
+17 个 Store 文件逐字节一致，Evidence Store hash 为
+`c55e9ba41c60c8443c979396277cfad5ed5d4f7c2344a4348a91b1b63b566a7f`。SZSE 的使用权限仍为
+`UNKNOWN`，没有公告被 admission 为 EventFeature，也没有产生 Data-qualified 市场结论。完整边界、
+哈希与限制见 [`docs/p12-progress.md`](docs/p12-progress.md)。当前下一入口为 P13。
 
 Rank IC/ICIR immutable ResearchResult adapter、第二 canonical market-data provider、基本面因子和
 实盘交易不自动进入 P12/P13 主线。FR-02 是 P14 的 hard entry gate；若 P13 的批准验收

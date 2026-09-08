@@ -24,6 +24,9 @@ artifacts/feasibility/release-p7/*
 !artifacts/feasibility/proposal-p11/
 artifacts/feasibility/proposal-p11/*
 !artifacts/feasibility/proposal-p11/report.json
+!artifacts/feasibility/evidence-p12/
+artifacts/feasibility/evidence-p12/*
+!artifacts/feasibility/evidence-p12/report.json
 
 # Qlib / MLflow runtime state is not authoritative evidence.
 mlruns/

@@ -1,13 +1,13 @@
 # P12 Real-world Evidence Acquisition progress
 
-Status date: 2026-09-08
+Status date: 2026-09-09
 
-Status: **implementation candidate; clean-commit freeze pending**.
+Status: **complete; clean-commit freeze passed**.
 
-P12 now has the intended architecture and has passed a bounded real-source collector probe. It is
-not yet marked complete because the current worktree implementation has not been frozen in a clean
-commit and therefore cannot truthfully populate the real `ExtractedTextArtifact.code_commit_hash`
-for a canonical Evidence Store publication.
+P12 has the intended architecture, passed a bounded real-source collector probe, and published the
+same verified Evidence Store byte-for-byte into two independent output roots from clean
+implementation commit `60b8c811eba175af9914d55668f341a7b332d6f7`. The committed report contains
+hashes and counts only; exchange PDFs and extracted text remain workspace-local.
 
 ## Implemented boundary
 
@@ -65,7 +65,7 @@ ruff                       PASS
 pyright                    PASS (0 errors)
 new P12 tests              PASS (17/17)
 full repository regression PASS (279/279)
-branch coverage gate       PASS (85.02% >= 85%)
+branch coverage gate       PASS (85.04% >= 85%)
 ```
 
 The tests cover bounded/hashable contracts, malformed request and count semantics, both official
@@ -74,14 +74,27 @@ two independent Evidence Store output roots with identical hashes, raw retention
 failure, CLI success/failure behavior, byte/domain/path boundaries, staging/store tamper rejection,
 and document host denial.
 
-## Remaining freeze gate
+## Clean-commit freeze evidence
 
-1. Commit the implementation and lockfile, then start from that clean commit.
-2. Capture the explicit runtime fingerprint and run the offline publisher against a retained,
-   authorized hash-addressed staging directory.
-3. Rebuild into an independent output root and require identical store/record/text hashes.
-4. Retain a compact, non-licensed summary report; do not commit exchange PDFs or extracted text.
-5. Only then mark P12 complete and advance the main entry to P13.
+The network-restricted publisher ran twice against the retained hash-addressed staging directory.
+Both output roots contained the same 17 files byte-for-byte and verified independently.
+
+```text
+implementation commit  60b8c811eba175af9914d55668f341a7b332d6f7
+lockfile hash           6aacea0cae766141f46c9b28ad1ef419182291b77e6556e6336e9a2e934ec917
+runtime fingerprint     66d954a1ff034d6ecb555885e12926e585543a4d71c92ea35bb5720465730321
+staging manifest        e63ecc4b73c166eb202676d9776ff9d24aeb04eab8aaf9216810585bddf6d301
+Evidence Store          c55e9ba41c60c8443c979396277cfad5ed5d4f7c2344a4348a91b1b63b566a7f
+freeze report           9a97dc04ba74de26bbd3cd02932db9f90c911fac001cc773651d68643db374f4
+independent roots       byte-exact PASS
+extraction              3/3 SUCCEEDED
+permission              3/3 UNKNOWN (SZSE)
+```
+
+The compact, non-licensed report is
+[`artifacts/feasibility/evidence-p12/report.json`](../artifacts/feasibility/evidence-p12/report.json).
+It explicitly records that no EventFeature was admitted and no Data-qualified market conclusion was
+made.
 
 P13 event labels, admission benchmark, EventFeatureArtifact, trading-session alignment, research
-metrics, production MCP transport, and Agent-generated extraction remain out of this candidate.
+metrics, production MCP transport, and Agent-generated extraction remain outside P12.

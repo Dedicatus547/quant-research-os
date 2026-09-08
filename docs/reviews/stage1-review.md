@@ -1,7 +1,7 @@
 # quant-research-os Agent 自动化量化研究系统架构评估与演进建议
 
 > 文档定位：这是 2026-09-05 的架构评审快照，保留当时的问题判断和路线建议；
-> 它不是当前实施状态或阶段编号的权威来源。当前计划以 [PLAN.md](../../PLAN.md) v12 为准，
+> 它不是当前实施状态或阶段编号的权威来源。当前计划以 [PLAN.md](../../PLAN.md) v13 为准，
 > 第一阶段证据以 [implementation-status.md](../implementation-status.md) 为准。
 
 ## 0. 评审意见采纳状态
