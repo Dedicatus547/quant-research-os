@@ -83,6 +83,15 @@ def compile_experiment_proposal(
         raise ProposalCompilationError(
             ReasonCode.SOURCE_INCOMPLETE, "observation evidence is outside the frozen campaign"
         )
+    citation_hashes = {
+        digest
+        for citation in (*observation.citations, *hypothesis.evidence_citations)
+        for digest in (
+            citation.evidence_hash,
+            citation.extracted_text_hash,
+            citation.cited_text_hash,
+        )
+    }
     if experiment.snapshot_hash != campaign.snapshot_hash or (
         experiment.qlib_view_hash != campaign.qlib_view_hash
     ):
@@ -133,6 +142,7 @@ def compile_experiment_proposal(
                 factor.content_hash,
                 experiment.content_hash,
                 *campaign.evidence_hashes,
+                *citation_hashes,
                 *campaign.feature_artifact_hashes,
                 campaign.snapshot_hash,
                 campaign.qlib_view_hash,

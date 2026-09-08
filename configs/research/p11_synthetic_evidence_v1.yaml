@@ -1,0 +1,24 @@
+schema_version: evidence-record/v1
+evidence_id: p11-structured-synthetic-evidence-v1
+source_kind: STRUCTURED_FIXTURE
+source_locator: quantos://synthetic/p11/momentum-observation-v1
+publisher: QuantOS deterministic fixture
+retrieval_request_hash: 2144afc286902ba5ddd0c043b24f1c2e870025a39cc44442bbb13f7e6775a0a3
+retrieval_response_metadata_hash: 4c040b49f4dab2e7afe22cb20bcf05c7eb856b6860e549c6ff8c86ff03735216
+raw_bytes_hash: 3cd4c1cb4e4609f1dc868da5088c8b357e38c19f940dea3471d17a88557f09ab
+raw_size_bytes: 100
+media_type: text/plain
+encoding: utf-8
+published_at: 2024-01-01T00:00:00Z
+fetched_at: 2024-01-01T00:00:00Z
+observed_at: 2024-01-01T00:00:00Z
+available_at: 2024-01-01T00:00:00Z
+availability_kind: PROVEN
+availability_policy_hash: 6f9bf4bbcc21334a43cd05455e723aaee1fde72458559c12ba896dae3d3a03d0
+revision_kind: ORIGINAL
+collector_version: quantos-structured-fixture/v1
+license_id: CC0-1.0
+use_permission: RESEARCH_ALLOWED
+entity_refs: []
+limitations:
+  - SYNTHETIC_DATA_NOT_LIVE_EVIDENCE

@@ -17,6 +17,7 @@ from quantos.artifacts.store import (
 from quantos.contracts.agent import AgentCapability, AgentCapabilityPolicy
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.proposals import (
+    ProposalSubmissionAuditEvent,
     ProposalSubmissionReceipt,
     ProposalSubmissionRequest,
     SubmittableProposalKind,
@@ -116,6 +117,18 @@ class ProposalMcpService:
             / f"sha256-{receipt.proposal_hash}.json"
         )
         receipt_path = self._root / "idempotency" / f"{receipt.idempotency_key}.json"
+        audit = ProposalSubmissionAuditEvent(
+            idempotency_key=receipt.idempotency_key,
+            capability=receipt.capability,
+            request_hash=receipt.request_hash,
+            receipt_hash=receipt.content_hash,
+            proposal_hash=receipt.proposal_hash,
+            agent_run_hash=receipt.agent_run_hash,
+            campaign_hash=receipt.campaign_hash,
+            budget_hash=receipt.budget_hash,
+            input_hashes=receipt.input_hashes,
+        )
+        audit_path = self._root / "audit" / f"{receipt.idempotency_key}.json"
         with exclusive_directory_lock(self._root):
             if receipt_path.exists():
                 try:
@@ -132,9 +145,24 @@ class ProposalMcpService:
                         ReasonCode.DUPLICATE_ID_CONFLICT,
                         "idempotency key is already bound to another request",
                     )
+                try:
+                    existing_audit = ProposalSubmissionAuditEvent.model_validate_json(
+                        audit_path.read_bytes()
+                    )
+                except (OSError, ValidationError) as error:
+                    raise ProposalMcpError(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "existing proposal audit event is invalid",
+                    ) from error
+                if existing_audit != audit:
+                    raise ProposalMcpError(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "existing proposal audit event disagrees with its receipt",
+                    )
                 return
             try:
                 atomic_write_bytes(proposal_path, proposal.canonical_bytes())
+                atomic_write_bytes(audit_path, audit.canonical_bytes())
                 atomic_write_bytes(receipt_path, receipt.canonical_bytes())
             except ArtifactConflictError as error:
                 raise ProposalMcpError(

@@ -257,6 +257,7 @@ def test_proposal_mcp_submission_is_immutable_and_idempotent(tmp_path) -> None:
         tmp_path / "proposal-store/proposals/hypothesis" / f"sha256-{first.proposal_hash}.json"
     )
     assert proposal_path.is_file()
+    assert (tmp_path / "proposal-store/audit" / f"{first.idempotency_key}.json").is_file()
     assert len(service.audit_decisions) == 2
 
     with pytest.raises(ProposalMcpError) as conflict:

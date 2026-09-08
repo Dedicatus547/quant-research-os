@@ -61,10 +61,11 @@ P10 的最终硬能力决策为 Go（9/9）。权威本地证据绑定 spike spe
 [`adr/0001-gpt-codex-harness.md`](adr/0001-gpt-codex-harness.md)。P11 不得继承 P10 的合成
 shell probe，只能映射既有 application services 的窄 typed MCP 能力。
 
-P11 已开始但尚未完成。当前已实现三个仓库级逻辑角色 Skill、proposal-chain deterministic
-compiler，以及带 capability/payload budget、幂等键和 AgentRun/Campaign/Budget/input-hash 绑定的
-typed `proposal.submit_*` ingress；其余 MCP service mapping 与双运行 Offline Proposal E2E 仍是退出
-条件。进度与未完成项见 [`p11-progress.md`](p11-progress.md)。
+P11 已开始但尚未完成。三个仓库级 Skill、proposal-chain deterministic compiler、typed
+`proposal.submit_*` ingress，以及 dataset/resolve/execution/job/validation/registry MCP service
+mapping 均已实现；写入具有不可变审计事件，有界队列具备幂等、取消、超时、重启和失败语义。
+当前仅剩在 clean implementation commit 上执行并固化双运行 Offline Proposal E2E。进度与未完成项
+见 [`p11-progress.md`](p11-progress.md)。
 
 ## Current live qualification bindings
 

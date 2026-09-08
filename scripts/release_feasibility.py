@@ -99,6 +99,32 @@ def run(
     """Execute and compare two complete Snapshot-to-Registry release pipelines."""
 
     authoring = load_yaml_contract(authoring_path, ExperimentAuthoringSpec)
+    return run_with_authoring(
+        fixture_root,
+        qlib_source,
+        output_root,
+        workspace,
+        authoring,
+        research_policy_path,
+        validation_policy_path,
+        cost_policy_path,
+        backtest_policy_path,
+    )
+
+
+def run_with_authoring(
+    fixture_root: Path,
+    qlib_source: Path,
+    output_root: Path,
+    workspace: Path,
+    authoring: ExperimentAuthoringSpec,
+    research_policy_path: Path,
+    validation_policy_path: Path,
+    cost_policy_path: Path,
+    backtest_policy_path: Path,
+) -> dict[str, object]:
+    """Execute the release pipeline from an already compiled authoring contract."""
+
     research_policy = load_yaml_contract(research_policy_path, ResearchPolicy)
     validation_policy = load_yaml_contract(validation_policy_path, ValidationPolicy)
     base_cost = load_yaml_contract(cost_policy_path, CostPolicy)

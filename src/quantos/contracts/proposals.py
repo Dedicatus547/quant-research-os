@@ -99,6 +99,37 @@ class ProposalSubmissionReceipt(CanonicalContract):
         return value
 
 
+class ProposalSubmissionAuditEvent(CanonicalContract):
+    """Append-only accepted-write evidence without proposal text or runtime secrets."""
+
+    schema_version: Literal["proposal-submission-audit-event/v1"] = (
+        "proposal-submission-audit-event/v1"
+    )
+    idempotency_key: str = Field(pattern=SHA256_PATTERN)
+    sequence: Literal[1] = 1
+    capability: Literal[
+        "proposal.submit_hypothesis",
+        "proposal.submit_factor",
+        "proposal.submit_experiment",
+    ]
+    request_hash: str = Field(pattern=SHA256_PATTERN)
+    receipt_hash: str = Field(pattern=SHA256_PATTERN)
+    proposal_hash: str = Field(pattern=SHA256_PATTERN)
+    agent_run_hash: str = Field(pattern=SHA256_PATTERN)
+    campaign_hash: str = Field(pattern=SHA256_PATTERN)
+    budget_hash: str = Field(pattern=SHA256_PATTERN)
+    input_hashes: tuple[str, ...]
+
+    @field_validator("input_hashes")
+    @classmethod
+    def audit_inputs_are_sorted(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if value != tuple(sorted(set(value))):
+            raise ValueError("proposal audit input hashes must be sorted and unique")
+        if any(re.fullmatch(SHA256_PATTERN, item) is None for item in value):
+            raise ValueError("proposal audit input hash is invalid")
+        return value
+
+
 class CompiledExperimentProposal(CanonicalContract):
     schema_version: Literal["compiled-experiment-proposal/v1"] = "compiled-experiment-proposal/v1"
     observation_hash: str = Field(pattern=SHA256_PATTERN)
