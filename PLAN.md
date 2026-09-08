@@ -1,7 +1,7 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v10（P10 GPT + Codex Harness 冻结版）<br>
-> 更新日期：2026-09-07<br>
+> 版本：v11（P11 Quant Research MCP 冻结版）<br>
+> 更新日期：2026-09-08<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
 > Offline Engineering 基线为 `PASS / VALIDATED`；真实 Tushare Data-qualified 发布为工程
@@ -9,8 +9,8 @@
 > 候选软门是年化换手率 `29.5344 > 12`。该 REJECT 是应保留的研究事实，不是工程验收失败。
 > 全部报告保留 `SINGLE_SOURCE_NON_VINTAGE`；Rank IC/ICIR 的 immutable ResearchResult adapter
 > 仍未实现，不得宣称该指标已被验证。
-> P8 Agent Boundary & Threat Hardening、P9 Research Semantic Contracts 与 P10 GPT + Codex
-> Harness Capability Spike 已完成；当前下一实施入口为 P11。
+> P8 Agent Boundary & Threat Hardening、P9 Research Semantic Contracts、P10 GPT + Codex
+> Harness Capability Spike 与 P11 Quant Research MCP 已完成；当前下一实施入口为 P12。
 
 ---
 
@@ -2296,7 +2296,17 @@ MCP tool、repo Skill、structured output 和人工 proposal baseline。最终�
 thread、sandbox、MCP、Skills、失败恢复、transcript、usage、permission denial 与 proposal authority
 九项硬能力全部通过，决策为 Go；模型标识不可作为 immutable weights snapshot 的限制保持显式。
 详细配置、失败恢复过程、哈希和 AgentRunManifest 样例见
-[`docs/adr/0001-gpt-codex-harness.md`](docs/adr/0001-gpt-codex-harness.md)。当前下一入口为 P11。
+[`docs/adr/0001-gpt-codex-harness.md`](docs/adr/0001-gpt-codex-harness.md)。
+
+P11 已于 2026-09-08 完成。三个 repo Skills 均通过结构校验；11 个 MCP capability 被拆分为
+3 个 typed proposal ingress 与 8 个 existing-service mapping，不暴露 shell、路径、秘密或 verdict
+控制。写请求绑定 idempotency、AgentRun、Campaign、Budget、input hashes 与 append-only audit；
+执行队列具备容量、查询、取消、超时、重启和稳定失败语义。clean implementation commit
+`06eda7290874e9331ec2b28ef61b34491268cc13` 上的 frozen structured synthetic proposal 经 compiler
+进入既有 native-Qlib/Validation/Registry 双管线，两次 resolved Spec、PIT、signal、backtest、
+ValidationReport 与 Registry manifest 哈希逐字节一致。最终报告 payload hash 为
+`4c920a513705dc0125f4f2d2e4886e6599cb15f91901c700b7ded4dba4c85baf`；解释仍是 proposal，
+且 `data_qualified=false`。详细证据见 [`docs/p11-progress.md`](docs/p11-progress.md)。当前下一入口为 P12。
 
 Rank IC/ICIR immutable ResearchResult adapter、第二 canonical market-data provider、基本面因子和
 实盘交易不自动进入这条关键路径。若 P13 的批准验收指标需要 Rank IC/ICIR，必须单独完成 adapter
