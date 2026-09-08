@@ -193,7 +193,7 @@ def _proposal_chain(
         segment=CampaignSegment.SEALED_CONFIRMATION,
         evaluation_start=date(2024, 1, 1),
         evaluation_end=date(2024, 1, 31),
-        strategy=StrategyAuthoringSpec(universe_index="000300.SH", top_k=1, max_weight=1),
+        strategy=StrategyAuthoringSpec(universe_index="000300.SH", top_k=1, max_weight=0.03),
         snapshot_hash=snapshot_hash,
         qlib_view_hash=qlib_view_hash,
     )
