@@ -11,10 +11,12 @@ evidence.
 Documentation roles:
 
 - [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
-- [Implementation status](docs/implementation-status.md) tracks the completed P0-P10 stages
+- [Implementation status](docs/implementation-status.md) tracks the completed P0-P11 stages
   and evidence summary.
-- [Stage-one architecture review](docs/stage1-review.md) is the historical review input that shaped
+- [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
+- [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records
+  the qualified limits and recommended P12-P14 sequencing.
 - [Qlib 0.9.7 feasibility record](docs/feasibility/qlib-0.9.7.md) records component evidence and
   explicit runtime limitations.
 
@@ -239,8 +241,12 @@ root-confined, artifact reads reject links, and concurrent immutable/Registry wr
 P9 Research Semantic Contracts is complete: Agent output remains proposal-only, evidence admission
 and campaign/OOS governance fail closed, and the five admitted DSL v2 operators are bound to
 official Qlib semantics and the full PIT/Signal reproducibility chain. P10 GPT + Codex Capability
-Spike is complete with a 9/9 hard-capability Go for the frozen synthetic configuration; P11 Quant
-Research MCP + Offline Proposal E2E is the next implementation entry.
+Spike is complete with a 9/9 hard-capability Go for the frozen synthetic configuration. P11 Quant
+Research MCP + Offline Proposal E2E is also complete; it qualifies typed application-service
+facades and a code-defined structured-fixture chain, not a production stdio/JSON-RPC transport or
+an Agent-generated Data-qualified research run. P12 Real-world Evidence Acquisition is the next
+implementation entry. Existing admitted DSL propagation and an immutable Qlib ResearchResult are
+parallel factor-research prerequisites for P14 rather than substitutes for P12/P13.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
 [`docs/p8-security.md`](docs/p8-security.md),
 [`docs/p9-research-semantics.md`](docs/p9-research-semantics.md), and

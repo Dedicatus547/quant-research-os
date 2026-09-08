@@ -2,6 +2,19 @@
 
 Status: completed on 2026-09-08.
 
+## Qualified boundary and explicit non-claims
+
+P11 qualifies the typed Python application facades, their contracts, durable receipts/events, and
+the deterministic downstream execution boundary. The retained E2E constructs a frozen proposal
+chain in repository code and calls those facades directly. It does not qualify a production
+stdio/JSON-RPC MCP transport, an Agent-generated proposal chain, real-world Evidence acquisition,
+or a combined Agent-to-Data-qualified research run. The P10 mock stdio server proves the frozen
+Harness capability separately; it is not the P11 service transport.
+
+Before the first real Agent-assisted P13 vertical slice, a narrow transport adapter must receive
+its own contract and negative-permission tests without expanding the P11 capability set. Agent
+research quality also remains unmeasured until a frozen real-Evidence benchmark exists.
+
 The first implementation slice added the three repository-level logical-role Skills
 (`quant-researcher`, `quant-formalizer`, and `quant-reviewer`), a deterministic proposal-chain
 compiler, and the typed proposal-ingress application boundary.
@@ -57,3 +70,5 @@ This is an `OFFLINE_ENGINEERING / STRUCTURED_FIXTURE` result with `data_qualifie
 not upgrade synthetic Evidence to live evidence, does not claim vendor-vintage PIT, and does not
 use profitability as an engineering gate. P12 remains responsible for isolated real-world Evidence
 acquisition; P14 remains responsible for Research Ledger search and the bounded autonomous loop.
+Before P14, the existing admitted DSL must propagate through the proposal compiler beyond the
+current field-to-return template, and factor-level Qlib results must gain an immutable adapter.

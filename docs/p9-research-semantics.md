@@ -84,6 +84,7 @@ enforcement, event-chain integrity, one-time sealed access, contamination propag
 Qlib semantics, full PIT/Signal reproducibility, and exclusion of unqualified operators. The full
 P0-P8 regression remains green.
 
-P10 is the next stage. It may evaluate a concrete GPT + Codex configuration against frozen
-synthetic tasks, but cannot widen these contracts, authority levels, capabilities, or deterministic
-validation rules without an explicit contract revision.
+At the P9 freeze, P10 was the next stage. P10 and P11 are now complete; P12 is the current entry.
+Neither later result widens these contracts, authority levels, capabilities, or deterministic
+validation rules without an explicit contract revision. P11 qualified typed Python facades with a
+code-defined structured fixture, not a production MCP transport or Agent-generated research chain.

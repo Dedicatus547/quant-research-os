@@ -1,6 +1,6 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v11（P11 Quant Research MCP 冻结版）<br>
+> 版本：v12（P11 边界复盘与 P12-P14 入口修订版）<br>
 > 更新日期：2026-09-08<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
@@ -11,6 +11,10 @@
 > 仍未实现，不得宣称该指标已被验证。
 > P8 Agent Boundary & Threat Hardening、P9 Research Semantic Contracts、P10 GPT + Codex
 > Harness Capability Spike 与 P11 Quant Research MCP 已完成；当前下一实施入口为 P12。
+> P11 资格证明对象是 typed Python application facades 与代码内构造的 structured-fixture
+> E2E，不包含 production stdio/JSON-RPC transport、Agent 真实生成的 proposal chain 或
+> Agent-to-Data-qualified 组合运行。P14 前必须并行完成既有 admitted DSL 的全链路通用化和
+> minimal immutable Qlib ResearchResult；它们不替代 P12/P13 主线。
 
 ---
 
@@ -1870,6 +1874,10 @@ P13 Qualified EventFeatureArtifact + announcement research E2E
  ▼
 P14 Research Ledger + bounded autonomous campaign
 
+FR-01 existing admitted DSL end-to-end propagation ─┐
+FR-02 minimal immutable Qlib ResearchResult       ─┴─→ P14 entry gate
+       (parallel with P12/P13; neither blocks P12)
+
 DQ-01 ... DQ-06 (2026-09-06 COMPLETE) ─┐
                                          └─ P13/P14 的 market-data 资格前置已满足
 ```
@@ -1941,8 +1949,11 @@ E2E             P6 validation pipeline / P7 release pipeline
 | LLM 抽取结果被误当事实 | 错误事件标签进入因子与验证 | 抽取永远是 proposal；必须经 admission policy 形成独立 EventFeatureArtifact |
 | 网络内容 prompt injection / 数据外传 | Agent 越权、秘密泄露或 authority 受损 | Collector 与 Agent/Evaluation 进程隔离；Agent 只读冻结 Evidence 且默认无网络 |
 | Harness / 模型别名漂移 | Agent provenance 不完整、行为不可比较 | 固定可获得的具体标识和配置；完整 AgentRunManifest；不声称逐字可复现 |
+| 将 typed facade 误当成已资格化 MCP transport | 组合边界未证却被声称完成 | 单独冻结 stdio/JSON-RPC adapter contract、negative-permission tests 与真实 Agent transcript |
 | Ledger 检索结果漂移 | 研究上下文不可审计 | 绑定 ledger snapshot、query/result hash；搜索索引仅为可重建缓存 |
 | 自动候选搜索与多重检验 | 漂亮结果来自选择偏差 | 预冻结 ResearchFamily/Budget、完整 trial ledger、一次性 confirmation、multiple-testing policy |
+| adaptive mutation 逃出预冻结 family | 候选总数和 selection denominator 失真 | 先实现冻结模板枚举；结构搜索必须由有限 grammar、深度、顺序和候选身份约束 |
+| 单实验 Gate 与 campaign selection 混合 | 单个结果误获搜索后统计权威 | 分离 ValidationReport 与 CampaignSelectionReport；后者消费完整 trial set |
 
 任何 Data-qualified Release No-Go 不允许通过降低测试或伪造 fixture 绕过；Offline Engineering 状态必须单独报告。
 
@@ -1953,8 +1964,8 @@ E2E             P6 validation pipeline / P7 release pipeline
 第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
-market-data evidence。截至 2026-09-07，M0、DQ-01 至 DQ-06 与 P8 均已完成；
-因此当前下一实施入口是 P9，而不是重跑第一阶段或提前接入 Harness。
+market-data evidence。截至 2026-09-08，M0、DQ-01 至 DQ-06 与 P8-P11 均已完成；
+因此当前下一实施入口是 P12，而不是重跑第一阶段或提前启动 P14。
 
 后续主线固定为：
 
@@ -1968,6 +1979,17 @@ P12 Real-world Evidence Acquisition
 P13 Qualified Event Feature + Announcement Research E2E
 P14 Research Ledger + Bounded Autonomous Research MVP
 ```
+
+P12/P13 期间允许两项并行 factor-research foundation，但它们不改变主线编号：
+
+```text
+FR-01 Existing admitted DSL end-to-end propagation
+FR-02 Minimal immutable Qlib ResearchResult
+```
+
+FR-01 先让已资格化的 DAG/operator/registered field 穿过 proposal compiler、resolution、
+PIT、SignalArtifact 和 Validation；FR-02 先冻结 Qlib 原生 IC/Rank IC 序列与汇总。
+两者是 P14 的 hard entry gate；只在 P13 的批准验收指标确实依赖它们时才阻塞 P13。
 
 `GPT + Codex` 是 v0.2 的范围决策，不是已经证明优于其他 Harness 的事实。P10 仍是严格的
 go / no-go capability spike；如果硬性能力不满足，则停止 P11，记录 ADR 和 blocker，不得通过
@@ -2067,6 +2089,12 @@ direct VALIDATED transition
 unbudgeted recursive execution
 ```
 
+P11 当前的 `ProposalMcpService` / `ResearchMcpService` 是 typed Python application facades。
+保留报告通过代码内固定 proposal 直接调用它们，不构成 production MCP transport 的资格证明。
+首个真实 Agent-assisted P13 E2E 前必须增加狭窄 stdio/JSON-RPC adapter 的独立 contract tests、
+tool schema hash、transcript 与 negative-permission evidence；该 adapter 不得新增 capability
+或把路径、shell、秘密和 verdict 控制暴露给 Agent。
+
 ## 40.3 Research semantic contracts 与证据等级
 
 P9 先冻结与 Harness 无关的 contracts。最小对象集合：
@@ -2119,12 +2147,20 @@ Contract 规则：
 - Research Ledger 中的 source assertion、Agent interpretation、human-reviewed statement 和
   deterministic verdict 必须显式区分；语义搜索索引只是可重建缓存，AgentRun 绑定实际 ledger
   snapshot、query 和 result hashes。
+- Evidence 查询返回零条只在官方源提供可验证的 total/count、完整分页边界或等价
+  completeness witness 时才可视为完整；“采集结果刚好为空”不能自证完整。
 
 `quantos.contracts` 继续保持纯领域依赖，不依赖 Tushare、Qlib、Codex 或任何 LLM SDK。
 
 ## 40.4 Safe DSL v2 扩展规则
 
 继续扩展 `SafeQlibExpressionSpec`，绝不允许 Agent 提交 Python 或任意 Qlib expression string。
+当前首先执行 FR-01：现有 proposal compiler 只资格化 `adjusted_close → return(window)`
+模板，field translator 也只映射 `adjusted_close`。在新 operator 进入 public enum 之前，
+必须先让已 admitted 的 v1/v2 operator 和 registered fields 穿过完整 proposal E2E，
+并保持每个 field 的 source/PIT/availability binding。不得把“已加入 enum”写成
+“Agent 已可在正式链路使用”。
+
 候选操作符包括：
 
 ```text
@@ -2188,6 +2224,16 @@ ResearchBudget 只是上限，不是统计修正。P14 前必须选择并冻结�
 multiple-testing / selection-bias policy；BH-FDR、Deflated Sharpe Ratio、PBO 等仅在输入假设和
 实现验证后采用，不因名字出现就声称风险已经解决。
 
+单实验 `ValidationReport` 不承担 campaign 选择权威。P14 必须引入独立 immutable
+`CampaignSelectionReport`，消费完整 ResearchFamily、ResearchBudget、trial ledger、
+candidate results 和预冻结 statistical policy。Placebo 与 walk-forward 可产生单实验
+evidence；trial accounting、multiple testing、跨候选 redundancy 与 final selection 属于
+campaign-level report，不直接追加为 G0-G10 的单实验 Gate。
+
+P14 首版只在已冻结 `ResearchFamilySpec` 内按确定顺序枚举候选。Adaptive
+mutation/crossover 会改变 AST 结构，只能在新版 family contract 预先冻结有限
+grammar、最大深度、枚举/随机种子、tie-breaker、failure handling 和候选身份后启用。
+
 ## 40.6 GPT + Codex Harness 定位与 AgentRun provenance
 
 v0.2 只运行一个 Codex Runtime，通过三个仓库级 Skills 表达逻辑角色：
@@ -2200,6 +2246,10 @@ quant-reviewer    → ValidationReport + history → Interpretation/Next-Hypothe
 
 不实现多进程 Agent、Agent 间 consensus、冲突仲裁或多模型 Council。三个角色共享同一 authority
 boundary；Reviewer 不能覆盖 Gate，也不能绕过 40.5 的 sealed-confirmation 规则。
+P10 只证明 Harness 硬能力，P11 只证明直接 facade E2E，两者都不证明 hypothesis
+质量。P13 必须使用冻结真实 Evidence benchmark 报告 citation accuracy、schema-valid
+rate、admission rate、PIT-valid rate、duplicate rate 和 Agent cost；未有 benchmark 前不增加第二
+Agent/model stack。
 
 每次 Agent execution 产生 immutable `AgentRunManifest`，至少绑定：
 
@@ -2271,10 +2321,15 @@ Offline Engineering E2E，但只有 DQ-01 至 DQ-06 完成后才能发布真实�
 | P8 | root-confined 输入、path traversal / symlink escape、恶意/超大/深层 payload、artifact spoofing、secret/OOS 越权、并发 writer、资源预算和审计边界 | 不可信输入不能越过 authority roots、读取 token、覆盖/分叉历史或改变 verdict；安全负例、无 token、现有 P0-P7 regression 全通过 |
 | P9 | 冻结 40.3 contracts、campaign/OOS 状态机、stable reason codes、admission policy 接口；按 40.4 gate 实现最小 DSL v2 | Contract/golden/PIT 测试固定 proposal 与 canonical object 的分界；sealed confirmation 和污染传播 fail-closed；未验证 operator 不进入 enum |
 | P10 | 对 GPT + Codex 固定当时可获得的具体版本/配置，使用 frozen synthetic task 和人工 proposal baseline 验证 thread、sandbox、MCP、Skills、失败恢复、transcript、usage 和 permission denial | 输出 ADR 与 AgentRunManifest 样例；所有硬性 capability 通过才 Go，任何关键边界失败则 No-Go；不以模型输出质量或盈利替代安全门 |
-| P11 | 将 MCP 映射到现有 application services；实现三个 Codex Skills；使用冻结 structured synthetic Evidence 完成 proposal → compiler → Qlib → ValidationReport → Registry/explanation | 相同 resolved Spec 与冻结输入产生相同 deterministic evidence；Agent 文本无需逐字相同；无 shell/path/secret/gate override/direct VALIDATED，幂等、预算、失败语义和负向权限测试通过 |
+| P11 | 将 MCP domain contracts 映射到现有 typed application services；实现三个 Codex Skills；使用冻结 structured synthetic Evidence 完成 direct-facade proposal → compiler → Qlib → ValidationReport → Registry/explanation | 相同 resolved Spec 与冻结输入产生相同 deterministic evidence；Agent 文本无需逐字相同；无 shell/path/secret/gate override/direct VALIDATED，幂等、预算、失败语义和负向权限测试通过；不声称 production transport 或 Agent-generated E2E |
 | P12 | 隔离的 SSE/SZSE 公告 Collector、raw Evidence Store、deterministic text extraction、availability/revision/license policy | 原始字节与派生文本可按 hash 验证和重建；published/fetched/observed/available 不混用；Collector 无 LLM、无 authority 写权；Evaluation 和 Agent 仍无网络 |
 | P13 | 冻结公告抽取 benchmark；EvidenceExtractionProposal、admission policy、EventFeatureArtifact、事件到交易日/PIT 对齐；首个股份回购公告研究 vertical slice | 未通过 admission 的 LLM 标签不能执行；feature artifact 可追溯到原文位置与全部 policy/hash；支持的指标才可进入 Gate；分别报告 Offline Engineering 和 Data-qualified 状态，使用正式状态语义而非 ACCEPT |
-| P14 | append-only Research Ledger DAG、可重建检索索引、相似/失败/重复研究检索、完整 trial accounting、bounded campaign loop | Ledger 区分来源/提案/人工判断/确定性 verdict；AgentRun 绑定检索输入；预算和停止规则强制执行；sealed confirmation 一次性且污染传播通过 E2E；成功标准不含盈利 |
+| FR-01（P12/P13 并行） | 将已 admitted SafeQlibExpressionSpec 与 registered fields 通用化到 proposal/compiler/resolution/PIT/Signal/Validation | 至少一个非 field-to-return DAG 通过全链路、独立输出根 hash 一致与未注册 field/operator 负例；不新增自有 expression runtime |
+| FR-02（P12/P13 并行） | Qlib SignalRecord/SigAnaRecord → immutable ResearchResult adapter | 冻结 prediction/label/split/expression 绑定、IC/Rank IC 序列与汇总、exact-file verification 和 independent-output reproducibility；coverage/turnover/autocorrelation 未单独资格化前不声称由 Qlib 原生提供 |
+| P14a | append-only Research Ledger persistence/rebuild、可重建检索索引与 deterministic ResearchContextPack | Ledger 区分来源/提案/人工判断/确定性 verdict；索引、tokenizer/model/config、tie-breaker、query/result/context-pack hashes 全部绑定 AgentRun |
+| P14b | 预冻结 family 内的 deterministic enumeration、canonical AST fingerprint、duplicate/redundancy evidence | 候选身份、顺序、失败处理、预算和 stopping rule 可重现；所有 schema-invalid/PIT reject/failure/duplicate 进入 trial accounting |
+| P14c | immutable CampaignSelectionReport 与冻结 selection-bias policy | 完整 trial set 可验证；所用 correction 的输入假设、方法、版本和失败语义通过 golden/E2E；不把单实验 PASS 写成 campaign selection PASS |
+| P14d | bounded autonomous campaign loop；结构 mutation/crossover 仅在已冻结有限 grammar 后可选启用 | FR-01/FR-02/P14a-c 均通过；预算和停止规则强制执行；sealed confirmation 一次性且污染传播通过 E2E；成功标准不含盈利 |
 
 P8 已于 2026-09-07 完成。冻结实现包括 capability allowlist、有界且不记录正文的请求审计、
 最小 Agent 环境、只接受 domain + content hash 的 authority root resolver、规范 logical path、全权威
@@ -2307,10 +2362,13 @@ P11 已于 2026-09-08 完成。三个 repo Skills 均通过结构校验；11 个
 ValidationReport 与 Registry manifest 哈希逐字节一致。最终报告 payload hash 为
 `4c920a513705dc0125f4f2d2e4886e6599cb15f91901c700b7ded4dba4c85baf`；解释仍是 proposal，
 且 `data_qualified=false`。详细证据见 [`docs/p11-progress.md`](docs/p11-progress.md)。当前下一入口为 P12。
+该证据使用代码内构造的冻结 proposal 直接调用 typed facades；production MCP transport、
+真实 Agent-generated chain 与 Agent-to-Data-qualified 组合运行继续作为明示未资格化能力。
 
 Rank IC/ICIR immutable ResearchResult adapter、第二 canonical market-data provider、基本面因子和
-实盘交易不自动进入这条关键路径。若 P13 的批准验收指标需要 Rank IC/ICIR，必须单独完成 adapter
-contract、artifact、PIT 和验证测试后才能启用；否则继续 `SOURCE_INCOMPLETE` fail-closed。
+实盘交易不自动进入 P12/P13 主线。FR-02 是 P14 的 hard entry gate；若 P13 的批准验收
+指标需要 Rank IC/ICIR，也必须先完成 adapter contract、artifact、PIT 和验证测试后才能启用；
+否则继续 `SOURCE_INCOMPLETE` fail-closed。第二 provider、基本面因子和实盘交易仍不在当前关键路径。
 
 ---
 
