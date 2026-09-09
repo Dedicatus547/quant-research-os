@@ -215,6 +215,7 @@ class InterpretationProposal(CanonicalContract):
 class AgentCapability(StrEnum):
     DATASET_DESCRIBE = "dataset.describe"
     DATASET_FIELDS = "dataset.fields"
+    EVIDENCE_CITE = "evidence.cite"
     EVIDENCE_GET = "evidence.get"
     EVIDENCE_SEARCH = "evidence.search"
     EXPERIMENT_REQUEST_EXECUTION = "experiment.request_execution"

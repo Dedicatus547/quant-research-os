@@ -1,0 +1,12 @@
+schema_version: event-signal-alignment-policy/v1
+policy_id: p13-event-to-weekly-qlib/v1
+alignment: FIRST_WEEK_END_ON_OR_AFTER_EFFECTIVE_SESSION
+score: EVENT_COUNT
+signal_time: "16:00:00"
+signal_available_time: "16:01:00"
+decision_time: "16:10:00"
+execution_time: "09:30:00"
+execution_lag_trading_sessions: 1
+max_alignment_lag_sessions: 4
+require_source_available_by_signal: true
+tradability_policy: not_st_and_not_suspended/v1

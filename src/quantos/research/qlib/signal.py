@@ -66,11 +66,11 @@ class SignalArtifactBuildResult:
     path: Path
 
 
-def _signal_content_hash(rows: tuple[SignalRow, ...]) -> str:
+def signal_content_hash(rows: tuple[SignalRow, ...]) -> str:
     return sha256_bytes(canonical_json_bytes([row.model_dump(mode="python") for row in rows]))
 
 
-def _write_signal_table(rows: tuple[SignalRow, ...], path: Path) -> None:
+def write_signal_table(rows: tuple[SignalRow, ...], path: Path) -> None:
     table = pa.Table.from_pylist(
         [
             {
@@ -331,7 +331,7 @@ def verify_signal_artifact(path: Path) -> SignalArtifactManifest:
         and len(rows) == manifest.row_count
         and rows[0].signal_time == manifest.signal_start
         and rows[-1].signal_time == manifest.signal_end
-        and _signal_content_hash(rows) == manifest.signal_content_hash
+        and signal_content_hash(rows) == manifest.signal_content_hash
     )
     if not bindings_match:
         raise QlibResearchError(
@@ -459,7 +459,7 @@ class FactorSignalArtifactBuilder:
                 staging / "expression-translation.json", translation.canonical_bytes()
             )
             atomic_write_bytes(staging / "pit-evidence.json", evidence.canonical_bytes())
-            _write_signal_table(canonical_rows, staging / "signals.parquet")
+            write_signal_table(canonical_rows, staging / "signals.parquet")
             files = _artifact_files(staging)
             manifest = SignalArtifactManifest.create(
                 resolved_experiment_hash=resolved.content_hash,
@@ -475,7 +475,7 @@ class FactorSignalArtifactBuilder:
                 row_count=len(canonical_rows),
                 signal_start=canonical_rows[0].signal_time,
                 signal_end=canonical_rows[-1].signal_time,
-                signal_content_hash=_signal_content_hash(canonical_rows),
+                signal_content_hash=signal_content_hash(canonical_rows),
                 files=files,
                 created_at=datetime.now(UTC),
             )

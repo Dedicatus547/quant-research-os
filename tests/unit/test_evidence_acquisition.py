@@ -152,9 +152,9 @@ def _collector_policy() -> EvidenceCollectorPolicy:
         retry_min_seconds=0,
         retry_max_seconds=0,
         allowed_hosts=(
+            "big5.sse.com.cn",
             "disc.static.szse.cn",
             "query.sse.com.cn",
-            "static.sse.com.cn",
             "www.szse.cn",
         ),
         collector_version="quantos-evidence-collector/0.1",
@@ -189,6 +189,10 @@ def test_official_source_parsers_bind_counts_and_publication_precision() -> None
     assert sse.reported_total == sse.collected_units == 1
     assert sse.candidates[0].entity_refs == ("600012.SH",)
     assert sse.candidates[0].publication_precision == "DATE"
+    assert sse.candidates[0].document_url == (
+        "https://big5.sse.com.cn/site/cht/www.sse.com.cn/disclosure/listedinfo/"
+        "announcement/c/new/2025-01-02/a.pdf"
+    )
     assert szse.reported_total == szse.collected_units == 1
     assert szse.candidates[0].entity_refs == ("300964.SZ",)
     assert szse.candidates[0].publication_precision == "SECOND"
@@ -464,7 +468,7 @@ def test_collector_rejects_non_allowlisted_document_host(tmp_path: Path) -> None
     class EscapeClient(_FixtureHttpClient):
         pass
 
-    bad = _sse_payload().replace(b"static.sse.com.cn", b"evil.example")
+    bad = _sse_payload().replace(b"big5.sse.com.cn", b"evil.example")
     assert bad == _sse_payload()  # source URLs are root-relative and fixed by the adapter
 
     policy = _collector_policy().model_copy(

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from quantos.contracts.base import sha256_bytes
+from quantos.contracts.event_research import TradingSessionResolution
 from quantos.contracts.evidence import (
     EventFeatureAdmissionRecord,
     EventFeatureArtifact,
@@ -27,6 +29,7 @@ class EventFeatureAdmissionPolicy(Protocol):
         self,
         evidence: EvidenceRecord,
         extracted_text: ExtractedTextArtifact,
+        extracted_text_content: str,
         proposal: EvidenceExtractionProposal,
     ) -> EventFeatureAdmissionRecord: ...
 
@@ -42,10 +45,13 @@ def build_event_feature_artifact(
     extracted_text: ExtractedTextArtifact,
     proposal: EvidenceExtractionProposal,
     admission: EventFeatureAdmissionRecord,
+    extracted_text_content: str,
     rows: tuple[EventFeatureRow, ...],
+    resolutions: tuple[TradingSessionResolution, ...],
     *,
     entity_resolver_policy_hash: str,
     trading_day_resolver_policy_hash: str,
+    source_snapshot_hash: str,
     code_commit_hash: str,
     runtime_fingerprint_hash: str,
     limitations: tuple[str, ...] = (),
@@ -75,6 +81,15 @@ def build_event_feature_artifact(
             ReasonCode.ARTIFACT_CORRUPTED,
             "evidence, extraction, proposal, and admission bindings disagree",
         )
+    encoded_text = extracted_text_content.encode("utf-8")
+    if (
+        sha256_bytes(encoded_text) != extracted_text.text_hash
+        or len(extracted_text_content) != extracted_text.character_count
+    ):
+        raise EventFeatureAdmissionError(
+            ReasonCode.ARTIFACT_CORRUPTED,
+            "extracted text bytes do not match the frozen text artifact",
+        )
     if any(
         (
             item.page is not None
@@ -87,6 +102,17 @@ def build_event_feature_artifact(
         raise EventFeatureAdmissionError(
             ReasonCode.ARTIFACT_CORRUPTED,
             "proposal citation escapes the frozen extracted text",
+        )
+    if any(
+        item.char_start is None
+        or item.char_end is None
+        or sha256_bytes(extracted_text_content[item.char_start : item.char_end].encode("utf-8"))
+        != item.cited_text_hash
+        for item in proposal.citations
+    ):
+        raise EventFeatureAdmissionError(
+            ReasonCode.ARTIFACT_CORRUPTED,
+            "proposal citation hash does not match its exact frozen text range",
         )
     if not admission.admitted:
         raise EventFeatureAdmissionError(
@@ -103,6 +129,7 @@ def build_event_feature_artifact(
             "executable event feature requires a deterministically reviewable event time",
         )
     proposed_entities = set(proposal.entity_refs)
+    resolutions_by_entity = {item.entity_ref: item for item in resolutions}
     if (
         any(
             row.entity_ref not in proposed_entities
@@ -111,9 +138,22 @@ def build_event_feature_artifact(
             or row.attributes != proposal.attributes
             or evidence.available_at is None
             or row.available_at < evidence.available_at
+            or row.entity_ref not in resolutions_by_entity
+            or row.effective_trade_date
+            != resolutions_by_entity[row.entity_ref].effective_trade_date
             for row in rows
         )
         or {row.entity_ref for row in rows} != proposed_entities
+        or proposed_entities != set(evidence.entity_refs)
+        or set(resolutions_by_entity) != proposed_entities
+        or any(
+            item.snapshot_hash != source_snapshot_hash
+            or item.resolver_policy_hash != trading_day_resolver_policy_hash
+            or item.evidence_hash != evidence.content_hash
+            or evidence.available_at is None
+            or item.evidence_available_at != evidence.available_at
+            for item in resolutions
+        )
     ):
         raise EventFeatureAdmissionError(
             ReasonCode.LOOK_AHEAD,
@@ -128,6 +168,8 @@ def build_event_feature_artifact(
         entity_resolver_policy_hash=entity_resolver_policy_hash,
         trading_day_resolver_policy_hash=trading_day_resolver_policy_hash,
         availability_policy_hash=evidence.availability_policy_hash,
+        source_snapshot_hash=source_snapshot_hash,
+        trading_session_resolution_hashes=tuple(sorted(item.content_hash for item in resolutions)),
         code_commit_hash=code_commit_hash,
         runtime_fingerprint_hash=runtime_fingerprint_hash,
         rows=rows,

@@ -35,9 +35,9 @@ def test_p12_policies_are_bounded_and_hashable() -> None:
         user_agent="quant-research-os-evidence-collector/0.1 (+offline-research)",
         requests_per_minute=30,
         allowed_hosts=(
+            "big5.sse.com.cn",
             "disc.static.szse.cn",
             "query.sse.com.cn",
-            "static.sse.com.cn",
             "www.szse.cn",
         ),
         collector_version="quantos-evidence-collector/0.1",

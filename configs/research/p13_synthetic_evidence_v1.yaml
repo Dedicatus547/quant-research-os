@@ -1,0 +1,25 @@
+schema_version: evidence-record/v1
+evidence_id: sse-share-repurchase-001
+source_kind: STRUCTURED_FIXTURE
+source_locator: fixture://sse/share-repurchase/001
+publisher: SSE fixture
+retrieval_request_hash: "1111111111111111111111111111111111111111111111111111111111111111"
+retrieval_response_metadata_hash: "2222222222222222222222222222222222222222222222222222222222222222"
+raw_bytes_hash: a3f3ae00bdccc1c18fe20589cfce12e5455935e85110f39dc3ecc749af29be68
+raw_size_bytes: 54
+media_type: text/plain
+encoding: utf-8
+published_at: 2024-01-02T15:00:00+08:00
+fetched_at: 2024-01-02T15:30:00+08:00
+observed_at: 2024-01-02T15:30:00+08:00
+available_at: 2024-01-02T15:30:00+08:00
+availability_kind: CONSERVATIVE
+availability_policy_hash: "4444444444444444444444444444444444444444444444444444444444444444"
+revision_kind: ORIGINAL
+collector_version: fixture/1
+license_id: fixture/research-allowed
+use_permission: RESEARCH_ALLOWED
+entity_refs:
+  - 600000.SH
+limitations:
+  - SYNTHETIC_FIXTURE

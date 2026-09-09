@@ -9,7 +9,7 @@ from typing import Literal, Self
 
 from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
 
-from quantos.contracts.base import CanonicalContract
+from quantos.contracts.base import CanonicalContract, sha256_bytes
 from quantos.contracts.refs import SHA256_PATTERN
 
 LOGICAL_ID_PATTERN = r"^[a-z0-9][a-z0-9._-]*$"
@@ -167,10 +167,135 @@ class EvidenceCitation(CanonicalContract):
         return self
 
 
+class EvidenceGetRequest(CanonicalContract):
+    schema_version: Literal["evidence-get-request/v1"] = "evidence-get-request/v1"
+    evidence_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class EvidenceTextSpan(CanonicalContract):
+    schema_version: Literal["evidence-text-span/v1"] = "evidence-text-span/v1"
+    page: PositiveInt
+    char_start: NonNegativeInt
+    char_end: PositiveInt
+    text: str = Field(min_length=1, max_length=10_000)
+    text_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def range_and_hash_match(self) -> Self:
+        if self.char_end - self.char_start != len(self.text):
+            raise ValueError("evidence text span range does not match text length")
+        if self.text_hash != sha256_bytes(self.text.encode("utf-8")):
+            raise ValueError("evidence text span hash does not match text")
+        return self
+
+
+class EvidenceAgentView(CanonicalContract):
+    """Path-free, hash-bound evidence view exposed to a research Agent."""
+
+    schema_version: Literal["evidence-agent-view/v1"] = "evidence-agent-view/v1"
+    evidence: EvidenceRecord
+    extracted_text: ExtractedTextArtifact
+    spans: tuple[EvidenceTextSpan, ...]
+
+    @model_validator(mode="after")
+    def bindings_and_spans_are_valid(self) -> Self:
+        if self.extracted_text.evidence_hash != self.evidence.content_hash:
+            raise ValueError("evidence Agent view source bindings disagree")
+        keys = [(item.char_start, item.char_end) for item in self.spans]
+        if not keys or keys != sorted(set(keys)):
+            raise ValueError("evidence Agent view spans must be nonempty, sorted, and unique")
+        if any(
+            current.char_end > following.char_start
+            for current, following in zip(self.spans, self.spans[1:], strict=False)
+        ) or any(item.char_end > self.extracted_text.character_count for item in self.spans):
+            raise ValueError("evidence Agent view spans overlap or escape the frozen text")
+        return self
+
+
+class EvidenceCitationRequest(CanonicalContract):
+    schema_version: Literal["evidence-citation-request/v1"] = "evidence-citation-request/v1"
+    evidence_hash: str = Field(pattern=SHA256_PATTERN)
+    extracted_text_hash: str = Field(pattern=SHA256_PATTERN)
+    page: PositiveInt
+    char_start: NonNegativeInt
+    char_end: PositiveInt
+    expected_text: str = Field(min_length=1, max_length=10_000)
+
+    @model_validator(mode="after")
+    def range_matches_expected_text(self) -> Self:
+        if self.char_start >= self.char_end:
+            raise ValueError("citation request range is empty or reversed")
+        if self.char_end - self.char_start != len(self.expected_text):
+            raise ValueError("citation request range does not match expected text length")
+        return self
+
+
 class ProposedAttribute(CanonicalContract):
     schema_version: Literal["proposed-attribute/v1"] = "proposed-attribute/v1"
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     value: str | int | float | bool
+
+
+class EvidenceExtractionDraft(CanonicalContract):
+    """Raw structured Agent output before deterministic run-identity binding."""
+
+    schema_version: Literal["evidence-extraction-draft/v1"] = "evidence-extraction-draft/v1"
+    authority: Literal["AGENT_PROPOSAL"] = "AGENT_PROPOSAL"
+    proposal_id: str = Field(pattern=LOGICAL_ID_PATTERN)
+    evidence_hash: str = Field(pattern=SHA256_PATTERN)
+    extracted_text_hash: str = Field(pattern=SHA256_PATTERN)
+    event_label: str = Field(pattern=r"^[a-z][a-z0-9_.-]*$")
+    entity_refs: tuple[str, ...]
+    proposed_event_time: datetime | None = None
+    citations: tuple[EvidenceCitation, ...]
+    attributes: tuple[ProposedAttribute, ...] = ()
+    limitations: tuple[str, ...] = ()
+
+    _event_time_is_aware = field_validator("proposed_event_time")(_aware)
+
+    @field_validator("entity_refs")
+    @classmethod
+    def draft_entities_are_valid(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value:
+            raise ValueError("extraction draft requires an entity")
+        _sorted_unique(value, label="entity_refs")
+        if any(re.fullmatch(INSTRUMENT_PATTERN, item) is None for item in value):
+            raise ValueError("entity_refs contain an unsupported instrument identifier")
+        return value
+
+    @field_validator("citations")
+    @classmethod
+    def draft_citations_are_nonempty(
+        cls, value: tuple[EvidenceCitation, ...]
+    ) -> tuple[EvidenceCitation, ...]:
+        if not value:
+            raise ValueError("extraction draft requires source citations")
+        return value
+
+    @field_validator("attributes")
+    @classmethod
+    def draft_attributes_are_sorted(
+        cls, value: tuple[ProposedAttribute, ...]
+    ) -> tuple[ProposedAttribute, ...]:
+        names = [item.name for item in value]
+        if names != sorted(set(names)):
+            raise ValueError("extraction draft attributes must be sorted and unique")
+        return value
+
+    @field_validator("limitations")
+    @classmethod
+    def draft_limitations_are_sorted(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _sorted_unique(value, label="limitations")
+
+    @model_validator(mode="after")
+    def draft_citations_bind_source(self) -> Self:
+        if any(
+            item.evidence_hash != self.evidence_hash
+            or item.extracted_text_hash != self.extracted_text_hash
+            for item in self.citations
+        ):
+            raise ValueError("draft citations must bind its evidence and extracted text")
+        return self
 
 
 class EvidenceExtractionProposal(CanonicalContract):
@@ -295,7 +420,7 @@ class EventFeatureRow(CanonicalContract):
 
 
 class EventFeatureArtifact(CanonicalContract):
-    schema_version: Literal["event-feature-artifact/v1"] = "event-feature-artifact/v1"
+    schema_version: Literal["event-feature-artifact/v2"] = "event-feature-artifact/v2"
     evidence_hash: str = Field(pattern=SHA256_PATTERN)
     extracted_text_hash: str = Field(pattern=SHA256_PATTERN)
     extraction_proposal_hash: str = Field(pattern=SHA256_PATTERN)
@@ -304,6 +429,8 @@ class EventFeatureArtifact(CanonicalContract):
     entity_resolver_policy_hash: str = Field(pattern=SHA256_PATTERN)
     trading_day_resolver_policy_hash: str = Field(pattern=SHA256_PATTERN)
     availability_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    source_snapshot_hash: str = Field(pattern=SHA256_PATTERN)
+    trading_session_resolution_hashes: tuple[str, ...]
     code_commit_hash: str = Field(pattern=r"^[0-9a-f]{40}$")
     runtime_fingerprint_hash: str = Field(pattern=SHA256_PATTERN)
     rows: tuple[EventFeatureRow, ...]
@@ -313,6 +440,15 @@ class EventFeatureArtifact(CanonicalContract):
     @classmethod
     def limitations_are_sorted(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _sorted_unique(value, label="limitations")
+
+    @field_validator("trading_session_resolution_hashes")
+    @classmethod
+    def resolutions_are_nonempty_sorted(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or value != tuple(sorted(set(value))):
+            raise ValueError("trading session resolutions must be nonempty, sorted, and unique")
+        if any(re.fullmatch(SHA256_PATTERN, item) is None for item in value):
+            raise ValueError("trading session resolution hash is invalid")
+        return value
 
     @field_validator("rows")
     @classmethod

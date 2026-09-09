@@ -1,0 +1,10 @@
+schema_version: evidence-collection-spec/v1
+collection_id: p13-sse-share-repurchase-2025-08-05
+venues:
+  - SSE
+start_date: 2025-08-05
+end_date: 2025-08-05
+page_size: 25
+max_announcements: 25
+security_code: "600010"
+title_keyword: 股份回购

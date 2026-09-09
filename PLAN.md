@@ -11,7 +11,9 @@
 > 仍未实现，不得宣称该指标已被验证。
 > P8 Agent Boundary & Threat Hardening、P9 Research Semantic Contracts、P10 GPT + Codex
 > Harness Capability Spike、P11 Quant Research MCP 与 P12 Real-world Evidence Acquisition
-> 已完成；当前下一实施入口为 P13。
+> 已完成；P13 的 synthetic engineering slice、官方 SSE PDF 可提取路径与 EventFeature→Qlib
+> Signal/Backtest 兼容桥接与人工批准的真实 `600010.SH` benchmark 已实现，真实 Agent proposal、
+> native-Qlib clean-commit double-root freeze 尚未完成，因此当前实施入口仍为 P13。
 > P11 资格证明对象是 typed Python application facades 与代码内构造的 structured-fixture
 > E2E，不包含 production stdio/JSON-RPC transport、Agent 真实生成的 proposal chain 或
 > Agent-to-Data-qualified 组合运行。P14 前必须并行完成既有 admitted DSL 的全链路通用化和
@@ -1966,7 +1968,9 @@ E2E             P6 validation pipeline / P7 release pipeline
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
 market-data evidence。截至 2026-09-09，M0、DQ-01 至 DQ-06 与 P8-P12 均已完成；
-因此当前下一实施入口是 P13，而不是重跑第一阶段或提前启动 P14。
+因此当前实施入口仍是 P13，而不是重跑第一阶段或提前启动 P14。P13 已有 synthetic
+EventFeature/EventStudy、窄 JSON-RPC 与 EventSignal/Qlib compatibility bridge engineering
+slice，但不得在真实 Agent benchmark 与 native-Qlib clean-commit freeze 前标记完成。
 
 后续主线固定为：
 

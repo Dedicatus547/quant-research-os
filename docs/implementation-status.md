@@ -25,6 +25,7 @@ workspace.
 | P10 | Frozen `gpt-5.6-sol` + `codex-cli 0.153.4` synthetic spike: thread, read-only sandbox, single allowlisted MCP tool, repo Skill, failure recovery, bounded JSONL transcript, usage, permission denial, and exact proposal boundary all PASS (9/9), yielding Go. Spec/report/manifest/transcript are atomically retained by hash | No market-data dependency; output remains `AGENT_PROPOSAL`, model identifier is explicitly non-immutable, and P10 authorizes only the narrow P11 integration boundary |
 | P11 | Three validated repo Skills; typed proposal/compiler plus dataset/resolve/execution/job/validation/registry mappings; immutable receipts/audit events; bounded durable queue with duplicate/cancel/timeout/restart/failure gates; clean-commit frozen structured-Evidence proposal E2E through two native-Qlib release pipelines PASS with exact authority hashes | Synthetic-only `data_qualified=false`; the E2E uses a code-defined proposal and direct typed facades, not a production stdio/JSON-RPC transport or Agent-generated chain; Agent and reviewer outputs remain proposals and never mutate ValidationReport or Registry verdicts |
 | P12 | Isolated SSE/SZSE collector, count-backed completeness witnesses, raw staging, network-free Evidence publisher, deterministic PDF/text/HTML extraction, availability/license policy, exact-file verification, and full P0-P11 regression PASS. Clean commit `60b8c811...d6f7` reproduced Evidence Store `c55e9ba4...66a7f` byte-for-byte in two independent roots | Bounded official-source acquisition returned SSE 0/0 and SZSE 3/3; all three PDFs extracted successfully. SZSE permission remains `UNKNOWN`, so no announcement has become an admitted EventFeature or market conclusion |
+| P13 (in progress) | Human-frozen real `600010.SH` share-repurchase benchmark plus the synthetic engineering benchmark; exact citation admission, snapshot-bound strict-next-session resolution, immutable EventFeature/EventStudy artifacts, supported-metric allowlist, narrow hash-audited JSON-RPC, and an EventFeature→weekly EventSignalArtifact→existing Qlib reference-backtest compatibility bridge PASS on the implementation worktree | `FAILED / NOT_EVALUATED`: the official 3-page SSE PDF and human-frozen benchmark are available, but the actual Agent proposal and native-Qlib clean-commit double-root freeze have not yet run. No real EventFeature or market conclusion exists |
 
 ## 轨道对齐与下一阶段入口
 
@@ -36,7 +37,8 @@ workspace.
 - `Data-qualified Release`：DQ-01 至 DQ-06 已全部完成。工程发布为
   `PASS / data_qualified=true`；真实 HS300 Momentum 候选的研究 verdict 为
   `SUCCEEDED / REJECT`，Registry 状态为 `REJECTED`。
-- `Agent-assisted Research v0.2`：P8-P12 已完成，当前入口为 P13；P13-P14 继续基于已冻结的
+- `Agent-assisted Research v0.2`：P8-P12 已完成，P13 engineering slice 已实现但正式退出条件尚未
+  冻结；P13-P14 继续基于已冻结的
   第一阶段基线与 P12 Evidence Store 实施；
   Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
 
@@ -46,7 +48,7 @@ workspace.
 M0 基线冻结 → P8 Agent Boundary & Threat Hardening（完成）
 → P9 Research Semantic Contracts + Campaign Governance + Minimal DSL v2（完成）
 → P10 GPT + Codex Capability Spike（完成）→ P11 Quant Research MCP + Offline Proposal E2E（完成）
-→ P12 Real-world Evidence Acquisition（完成）→ P13 Qualified Event Feature E2E（下一入口）
+→ P12 Real-world Evidence Acquisition（完成）→ P13 Qualified Event Feature E2E（实施中）
 → P14 Research Ledger + Bounded Autonomous Research MVP
 ```
 

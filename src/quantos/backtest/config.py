@@ -5,6 +5,7 @@ from __future__ import annotations
 from quantos.contracts.backtest import QlibBacktestConfig
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
+from quantos.contracts.event_research import ResolvedEventExperimentSpec
 from quantos.contracts.research import ResolvedExperimentSpec
 from quantos.contracts.status import ReasonCode
 from quantos.contracts.temporal import DecisionSchedule
@@ -12,7 +13,7 @@ from quantos.research.qlib.universe import QlibResearchError
 
 
 def translate_backtest_config(
-    resolved: ResolvedExperimentSpec,
+    resolved: ResolvedExperimentSpec | ResolvedEventExperimentSpec,
     *,
     signal_artifact_hash: str,
     cost_policy: CostPolicy,

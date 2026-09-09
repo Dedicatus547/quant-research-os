@@ -1,0 +1,25 @@
+schema_version: event-feature-admission-policy/v1
+policy_id: share-repurchase-benchmark/v1
+reviewer_kind: DETERMINISTIC_BENCHMARK
+reject_unknown_availability: true
+require_research_permission: true
+require_exact_entity_set: true
+require_exact_citation_text: true
+cases:
+  - schema_version: event-feature-benchmark-case/v1
+    case_id: share-repurchase-001
+    evidence_hash: 97d882bb03c55271a8352eb219f1e5839530bab317f09bc60c6ea399ff7a6009
+    extracted_text_hash: 6a8ada1aba5f484cae693f833a8a3513b48be9022df1894c2758962f4f7efd57
+    event_label: share_repurchase
+    entity_refs:
+      - 600000.SH
+    event_time: 2024-01-02T15:00:00+08:00
+    citations:
+      - schema_version: evidence-citation/v1
+        evidence_hash: 97d882bb03c55271a8352eb219f1e5839530bab317f09bc60c6ea399ff7a6009
+        extracted_text_hash: 6a8ada1aba5f484cae693f833a8a3513b48be9022df1894c2758962f4f7efd57
+        page: 1
+        char_start: 14
+        char_end: 18
+        cited_text_hash: 6084cc21f487503f843ba60867d4f2b5c199b96a7df184291e45a87c5b1252ea
+    attributes: []

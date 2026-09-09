@@ -33,7 +33,9 @@ loads `queryCompanyBulletinNew.do`. A bounded probe on 2026-09-08 confirmed a GE
 `pageHelp.total`, `pageHelp.pageCount`, `pageHelp.pageNo`, and grouped primary/attachment records.
 P12 retains exactly one `ORG_FILE_TYPE=0` primary document per group and uses the source `total` as
 an `ANNOUNCEMENT_GROUP` completeness witness. Documents are restricted to
-`static.sse.com.cn`.
+the SSE-owned `big5.sse.com.cn` HTTPS mirror. The mirror path is constructed explicitly as
+`/site/cht/www.sse.com.cn` plus the root-relative path returned by discovery; the collector never
+accepts the mirror's HTTP redirect form.
 
 The official [SZSE listed-company announcement page](https://www.szse.cn/disclosure/listed/notice/index.html)
 loads its historical list through `POST /api/disc/announcement/annList` with a JSON date range. A
@@ -45,7 +47,7 @@ The fixed network allowlist is:
 
 ```text
 query.sse.com.cn
-static.sse.com.cn
+big5.sse.com.cn
 www.szse.cn
 disc.static.szse.cn
 ```

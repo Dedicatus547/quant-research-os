@@ -1,0 +1,7 @@
+schema_version: trading-session-resolver-policy/v1
+policy_id: strict-next-open/v1
+source_timezone: Asia/Shanghai
+effective_session: STRICT_NEXT_OPEN_SESSION
+max_calendar_gap_days: 10
+calendar_table: canonical/calendar.parquet
+instrument_table: canonical/instruments.parquet

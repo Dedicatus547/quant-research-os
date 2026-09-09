@@ -38,14 +38,23 @@ from quantos.contracts.backtest import (
 )
 from quantos.contracts.base import canonical_json_bytes
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
+from quantos.contracts.event_research import (
+    EventSignalArtifactManifest,
+    EventSignalEvidence,
+    ResolvedEventExperimentSpec,
+)
 from quantos.contracts.qlib_view import QlibViewSpec
 from quantos.contracts.refs import ArtifactRef
 from quantos.contracts.research import ResolvedExperimentSpec
 from quantos.contracts.research_execution import PITArtifactEvidence
-from quantos.contracts.signal import SignalRow
+from quantos.contracts.signal import SignalArtifactManifest, SignalRow
 from quantos.contracts.status import ReasonCode
 from quantos.contracts.temporal import DecisionSchedule
 from quantos.data.qlib_view import QlibViewBuildError, verify_qlib_view
+from quantos.research.qlib.event_signal import (
+    verify_event_signal_artifact,
+    verify_event_signal_pit,
+)
 from quantos.research.qlib.pit_evidence import load_pit_artifact_evidence
 from quantos.research.qlib.signal import verify_signal_artifact
 from quantos.research.qlib.universe import QlibResearchError
@@ -714,12 +723,24 @@ def translate_backtest_config_schedule_hash(schedules: Sequence[DecisionSchedule
 
 def _read_signal_inputs(
     signal_path: Path,
-) -> tuple[ResolvedExperimentSpec, PITArtifactEvidence, tuple[SignalRow, ...]]:
+) -> tuple[
+    ResolvedExperimentSpec | ResolvedEventExperimentSpec,
+    PITArtifactEvidence | EventSignalEvidence,
+    tuple[SignalRow, ...],
+]:
     try:
-        resolved = ResolvedExperimentSpec.model_validate_json(
-            (signal_path / "resolved-experiment.json").read_bytes()
-        )
-        evidence = load_pit_artifact_evidence(signal_path / "pit-evidence.json")
+        if (signal_path / "resolved-event-experiment.json").is_file():
+            resolved = ResolvedEventExperimentSpec.model_validate_json(
+                (signal_path / "resolved-event-experiment.json").read_bytes()
+            )
+            evidence = EventSignalEvidence.model_validate_json(
+                (signal_path / "event-signal-evidence.json").read_bytes()
+            )
+        else:
+            resolved = ResolvedExperimentSpec.model_validate_json(
+                (signal_path / "resolved-experiment.json").read_bytes()
+            )
+            evidence = load_pit_artifact_evidence(signal_path / "pit-evidence.json")
         rows = tuple(
             SignalRow.model_validate(row)
             for row in pq.read_table(  # pyright: ignore[reportUnknownMemberType]
@@ -731,6 +752,23 @@ def _read_signal_inputs(
             ReasonCode.ARTIFACT_CORRUPTED, "signal inputs cannot be loaded for backtest"
         ) from error
     return resolved, evidence, rows
+
+
+def _verify_backtest_signal_artifact(
+    signal_path: Path,
+) -> SignalArtifactManifest | EventSignalArtifactManifest:
+    if (signal_path / "event-signal-evidence.json").is_file():
+        return verify_event_signal_artifact(signal_path)
+    return verify_signal_artifact(signal_path)
+
+
+def _signal_schedules(
+    evidence: PITArtifactEvidence | EventSignalEvidence,
+) -> tuple[DecisionSchedule, ...]:
+    if isinstance(evidence, EventSignalEvidence):
+        schedules = {item.schedule.content_hash: item.schedule for item in evidence.items}
+        return tuple(sorted(schedules.values(), key=lambda item: item.signal_time))
+    return tuple(bundle.schedule for bundle in evidence.bundles)
 
 
 def _calendar_dates(view_path: Path) -> tuple[date, ...]:
@@ -941,7 +979,7 @@ class QlibBacktestService:
 
     def run(
         self,
-        resolved: ResolvedExperimentSpec,
+        resolved: ResolvedExperimentSpec | ResolvedEventExperimentSpec,
         signal_path: Path,
         view_path: Path,
         cost_policy: CostPolicy,
@@ -958,7 +996,7 @@ class QlibBacktestService:
             )
         except ProvenanceError as error:
             raise QlibResearchError(error.reason_code, str(error)) from None
-        signal_manifest = verify_signal_artifact(signal_path)
+        signal_manifest = _verify_backtest_signal_artifact(signal_path)
         embedded_resolved, evidence, signal_rows = _read_signal_inputs(signal_path)
         if (
             embedded_resolved != resolved
@@ -981,7 +1019,9 @@ class QlibBacktestService:
                 ReasonCode.SNAPSHOT_HASH_MISMATCH,
                 "resolved experiment does not match the verified Qlib view",
             )
-        schedules = tuple(bundle.schedule for bundle in evidence.bundles)
+        schedules = _signal_schedules(evidence)
+        if isinstance(evidence, EventSignalEvidence):
+            verify_event_signal_pit(signal_path, view_path)
         _validate_schedules(schedules, view_path)
         mappings, inverse_mappings = _load_view_mappings(view_path)
         try:

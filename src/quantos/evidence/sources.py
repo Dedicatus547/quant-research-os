@@ -23,7 +23,7 @@ from quantos.contracts.evidence_acquisition import (
 )
 
 SSE_DISCOVERY_URL = "https://query.sse.com.cn/security/stock/queryCompanyBulletinNew.do"
-SSE_DOCUMENT_ORIGIN = "https://static.sse.com.cn"
+SSE_DOCUMENT_ORIGIN = "https://big5.sse.com.cn/site/cht/www.sse.com.cn"
 SZSE_DISCOVERY_URL = "https://www.szse.cn/api/disc/announcement/annList"
 SZSE_DOCUMENT_ORIGIN = "https://disc.static.szse.cn"
 
