@@ -11,10 +11,12 @@ evidence.
 Documentation roles:
 
 - [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
-- [Implementation status](docs/implementation-status.md) tracks the completed P0-P12 stages and
-  evidence summary.
+- [Implementation status](docs/implementation-status.md) tracks the completed P0-P12 stages, the
+  current P13 boundary, and the evidence summary.
 - [P12 progress](docs/p12-progress.md) records the exchange Evidence boundary, bounded official-source
   probe, and clean-commit reproducibility freeze.
+- [P13 progress](docs/p13-progress.md) records the qualified event-feature boundary, synthetic
+  native-Qlib bridge freeze, qualification runner, and remaining frozen-Agent benchmark gate.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records
@@ -74,6 +76,42 @@ UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos qlib build-view \
 UV_CACHE_DIR=/tmp/quantos-uv-cache uv run quantos qlib verify-view \
   artifacts/data/qlib-views/sha256-<view_hash>
 ```
+
+Run the synthetic P13 EventFeature → EventSignalArtifact → native-Qlib bridge from a clean
+implementation checkout:
+
+```bash
+UV_CACHE_DIR=/tmp/quantos-uv-cache uv run python scripts/p13_event_signal_feasibility.py
+```
+
+The runner publishes only synthetic Offline Engineering evidence. It requires an explicit clean
+Git/lockfile provenance, uses the locked official Qlib converter and existing Simulator/Exchange
+path, and does not qualify real Evidence or assert a market conclusion.
+
+Run the complete P13 qualification attempt against the human-frozen Evidence Store. The binding
+file fixes the Store, Evidence, extracted-text, and benchmark-policy hashes; a mismatched Store
+fails closed before Agent execution. The result is an immutable hash-only qualification bundle:
+
+```bash
+env -u TUSHARE_TOKEN UV_CACHE_DIR=/tmp/quantos-uv-cache \
+  uv run python scripts/p13_qualification.py \
+  --store <authorized_store_root>/sha256-<frozen_store_hash> \
+  --output-root artifacts/qualification/p13 \
+  --agent-output-root artifacts/qualification/p13-agent-runs
+```
+
+The Agent can see only the two read-only `quantosP13` MCP tools. `--candidate-store` is available
+for an explicitly non-frozen extraction attempt; it never promotes that attempt to downstream
+EventFeature, EventStudy, or backtest qualification. Failed Codex transcripts retain only bounded
+events and hashes, never stderr text or secrets.
+
+The approved real benchmark is v2 (see
+[the approval record](docs/reviews/p13-benchmark-v2-review.md)). To continue deterministic
+evaluation from a retained successful extraction, pass `--agent-run` with its explicit
+`sha256-<manifest_hash>` directory. The runner verifies the manifest, run specification, transcript,
+proposal, instructions and schema bindings against the selected Store and benchmark before
+reusing it. This path makes no model call. Deterministic execution requires a clean implementation
+checkout; previous failed attempts remain retained separately.
 
 Run an experiment-time lineage/PIT audit and publish its immutable evidence:
 
@@ -268,9 +306,13 @@ official Qlib semantics and the full PIT/Signal reproducibility chain. P10 GPT +
 Spike is complete with a 9/9 hard-capability Go for the frozen synthetic configuration. P11 Quant
 Research MCP + Offline Proposal E2E is also complete; it qualifies typed application-service
 facades and a code-defined structured-fixture chain, not a production stdio/JSON-RPC transport or
-an Agent-generated Data-qualified research run. P12 Real-world Evidence Acquisition is the next
-implementation entry. Existing admitted DSL propagation and an immutable Qlib ResearchResult are
-parallel factor-research prerequisites for P14 rather than substitutes for P12/P13.
+an Agent-generated Data-qualified research run. P12 Real-world Evidence Acquisition is complete;
+P13 Qualified Event Feature is the current implementation entry. P13 now has a native-Qlib synthetic
+bridge freeze, a strict hash-bound qualification runner, and retained non-frozen Agent attempts;
+the approved v2 Store, admitted real Agent proposal and clean-copy double-root qualification
+now pass. See [the v2 freeze record](docs/p13-v2-freeze.md) for exact hashes and limitations.
+Existing admitted DSL propagation and an immutable Qlib ResearchResult are parallel factor-research
+prerequisites for P14 rather than substitutes for P12/P13.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
 [`docs/p8-security.md`](docs/p8-security.md),
 [`docs/p9-research-semantics.md`](docs/p9-research-semantics.md), and

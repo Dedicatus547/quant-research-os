@@ -1,7 +1,7 @@
 # A 股量化研究 Agent 系统实施计划
 
 > 版本：v13（P12 冻结与 P13 入口修订版）<br>
-> 更新日期：2026-09-09<br>
+> 更新日期：2026-09-10<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
 > Offline Engineering 基线为 `PASS / VALIDATED`；真实 Tushare Data-qualified 发布为工程
@@ -11,9 +11,11 @@
 > 仍未实现，不得宣称该指标已被验证。
 > P8 Agent Boundary & Threat Hardening、P9 Research Semantic Contracts、P10 GPT + Codex
 > Harness Capability Spike、P11 Quant Research MCP 与 P12 Real-world Evidence Acquisition
-> 已完成；P13 的 synthetic engineering slice、官方 SSE PDF 可提取路径与 EventFeature→Qlib
-> Signal/Backtest 兼容桥接与人工批准的真实 `600010.SH` benchmark 已实现，真实 Agent proposal、
-> native-Qlib clean-commit double-root freeze 尚未完成，因此当前实施入口仍为 P13。
+> 已完成；P13 的 synthetic engineering slice、官方 SSE PDF 可提取路径、EventFeature→Qlib
+> Signal/Backtest 兼容桥接、native-Qlib clean-clone double-root freeze、严格 hash-bound
+> qualification runner 与人工批准的真实 `600010.SH` benchmark 已实现，真实冻结 Store 上的
+> Agent proposal 与合并 qualification report 已在批准的 v2 输入上通过真实双根验证。
+> 冻结实现为 `46904c22d039bca2da008beec8cd7d183d288fd1`，详见 `docs/p13-v2-freeze.md`。
 > P11 资格证明对象是 typed Python application facades 与代码内构造的 structured-fixture
 > E2E，不包含 production stdio/JSON-RPC transport、Agent 真实生成的 proposal chain 或
 > Agent-to-Data-qualified 组合运行。P14 前必须并行完成既有 admitted DSL 的全链路通用化和
@@ -1967,10 +1969,14 @@ E2E             P6 validation pipeline / P7 release pipeline
 第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
-market-data evidence。截至 2026-09-09，M0、DQ-01 至 DQ-06 与 P8-P12 均已完成；
-因此当前实施入口仍是 P13，而不是重跑第一阶段或提前启动 P14。P13 已有 synthetic
-EventFeature/EventStudy、窄 JSON-RPC 与 EventSignal/Qlib compatibility bridge engineering
-slice，但不得在真实 Agent benchmark 与 native-Qlib clean-commit freeze 前标记完成。
+market-data evidence。截至 2026-09-10，M0、DQ-01 至 DQ-06 与 P8-P12 均已完成；
+P13 已完成批准范围内的资格链，下一入口是 P14 的 FR-01/FR-02 前置检查。P13 已完成 synthetic
+EventFeature/EventStudy、窄只读 JSON-RPC、AgentRun failure retention、EventSignal/Qlib
+compatibility bridge 与 native-Qlib clean-commit double-root engineering freeze；严格
+`P13BenchmarkBinding`/`P13QualificationBundle` runner 已就位。用户已批准 v2 Store，真实 Agent
+proposal 通过 admission，随后在冻结实现 `46904c22d039bca2da008beec8cd7d183d288fd1` 上离线复用，
+双根主要内容哈希一致，合并报告两条轨道均为 SUCCEEDED / PASS。P13 批准范围内的资格链
+已完成，详见 `docs/p13-v2-freeze.md`；P14 仍需完成 FR-01/FR-02。
 
 后续主线固定为：
 
@@ -2095,10 +2101,10 @@ unbudgeted recursive execution
 ```
 
 P11 当前的 `ProposalMcpService` / `ResearchMcpService` 是 typed Python application facades。
-保留报告通过代码内固定 proposal 直接调用它们，不构成 production MCP transport 的资格证明。
-首个真实 Agent-assisted P13 E2E 前必须增加狭窄 stdio/JSON-RPC adapter 的独立 contract tests、
-tool schema hash、transcript 与 negative-permission evidence；该 adapter 不得新增 capability
-或把路径、shell、秘密和 verdict 控制暴露给 Agent。
+P13 另外冻结了只读 `quantosP13` stdio/JSON-RPC adapter、tool schema hash、bounded Codex
+transcript、失败保留和 negative-permission boundary；这不新增 capability，也不把路径、shell、
+秘密和 verdict 控制暴露给 Agent。`EvidenceAgentView` 显式提供 artifact `content_hash`，避免
+Agent 把 extracted-text 的原始字节 hash 错当成 citation contract 的 artifact hash。
 
 ## 40.3 Research semantic contracts 与证据等级
 
@@ -2328,7 +2334,7 @@ Offline Engineering E2E，但只有 DQ-01 至 DQ-06 完成后才能发布真实�
 | P10 | 对 GPT + Codex 固定当时可获得的具体版本/配置，使用 frozen synthetic task 和人工 proposal baseline 验证 thread、sandbox、MCP、Skills、失败恢复、transcript、usage 和 permission denial | 输出 ADR 与 AgentRunManifest 样例；所有硬性 capability 通过才 Go，任何关键边界失败则 No-Go；不以模型输出质量或盈利替代安全门 |
 | P11 | 将 MCP domain contracts 映射到现有 typed application services；实现三个 Codex Skills；使用冻结 structured synthetic Evidence 完成 direct-facade proposal → compiler → Qlib → ValidationReport → Registry/explanation | 相同 resolved Spec 与冻结输入产生相同 deterministic evidence；Agent 文本无需逐字相同；无 shell/path/secret/gate override/direct VALIDATED，幂等、预算、失败语义和负向权限测试通过；不声称 production transport 或 Agent-generated E2E |
 | P12 | 隔离的 SSE/SZSE 公告 Collector、raw Evidence Store、deterministic text extraction、availability/revision/license policy | 原始字节与派生文本可按 hash 验证和重建；published/fetched/observed/available 不混用；Collector 无 LLM、无 authority 写权；Evaluation 和 Agent 仍无网络 |
-| P13 | 冻结公告抽取 benchmark；EvidenceExtractionProposal、admission policy、EventFeatureArtifact、事件到交易日/PIT 对齐；首个股份回购公告研究 vertical slice | 未通过 admission 的 LLM 标签不能执行；feature artifact 可追溯到原文位置与全部 policy/hash；支持的指标才可进入 Gate；分别报告 Offline Engineering 和 Data-qualified 状态，使用正式状态语义而非 ACCEPT |
+| P13 | 冻结公告抽取 benchmark；EvidenceExtractionProposal、只读 hash-bound MCP、AgentRun provenance、admission policy、EventFeatureArtifact、事件到交易日/PIT 对齐；首个股份回购公告研究 vertical slice | 未通过 admission 的 LLM 标签不能执行；feature artifact 可追溯到原文位置与全部 policy/hash；支持的指标才可进入 Gate；完整运行以 `P13QualificationBundle` 绑定 Agent/native-Qlib/下游 hashes；分别报告 Offline Engineering 和 Data-qualified 状态，使用正式状态语义而非 ACCEPT |
 | FR-01（P12/P13 并行） | 将已 admitted SafeQlibExpressionSpec 与 registered fields 通用化到 proposal/compiler/resolution/PIT/Signal/Validation | 至少一个非 field-to-return DAG 通过全链路、独立输出根 hash 一致与未注册 field/operator 负例；不新增自有 expression runtime |
 | FR-02（P12/P13 并行） | Qlib SignalRecord/SigAnaRecord → immutable ResearchResult adapter | 冻结 prediction/label/split/expression 绑定、IC/Rank IC 序列与汇总、exact-file verification 和 independent-output reproducibility；coverage/turnover/autocorrelation 未单独资格化前不声称由 Qlib 原生提供 |
 | P14a | append-only Research Ledger persistence/rebuild、可重建检索索引与 deterministic ResearchContextPack | Ledger 区分来源/提案/人工判断/确定性 verdict；索引、tokenizer/model/config、tie-breaker、query/result/context-pack hashes 全部绑定 AgentRun |
@@ -2377,6 +2383,14 @@ P12 已于 2026-09-09 完成。隔离 Collector 按官方计数冻结 SSE 0/0 �
 `c55e9ba41c60c8443c979396277cfad5ed5d4f7c2344a4348a91b1b63b566a7f`。SZSE 的使用权限仍为
 `UNKNOWN`，没有公告被 admission 为 EventFeature，也没有产生 Data-qualified 市场结论。完整边界、
 哈希与限制见 [`docs/p12-progress.md`](docs/p12-progress.md)。当前下一入口为 P13。
+
+P13 的正式执行入口是 `scripts/p13_qualification.py`。它先验证
+`configs/research/p13_real_sse_benchmark_binding_v1.yaml` 中的 Evidence Store、Evidence、
+extracted-text 与 benchmark-policy hashes，再运行 proposal-only Codex extraction；只有
+deterministic admission 通过后，才允许进入现有 Qlib view、EventFeature/EventStudy、
+EventSignalArtifact、`QlibBacktestService` 与 reconciliation。`--candidate-store` 只记录非冻结
+尝试，任何 Agent transcript、schema-invalid、admission reject、PIT reject 或 execution failure
+都保留为不可变证据，并统一阻断 Data-qualified qualification。
 
 Rank IC/ICIR immutable ResearchResult adapter、第二 canonical market-data provider、基本面因子和
 实盘交易不自动进入 P12/P13 主线。FR-02 是 P14 的 hard entry gate；若 P13 的批准验收

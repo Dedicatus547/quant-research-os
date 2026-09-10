@@ -18,8 +18,12 @@ from quantos.application.evidence_mcp import (
     evidence_mcp_tools,
 )
 from quantos.application.harness_runner import verify_codex_version
-from quantos.application.harness_spike import CodexExecCapture, parse_codex_exec_jsonl
-from quantos.artifacts.store import atomic_write_bytes, publish_directory
+from quantos.application.harness_spike import (
+    CodexExecCapture,
+    HarnessTranscriptError,
+    parse_codex_exec_jsonl,
+)
+from quantos.artifacts.store import atomic_write_bytes, confined_regular_file, publish_directory
 from quantos.contracts.agent import (
     AgentCapability,
     AgentRole,
@@ -41,6 +45,7 @@ from quantos.evidence.publisher import verify_evidence_store
 CODEX_CLI_VERSION = "codex-cli 0.153.4"
 MODEL_IDENTIFIER = "gpt-5.6-sol"
 MODEL_REASONING_EFFORT = "medium"
+SHELL_ENVIRONMENT = {"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin", "TZ": "UTC"}
 MAX_TRANSCRIPT_BYTES = 2_000_000
 MAX_INPUT_TOKENS = 250_000
 MAX_OUTPUT_TOKENS = 4_096
@@ -49,7 +54,9 @@ SERVER_NAME = "quantosP13"
 
 
 class P13AgentRunnerError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, manifest: AgentRunManifest | None = None) -> None:
+        super().__init__(message)
+        self.manifest = manifest
 
 
 @dataclass(frozen=True)
@@ -100,7 +107,9 @@ class P13AgentRunResult:
 
 
 def extraction_output_schema(
-    evidence_hash: str, extracted_text_hash: str
+    evidence_hash: str,
+    extracted_text_hash: str,
+    expected_limitations: tuple[str, ...] | None = None,
 ) -> dict[str, object]:
     citation = {
         "type": "object",
@@ -124,6 +133,7 @@ def extraction_output_schema(
             "cited_text_hash",
         ],
     }
+    limitation_count = len(expected_limitations) if expected_limitations is not None else 5
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -146,7 +156,6 @@ def extraction_output_schema(
                 "items": {"type": "string", "pattern": "^[0-9]{6}\\.(SH|SZ)$"},
                 "minItems": 1,
                 "maxItems": 4,
-                "uniqueItems": True,
             },
             "proposed_event_time": {
                 "anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]
@@ -157,13 +166,15 @@ def extraction_output_schema(
                 "minItems": 2,
                 "maxItems": 2,
             },
-            "attributes": {"type": "array", "maxItems": 0},
             "limitations": {
                 "type": "array",
-                "items": {"type": "string"},
-                "minItems": 5,
-                "maxItems": 5,
-                "uniqueItems": True,
+                "items": (
+                    {"type": "string", "enum": list(expected_limitations)}
+                    if expected_limitations is not None
+                    else {"type": "string"}
+                ),
+                "minItems": limitation_count,
+                "maxItems": limitation_count,
             },
         },
         "required": [
@@ -176,7 +187,6 @@ def extraction_output_schema(
             "entity_refs",
             "proposed_event_time",
             "citations",
-            "attributes",
             "limitations",
         ],
     }
@@ -188,6 +198,7 @@ def load_p13_agent_inputs(
     *,
     expected_store_hash: str,
     expected_evidence_hash: str,
+    fixture_root: Path | None = None,
 ) -> P13AgentInputs:
     store_path = store_path.resolve(strict=True)
     store = verify_evidence_store(store_path)
@@ -203,7 +214,9 @@ def load_p13_agent_inputs(
         or item.text_ref is None
     ):
         raise P13AgentRunnerError("P13 evidence has no qualified extracted text")
-    fixture_root = workspace / "tests/fixtures/p13_codex_workspace"
+    fixture_root = (fixture_root or workspace / "tests/fixtures/p13_codex_workspace").resolve(
+        strict=True
+    )
     paths = {
         "agents": fixture_root / "AGENTS.md",
         "skill": fixture_root / ".agents/skills/quant-event-extractor/SKILL.md",
@@ -211,7 +224,12 @@ def load_p13_agent_inputs(
         "server": workspace / "scripts/p13_evidence_mcp_server.py",
     }
     payloads = {name: path.read_bytes() for name, path in paths.items()}
-    schema = extraction_output_schema(item.evidence.content_hash, item.extracted_text.content_hash)
+    expected_limitations = tuple(sorted(("AGENT_PROPOSAL", *item.evidence.limitations)))
+    schema = extraction_output_schema(
+        item.evidence.content_hash,
+        item.extracted_text.content_hash,
+        expected_limitations,
+    )
     schema_hash = sha256_bytes(canonical_json_bytes(schema))
     return P13AgentInputs(
         store_path=store_path,
@@ -241,7 +259,10 @@ def _model_configuration(inputs: P13AgentInputs) -> dict[str, object]:
         "network_allowed": False,
         "output_schema_hash": inputs.output_schema_hash,
         "sandbox_mode": "read-only",
+        "shell_environment_inherit": "none",
         "shell_tool_enabled": False,
+        "allow_login_shell": False,
+        "shell_environment": SHELL_ENVIRONMENT,
         "tool_schema_hash": inputs.tool_schema_hash,
     }
 
@@ -299,7 +320,13 @@ def _codex_argv(
         "-c",
         "features.shell_tool=false",
         "-c",
-        f'mcp_servers.{SERVER_NAME}.command={json.dumps(str(python))}',
+        'shell_environment_policy.inherit="none"',
+        "-c",
+        'shell_environment_policy.set={LANG="C.UTF-8",PATH="/usr/bin:/bin",TZ="UTC"}',
+        "-c",
+        "allow_login_shell=false",
+        "-c",
+        f"mcp_servers.{SERVER_NAME}.command={json.dumps(str(python))}",
         "-c",
         f"mcp_servers.{SERVER_NAME}.args={json.dumps(server_args)}",
         "-c",
@@ -339,9 +366,35 @@ def _tool_interactions(capture: CodexExecCapture) -> tuple[ToolInteractionDigest
     )
 
 
+def _empty_capture(payload: bytes) -> CodexExecCapture:
+    """Represent an unparseable process output without discarding its hash."""
+
+    return CodexExecCapture(
+        transcript_hash=sha256_bytes(payload),
+        transcript_size_bytes=len(payload),
+        event_count=0,
+        event_hashes=(),
+        thread_ids=(),
+        turn_started=False,
+        turn_completed=False,
+        turn_failed=False,
+        commands=(),
+        mcp_calls=(),
+        agent_messages=(),
+        usage={},
+        approval_requested=False,
+        forbidden_marker_observed=False,
+    )
+
+
 def _parse_success(
-    inputs: P13AgentInputs, capture: CodexExecCapture, return_code: int
+    inputs: P13AgentInputs, capture: CodexExecCapture, return_code: int | None
 ) -> tuple[EvidenceExtractionDraft | None, EvidenceExtractionProposal | None]:
+    successful_calls = tuple(
+        call
+        for call in capture.mcp_calls
+        if call.status == "completed" and call.error is None and call.result is not None
+    )
     if (
         return_code != 0
         or not capture.turn_started
@@ -349,21 +402,17 @@ def _parse_success(
         or capture.turn_failed
         or capture.commands
         or capture.approval_requested
-        or len(capture.agent_messages) != 1
-        or [(call.server, call.tool) for call in capture.mcp_calls]
+        or not capture.agent_messages
+        or [(call.server, call.tool) for call in successful_calls]
         != [
             (SERVER_NAME, "evidence_get"),
             (SERVER_NAME, "evidence_cite"),
             (SERVER_NAME, "evidence_cite"),
         ]
-        or any(
-            call.status != "completed" or call.error is not None or call.result is None
-            for call in capture.mcp_calls
-        )
     ):
         return None, None
     try:
-        draft = EvidenceExtractionDraft.model_validate_json(capture.agent_messages[0])
+        draft = EvidenceExtractionDraft.model_validate_json(capture.agent_messages[-1])
     except ValidationError:
         return None, None
     item = next(
@@ -371,7 +420,7 @@ def _parse_success(
     )
     expected_limitations = tuple(sorted(("AGENT_PROPOSAL", *item.evidence.limitations)))
     cited: list[EvidenceCitation] = []
-    for call in capture.mcp_calls[1:]:
+    for call in successful_calls[1:]:
         assert call.result is not None
         structured = call.result.get("structured_content")
         if not isinstance(structured, dict):
@@ -403,6 +452,53 @@ def _parse_success(
     return draft, proposal
 
 
+def load_p13_agent_run(
+    workspace: Path,
+    store_path: Path,
+    run_path: Path,
+    *,
+    expected_store_hash: str,
+    expected_evidence_hash: str,
+    benchmark_policy_hash: str,
+) -> P13AgentRunResult:
+    """Replay a specifically addressed successful extraction without calling the model."""
+    inputs = load_p13_agent_inputs(
+        workspace,
+        store_path,
+        expected_store_hash=expected_store_hash,
+        expected_evidence_hash=expected_evidence_hash,
+    )
+
+    def read(name: str) -> bytes:
+        return confined_regular_file(run_path, name).read_bytes()
+
+    manifest = AgentRunManifest.model_validate_json(read("agent-run-manifest.json"))
+    spec = _run_spec(inputs, benchmark_policy_hash)
+    capture = parse_codex_exec_jsonl(read("codex-events.jsonl"), max_bytes=MAX_TRANSCRIPT_BYTES)
+    draft, proposal = _parse_success(inputs, capture, manifest.process_return_code)
+    if (
+        run_path.name != f"sha256-{manifest.content_hash}"
+        or manifest.run_status is not RunStatus.SUCCEEDED
+        or manifest.run_spec_hash != spec.content_hash
+        or read("agent-run-spec.json") != spec.canonical_bytes()
+        or manifest.transcript_hash != capture.transcript_hash
+        or manifest.input_hashes != inputs.input_hashes
+        or manifest.interactions != _tool_interactions(capture)
+        or manifest.usage.input_tokens != capture.usage.get("input_tokens", 0)
+        or manifest.usage.output_tokens != capture.usage.get("output_tokens", 0)
+        or draft is None
+        or proposal is None
+        or manifest.output_proposal_hashes != (proposal.content_hash,)
+        or read("extraction-draft.json") != draft.canonical_bytes()
+        or read("extraction-proposal.json") != proposal.canonical_bytes()
+        or read("output-schema.json") != canonical_json_bytes(inputs.output_schema)
+        or read("tool-schema.json") != canonical_json_bytes(evidence_mcp_tools())
+        or read("task.md") != inputs.task_text.encode("utf-8")
+    ):
+        raise P13AgentRunnerError("retained P13 run does not bind the requested frozen inputs")
+    return P13AgentRunResult(manifest=manifest, draft=draft, proposal=proposal, path=run_path)
+
+
 def execute_p13_agent(
     workspace: Path,
     store_path: Path,
@@ -411,12 +507,14 @@ def execute_p13_agent(
     expected_store_hash: str,
     expected_evidence_hash: str,
     benchmark_policy_hash: str,
+    fixture_root: Path | None = None,
 ) -> P13AgentRunResult:
     inputs = load_p13_agent_inputs(
         workspace,
         store_path,
         expected_store_hash=expected_store_hash,
         expected_evidence_hash=expected_evidence_hash,
+        fixture_root=fixture_root,
     )
     spec = _run_spec(inputs, benchmark_policy_hash)
     environment = _environment()
@@ -431,6 +529,11 @@ def execute_p13_agent(
             canonical_json_bytes(inputs.output_schema),
             expected_sha256=inputs.output_schema_hash,
         )
+        process_stdout = b""
+        process_stderr = b""
+        return_code: int | None = None
+        process_execution_failed = False
+        transcript_invalid = False
         try:
             process = subprocess.run(
                 _codex_argv(workspace, inputs, schema_path),
@@ -441,20 +544,34 @@ def execute_p13_agent(
                 env=environment,
                 timeout=TIMEOUT_SECONDS,
             )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise P13AgentRunnerError(
-                "P13 Codex process failed before transcript capture"
-            ) from error
+            process_stdout = process.stdout
+            process_stderr = process.stderr
+            return_code = process.returncode
+        except subprocess.TimeoutExpired as error:
+            process_execution_failed = True
+            if isinstance(error.stdout, bytes):
+                process_stdout = error.stdout
+            if isinstance(error.stderr, bytes):
+                process_stderr = error.stderr
+        except OSError:
+            process_execution_failed = True
         completed_at = datetime.now(UTC)
-        capture = parse_codex_exec_jsonl(process.stdout, max_bytes=MAX_TRANSCRIPT_BYTES)
-        draft, proposal = _parse_success(inputs, capture, process.returncode)
+        try:
+            capture = parse_codex_exec_jsonl(process_stdout, max_bytes=MAX_TRANSCRIPT_BYTES)
+        except HarnessTranscriptError:
+            transcript_invalid = not process_execution_failed
+            capture = _empty_capture(process_stdout)
+        draft, proposal = _parse_success(inputs, capture, return_code)
         interactions = _tool_interactions(capture)
         usage = AgentUsage(
             input_tokens=capture.usage.get("input_tokens", 0),
             output_tokens=capture.usage.get("output_tokens", 0),
             cached_input_tokens=capture.usage.get("cached_input_tokens", 0),
             tool_calls=len(interactions),
-            retry_count=0,
+            retry_count=sum(
+                not (call.status == "completed" and call.error is None and call.result is not None)
+                for call in capture.mcp_calls
+            ),
         )
         succeeded = draft is not None and proposal is not None
         manifest = AgentRunManifest(
@@ -466,14 +583,22 @@ def execute_p13_agent(
             harness_identifier=CODEX_CLI_VERSION,
             sandbox_policy_hash=sha256_bytes(
                 canonical_json_bytes(
-                    {"mode": "read-only", "network_allowed": False, "shell_tool": False}
+                    {
+                        "mode": "read-only",
+                        "network_allowed": False,
+                        "shell_tool": False,
+                        "allow_login_shell": False,
+                    }
                 )
             ),
-            permission_policy_hash=sha256_bytes(
-                canonical_json_bytes({"approval_policy": "never"})
-            ),
+            permission_policy_hash=sha256_bytes(canonical_json_bytes({"approval_policy": "never"})),
             runtime_policy_hash=sha256_bytes(
-                canonical_json_bytes({"timeout_seconds": TIMEOUT_SECONDS})
+                canonical_json_bytes(
+                    {
+                        "shell_environment": {"inherit": "none", "set": SHELL_ENVIRONMENT},
+                        "timeout_seconds": TIMEOUT_SECONDS,
+                    }
+                )
             ),
             instruction_hashes=inputs.instruction_hashes,
             skill_hash=inputs.skill_hash,
@@ -484,23 +609,35 @@ def execute_p13_agent(
             transcript_hash=capture.transcript_hash,
             usage=usage,
             run_status=RunStatus.SUCCEEDED if succeeded else RunStatus.FAILED,
-            failure_reason_code=None if succeeded else ReasonCode.HARNESS_EXECUTION_FAILED.value,
+            failure_reason_code=(
+                None
+                if succeeded
+                else (
+                    ReasonCode.HARNESS_EXECUTION_FAILED.value
+                    if process_execution_failed
+                    else (
+                        ReasonCode.HARNESS_TRANSCRIPT_INVALID.value
+                        if transcript_invalid
+                        else ReasonCode.HARNESS_EXECUTION_FAILED.value
+                    )
+                )
+            ),
             limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SINGLE_SOURCE_NON_VINTAGE"),
             started_at=started_at,
             completed_at=completed_at,
+            process_return_code=return_code,
+            process_stderr_hash=(sha256_bytes(process_stderr) if process_stderr else None),
         )
         staging = temporary_path / "published"
         staging.mkdir()
         atomic_write_bytes(staging / "agent-run-manifest.json", manifest.canonical_bytes())
         atomic_write_bytes(staging / "agent-run-spec.json", spec.canonical_bytes())
-        atomic_write_bytes(staging / "codex-events.jsonl", process.stdout)
+        atomic_write_bytes(staging / "codex-events.jsonl", process_stdout)
         atomic_write_bytes(
             staging / "output-schema.json", canonical_json_bytes(inputs.output_schema)
         )
         atomic_write_bytes(staging / "task.md", inputs.task_text.encode("utf-8"))
-        atomic_write_bytes(
-            staging / "tool-schema.json", canonical_json_bytes(evidence_mcp_tools())
-        )
+        atomic_write_bytes(staging / "tool-schema.json", canonical_json_bytes(evidence_mcp_tools()))
         if draft is not None and proposal is not None:
             atomic_write_bytes(staging / "extraction-draft.json", draft.canonical_bytes())
             atomic_write_bytes(staging / "extraction-proposal.json", proposal.canonical_bytes())
@@ -508,6 +645,7 @@ def execute_p13_agent(
         publish_directory(staging, destination)
     if draft is None or proposal is None:
         raise P13AgentRunnerError(
-            f"P13 Codex extraction failed; immutable run: {destination.as_posix()}"
+            f"P13 Codex extraction failed; immutable run: {destination.as_posix()}",
+            manifest=manifest,
         )
     return P13AgentRunResult(manifest=manifest, draft=draft, proposal=proposal, path=destination)

@@ -195,11 +195,15 @@ class EvidenceAgentView(CanonicalContract):
     schema_version: Literal["evidence-agent-view/v1"] = "evidence-agent-view/v1"
     evidence: EvidenceRecord
     extracted_text: ExtractedTextArtifact
+    extracted_text_hash: str = Field(pattern=SHA256_PATTERN)
     spans: tuple[EvidenceTextSpan, ...]
 
     @model_validator(mode="after")
     def bindings_and_spans_are_valid(self) -> Self:
-        if self.extracted_text.evidence_hash != self.evidence.content_hash:
+        if (
+            self.extracted_text.evidence_hash != self.evidence.content_hash
+            or self.extracted_text_hash != self.extracted_text.content_hash
+        ):
             raise ValueError("evidence Agent view source bindings disagree")
         keys = [(item.char_start, item.char_end) for item in self.spans]
         if not keys or keys != sorted(set(keys)):

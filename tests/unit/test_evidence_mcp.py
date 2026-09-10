@@ -65,6 +65,7 @@ def test_evidence_mcp_returns_path_free_spans_and_exact_citation() -> None:
         canonical_json_bytes(EvidenceGetRequest(evidence_hash=binding.evidence.content_hash)),
     )
     assert isinstance(view, EvidenceAgentView)
+    assert view.extracted_text_hash == binding.extracted_text.content_hash
     assert [(item.page, item.char_start, item.char_end) for item in view.spans] == [
         (1, 0, 11),
         (1, 12, 20),

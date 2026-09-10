@@ -9,6 +9,7 @@ from typing import cast
 import pytest
 
 import quantos.application.p13_agent_runner as runner
+from quantos.application.evidence_mcp import evidence_mcp_tools
 from quantos.contracts import (
     EvidenceCitation,
     EvidenceExtractionDraft,
@@ -167,6 +168,32 @@ def _jsonl(draft: EvidenceExtractionDraft, *, valid: bool = True) -> bytes:
     return b"".join(canonical_json_bytes(item) + b"\n" for item in events)
 
 
+def test_p13_output_schema_is_accepted_by_json_schema_providers() -> None:
+    schema = runner.extraction_output_schema("a" * 64, "b" * 64)
+    properties = schema["properties"]
+    required = schema["required"]
+    assert isinstance(properties, dict)
+    assert isinstance(required, list)
+    assert "attributes" not in properties
+    assert "attributes" not in required
+
+
+def test_p13_mcp_tools_are_declared_read_only_and_closed_world() -> None:
+    tools = evidence_mcp_tools()
+
+    assert {item["name"] for item in tools} == {"evidence_get", "evidence_cite"}
+    assert all(
+        item["annotations"]
+        == {
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+            "readOnlyHint": True,
+        }
+        for item in tools
+    )
+
+
 def test_p13_agent_runner_publishes_successful_transcript_bound_proposal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -177,9 +204,7 @@ def test_p13_agent_runner_publishes_successful_transcript_bound_proposal(
     monkeypatch.setattr(
         runner.subprocess,
         "run",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            stdout=transcript, stderr=b"", returncode=0
-        ),
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=transcript, stderr=b"", returncode=0),
     )
     result = runner.execute_p13_agent(
         tmp_path,
@@ -205,6 +230,25 @@ def test_p13_agent_runner_publishes_successful_transcript_bound_proposal(
         "tool-schema.json",
     ]
     assert "TUSHARE_TOKEN" not in runner._environment()
+    replay = runner.load_p13_agent_run(
+        tmp_path,
+        tmp_path,
+        result.path,
+        expected_store_hash="b" * 64,
+        expected_evidence_hash=inputs.evidence_hash,
+        benchmark_policy_hash="1" * 64,
+    )
+    assert replay.proposal == result.proposal
+    (result.path / "extraction-proposal.json").write_text("{}")
+    with pytest.raises(runner.P13AgentRunnerError, match="does not bind"):
+        runner.load_p13_agent_run(
+            tmp_path,
+            tmp_path,
+            result.path,
+            expected_store_hash="b" * 64,
+            expected_evidence_hash=inputs.evidence_hash,
+            benchmark_policy_hash="1" * 64,
+        )
 
 
 def test_load_p13_agent_inputs_binds_fixture_and_store(
@@ -237,9 +281,7 @@ def test_load_p13_agent_inputs_binds_fixture_and_store(
 
     assert loaded.store_path == store_path.resolve()
     assert loaded.evidence_hash == inputs.evidence_hash
-    assert loaded.output_schema_hash == sha256_bytes(
-        canonical_json_bytes(loaded.output_schema)
-    )
+    assert loaded.output_schema_hash == sha256_bytes(canonical_json_bytes(loaded.output_schema))
 
 
 def test_p13_agent_runner_retains_failed_run(
@@ -252,9 +294,7 @@ def test_p13_agent_runner_retains_failed_run(
     monkeypatch.setattr(
         runner.subprocess,
         "run",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            stdout=transcript, stderr=b"", returncode=0
-        ),
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=transcript, stderr=b"", returncode=0),
     )
     with pytest.raises(runner.P13AgentRunnerError, match="immutable run"):
         runner.execute_p13_agent(
@@ -269,3 +309,59 @@ def test_p13_agent_runner_retains_failed_run(
     manifest = json.loads((run_path / "agent-run-manifest.json").read_text())
     assert manifest["run_status"] == "FAILED"
     assert "extraction-proposal.json" not in {item.name for item in run_path.iterdir()}
+
+
+def test_p13_agent_runner_retains_empty_transcript_and_stderr_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inputs, _draft = _inputs(tmp_path)
+    stderr = b"bounded synthetic stderr"
+    monkeypatch.setattr(runner, "load_p13_agent_inputs", lambda *_args, **_kwargs: inputs)
+    monkeypatch.setattr(runner, "verify_codex_version", lambda _environment: None)
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=b"", stderr=stderr, returncode=1),
+    )
+    with pytest.raises(runner.P13AgentRunnerError, match="immutable run"):
+        runner.execute_p13_agent(
+            tmp_path,
+            tmp_path,
+            tmp_path / "empty-runs",
+            expected_store_hash="b" * 64,
+            expected_evidence_hash=inputs.evidence_hash,
+            benchmark_policy_hash="1" * 64,
+        )
+    run_path = next((tmp_path / "empty-runs").iterdir())
+    manifest = json.loads((run_path / "agent-run-manifest.json").read_text())
+    assert manifest["failure_reason_code"] == "HARNESS_TRANSCRIPT_INVALID"
+    assert manifest["process_return_code"] == 1
+    assert manifest["process_stderr_hash"] == sha256_bytes(stderr)
+    assert (run_path / "codex-events.jsonl").read_bytes() == b""
+
+
+def test_p13_agent_runner_classifies_process_start_failure_as_execution_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inputs, _draft = _inputs(tmp_path)
+    monkeypatch.setattr(runner, "load_p13_agent_inputs", lambda *_args, **_kwargs: inputs)
+    monkeypatch.setattr(runner, "verify_codex_version", lambda _environment: None)
+
+    def fail_to_start(*_args: object, **_kwargs: object) -> object:
+        raise OSError("codex unavailable")
+
+    monkeypatch.setattr(runner.subprocess, "run", fail_to_start)
+    with pytest.raises(runner.P13AgentRunnerError, match="immutable run"):
+        runner.execute_p13_agent(
+            tmp_path,
+            tmp_path,
+            tmp_path / "start-failure-runs",
+            expected_store_hash="b" * 64,
+            expected_evidence_hash=inputs.evidence_hash,
+            benchmark_policy_hash="1" * 64,
+        )
+    run_path = next((tmp_path / "start-failure-runs").iterdir())
+    manifest = json.loads((run_path / "agent-run-manifest.json").read_text())
+    assert manifest["failure_reason_code"] == "HARNESS_EXECUTION_FAILED"
+    assert manifest["process_return_code"] is None
+    assert manifest["process_stderr_hash"] is None

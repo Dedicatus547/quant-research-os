@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-09
+Status date: 2026-09-10
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
@@ -25,7 +25,36 @@ workspace.
 | P10 | Frozen `gpt-5.6-sol` + `codex-cli 0.153.4` synthetic spike: thread, read-only sandbox, single allowlisted MCP tool, repo Skill, failure recovery, bounded JSONL transcript, usage, permission denial, and exact proposal boundary all PASS (9/9), yielding Go. Spec/report/manifest/transcript are atomically retained by hash | No market-data dependency; output remains `AGENT_PROPOSAL`, model identifier is explicitly non-immutable, and P10 authorizes only the narrow P11 integration boundary |
 | P11 | Three validated repo Skills; typed proposal/compiler plus dataset/resolve/execution/job/validation/registry mappings; immutable receipts/audit events; bounded durable queue with duplicate/cancel/timeout/restart/failure gates; clean-commit frozen structured-Evidence proposal E2E through two native-Qlib release pipelines PASS with exact authority hashes | Synthetic-only `data_qualified=false`; the E2E uses a code-defined proposal and direct typed facades, not a production stdio/JSON-RPC transport or Agent-generated chain; Agent and reviewer outputs remain proposals and never mutate ValidationReport or Registry verdicts |
 | P12 | Isolated SSE/SZSE collector, count-backed completeness witnesses, raw staging, network-free Evidence publisher, deterministic PDF/text/HTML extraction, availability/license policy, exact-file verification, and full P0-P11 regression PASS. Clean commit `60b8c811...d6f7` reproduced Evidence Store `c55e9ba4...66a7f` byte-for-byte in two independent roots | Bounded official-source acquisition returned SSE 0/0 and SZSE 3/3; all three PDFs extracted successfully. SZSE permission remains `UNKNOWN`, so no announcement has become an admitted EventFeature or market conclusion |
-| P13 (in progress) | Human-frozen real `600010.SH` share-repurchase benchmark plus the synthetic engineering benchmark; exact citation admission, snapshot-bound strict-next-session resolution, immutable EventFeature/EventStudy artifacts, supported-metric allowlist, narrow hash-audited JSON-RPC, and an EventFeature→weekly EventSignalArtifact→existing Qlib reference-backtest compatibility bridge PASS on the implementation worktree | `FAILED / NOT_EVALUATED`: the official 3-page SSE PDF and human-frozen benchmark are available, but the actual Agent proposal and native-Qlib clean-commit double-root freeze have not yet run. No real EventFeature or market conclusion exists |
+| P13 | Approved v2 benchmark, read-only Agent extraction, deterministic admission, immutable event artifacts and native-Qlib execution qualified | `SUCCEEDED / PASS`: real Store and admitted Agent proposal replayed on clean commit `46904c2…`; two roots match all principal content hashes. Bundle `c6abe067…d883`. Single announcement with citation-location assistance; no general extraction or profitability claim. See [freeze record](p13-v2-freeze.md) |
+
+P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
+approved Store is materialized locally, and a real Agent proposal passed all six admission checks
+(manifest `4ecafb334fee9ab91baf1ca72fbcf7953153a820a2cd2229166e2b9aed7c31bf`). The first
+downstream attempt stopped on dirty-worktree provenance; subsequent verified offline replay on
+clean commit `46904c22d039bca2da008beec8cd7d183d288fd1` completed two matching roots. Both
+qualification tracks are SUCCEEDED / PASS. See [the freeze record](p13-v2-freeze.md).
+The missing-v1-Store and candidate-only entries below describe previous attempts.
+
+P13 qualification is now one deterministic entry point:
+`scripts/p13_qualification.py` verifies the checked-in `P13BenchmarkBinding`, the native-Qlib
+synthetic report hash, and every candidate Store before starting the Agent. The Agent sees only
+read-only `evidence_get`/`evidence_cite`; its final proposal is still checked by deterministic
+schema, citation, admission, PIT, and downstream artifact gates. Failed calls remain interaction
+digests in the immutable AgentRun manifest, while raw stderr is represented only by a hash.
+
+The current preflight used candidate Store
+`4fb04acc23c62b72d37df826560e2515a68cf7c7973ce1a0527a42a2b14fc306` and correctly stopped before
+Agent execution because it does not equal the frozen Store binding. It published qualification
+bundle `9a839ca3fb515a9b4eb29ebe820e2054cbac105e0e095d5a7aafcd9b27031f3b` with
+`SOURCE_INCOMPLETE` and `FAILED / NOT_EVALUATED`; the native-Qlib bridge remained
+`SUCCEEDED / PASS` with fixed report hash `dbcb2866d3bc65c745172a1ca77f0cd88ced2f9d2ff22cf73381671612c04d60`.
+
+A separate non-frozen candidate Agent attempt retained AgentRunManifest
+`8d81f087dbea82929ab6cd099d546260f5bb8d21a4916bcd76a74426eb481f84` and qualification bundle
+`ba29cb986fc843ee1c9d0ac18fc281ee8ead192264eab033bc0c59dc97e33e`. It reached the read-only MCP,
+but the candidate extraction was not a frozen benchmark result and remained `FAILED / NOT_EVALUATED`.
+These hashes are failure evidence only; they do not qualify the candidate source or create a market
+finding.
 
 ## 轨道对齐与下一阶段入口
 
@@ -37,8 +66,8 @@ workspace.
 - `Data-qualified Release`：DQ-01 至 DQ-06 已全部完成。工程发布为
   `PASS / data_qualified=true`；真实 HS300 Momentum 候选的研究 verdict 为
   `SUCCEEDED / REJECT`，Registry 状态为 `REJECTED`。
-- `Agent-assisted Research v0.2`：P8-P12 已完成，P13 engineering slice 已实现但正式退出条件尚未
-  冻结；P13-P14 继续基于已冻结的
+- `Agent-assisted Research v0.2`：P8-P13 已完成批准范围内的验证，P13 v2 双根资格报告已
+  冻结；P14 仍需通过 FR-01/FR-02 入口条件，继续基于已冻结的
   第一阶段基线与 P12 Evidence Store 实施；
   Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
 

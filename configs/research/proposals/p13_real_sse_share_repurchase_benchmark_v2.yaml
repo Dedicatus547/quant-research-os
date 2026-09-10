@@ -1,0 +1,33 @@
+# DRAFT: pending human approval; not selected by the qualification runner.
+schema_version: event-feature-admission-policy/v1
+policy_id: share-repurchase-real-benchmark/v2
+reviewer_kind: DETERMINISTIC_BENCHMARK
+reject_unknown_availability: true
+require_research_permission: true
+require_exact_entity_set: true
+require_exact_citation_text: true
+cases:
+  - schema_version: event-feature-benchmark-case/v1
+    case_id: share-repurchase-600010-20250805
+    evidence_hash: e1e8591a6b3daa9678923c0fd4318fac991679587e1f434efc7da8ae29a1e800
+    extracted_text_hash: 3d78e4f9f4d05fd67eeca16f589be0179feef1dc131ab6e452b26080348ec3db
+    event_label: share_repurchase
+    entity_refs:
+      - 600010.SH
+    event_time: 2025-08-05T15:59:59.999999Z
+    citations:
+      - schema_version: evidence-citation/v1
+        evidence_hash: e1e8591a6b3daa9678923c0fd4318fac991679587e1f434efc7da8ae29a1e800
+        extracted_text_hash: 3d78e4f9f4d05fd67eeca16f589be0179feef1dc131ab6e452b26080348ec3db
+        page: 1
+        char_start: 99
+        char_end: 112
+        cited_text_hash: 03062ef4a2db44d12201f11ffc6fa9177e13f300ea137565a6bcf0d13af6f2ff
+      - schema_version: evidence-citation/v1
+        evidence_hash: e1e8591a6b3daa9678923c0fd4318fac991679587e1f434efc7da8ae29a1e800
+        extracted_text_hash: 3d78e4f9f4d05fd67eeca16f589be0179feef1dc131ab6e452b26080348ec3db
+        page: 2
+        char_start: 1066
+        char_end: 1193
+        cited_text_hash: f45a3f720add0d65265391c23eb44d70b5a82cf454cab2a038d3d3a425069b04
+    attributes: []

@@ -1,0 +1,7 @@
+# Human-approved in conversation on 2026-09-10; supersedes v1 inputs.
+schema_version: p13-benchmark-binding/v1
+binding_id: p13-real-sse-share-repurchase-2025-08-05/v2
+evidence_store_hash: 4fb04acc23c62b72d37df826560e2515a68cf7c7973ce1a0527a42a2b14fc306
+evidence_hash: e1e8591a6b3daa9678923c0fd4318fac991679587e1f434efc7da8ae29a1e800
+extracted_text_hash: 3d78e4f9f4d05fd67eeca16f589be0179feef1dc131ab6e452b26080348ec3db
+benchmark_policy_hash: a1eecec872b784c1dea5f90cbf6197a47e494a0be79eb65fa411879fa2c0b8f3

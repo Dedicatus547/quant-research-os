@@ -74,6 +74,12 @@ def evidence_mcp_tools() -> tuple[dict[str, object], ...]:
         {
             "name": name,
             "description": description,
+            "annotations": {
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+                "readOnlyHint": True,
+            },
             "inputSchema": request_type.model_json_schema(),
         }
         for name, description, request_type in requests
@@ -173,6 +179,7 @@ class EvidenceMcpService:
         return EvidenceAgentView(
             evidence=binding.evidence,
             extracted_text=binding.extracted_text,
+            extracted_text_hash=binding.extracted_text.content_hash,
             spans=_text_spans(binding),
         )
 

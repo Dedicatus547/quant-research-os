@@ -1,0 +1,6 @@
+schema_version: p13-benchmark-binding/v1
+binding_id: p13-real-sse-share-repurchase-2025-08-05/v1
+evidence_store_hash: be484479b61c7096ffd58e99fa31168dc06a7fc7ae4597a2d455cda2c41250b1
+evidence_hash: a9bded470d48a604ba33d137e17a06be1b0d0a104c7ccf4ae267e9bb4a716aee
+extracted_text_hash: 36850b3940cf85db08d08843008bfe711d0f6f26b23ca55f1a48ec37732d8d46
+benchmark_policy_hash: dcae0005fe5a0ea8323629b1336cb2c94d5e915c7191d94139c3811ad2ee78a6

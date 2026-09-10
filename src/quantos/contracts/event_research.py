@@ -526,6 +526,42 @@ class EventStudyArtifactManifest(CanonicalContract):
         return cls(artifact_hash=digest, **values)  # type: ignore[arg-type]
 
 
+class P13BenchmarkBinding(CanonicalContract):
+    """Hash binding for the human-frozen real P13 Evidence benchmark."""
+
+    schema_version: Literal["p13-benchmark-binding/v1"] = "p13-benchmark-binding/v1"
+    binding_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._/-]*$")
+    evidence_store_hash: str = Field(pattern=SHA256_PATTERN)
+    evidence_hash: str = Field(pattern=SHA256_PATTERN)
+    extracted_text_hash: str = Field(pattern=SHA256_PATTERN)
+    benchmark_policy_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class P13QualificationBundle(CanonicalContract):
+    """Immutable hash-only envelope for the complete P13 qualification attempt."""
+
+    schema_version: Literal["p13-qualification-bundle/v1"] = "p13-qualification-bundle/v1"
+    benchmark_binding_hash: str = Field(pattern=SHA256_PATTERN)
+    qualification_report_hash: str = Field(pattern=SHA256_PATTERN)
+    native_bridge_report_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    agent_run_manifest_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    admission_record_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    feature_artifact_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    event_study_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    event_signal_artifact_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    backtest_result_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    reconciliation_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    snapshot_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    qlib_view_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    independent_root_count: PositiveInt
+    limitations: tuple[str, ...]
+
+    @field_validator("limitations")
+    @classmethod
+    def limitations_are_sorted(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _sorted_unique_strings(value, "P13 bundle limitations")
+
+
 class P13QualificationReport(CanonicalContract):
     """Separate engineering completion from real-evidence qualification."""
 

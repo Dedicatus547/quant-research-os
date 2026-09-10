@@ -340,6 +340,8 @@ class AgentRunManifest(CanonicalContract):
     limitations: tuple[str, ...] = ()
     started_at: datetime
     completed_at: datetime
+    process_return_code: int | None = None
+    process_stderr_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
 
     @field_validator("instruction_hashes", "input_hashes", "output_proposal_hashes")
     @classmethod

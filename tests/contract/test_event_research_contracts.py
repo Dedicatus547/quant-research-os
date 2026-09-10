@@ -19,6 +19,8 @@ from quantos.contracts import (
     JsonRpcToolSchemaManifest,
     JsonRpcTranscript,
     JsonRpcTranscriptEntry,
+    P13BenchmarkBinding,
+    P13QualificationBundle,
     P13QualificationReport,
     ProposedAttribute,
     ReasonCode,
@@ -51,6 +53,66 @@ def test_human_frozen_real_sse_benchmark_is_exact() -> None:
     assert case.content_hash == "4f6fc3171da7ceb18ddca0d0efdb6312b3e9f2dded35d558a53cacf04102cb39"
     assert case.entity_refs == ("600010.SH",)
     assert case.attributes == ()
+
+    binding = load_yaml_contract(
+        ROOT / "configs/research/p13_real_sse_benchmark_binding_v1.yaml",
+        P13BenchmarkBinding,
+    )
+    assert binding.evidence_store_hash == (
+        "be484479b61c7096ffd58e99fa31168dc06a7fc7ae4597a2d455cda2c41250b1"
+    )
+    assert binding.evidence_hash == (
+        "a9bded470d48a604ba33d137e17a06be1b0d0a104c7ccf4ae267e9bb4a716aee"
+    )
+    assert binding.extracted_text_hash == (
+        "36850b3940cf85db08d08843008bfe711d0f6f26b23ca55f1a48ec37732d8d46"
+    )
+
+
+def test_p13_qualification_bundle_is_hash_only_and_canonical() -> None:
+    bundle = P13QualificationBundle(
+        benchmark_binding_hash="1" * 64,
+        qualification_report_hash="2" * 64,
+        native_bridge_report_hash="3" * 64,
+        independent_root_count=2,
+        limitations=("NO_DATA_QUALIFIED_EVENT_RESULT", "SINGLE_SOURCE_NON_VINTAGE"),
+    )
+    assert bundle.model_dump(mode="json")["schema_version"] == "p13-qualification-bundle/v1"
+    _invalid(
+        P13QualificationBundle,
+        {**bundle.model_dump(), "limitations": ("SINGLE_SOURCE_NON_VINTAGE", "A")},
+    )
+    _invalid(P13QualificationBundle, {**bundle.model_dump(), "feature_artifact_hash": "bad"})
+
+
+def test_approved_v2_preserves_expected_semantics_and_binds_new_source() -> None:
+    policy = load_yaml_contract(
+        ROOT / "configs/research/p13_real_sse_share_repurchase_benchmark_v2.yaml",
+        EventFeatureAdmissionPolicySpec,
+    )
+    binding = load_yaml_contract(
+        ROOT / "configs/research/p13_real_sse_benchmark_binding_v2.yaml", P13BenchmarkBinding
+    )
+    old = load_yaml_contract(
+        ROOT / "configs/research/p13_real_sse_share_repurchase_benchmark_v1.yaml",
+        EventFeatureAdmissionPolicySpec,
+    ).cases[0]
+    assert policy.content_hash == "a1eecec872b784c1dea5f90cbf6197a47e494a0be79eb65fa411879fa2c0b8f3"
+    assert binding.benchmark_policy_hash == policy.content_hash
+    case = policy.cases[0]
+    assert (case.evidence_hash, case.extracted_text_hash) == (
+        binding.evidence_hash,
+        binding.extracted_text_hash,
+    )
+    assert (case.event_label, case.entity_refs, case.event_time, case.attributes) == (
+        old.event_label,
+        old.entity_refs,
+        old.event_time,
+        old.attributes,
+    )
+    assert [(c.page, c.char_start, c.char_end, c.cited_text_hash) for c in case.citations] == [
+        (c.page, c.char_start, c.char_end, c.cited_text_hash) for c in old.citations
+    ]
 
 
 def _invalid(contract_type, payload: dict[str, object]) -> None:
