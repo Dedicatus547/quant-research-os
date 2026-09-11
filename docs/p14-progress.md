@@ -2,10 +2,10 @@
 
 Status date: 2026-09-11
 
-P14a is in implementation. P14b, P14c, and P14d have not started, and this record grants no
-campaign-selection or autonomous-research authority.
+P14a is complete. P14b is the next implementation stage; P14c and P14d have not started, and this
+record grants no campaign-selection or autonomous-research authority.
 
-## Implemented P14a slice
+## Completed P14a scope
 
 - `ResearchLedgerEvent` v1 remains readable as the frozen P9 contract. New writes use
   `ResearchLedgerEventV2`, whose `ResearchLedgerObjectRef` binds the object hash, media type,
@@ -35,6 +35,13 @@ campaign-selection or autonomous-research authority.
   server-side `LedgerSearchBinding` objects; the caller cannot supply paths or expand its authority.
 - CLI commands `quantos ledger verify`, `quantos ledger search`, and
   `quantos ledger context-pack` accept explicit canonical, hash-bound inputs.
+- `ResearchContextAgentBinding` and the P14 AgentRunSpec constructor require the selected
+  ContextPack hash plus its ledger snapshot, search policy, access scope, budget, request, and
+  result hashes in `input_artifact_hashes`. Retained AgentRun manifests can be checked against the
+  same binding without changing the frozen `AgentRunManifest` v1 schema.
+- `scripts/p14a_qualification.py` requires a clean Git checkout, captures code/lockfile and runtime
+  provenance, executes the frozen synthetic ledger/context case in two independent output roots,
+  verifies published index and ContextPack artifacts, and publishes an immutable report.
 
 Frozen policy inputs:
 
@@ -47,15 +54,30 @@ Frozen policy inputs:
 
 - Ruff format/check: PASS
 - Pyright: 0 errors / 0 warnings
-- Pytest: 327 passed
-- Coverage: 85.02%, above the unchanged 85% gate
+- Pytest: 329 passed
+- Coverage: 85.07%, above the unchanged 85% gate
 - Tests cover independent-root hash equality, idempotence, chain/object tampering, stale snapshots,
   non-canonical input, query/response/context budgets, cross-campaign policy, sealed contamination,
   MCP dispatch, JSON-RPC schema exposure, and CLI reconstruction.
 
-## Remaining P14a qualification work
+## Frozen P14a qualification
 
-1. Bind the selected ContextPack hash into the concrete P14 AgentRun construction path. Existing
-   `AgentRunManifest.input_hashes` can carry the binding, but no P14 campaign runner exists yet.
-2. Add a clean-checkout, independent-output-root P14a qualification runner and freeze its report.
-3. Only after those gates pass, mark P14a complete and begin P14b template/enumeration work.
+The clean-checkout runner was executed twice from implementation commit `c0aae76`; both executions
+returned the same immutable result:
+
+- qualification report: `b93521362f5d5bd426de0451a665c4a57674fe1cf164daa250920fde8653b47b`
+- ledger snapshot: `ac682f98a3ecc0b11acd50f08963565352f747a7ffc6c2aa1547abd669367517`
+- lexical index: `a13be26356000884e78e96a74b9472c64b5be38e3dffd15163fc11c1f50c75b2`
+- ContextPack: `ed7bbe379730d5ef43dcc7769435f0203dad7acfbbfa3340d944a07023276102`
+- context-bound AgentRunSpec: `cb184a75280457bbecddc8e9cd6ff7222d1bf285e619b122690fa46c7e278ecb`
+- status/verdict: `SUCCEEDED / PASS`
+- limitation: `SYNTHETIC_OFFLINE_ENGINEERING_EVIDENCE`
+
+The report is offline engineering qualification. It does not make an Agent proposal into evidence,
+does not qualify P14b/P14c selection, and does not authorize P14d.
+
+## Next stage
+
+P14b starts with a frozen factor-template contract, explicit named parameter slots, deterministic
+finite-family enumeration, canonical expression fingerprints, duplicate evidence, and distinct
+candidate-versus-trial accounting. No mutation or crossover is in scope.

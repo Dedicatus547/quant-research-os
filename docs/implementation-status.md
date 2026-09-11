@@ -69,7 +69,7 @@ finding.
   `PASS / data_qualified=true`；真实 HS300 Momentum 候选的研究 verdict 为
   `SUCCEEDED / REJECT`，Registry 状态为 `REJECTED`。
 - `Agent-assisted Research v0.2`：P8-P13 已完成批准范围内的验证，P13 v2 双根资格报告已
-  冻结；FR-01/FR-02 已通过，P14a 正在实施，继续基于已冻结的
+  冻结；FR-01/FR-02 已通过，P14a 已完成并通过双根资格验证，接下来基于已冻结的
   第一阶段基线与 P12 Evidence Store 实施；
   Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
 
@@ -80,7 +80,7 @@ M0 基线冻结 → P8 Agent Boundary & Threat Hardening（完成）
 → P9 Research Semantic Contracts + Campaign Governance + Minimal DSL v2（完成）
 → P10 GPT + Codex Capability Spike（完成）→ P11 Quant Research MCP + Offline Proposal E2E（完成）
 → P12 Real-world Evidence Acquisition（完成）→ P13 Qualified Event Feature E2E（完成）
-→ FR-01/FR-02 P14 hard entry gates（完成）→ P14a（实施中）→ P14b-P14c
+→ FR-01/FR-02 P14 hard entry gates（完成）→ P14a（完成）→ P14b-P14c
 → P14d bounded autonomous loop（待 P14a-P14c 通过）
 ```
 
