@@ -18,9 +18,9 @@ record grants no campaign-selection or autonomous-research authority.
   missing/forward parents, non-canonical bytes, broken chains, unsafe paths, and tampering fail
   closed.
 - Verification recomputes UUIDv5 event identities, rejects every duplicate node ID, prevents an
-  existing object hash from being relabeled to a different access/campaign binding, rejects unknown
-  ledgers and snapshots predating their chain head, and revalidates contract instances at every
-  public service boundary.
+  existing object hash from being relabeled to a different access/campaign binding anywhere in the
+  same ledger root, rejects unknown ledgers and snapshots predating their chain head, and
+  revalidates contract instances at every public service boundary.
 - `ResearchLedgerSnapshot` and the lexical index are derived entirely from the immutable object and
   event tree. Snapshot hashes exclude the caller-supplied observation timestamp while persisted
   snapshot JSON retains that timestamp.
@@ -69,10 +69,10 @@ Frozen policy inputs:
 
 ## Frozen P14a qualification
 
-The hardened clean-checkout runner was executed twice from implementation commit `2bb102c`; both
+The hardened clean-checkout runner was executed twice from implementation commit `5032fea`; both
 executions returned the same immutable result:
 
-- qualification report: `e523ba71550df9d761c5272826e0260d7cf67a00f641d5b11e9430e15d29bc02`
+- qualification report: `9954649acc79c3b3aed42d2e3b9b73c9e7a8de7b8f0c7cd2577393e26d9d8640`
 - ledger snapshot: `ac682f98a3ecc0b11acd50f08963565352f747a7ffc6c2aa1547abd669367517`
 - lexical index: `743e24dcb350a1f5f5ed0ac07cb7bb4cef04917df20fa51934e6daad58540c08`
 - ContextPack: `00db8b701710f204c3a89e014e706d57523e9f91c1afc4a66b52a44b8db89406`
@@ -83,9 +83,10 @@ executions returned the same immutable result:
 The report is offline engineering qualification. It does not make an Agent proposal into evidence,
 does not qualify P14b/P14c selection, and does not authorize P14d.
 
-This report supersedes the pre-hardening P14a report
-`b93521362f5d5bd426de0451a665c4a57674fe1cf164daa250920fde8653b47b`; the older immutable artifact
-is retained as historical engineering evidence and is no longer the current P14a qualification.
+This report supersedes the earlier P14a reports
+`e523ba71550df9d761c5272826e0260d7cf67a00f641d5b11e9430e15d29bc02` and
+`b93521362f5d5bd426de0451a665c4a57674fe1cf164daa250920fde8653b47b`; those immutable artifacts are
+retained as historical engineering evidence and are no longer the current P14a qualification.
 
 ## Next stage
 
