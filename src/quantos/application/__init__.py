@@ -48,7 +48,14 @@ from quantos.application.harness_spike import (
     evaluate_codex_capture,
     parse_codex_exec_jsonl,
 )
-from quantos.application.ledger import ResearchLedgerError, ResearchLedgerService
+from quantos.application.ledger import (
+    ResearchLedgerError,
+    ResearchLedgerService,
+    bind_context_pack,
+    build_context_bound_agent_run_spec,
+    verify_context_bound_agent_manifest,
+    verify_context_bound_agent_run_spec,
+)
 from quantos.application.pit import (
     PITAuditService,
     expression_field_names,
@@ -142,7 +149,9 @@ __all__ = [
     "ResourceBudget",
     "SecurityBoundaryError",
     "StdioJsonRpcAdapter",
+    "bind_context_pack",
     "build_codex_spike_report",
+    "build_context_bound_agent_run_spec",
     "build_doctor_report",
     "build_event_feature_artifact",
     "build_json_rpc_tool_schema",
@@ -168,5 +177,7 @@ __all__ = [
     "serve_stdio",
     "temporal_from_canonical_row",
     "verify_code_provenance",
+    "verify_context_bound_agent_manifest",
+    "verify_context_bound_agent_run_spec",
     "verify_event_feature_artifact",
 ]

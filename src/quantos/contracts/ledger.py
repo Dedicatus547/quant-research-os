@@ -1,4 +1,4 @@
-"""Append-only research-ledger schemas; persistence and search arrive in P14."""
+"""Append-only research-ledger, retrieval, and P14a qualification schemas."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_
 from quantos.contracts.base import CanonicalContract
 from quantos.contracts.evidence import LOGICAL_ID_PATTERN
 from quantos.contracts.refs import SHA256_PATTERN
+from quantos.contracts.status import RunStatus, ValidationVerdict
 
 
 class LedgerAssertionAuthority(StrEnum):
@@ -533,3 +534,51 @@ class ResearchContextPack(CanonicalContract):
         if self.included_content_bytes != sum(item.content_bytes for item in self.items):
             raise ValueError("context pack byte count does not match its items")
         return self
+
+
+class ResearchContextAgentBinding(CanonicalContract):
+    """Hash-only bridge from a deterministic ContextPack into an Agent run specification."""
+
+    schema_version: Literal["research-context-agent-binding/v1"] = (
+        "research-context-agent-binding/v1"
+    )
+    campaign_hash: str = Field(pattern=SHA256_PATTERN)
+    context_pack_hash: str = Field(pattern=SHA256_PATTERN)
+    ledger_snapshot_hash: str = Field(pattern=SHA256_PATTERN)
+    search_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    access_scope_hash: str = Field(pattern=SHA256_PATTERN)
+    context_budget_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    search_request_hash: str = Field(pattern=SHA256_PATTERN)
+    search_result_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class P14aQualificationReport(CanonicalContract):
+    """Immutable evidence that the P14a deterministic boundary passed its frozen gates."""
+
+    schema_version: Literal["p14a-qualification-report/v1"] = "p14a-qualification-report/v1"
+    code_provenance_hash: str = Field(pattern=SHA256_PATTERN)
+    runtime_fingerprint_hash: str = Field(pattern=SHA256_PATTERN)
+    search_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    context_budget_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    fixture_hash: str = Field(pattern=SHA256_PATTERN)
+    ledger_snapshot_hash: str = Field(pattern=SHA256_PATTERN)
+    index_hash: str = Field(pattern=SHA256_PATTERN)
+    access_scope_hash: str = Field(pattern=SHA256_PATTERN)
+    search_request_hash: str = Field(pattern=SHA256_PATTERN)
+    search_result_hash: str = Field(pattern=SHA256_PATTERN)
+    context_pack_hash: str = Field(pattern=SHA256_PATTERN)
+    agent_context_binding_hash: str = Field(pattern=SHA256_PATTERN)
+    agent_run_spec_hash: str = Field(pattern=SHA256_PATTERN)
+    independent_root_count: Literal[2]
+    principal_hashes_byte_exact: Literal[True]
+    context_bound_to_agent_spec: Literal[True]
+    status: Literal[RunStatus.SUCCEEDED]
+    verdict: Literal[ValidationVerdict.PASS]
+    limitations: tuple[str, ...]
+
+    @field_validator("limitations")
+    @classmethod
+    def limitations_are_sorted(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or value != tuple(sorted(set(value))):
+            raise ValueError("P14a qualification limitations must be nonempty, sorted, and unique")
+        return value

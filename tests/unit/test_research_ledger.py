@@ -3,9 +3,18 @@ from pathlib import Path
 
 import pytest
 
-from quantos.application import ResearchLedgerError, ResearchLedgerService
+from quantos.application import (
+    ResearchLedgerError,
+    ResearchLedgerService,
+    build_context_bound_agent_run_spec,
+    verify_context_bound_agent_manifest,
+    verify_context_bound_agent_run_spec,
+)
 from quantos.config import load_yaml_contract
 from quantos.contracts import (
+    AgentRole,
+    AgentRunManifest,
+    AgentUsage,
     LedgerAssertionAuthority,
     LedgerObjectAccess,
     ReasonCode,
@@ -15,6 +24,7 @@ from quantos.contracts import (
     ResearchLedgerObjectRef,
     ResearchLedgerSearchPolicy,
     ResearchLedgerSearchRequest,
+    RunStatus,
     canonical_json_bytes,
     sha256_bytes,
 )
@@ -565,3 +575,88 @@ def test_context_pack_rejects_a_result_from_another_query(tmp_path: Path) -> Non
             budget=budget,
         )
     assert mismatch.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
+
+
+def test_context_pack_is_a_required_agent_run_input(tmp_path: Path) -> None:
+    service = ResearchLedgerService(tmp_path / "ledger")
+    _append_fixture(service)
+    snapshot = service.verify("research-ledger", created_at=NOW)
+    policy = _policy()
+    scope = ResearchLedgerAccessScope(
+        campaign_hash=CAMPAIGN,
+        ledger_snapshot_hash=snapshot.content_hash,
+        readable_campaign_hashes=tuple(sorted((CAMPAIGN, HISTORICAL_CAMPAIGN))),
+    )
+    request = _request(snapshot.content_hash, policy.content_hash, scope.content_hash)
+    result = service.search(snapshot=snapshot, policy=policy, scope=scope, request=request)
+    budget = ResearchContextBudgetPolicy(
+        policy_id="p14-context-budget-v1",
+        max_items=2,
+        max_item_bytes=1_000,
+        max_serialized_bytes=10_000,
+    )
+    pack = service.build_context_pack(
+        snapshot=snapshot,
+        policy=policy,
+        scope=scope,
+        request=request,
+        result=result,
+        budget=budget,
+    )
+    binding, spec = build_context_bound_agent_run_spec(
+        run_id="p14-context-bound-probe",
+        role=AgentRole.RESEARCHER,
+        capability_policy_hash="5" * 64,
+        requested_model_configuration_hash="6" * 64,
+        tool_schema_hash="7" * 64,
+        instruction_hashes=("8" * 64,),
+        skill_hash="9" * 64,
+        pack=pack,
+    )
+    assert pack.content_hash in spec.input_artifact_hashes
+    assert binding.content_hash in spec.input_artifact_hashes
+    assert spec.ledger_snapshot_hash == pack.ledger_snapshot_hash
+
+    manifest = AgentRunManifest(
+        run_spec_hash=spec.content_hash,
+        provider_thread_id="qualification-probe",
+        provider_model_identifier="synthetic-no-model-call",
+        model_snapshot_immutable=True,
+        model_configuration_hash="6" * 64,
+        harness_identifier="p14a-context-binding-probe-v1",
+        sandbox_policy_hash="a" * 64,
+        permission_policy_hash="b" * 64,
+        runtime_policy_hash="c" * 64,
+        instruction_hashes=("8" * 64,),
+        skill_hash="9" * 64,
+        tool_schema_hash="7" * 64,
+        interactions=(),
+        input_hashes=spec.input_artifact_hashes,
+        output_proposal_hashes=("d" * 64,),
+        transcript_hash="e" * 64,
+        usage=AgentUsage(input_tokens=0, output_tokens=0, tool_calls=0, retry_count=0),
+        run_status=RunStatus.SUCCEEDED,
+        limitations=("SYNTHETIC_OFFLINE_ENGINEERING_EVIDENCE",),
+        started_at=NOW,
+        completed_at=NOW,
+        process_return_code=0,
+    )
+    verify_context_bound_agent_manifest(manifest=manifest, spec=spec, binding=binding, pack=pack)
+
+    missing = spec.model_copy(
+        update={
+            "input_artifact_hashes": tuple(
+                item for item in spec.input_artifact_hashes if item != pack.content_hash
+            )
+        }
+    )
+    with pytest.raises(ResearchLedgerError) as unbound:
+        verify_context_bound_agent_run_spec(spec=missing, binding=binding, pack=pack)
+    assert unbound.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
+
+    wrong_manifest = manifest.model_copy(update={"run_spec_hash": "f" * 64})
+    with pytest.raises(ResearchLedgerError) as wrong_spec:
+        verify_context_bound_agent_manifest(
+            manifest=wrong_manifest, spec=spec, binding=binding, pack=pack
+        )
+    assert wrong_spec.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED

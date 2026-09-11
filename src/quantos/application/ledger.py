@@ -18,10 +18,12 @@ from quantos.artifacts.store import (
     regular_tree_files,
     sha256_file,
 )
+from quantos.contracts.agent import AgentRole, AgentRunManifest, AgentRunSpec
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.ledger import (
     LedgerAssertionAuthority,
     LedgerObjectAccess,
+    ResearchContextAgentBinding,
     ResearchContextBudgetPolicy,
     ResearchContextItem,
     ResearchContextPack,
@@ -65,6 +67,107 @@ def _aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         _raise(ReasonCode.SCHEMA_INVALID, "ledger timestamp must be timezone-aware")
     return value
+
+
+def bind_context_pack(pack: ResearchContextPack) -> ResearchContextAgentBinding:
+    """Create the exact hash bridge that a P14 AgentRun must carry as input."""
+
+    return ResearchContextAgentBinding(
+        campaign_hash=pack.campaign_hash,
+        context_pack_hash=pack.content_hash,
+        ledger_snapshot_hash=pack.ledger_snapshot_hash,
+        search_policy_hash=pack.search_policy_hash,
+        access_scope_hash=pack.access_scope_hash,
+        context_budget_policy_hash=pack.context_budget_policy_hash,
+        search_request_hash=pack.search_request_hash,
+        search_result_hash=pack.search_result_hash,
+    )
+
+
+def _required_context_hashes(
+    pack: ResearchContextPack, binding: ResearchContextAgentBinding
+) -> frozenset[str]:
+    return frozenset(
+        {
+            binding.content_hash,
+            binding.context_pack_hash,
+            binding.ledger_snapshot_hash,
+            binding.search_policy_hash,
+            binding.access_scope_hash,
+            binding.context_budget_policy_hash,
+            binding.search_request_hash,
+            binding.search_result_hash,
+            pack.content_hash,
+        }
+    )
+
+
+def build_context_bound_agent_run_spec(
+    *,
+    run_id: str,
+    role: AgentRole,
+    capability_policy_hash: str,
+    requested_model_configuration_hash: str,
+    tool_schema_hash: str,
+    instruction_hashes: tuple[str, ...],
+    skill_hash: str,
+    pack: ResearchContextPack,
+    evidence_hashes: tuple[str, ...] = (),
+    additional_input_hashes: tuple[str, ...] = (),
+) -> tuple[ResearchContextAgentBinding, AgentRunSpec]:
+    """Construct a P14 AgentRunSpec with the ContextPack and all of its authority bindings."""
+
+    binding = bind_context_pack(pack)
+    inputs = tuple(sorted({*_required_context_hashes(pack, binding), *additional_input_hashes}))
+    spec = AgentRunSpec(
+        run_id=run_id,
+        role=role,
+        capability_policy_hash=capability_policy_hash,
+        campaign_hash=pack.campaign_hash,
+        requested_model_configuration_hash=requested_model_configuration_hash,
+        tool_schema_hash=tool_schema_hash,
+        instruction_hashes=instruction_hashes,
+        skill_hash=skill_hash,
+        ledger_snapshot_hash=pack.ledger_snapshot_hash,
+        evidence_hashes=evidence_hashes,
+        input_artifact_hashes=inputs,
+    )
+    verify_context_bound_agent_run_spec(spec=spec, binding=binding, pack=pack)
+    return binding, spec
+
+
+def verify_context_bound_agent_run_spec(
+    *,
+    spec: AgentRunSpec,
+    binding: ResearchContextAgentBinding,
+    pack: ResearchContextPack,
+) -> None:
+    """Fail closed if an AgentRunSpec can execute without its selected ContextPack authority."""
+
+    if binding != bind_context_pack(pack):
+        _raise(ReasonCode.ARTIFACT_CORRUPTED, "Agent context binding does not match ContextPack")
+    if (
+        spec.campaign_hash != binding.campaign_hash
+        or spec.ledger_snapshot_hash != binding.ledger_snapshot_hash
+        or not _required_context_hashes(pack, binding).issubset(spec.input_artifact_hashes)
+    ):
+        _raise(ReasonCode.ARTIFACT_CORRUPTED, "AgentRunSpec does not bind its ContextPack inputs")
+
+
+def verify_context_bound_agent_manifest(
+    *,
+    manifest: AgentRunManifest,
+    spec: AgentRunSpec,
+    binding: ResearchContextAgentBinding,
+    pack: ResearchContextPack,
+) -> None:
+    """Verify the retained AgentRun evidence still carries the exact ContextPack binding."""
+
+    verify_context_bound_agent_run_spec(spec=spec, binding=binding, pack=pack)
+    if manifest.run_spec_hash != spec.content_hash or not set(spec.input_artifact_hashes).issubset(
+        manifest.input_hashes
+    ):
+        _raise(ReasonCode.ARTIFACT_CORRUPTED, "AgentRunManifest lost its ContextPack binding")
 
 
 class ResearchLedgerService:
