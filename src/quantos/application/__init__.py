@@ -6,9 +6,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from quantos.application.research_mcp import (
         DatasetBinding,
+        LedgerSearchBinding,
         ProposalChainBinding,
         ResearchMcpError,
         ResearchMcpService,
+        p14_research_mcp_policy,
         research_mcp_policy,
     )
     from quantos.application.stdio_rpc import (
@@ -46,6 +48,7 @@ from quantos.application.harness_spike import (
     evaluate_codex_capture,
     parse_codex_exec_jsonl,
 )
+from quantos.application.ledger import ResearchLedgerError, ResearchLedgerService
 from quantos.application.pit import (
     PITAuditService,
     expression_field_names,
@@ -79,9 +82,14 @@ from quantos.application.specs import resolve_experiment
 
 _LAZY_EXPORTS = {
     "DatasetBinding": ("quantos.application.research_mcp", "DatasetBinding"),
+    "LedgerSearchBinding": ("quantos.application.research_mcp", "LedgerSearchBinding"),
     "ProposalChainBinding": ("quantos.application.research_mcp", "ProposalChainBinding"),
     "ResearchMcpError": ("quantos.application.research_mcp", "ResearchMcpError"),
     "ResearchMcpService": ("quantos.application.research_mcp", "ResearchMcpService"),
+    "p14_research_mcp_policy": (
+        "quantos.application.research_mcp",
+        "p14_research_mcp_policy",
+    ),
     "research_mcp_policy": ("quantos.application.research_mcp", "research_mcp_policy"),
     "StdioJsonRpcAdapter": ("quantos.application.stdio_rpc", "StdioJsonRpcAdapter"),
     "build_json_rpc_tool_schema": (
@@ -119,6 +127,7 @@ __all__ = [
     "EvidenceMcpService",
     "FrozenEventFeatureAdmissionPolicy",
     "HarnessTranscriptError",
+    "LedgerSearchBinding",
     "PITAuditService",
     "ProposalChainBinding",
     "ProposalCompilationError",
@@ -126,6 +135,8 @@ __all__ = [
     "ProposalMcpService",
     "ProvenanceError",
     "ResearchCampaignGovernor",
+    "ResearchLedgerError",
+    "ResearchLedgerService",
     "ResearchMcpError",
     "ResearchMcpService",
     "ResourceBudget",
@@ -144,6 +155,7 @@ __all__ = [
     "load_bounded_json_object",
     "load_canonical_pit_request_json",
     "load_pit_spec_json",
+    "p14_research_mcp_policy",
     "parse_codex_exec_jsonl",
     "propagate_availability",
     "proposal_mcp_policy",

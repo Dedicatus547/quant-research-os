@@ -9,6 +9,7 @@ from typing import TypeVar, cast
 
 from pydantic import ValidationError
 
+from quantos.application.ledger import ResearchLedgerError, ResearchLedgerService
 from quantos.application.proposals import ProposalCompilationError, compile_experiment_proposal
 from quantos.application.security import AgentRequestBoundary, SecurityBoundaryError
 from quantos.artifacts.store import (
@@ -26,6 +27,13 @@ from quantos.contracts.agent import (
 )
 from quantos.contracts.base import CanonicalContract
 from quantos.contracts.campaign import ResearchCampaignSpec, ResearchFamilySpec
+from quantos.contracts.ledger import (
+    ResearchLedgerAccessScope,
+    ResearchLedgerSearchPolicy,
+    ResearchLedgerSearchRequest,
+    ResearchLedgerSearchResult,
+    ResearchLedgerSnapshot,
+)
 from quantos.contracts.proposals import CompiledExperimentProposal
 from quantos.contracts.qlib_view import QlibViewManifest, QlibViewSpec
 from quantos.contracts.registry import (
@@ -94,6 +102,21 @@ class ProposalChainBinding:
     family: ResearchFamilySpec
 
 
+@dataclass(frozen=True)
+class LedgerSearchBinding:
+    service: ResearchLedgerService
+    snapshot: ResearchLedgerSnapshot
+    policy: ResearchLedgerSearchPolicy
+    access_scope: ResearchLedgerAccessScope
+
+    def __post_init__(self) -> None:
+        if (
+            self.snapshot.content_hash != self.access_scope.ledger_snapshot_hash
+            or self.access_scope.campaign_hash not in self.access_scope.readable_campaign_hashes
+        ):
+            raise ValueError("ledger MCP binding hashes disagree")
+
+
 Executor = Callable[[CompiledExperimentProposal], ExecutionOutcome]
 C = TypeVar("C", bound=CanonicalContract)
 
@@ -120,6 +143,24 @@ def research_mcp_policy(*, max_requests: int = 256) -> AgentCapabilityPolicy:
     )
 
 
+def p14_research_mcp_policy(*, max_requests: int = 256) -> AgentCapabilityPolicy:
+    """Extend the frozen P11 facade with bounded read-only Ledger retrieval."""
+
+    capabilities = (
+        *research_mcp_policy(max_requests=max_requests).capabilities,
+        AgentCapability.RESEARCH_SEARCH_LEDGER,
+    )
+    return AgentCapabilityPolicy(
+        policy_id="p14-research-mcp-v1",
+        capabilities=tuple(sorted(capabilities, key=str)),
+        max_payload_bytes=262_144,
+        max_payload_depth=24,
+        max_payload_nodes=10_000,
+        max_string_bytes=65_536,
+        max_requests=max_requests,
+    )
+
+
 class ResearchMcpService:
     """Map typed requests to verified services without exposing paths or authority controls."""
 
@@ -132,6 +173,7 @@ class ResearchMcpService:
         validations: Mapping[str, ValidationReport] | None = None,
         validation_loader: Callable[[str], ValidationReport] | None = None,
         registry: RegistryService | None = None,
+        ledger_searches: Mapping[str, LedgerSearchBinding] | None = None,
         executor: Executor | None = None,
         max_queued_jobs: int = 8,
         max_timeout_seconds: int = 3_600,
@@ -145,10 +187,14 @@ class ResearchMcpService:
         self._validations = dict(validations or {})
         self._validation_loader = validation_loader
         self._registry = registry
+        self._ledger_searches = dict(ledger_searches or {})
         self._executor = executor
         self._max_queued_jobs = max_queued_jobs
         self._max_timeout_seconds = max_timeout_seconds
-        self._boundary = AgentRequestBoundary.from_policy(policy or research_mcp_policy())
+        default_policy = (
+            p14_research_mcp_policy() if self._ledger_searches else research_mcp_policy()
+        )
+        self._boundary = AgentRequestBoundary.from_policy(policy or default_policy)
         self._compiled: dict[str, CompiledExperimentProposal] = {}
         for digest, binding in self._datasets.items():
             if digest != binding.snapshot.snapshot_hash:
@@ -159,6 +205,9 @@ class ResearchMcpService:
         for digest, report in self._validations.items():
             if digest != report.report_hash:
                 raise ValueError("validation catalog key is not its report hash")
+        for campaign_hash, binding in self._ledger_searches.items():
+            if campaign_hash != binding.access_scope.campaign_hash:
+                raise ValueError("ledger search catalog key is not its campaign hash")
 
     @property
     def audit_decisions(self):  # inherited immutable decision records
@@ -174,6 +223,7 @@ class ResearchMcpService:
             AgentCapability.VALIDATION_GET.value: self._validation_get,
             AgentCapability.REGISTRY_GET.value: self._registry_get,
             AgentCapability.REGISTRY_SEARCH.value: self._registry_search,
+            AgentCapability.RESEARCH_SEARCH_LEDGER.value: self._research_search_ledger,
         }
         try:
             accepted = self._boundary.accept(capability, payload)
@@ -191,6 +241,22 @@ class ResearchMcpService:
             raise ResearchMcpError(error.reason_code, str(error)) from error
         except RegistryError as error:
             raise ResearchMcpError(error.reason_code, str(error)) from error
+        except ResearchLedgerError as error:
+            raise ResearchMcpError(error.reason_code, str(error)) from error
+
+    def _research_search_ledger(self, payload: dict[str, object]) -> ResearchLedgerSearchResult:
+        request = ResearchLedgerSearchRequest.model_validate(payload)
+        binding = self._ledger_searches.get(request.campaign_hash)
+        if binding is None:
+            raise ResearchMcpError(
+                ReasonCode.SOURCE_INCOMPLETE, "ledger search campaign is not admitted"
+            )
+        return binding.service.search(
+            snapshot=binding.snapshot,
+            policy=binding.policy,
+            scope=binding.access_scope,
+            request=request,
+        )
 
     def _dataset(self, request: DatasetLookupRequest) -> DatasetBinding:
         binding = self._datasets.get(request.snapshot_hash)

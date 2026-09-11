@@ -41,7 +41,9 @@ def test_stdio_json_rpc_dispatches_only_typed_allowlisted_methods(tmp_path: Path
     assert response["result"]["hits"] == []
     assert adapter.transcript.entries[0].succeeded
     assert adapter.transcript.tool_schema_hash == adapter.tool_schema.content_hash
-    assert len(build_json_rpc_tool_schema().tools) == 11
+    schema = build_json_rpc_tool_schema()
+    assert len(schema.tools) == 12
+    assert "research.search_ledger" in {item.method for item in schema.tools}
 
 
 def test_stdio_json_rpc_denies_shell_paths_malformed_and_oversized_payloads(

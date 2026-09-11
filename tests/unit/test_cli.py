@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -8,10 +8,23 @@ import pytest
 from pytest import MonkeyPatch
 from typer.testing import CliRunner
 
-from quantos.application import resolve_experiment
+from quantos.application import ResearchLedgerService, resolve_experiment
 from quantos.cli import app
 from quantos.config import load_yaml_contract
+from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
+from quantos.contracts.ledger import (
+    LedgerAssertionAuthority,
+    LedgerObjectAccess,
+    ResearchContextBudgetPolicy,
+    ResearchLedgerAccessScope,
+    ResearchLedgerNodeKind,
+    ResearchLedgerObjectRef,
+    ResearchLedgerSearchPolicy,
+    ResearchLedgerSearchRequest,
+    ResearchLedgerSearchResult,
+    ResearchLedgerSnapshot,
+)
 from quantos.contracts.pit import (
     CanonicalPITAuditRequest,
     OperatorDelayPolicy,
@@ -521,3 +534,112 @@ def test_experiment_cli_rejects_invalid_yaml_and_verifies_reports(
     rejected = runner.invoke(app, ["experiment", "verify", str(artifact)])
     assert rejected.exit_code == 16
     assert json.loads(rejected.stdout)["reason_code"] == "ARTIFACT_CORRUPTED"
+
+
+def test_ledger_cli_verifies_searches_and_builds_context(tmp_path: Path) -> None:
+    ledger_root = tmp_path / "ledger"
+    service = ResearchLedgerService(ledger_root)
+    encoded = canonical_json_bytes({"summary": "alpha research history"})
+    reference = ResearchLedgerObjectRef(
+        object_hash=sha256_bytes(encoded),
+        media_type="application/json",
+        source_domain="quantos-contracts",
+        access=LedgerObjectAccess.PUBLIC_HISTORY,
+    )
+    service.append(
+        ledger_id="research-ledger",
+        node_id="evidence-1",
+        node_kind=ResearchLedgerNodeKind.EVIDENCE,
+        object_ref=reference,
+        object_bytes=encoded,
+        authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+        occurred_at=datetime(2026, 9, 11, tzinfo=UTC),
+    )
+    snapshot_path = tmp_path / "snapshot.json"
+    runner = CliRunner()
+    verified = runner.invoke(
+        app,
+        [
+            "ledger",
+            "verify",
+            str(ledger_root),
+            "research-ledger",
+            "--created-at",
+            "2026-09-11T00:00:00+00:00",
+            "--snapshot-output",
+            str(snapshot_path),
+        ],
+    )
+    assert verified.exit_code == 0
+    snapshot = ResearchLedgerSnapshot.model_validate_json(snapshot_path.read_bytes())
+    campaign_hash = "1" * 64
+    policy = ResearchLedgerSearchPolicy(
+        policy_id="p14-ledger-search-v1",
+        allowed_node_kinds=(ResearchLedgerNodeKind.EVIDENCE,),
+        allowed_authorities=(LedgerAssertionAuthority.SOURCE_ASSERTION,),
+        allow_cross_campaign_history=True,
+        max_query_terms=4,
+        max_results=4,
+        max_serialized_bytes=10_000,
+    )
+    scope = ResearchLedgerAccessScope(
+        campaign_hash=campaign_hash,
+        ledger_snapshot_hash=snapshot.content_hash,
+        readable_campaign_hashes=(campaign_hash,),
+    )
+    request = ResearchLedgerSearchRequest(
+        campaign_hash=campaign_hash,
+        ledger_snapshot_hash=snapshot.content_hash,
+        search_policy_hash=policy.content_hash,
+        access_scope_hash=scope.content_hash,
+        query="alpha",
+    )
+    policy_path = tmp_path / "policy.json"
+    scope_path = tmp_path / "scope.json"
+    request_path = tmp_path / "request.json"
+    policy_path.write_bytes(policy.canonical_bytes())
+    scope_path.write_bytes(scope.canonical_bytes())
+    request_path.write_bytes(request.canonical_bytes())
+
+    searched = runner.invoke(
+        app,
+        [
+            "ledger",
+            "search",
+            str(ledger_root),
+            str(snapshot_path),
+            str(policy_path),
+            str(scope_path),
+            str(request_path),
+        ],
+    )
+    assert searched.exit_code == 0
+    result = ResearchLedgerSearchResult.model_validate_json(searched.stdout)
+    assert result.hits[0].object_ref.object_hash == reference.object_hash
+
+    result_path = tmp_path / "result.json"
+    budget_path = tmp_path / "budget.json"
+    result_path.write_bytes(result.canonical_bytes())
+    budget = ResearchContextBudgetPolicy(
+        policy_id="p14-context-budget-v1",
+        max_items=1,
+        max_item_bytes=1_000,
+        max_serialized_bytes=10_000,
+    )
+    budget_path.write_bytes(budget.canonical_bytes())
+    packed = runner.invoke(
+        app,
+        [
+            "ledger",
+            "context-pack",
+            str(ledger_root),
+            str(snapshot_path),
+            str(policy_path),
+            str(scope_path),
+            str(request_path),
+            str(result_path),
+            str(budget_path),
+        ],
+    )
+    assert packed.exit_code == 0
+    assert json.loads(packed.stdout)["items"][0]["content"] == encoded.decode("utf-8")

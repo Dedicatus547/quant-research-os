@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, TypeVar, cast
 
 import typer
 
@@ -13,7 +14,7 @@ from quantos.application.capabilities import publish_capability_report
 from quantos.application.doctor import build_doctor_report
 from quantos.application.pit import PITAuditService, load_canonical_pit_request_json
 from quantos.config import load_yaml_contract, load_yaml_mapping
-from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
@@ -48,6 +49,7 @@ pit_app = typer.Typer(no_args_is_help=True)
 backtest_app = typer.Typer(no_args_is_help=True)
 experiment_app = typer.Typer(no_args_is_help=True)
 registry_app = typer.Typer(no_args_is_help=True)
+ledger_app = typer.Typer(no_args_is_help=True)
 release_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tushare_app, name="tushare")
 app.add_typer(snapshot_app, name="snapshot")
@@ -56,7 +58,10 @@ app.add_typer(pit_app, name="pit")
 app.add_typer(backtest_app, name="backtest")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(registry_app, name="registry")
+app.add_typer(ledger_app, name="ledger")
 app.add_typer(release_app, name="release")
+
+C = TypeVar("C", bound=CanonicalContract)
 
 
 @app.command()
@@ -978,6 +983,172 @@ def recover_registry_partial_writes(
             sort_keys=True,
         )
     )
+
+
+def _load_canonical_ledger_contract(path: Path, contract_type: type[C]) -> C:
+    from quantos.application.ledger import ResearchLedgerError
+    from quantos.contracts.status import ReasonCode
+
+    try:
+        encoded = path.read_bytes()
+        contract = contract_type.model_validate_json(encoded)
+    except (OSError, ValueError) as error:
+        raise ResearchLedgerError(
+            ReasonCode.ARTIFACT_CORRUPTED, "ledger CLI input is invalid"
+        ) from error
+    if encoded != canonical_json_bytes(contract.model_dump(mode="python")):
+        raise ResearchLedgerError(
+            ReasonCode.ARTIFACT_CORRUPTED, "ledger CLI input is not canonical"
+        )
+    return contract
+
+
+def _ledger_failure(error: Exception, *, exit_code: int = 19) -> None:
+    reason = getattr(error, "reason_code", "ARTIFACT_CORRUPTED")
+    typer.echo(
+        json.dumps(
+            {"status": "FAILED", "reason_code": str(reason), "detail": str(error)},
+            sort_keys=True,
+        )
+    )
+    raise typer.Exit(code=exit_code)
+
+
+def _parse_ledger_timestamp(value: str) -> datetime:
+    from quantos.application.ledger import ResearchLedgerError
+    from quantos.contracts.status import ReasonCode
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ResearchLedgerError(
+            ReasonCode.SCHEMA_INVALID, "ledger timestamp is not ISO-8601"
+        ) from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ResearchLedgerError(
+            ReasonCode.SCHEMA_INVALID, "ledger timestamp must be timezone-aware"
+        )
+    return parsed
+
+
+@ledger_app.command("verify")
+def verify_research_ledger(
+    ledger_root: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+    ledger_id: Annotated[str, typer.Argument()],
+    created_at: Annotated[
+        str,
+        typer.Option("--created-at", help="Explicit timezone-aware snapshot timestamp."),
+    ],
+    snapshot_output: Annotated[
+        Path | None,
+        typer.Option("--snapshot-output", dir_okay=False),
+    ] = None,
+) -> None:
+    """Verify canonical objects/events and deterministically rebuild a ledger snapshot."""
+
+    from quantos.application.ledger import ResearchLedgerError, ResearchLedgerService
+    from quantos.artifacts.store import ArtifactError, atomic_write_bytes
+
+    try:
+        snapshot = ResearchLedgerService(ledger_root).verify(
+            ledger_id, created_at=_parse_ledger_timestamp(created_at)
+        )
+        if snapshot_output is not None:
+            atomic_write_bytes(
+                snapshot_output, canonical_json_bytes(snapshot.model_dump(mode="python"))
+            )
+    except (ResearchLedgerError, ArtifactError) as error:
+        _ledger_failure(error)
+        return
+    typer.echo(
+        json.dumps(
+            {
+                "status": "PASS",
+                "snapshot_hash": snapshot.content_hash,
+                "event_count": len(snapshot.source_event_hashes),
+                "node_count": len(snapshot.node_object_hashes),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+@ledger_app.command("search")
+def search_research_ledger(
+    ledger_root: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+    snapshot_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    policy_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    scope_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    request_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+) -> None:
+    """Run one bounded hash-bound lexical search over a verified ledger snapshot."""
+
+    from quantos.application.ledger import ResearchLedgerError, ResearchLedgerService
+    from quantos.contracts.ledger import (
+        ResearchLedgerAccessScope,
+        ResearchLedgerSearchPolicy,
+        ResearchLedgerSearchRequest,
+        ResearchLedgerSnapshot,
+    )
+
+    try:
+        snapshot = _load_canonical_ledger_contract(snapshot_path, ResearchLedgerSnapshot)
+        policy = _load_canonical_ledger_contract(policy_path, ResearchLedgerSearchPolicy)
+        scope = _load_canonical_ledger_contract(scope_path, ResearchLedgerAccessScope)
+        request = _load_canonical_ledger_contract(request_path, ResearchLedgerSearchRequest)
+        result = ResearchLedgerService(ledger_root).search(
+            snapshot=snapshot,
+            policy=policy,
+            scope=scope,
+            request=request,
+        )
+    except ResearchLedgerError as error:
+        _ledger_failure(error)
+        return
+    typer.echo(result.canonical_bytes().decode("utf-8"))
+
+
+@ledger_app.command("context-pack")
+def build_research_context_pack(
+    ledger_root: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+    snapshot_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    policy_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    scope_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    request_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    result_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    budget_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+) -> None:
+    """Build a byte-bounded immutable Agent context input from a verified search result."""
+
+    from quantos.application.ledger import ResearchLedgerError, ResearchLedgerService
+    from quantos.contracts.ledger import (
+        ResearchContextBudgetPolicy,
+        ResearchLedgerAccessScope,
+        ResearchLedgerSearchPolicy,
+        ResearchLedgerSearchRequest,
+        ResearchLedgerSearchResult,
+        ResearchLedgerSnapshot,
+    )
+
+    try:
+        snapshot = _load_canonical_ledger_contract(snapshot_path, ResearchLedgerSnapshot)
+        policy = _load_canonical_ledger_contract(policy_path, ResearchLedgerSearchPolicy)
+        scope = _load_canonical_ledger_contract(scope_path, ResearchLedgerAccessScope)
+        request = _load_canonical_ledger_contract(request_path, ResearchLedgerSearchRequest)
+        result = _load_canonical_ledger_contract(result_path, ResearchLedgerSearchResult)
+        budget = _load_canonical_ledger_contract(budget_path, ResearchContextBudgetPolicy)
+        pack = ResearchLedgerService(ledger_root).build_context_pack(
+            snapshot=snapshot,
+            policy=policy,
+            scope=scope,
+            request=request,
+            result=result,
+            budget=budget,
+        )
+    except ResearchLedgerError as error:
+        _ledger_failure(error)
+        return
+    typer.echo(pack.canonical_bytes().decode("utf-8"))
 
 
 if __name__ == "__main__":  # pragma: no cover

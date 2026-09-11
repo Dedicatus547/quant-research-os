@@ -1,0 +1,5 @@
+schema_version: research-context-budget-policy/v1
+policy_id: p14-context-bytes-v1
+max_items: 50
+max_item_bytes: 65536
+max_serialized_bytes: 262144

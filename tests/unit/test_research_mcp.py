@@ -7,10 +7,13 @@ import pytest
 
 from quantos.application import (
     DatasetBinding,
+    LedgerSearchBinding,
     ProposalChainBinding,
+    ResearchLedgerService,
     ResearchMcpError,
     ResearchMcpService,
     compile_experiment_proposal,
+    p14_research_mcp_policy,
     research_mcp_policy,
 )
 from quantos.contracts import (
@@ -34,6 +37,8 @@ from quantos.contracts import (
     HypothesisProposal,
     InstrumentCodeMapping,
     JobLookupRequest,
+    LedgerAssertionAuthority,
+    LedgerObjectAccess,
     ObservationProposal,
     ParameterDimension,
     ProposedAttribute,
@@ -45,6 +50,12 @@ from quantos.contracts import (
     RegistrySearchRequest,
     ResearchCampaignSpec,
     ResearchFamilySpec,
+    ResearchLedgerAccessScope,
+    ResearchLedgerNodeKind,
+    ResearchLedgerObjectRef,
+    ResearchLedgerSearchPolicy,
+    ResearchLedgerSearchRequest,
+    ResearchLedgerSearchResult,
     ResearchSegment,
     SafeExpressionNode,
     SafeQlibExpressionSpec,
@@ -53,6 +64,7 @@ from quantos.contracts import (
     StrategyAuthoringSpec,
     ValidationLookupRequest,
     canonical_json_bytes,
+    sha256_bytes,
 )
 from quantos.contracts.campaign import CampaignStoppingRule, MultipleTestingPolicy
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
@@ -223,7 +235,7 @@ def _chain(dataset: DatasetBinding) -> ProposalChainBinding:
     return ProposalChainBinding(observation, hypothesis, factor, experiment, campaign, family)
 
 
-def _service(tmp_path, *, executor=None, max_queued_jobs: int = 8):
+def _service(tmp_path, *, executor=None, max_queued_jobs: int = 8, ledger_searches=None):
     dataset = _dataset()
     chain = _chain(dataset)
     service = ResearchMcpService(
@@ -231,6 +243,7 @@ def _service(tmp_path, *, executor=None, max_queued_jobs: int = 8):
         datasets={dataset.snapshot.snapshot_hash: dataset},
         proposal_chains={chain.experiment.content_hash: chain},
         registry=RegistryService(tmp_path / "registry"),
+        ledger_searches=ledger_searches,
         executor=executor,
         max_queued_jobs=max_queued_jobs,
     )
@@ -296,7 +309,7 @@ def _enqueue(service: ResearchMcpService, chain: ProposalChainBinding, *, key: s
     return service.call("experiment.request_execution", canonical_json_bytes(request)), request
 
 
-def test_policy_is_only_the_p11_typed_application_surface() -> None:
+def test_p11_policy_remains_frozen_and_p14_adds_only_ledger_search() -> None:
     values = tuple(item.value for item in research_mcp_policy().capabilities)
     assert values == tuple(sorted(values))
     assert set(values) == {
@@ -309,6 +322,71 @@ def test_policy_is_only_the_p11_typed_application_surface() -> None:
         "registry.search",
         "validation.get",
     }
+    p14_values = tuple(item.value for item in p14_research_mcp_policy().capabilities)
+    assert set(p14_values) == {*values, "research.search_ledger"}
+    assert p14_research_mcp_policy().policy_id == "p14-research-mcp-v1"
+
+
+def test_ledger_search_is_typed_hash_bound_and_campaign_scoped(tmp_path) -> None:
+    dataset = _dataset()
+    chain = _chain(dataset)
+    ledger = ResearchLedgerService(tmp_path / "ledger")
+    encoded = canonical_json_bytes({"summary": "alpha historical failure"})
+    reference = ResearchLedgerObjectRef(
+        object_hash=sha256_bytes(encoded),
+        media_type="application/json",
+        source_domain="quantos-contracts",
+        access=LedgerObjectAccess.PUBLIC_HISTORY,
+    )
+    ledger.append(
+        ledger_id="research-ledger",
+        node_id="evidence-1",
+        node_kind=ResearchLedgerNodeKind.EVIDENCE,
+        object_ref=reference,
+        object_bytes=encoded,
+        authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+        occurred_at=datetime(2026, 9, 11, tzinfo=UTC),
+    )
+    snapshot = ledger.verify("research-ledger", created_at=datetime(2026, 9, 11, tzinfo=UTC))
+    policy = ResearchLedgerSearchPolicy(
+        policy_id="p14-ledger-search-v1",
+        allowed_node_kinds=(ResearchLedgerNodeKind.EVIDENCE,),
+        allowed_authorities=(LedgerAssertionAuthority.SOURCE_ASSERTION,),
+        allow_cross_campaign_history=True,
+        max_query_terms=4,
+        max_results=4,
+        max_serialized_bytes=10_000,
+    )
+    scope = ResearchLedgerAccessScope(
+        campaign_hash=chain.campaign.content_hash,
+        ledger_snapshot_hash=snapshot.content_hash,
+        readable_campaign_hashes=(chain.campaign.content_hash,),
+    )
+    service = ResearchMcpService(
+        tmp_path / "mcp-ledger",
+        datasets={},
+        proposal_chains={},
+        ledger_searches={
+            chain.campaign.content_hash: LedgerSearchBinding(ledger, snapshot, policy, scope)
+        },
+    )
+    request = ResearchLedgerSearchRequest(
+        campaign_hash=chain.campaign.content_hash,
+        ledger_snapshot_hash=snapshot.content_hash,
+        search_policy_hash=policy.content_hash,
+        access_scope_hash=scope.content_hash,
+        query="alpha",
+    )
+
+    result = service.call("research.search_ledger", canonical_json_bytes(request))
+    assert isinstance(result, ResearchLedgerSearchResult)
+    assert result.hits[0].object_ref.object_hash == reference.object_hash
+    assert result.hits[0].content == encoded.decode("utf-8")
+
+    denied = request.model_copy(update={"campaign_hash": "f" * 64})
+    with pytest.raises(ResearchMcpError) as missing:
+        service.call("research.search_ledger", canonical_json_bytes(denied))
+    assert missing.value.reason_code is ReasonCode.SOURCE_INCOMPLETE
 
 
 def test_dataset_capabilities_return_verified_hash_bound_metadata(tmp_path) -> None:

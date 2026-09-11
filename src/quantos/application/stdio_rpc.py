@@ -15,6 +15,7 @@ from quantos.application.security import (
     load_bounded_json_object,
 )
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
+from quantos.contracts.ledger import ResearchLedgerSearchRequest
 from quantos.contracts.proposals import ProposalSubmissionRequest
 from quantos.contracts.research_mcp import (
     DatasetLookupRequest,
@@ -54,6 +55,7 @@ _REQUEST_TYPES: Mapping[str, type[BaseModel]] = {
     "proposal.submit_hypothesis": ProposalSubmissionRequest,
     "registry.get": RegistryGetRequest,
     "registry.search": RegistrySearchRequest,
+    "research.search_ledger": ResearchLedgerSearchRequest,
     "validation.get": ValidationLookupRequest,
 }
 
