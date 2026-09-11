@@ -321,7 +321,11 @@ class ResearchLedgerService:
             if chain and occurred_at < chain[-1].occurred_at:
                 _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger event time moved backwards")
             known_objects = {item.object_ref.object_hash for item in chain}
-            known_object_refs = {item.object_ref.object_hash: item.object_ref for item in chain}
+            known_object_refs = {
+                item.object_ref.object_hash: item.object_ref
+                for existing_chain in groups.values()
+                for item in existing_chain
+            }
             if not set(parent_object_hashes).issubset(known_objects):
                 _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger event parent is not in the chain")
             prior_object_ref = known_object_refs.get(object_ref.object_hash)
@@ -405,6 +409,7 @@ class ResearchLedgerService:
             groups.setdefault(event.ledger_id, []).append(event)
 
         verified: dict[str, tuple[ResearchLedgerEventV2, ...]] = {}
+        root_object_refs: dict[str, ResearchLedgerObjectRef] = {}
         for ledger_id, events in groups.items():
             chain = tuple(sorted(events, key=lambda item: item.sequence))
             known_objects: set[str] = set()
@@ -443,10 +448,17 @@ class ResearchLedgerService:
                         ReasonCode.DUPLICATE_ID_CONFLICT,
                         "ledger object hash has conflicting access bindings",
                     )
+                root_object_ref = root_object_refs.get(event.object_ref.object_hash)
+                if root_object_ref is not None and root_object_ref != event.object_ref:
+                    _raise(
+                        ReasonCode.DUPLICATE_ID_CONFLICT,
+                        "ledger root object hash has conflicting access bindings",
+                    )
                 self._read_object(event.object_ref)
                 known_objects.add(event.object_ref.object_hash)
                 known_object_refs[event.object_ref.object_hash] = event.object_ref
                 known_nodes[event.node_id] = event.object_ref
+                root_object_refs[event.object_ref.object_hash] = event.object_ref
                 previous = event
             verified[ledger_id] = chain
         return verified

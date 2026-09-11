@@ -686,6 +686,61 @@ def test_object_hash_cannot_change_access_binding(tmp_path: Path) -> None:
         )
     assert invalid_reference.value.reason_code is ReasonCode.SCHEMA_INVALID
 
+    cross_ledger = ResearchLedgerService(tmp_path / "cross-ledger")
+    cross_ledger.append(
+        ledger_id="ledger-private",
+        node_id="result-1",
+        node_kind=ResearchLedgerNodeKind.RESEARCH_RESULT,
+        object_ref=internal,
+        object_bytes=encoded,
+        authority=LedgerAssertionAuthority.DETERMINISTIC_EVIDENCE,
+        occurred_at=NOW,
+    )
+    with pytest.raises(ResearchLedgerError) as cross_chain_relabel:
+        cross_ledger.append(
+            ledger_id="ledger-public",
+            node_id="evidence-1",
+            node_kind=ResearchLedgerNodeKind.EVIDENCE,
+            object_ref=public,
+            object_bytes=encoded,
+            authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+            occurred_at=NOW,
+        )
+    assert cross_chain_relabel.value.reason_code is ReasonCode.DUPLICATE_ID_CONFLICT
+
+    public_event_id = cross_ledger._event_identity(
+        ledger_id="ledger-public",
+        node_id="evidence-1",
+        node_kind=ResearchLedgerNodeKind.EVIDENCE,
+        object_ref=public,
+        authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+        parent_object_hashes=(),
+        agent_run_hash=None,
+        human_review_evidence_hash=None,
+        verdict_report_hash=None,
+        occurred_at=NOW,
+    )
+    public_event = ResearchLedgerEventV2(
+        event_id=public_event_id,
+        ledger_id="ledger-public",
+        sequence=1,
+        node_id="evidence-1",
+        node_kind=ResearchLedgerNodeKind.EVIDENCE,
+        object_ref=public,
+        authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+        occurred_at=NOW,
+    )
+    public_event_path = (
+        tmp_path
+        / "cross-ledger/events/ledger-public"
+        / f"{public_event.sequence:020d}-{public_event.event_id}.json"
+    )
+    public_event_path.parent.mkdir(parents=True)
+    public_event_path.write_bytes(public_event.canonical_bytes())
+    with pytest.raises(ResearchLedgerError) as rebuilt_relabel:
+        cross_ledger.verify("ledger-private", created_at=NOW)
+    assert rebuilt_relabel.value.reason_code is ReasonCode.DUPLICATE_ID_CONFLICT
+
 
 def test_search_filters_and_budgets_fail_closed(tmp_path: Path) -> None:
     service = ResearchLedgerService(tmp_path / "ledger")
