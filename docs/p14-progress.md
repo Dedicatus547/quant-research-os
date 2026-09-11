@@ -17,11 +17,18 @@ record grants no campaign-selection or autonomous-research authority.
   events with create-if-absent semantics. Exact retries are idempotent; conflicting node IDs,
   missing/forward parents, non-canonical bytes, broken chains, unsafe paths, and tampering fail
   closed.
+- Verification recomputes UUIDv5 event identities, rejects every duplicate node ID, prevents an
+  existing object hash from being relabeled to a different access/campaign binding, rejects unknown
+  ledgers and snapshots predating their chain head, and revalidates contract instances at every
+  public service boundary.
 - `ResearchLedgerSnapshot` and the lexical index are derived entirely from the immutable object and
   event tree. Snapshot hashes exclude the caller-supplied observation timestamp while persisted
   snapshot JSON retains that timestamp.
 - The frozen `unicode-word-v1` tokenizer and `term-frequency-object-hash-v1` ranking return bounded
   content plus query/request/result/index hashes. Exact duplicate objects are returned once.
+- The search policy also freezes query bytes, per-hit bytes, index entries, terms per object, and
+  serialized index bytes. MCP bindings cannot configure a response or hit larger than the MCP
+  payload/string boundary.
 - Search access binds a campaign, ledger snapshot, readable campaign allowlist, and sealed-object
   allowlist. A sealed object additionally requires all of its contamination hashes in the trusted
   access scope. Authorized historical cross-campaign retrieval is supported; unbound sealed data is
@@ -46,7 +53,7 @@ record grants no campaign-selection or autonomous-research authority.
 Frozen policy inputs:
 
 - `configs/research/ledger_search_v1.yaml`:
-  `3580b935b13c49ba4c0c6bba2f41af594fc56e61879e8dc23c54804ab12547bc`
+  `9b48489eec40b545fd4941f356bbfc717d0f185ce7ed646b7eba9c99b7d69369`
 - `configs/research/context_budget_v1.yaml`:
   `34e5932af37c53a8bc9e884e698b02ead34c960b255bef21f6c65a26f39c4f21`
 
@@ -54,27 +61,31 @@ Frozen policy inputs:
 
 - Ruff format/check: PASS
 - Pyright: 0 errors / 0 warnings
-- Pytest: 329 passed
-- Coverage: 85.07%, above the unchanged 85% gate
+- Pytest: 332 passed
+- Coverage: 85.17%, above the unchanged 85% gate
 - Tests cover independent-root hash equality, idempotence, chain/object tampering, stale snapshots,
   non-canonical input, query/response/context budgets, cross-campaign policy, sealed contamination,
   MCP dispatch, JSON-RPC schema exposure, and CLI reconstruction.
 
 ## Frozen P14a qualification
 
-The clean-checkout runner was executed twice from implementation commit `c0aae76`; both executions
-returned the same immutable result:
+The hardened clean-checkout runner was executed twice from implementation commit `2bb102c`; both
+executions returned the same immutable result:
 
-- qualification report: `b93521362f5d5bd426de0451a665c4a57674fe1cf164daa250920fde8653b47b`
+- qualification report: `e523ba71550df9d761c5272826e0260d7cf67a00f641d5b11e9430e15d29bc02`
 - ledger snapshot: `ac682f98a3ecc0b11acd50f08963565352f747a7ffc6c2aa1547abd669367517`
-- lexical index: `a13be26356000884e78e96a74b9472c64b5be38e3dffd15163fc11c1f50c75b2`
-- ContextPack: `ed7bbe379730d5ef43dcc7769435f0203dad7acfbbfa3340d944a07023276102`
-- context-bound AgentRunSpec: `cb184a75280457bbecddc8e9cd6ff7222d1bf285e619b122690fa46c7e278ecb`
+- lexical index: `743e24dcb350a1f5f5ed0ac07cb7bb4cef04917df20fa51934e6daad58540c08`
+- ContextPack: `00db8b701710f204c3a89e014e706d57523e9f91c1afc4a66b52a44b8db89406`
+- context-bound AgentRunSpec: `1803b8a60f77ef672b43ac3b26e70a60e46c3b280a7861c2b18517379ba9880d`
 - status/verdict: `SUCCEEDED / PASS`
 - limitation: `SYNTHETIC_OFFLINE_ENGINEERING_EVIDENCE`
 
 The report is offline engineering qualification. It does not make an Agent proposal into evidence,
 does not qualify P14b/P14c selection, and does not authorize P14d.
+
+This report supersedes the pre-hardening P14a report
+`b93521362f5d5bd426de0451a665c4a57674fe1cf164daa250920fde8653b47b`; the older immutable artifact
+is retained as historical engineering evidence and is no longer the current P14a qualification.
 
 ## Next stage
 
