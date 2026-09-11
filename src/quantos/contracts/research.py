@@ -62,13 +62,19 @@ class ExperimentAuthoringSpec(CanonicalContract):
     experiment_id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9._-]*$")
     evaluation_start: date
     evaluation_end: date
-    expression: ExpressionAuthoringSpec
+    expression: ExpressionAuthoringSpec | SafeQlibExpressionSpec
     strategy: StrategyAuthoringSpec
 
     @model_validator(mode="after")
     def evaluation_range_is_ordered(self) -> Self:
         if self.evaluation_start > self.evaluation_end:
             raise ValueError("evaluation_start cannot be after evaluation_end")
+        if (
+            isinstance(self.expression, SafeQlibExpressionSpec)
+            and self.expression.input_lag_trading_days
+            != self.strategy.input_lag_trading_days
+        ):
+            raise ValueError("expression and strategy input lag must match")
         return self
 
 

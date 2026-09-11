@@ -11,7 +11,7 @@ from quantos.contracts.agent import (
     ObservationProposal,
 )
 from quantos.contracts.campaign import ResearchCampaignSpec, ResearchFamilySpec
-from quantos.contracts.pit import SafeQlibOperator
+from quantos.contracts.pit import SafeQlibExpressionSpec, SafeQlibOperator
 from quantos.contracts.proposals import CompiledExperimentProposal
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
@@ -117,7 +117,7 @@ def compile_experiment_proposal(
             ReasonCode.OOS_POLICY_VIOLATION,
             "experiment dates escape the selected frozen campaign segment",
         )
-    expression = _authoring_expression(factor)
+    expression = _authoring_expression(factor, family)
     if factor.expression.input_lag_trading_days != experiment.strategy.input_lag_trading_days:
         raise ProposalCompilationError(
             ReasonCode.SCHEMA_INVALID,
@@ -173,13 +173,35 @@ def _campaign_period(
     return periods[experiment.segment.value]
 
 
-def _authoring_expression(factor: FactorProposalSpec) -> ExpressionAuthoringSpec:
+def _authoring_expression(
+    factor: FactorProposalSpec, family: ResearchFamilySpec
+) -> ExpressionAuthoringSpec | SafeQlibExpressionSpec:
     nodes = factor.expression.nodes
-    if len(nodes) != 2:
+    used_operators = {node.operator for node in nodes}
+    if not used_operators.issubset(family.allowed_operators):
         raise ProposalCompilationError(
             ReasonCode.SCHEMA_INVALID,
-            "P11 minimal compiler accepts only the admitted field-to-return template",
+            "factor expression uses an operator outside the frozen research family",
         )
+    if factor.factor_template_hash != family.factor_template_hash:
+        raise ProposalCompilationError(
+            ReasonCode.ARTIFACT_CORRUPTED,
+            "factor proposal does not bind the frozen family template",
+        )
+    fields = {
+        node.field_name
+        for node in nodes
+        if node.operator is SafeQlibOperator.FIELD
+    }
+    if fields != {"adjusted_close"}:
+        raise ProposalCompilationError(
+            ReasonCode.SCHEMA_INVALID,
+            "factor expression references a field absent from the qualified Qlib view",
+        )
+
+    # Preserve the legacy shorthand (and its hashes) for the original P11 template.
+    if len(nodes) != 2:
+        return factor.expression
     field, output = nodes
     if (
         field.operator is not SafeQlibOperator.FIELD
@@ -189,10 +211,7 @@ def _authoring_expression(factor: FactorProposalSpec) -> ExpressionAuthoringSpec
         or output.window is None
         or factor.expression.output_node_id != output.node_id
     ):
-        raise ProposalCompilationError(
-            ReasonCode.SCHEMA_INVALID,
-            "factor does not match the P11 minimal field-to-return template",
-        )
+        return factor.expression
     return ExpressionAuthoringSpec(
         expression_id=output.node_id,
         operator="return",

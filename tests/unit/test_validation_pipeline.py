@@ -31,6 +31,7 @@ from quantos.contracts.research import (
     ValidationPolicy,
     ValidationSubperiod,
 )
+from quantos.contracts.research_result import ResearchResultMetric
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
 from quantos.contracts.temporal import DecisionSchedule
 from quantos.contracts.validation import ValidationGateId, ValidationMetric
@@ -121,6 +122,62 @@ def _reference() -> ArtifactRef:
 
 def _pass_stage(*_args: object) -> validation_service._StageOutput:
     return validation_service._StageOutput("passed", (_reference(),))
+
+
+def test_g3_uses_only_verified_qlib_native_research_metrics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resolved = SimpleNamespace(
+        content_hash="1" * 64,
+        expression=SimpleNamespace(content_hash="2" * 64),
+    )
+    signal = SimpleNamespace(artifact_hash="3" * 64, resolved_experiment_hash="1" * 64)
+    result = SimpleNamespace(
+        artifact_hash="4" * 64,
+        resolved_experiment_hash="1" * 64,
+        expression_spec_hash="2" * 64,
+        signal_artifact_hash="3" * 64,
+        research_policy_hash="5" * 64,
+        metrics=(
+            ResearchResultMetric(name="IC", value=0.1),
+            ResearchResultMetric(name="ICIR", value=0.2),
+            ResearchResultMetric(name="Rank IC", value=0.3),
+            ResearchResultMetric(name="Rank ICIR", value=0.4),
+        ),
+    )
+    signal_path = _artifact_path(tmp_path, "3")
+    result_path = _artifact_path(tmp_path, "4")
+    signal_path.mkdir()
+    result_path.mkdir()
+    monkeypatch.setattr(validation_service, "verify_signal_artifact", lambda _path: signal)
+    monkeypatch.setattr(validation_service, "verify_research_result", lambda _path: result)
+    policy = _policy().model_copy(
+        update={
+            "soft_gates": (
+                SoftGateThreshold(metric=SoftMetric.ICIR, comparison="min", threshold=0),
+                SoftGateThreshold(metric=SoftMetric.RANK_IC, comparison="min", threshold=0),
+            )
+        }
+    )
+    state = SimpleNamespace(
+        locators=SimpleNamespace(signal_path=signal_path, research_result_path=result_path),
+        validation_policy=policy,
+        research_policy=SimpleNamespace(content_hash="5" * 64),
+        resolved=resolved,
+        signal=None,
+        signal_ref=None,
+    )
+
+    output = ValidationService()._g3(state)
+
+    assert {item.metric: item.value for item in output.metrics} == {
+        SoftMetric.ICIR: 0.2,
+        SoftMetric.RANK_IC: 0.3,
+    }
+    assert tuple(item.kind for item in output.evidence) == (
+        "signal_artifact",
+        "research_result",
+    )
 
 
 def _patch_passes(monkeypatch: pytest.MonkeyPatch) -> None:

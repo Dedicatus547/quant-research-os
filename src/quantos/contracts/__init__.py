@@ -214,6 +214,14 @@ from quantos.contracts.research_mcp import (
     RegistrySearchResult,
     ValidationLookupRequest,
 )
+from quantos.contracts.research_result import (
+    ResearchResultArtifactFile,
+    ResearchResultManifest,
+    ResearchResultMetric,
+    ResearchResultSeriesRow,
+    ResearchResultSourceFile,
+    ResearchResultValueRow,
+)
 from quantos.contracts.signal import (
     SignalArtifactFile,
     SignalArtifactManifest,
@@ -435,6 +443,12 @@ __all__ = [
     "ResearchLedgerNodeKind",
     "ResearchLedgerSnapshot",
     "ResearchPolicy",
+    "ResearchResultArtifactFile",
+    "ResearchResultManifest",
+    "ResearchResultMetric",
+    "ResearchResultSeriesRow",
+    "ResearchResultSourceFile",
+    "ResearchResultValueRow",
     "ResearchSegment",
     "ResolvedEventExperimentSpec",
     "ResolvedExperimentSpec",

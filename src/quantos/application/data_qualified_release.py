@@ -18,6 +18,7 @@ from quantos.contracts.events import EventType
 from quantos.contracts.pit import OperatorDelayPolicy, SafeQlibOperator
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
+    ExpressionAuthoringSpec,
     ResearchPolicy,
     ResolvedExperimentSpec,
     ValidationPolicy,
@@ -44,13 +45,43 @@ from quantos.validation import (
 )
 
 _RELEASE_NAMESPACE = UUID("dc320c33-6358-5cdb-ab91-6b3b33423336")
-_OPERATOR_DELAYS = (
+_LEGACY_OPERATOR_DELAYS = (
     OperatorDelayPolicy(
         policy_id="qlib-return-delay-60s/v1",
         operator=SafeQlibOperator.RETURN,
         delay_seconds=60,
     ),
 )
+
+
+def _operator_delays(authoring: ExperimentAuthoringSpec) -> tuple[OperatorDelayPolicy, ...]:
+    if isinstance(authoring.expression, ExpressionAuthoringSpec):
+        return _LEGACY_OPERATOR_DELAYS
+    operators = sorted(
+        {
+            node.operator
+            for node in authoring.expression.nodes
+            if node.operator is not SafeQlibOperator.FIELD
+        },
+        key=str,
+    )
+    return tuple(
+        OperatorDelayPolicy(
+            policy_id=f"qlib-{operator.value}-delay/v1",
+            operator=operator,
+            delay_seconds=60 if operator is SafeQlibOperator.RETURN else 0,
+        )
+        for operator in operators
+    )
+
+
+def _parameter_window(authoring: ExperimentAuthoringSpec) -> int:
+    if isinstance(authoring.expression, ExpressionAuthoringSpec):
+        return authoring.expression.window
+    windows = [node.window for node in authoring.expression.nodes if node.window is not None]
+    if len(windows) != 1:
+        raise ValueError("parameter stability requires exactly one windowed DAG node")
+    return windows[0]
 
 
 @dataclass(frozen=True)
@@ -118,7 +149,16 @@ def _variant_authoring(
     payload["evaluation_end"] = evaluation_end or baseline.evaluation_end
     expression = dict(payload["expression"])
     strategy = dict(payload["strategy"])
-    expression["window"] = window or baseline.expression.window
+    selected_window = window or _parameter_window(baseline)
+    if isinstance(baseline.expression, ExpressionAuthoringSpec):
+        expression["window"] = selected_window
+    else:
+        nodes = list(expression["nodes"])
+        windowed = [index for index, node in enumerate(nodes) if node.get("window") is not None]
+        if len(windowed) != 1:
+            raise ValueError("parameter stability requires exactly one windowed DAG node")
+        nodes[windowed[0]] = {**nodes[windowed[0]], "window": selected_window}
+        expression["nodes"] = nodes
     strategy["top_k"] = top_k or baseline.strategy.top_k
     payload["expression"] = expression
     payload["strategy"] = strategy
@@ -188,7 +228,7 @@ def _build_variant(
             expected_view_hash=view_hash,
             universe_index=provisional.strategy.universe_index,
             expression=provisional.expression,
-            operator_delays=_OPERATOR_DELAYS,
+            operator_delays=_operator_delays(authoring),
             schedules=schedules,
         )
     if (
@@ -300,7 +340,7 @@ def _run_pipeline(
     for window in validation_policy.parameter_windows:
         for top_k in validation_policy.parameter_top_k:
             key = (window, top_k)
-            if key == (authoring.expression.window, authoring.strategy.top_k):
+            if key == (_parameter_window(authoring), authoring.strategy.top_k):
                 parameter_variants[key] = baseline
             else:
                 parameter_variants[key] = build_variant(

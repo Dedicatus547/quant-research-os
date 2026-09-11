@@ -27,23 +27,26 @@ def resolve_experiment(
 ) -> ResolvedExperimentSpec:
     """Resolve every logical dependency before a canonical process may start."""
 
-    field_node = SafeExpressionNode(
-        node_id="adjusted_close",
-        operator=SafeQlibOperator.FIELD,
-        field_name=authoring.expression.field,
-    )
-    output_node = SafeExpressionNode(
-        node_id=authoring.expression.expression_id,
-        operator=SafeQlibOperator.RETURN,
-        inputs=(field_node.node_id,),
-        window=authoring.expression.window,
-    )
-    expression = SafeQlibExpressionSpec(
-        expression_id=authoring.expression.expression_id,
-        nodes=(field_node, output_node),
-        output_node_id=output_node.node_id,
-        input_lag_trading_days=authoring.strategy.input_lag_trading_days,
-    )
+    if isinstance(authoring.expression, SafeQlibExpressionSpec):
+        expression = authoring.expression
+    else:
+        field_node = SafeExpressionNode(
+            node_id="adjusted_close",
+            operator=SafeQlibOperator.FIELD,
+            field_name=authoring.expression.field,
+        )
+        output_node = SafeExpressionNode(
+            node_id=authoring.expression.expression_id,
+            operator=SafeQlibOperator.RETURN,
+            inputs=(field_node.node_id,),
+            window=authoring.expression.window,
+        )
+        expression = SafeQlibExpressionSpec(
+            expression_id=authoring.expression.expression_id,
+            nodes=(field_node, output_node),
+            output_node_id=output_node.node_id,
+            input_lag_trading_days=authoring.strategy.input_lag_trading_days,
+        )
     strategy = ResolvedStrategySpec(
         universe_index=authoring.strategy.universe_index,
         selection_method=authoring.strategy.selection_method,

@@ -1,14 +1,15 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v13（P12 冻结与 P13 入口修订版）<br>
-> 更新日期：2026-09-10<br>
+> 版本：v14（P14 入口冻结版）<br>
+> 更新日期：2026-09-11<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
 > Offline Engineering 基线为 `PASS / VALIDATED`；真实 Tushare Data-qualified 发布为工程
 > `PASS`，其 ValidationReport 为 `SUCCEEDED / REJECT`、策略状态为 `REJECTED`，唯一未达标的
 > 候选软门是年化换手率 `29.5344 > 12`。该 REJECT 是应保留的研究事实，不是工程验收失败。
-> 全部报告保留 `SINGLE_SOURCE_NON_VINTAGE`；Rank IC/ICIR 的 immutable ResearchResult adapter
-> 仍未实现，不得宣称该指标已被验证。
+> 全部报告保留 `SINGLE_SOURCE_NON_VINTAGE`；FR-01 通用 DSL 贯通与 FR-02 immutable
+> ResearchResult 已通过 P14 入口检查。仅 Qlib 原生 IC/Rank IC 序列与汇总完成资格化，
+> coverage/turnover/autocorrelation 不在该声明内。
 > P8 Agent Boundary & Threat Hardening、P9 Research Semantic Contracts、P10 GPT + Codex
 > Harness Capability Spike、P11 Quant Research MCP 与 P12 Real-world Evidence Acquisition
 > 已完成；P13 的 synthetic engineering slice、官方 SSE PDF 可提取路径、EventFeature→Qlib
@@ -18,8 +19,8 @@
 > 冻结实现为 `46904c22d039bca2da008beec8cd7d183d288fd1`，详见 `docs/p13-v2-freeze.md`。
 > P11 资格证明对象是 typed Python application facades 与代码内构造的 structured-fixture
 > E2E，不包含 production stdio/JSON-RPC transport、Agent 真实生成的 proposal chain 或
-> Agent-to-Data-qualified 组合运行。P14 前必须并行完成既有 admitted DSL 的全链路通用化和
-> minimal immutable Qlib ResearchResult；它们不替代 P12/P13 主线。
+> Agent-to-Data-qualified 组合运行。既有 admitted DSL 的全链路通用化和 minimal immutable
+> Qlib ResearchResult 已完成，P14a-P14c 可以开始；它们不替代 P12/P13 主线。
 
 ---
 
@@ -1969,14 +1970,15 @@ E2E             P6 validation pipeline / P7 release pipeline
 第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
-market-data evidence。截至 2026-09-10，M0、DQ-01 至 DQ-06 与 P8-P12 均已完成；
-P13 已完成批准范围内的资格链，下一入口是 P14 的 FR-01/FR-02 前置检查。P13 已完成 synthetic
+market-data evidence。截至 2026-09-11，M0、DQ-01 至 DQ-06 与 P8-P13 均已完成；
+FR-01/FR-02 已通过硬入口检查，下一步是 P14a-P14c。P13 已完成 synthetic
 EventFeature/EventStudy、窄只读 JSON-RPC、AgentRun failure retention、EventSignal/Qlib
 compatibility bridge 与 native-Qlib clean-commit double-root engineering freeze；严格
 `P13BenchmarkBinding`/`P13QualificationBundle` runner 已就位。用户已批准 v2 Store，真实 Agent
 proposal 通过 admission，随后在冻结实现 `46904c22d039bca2da008beec8cd7d183d288fd1` 上离线复用，
 双根主要内容哈希一致，合并报告两条轨道均为 SUCCEEDED / PASS。P13 批准范围内的资格链
-已完成，详见 `docs/p13-v2-freeze.md`；P14 仍需完成 FR-01/FR-02。
+已完成，详见 `docs/p13-v2-freeze.md`；P14 入口结论见
+`docs/reviews/p14-entry-review.md`。
 
 后续主线固定为：
 

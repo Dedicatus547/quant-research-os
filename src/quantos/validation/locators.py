@@ -65,6 +65,7 @@ class ValidationRunLocators(_LocatorModel):
     snapshot_path: Path
     qlib_view_path: Path
     signal_path: Path | None = None
+    research_result_path: Path | None = None
     baseline_backtest_path: Path | None = None
     reproduction_backtest_path: Path | None = None
     pit_report_path: Path | None = None
@@ -77,6 +78,7 @@ class ValidationRunLocators(_LocatorModel):
 
     @field_validator(
         "signal_path",
+        "research_result_path",
         "baseline_backtest_path",
         "reproduction_backtest_path",
     )

@@ -235,10 +235,23 @@ def test_synthetic_validation_e2e_passes_all_gates_and_detects_tampering(
             "evaluation_start": "2024-01-02",
             "evaluation_end": "2024-01-09",
             "expression": {
-                "expression_id": "momentum_1d",
-                "operator": "return",
-                "field": "adjusted_close",
-                "window": 1,
+                "schema_version": "safe-qlib-expression/v2",
+                "expression_id": "absolute_delta_1d",
+                "nodes": [
+                    {
+                        "node_id": "price",
+                        "operator": "field",
+                        "field_name": "adjusted_close",
+                    },
+                    {
+                        "node_id": "delta",
+                        "operator": "delta",
+                        "inputs": ["price"],
+                        "window": 1,
+                    },
+                    {"node_id": "output", "operator": "abs", "inputs": ["delta"]},
+                ],
+                "output_node_id": "output",
             },
             "strategy": {"universe_index": "000300.SH", "top_k": 1},
         }
@@ -272,9 +285,12 @@ def test_synthetic_validation_e2e_passes_all_gates_and_detects_tampering(
         expression=provisional.expression,
         operator_delays=(
             OperatorDelayPolicy(
-                policy_id="synthetic-return-delay/v1",
-                operator="return",
-                delay_seconds=60,
+                policy_id="synthetic-abs-delay/v1",
+                operator="abs",
+            ),
+            OperatorDelayPolicy(
+                policy_id="synthetic-delta-delay/v1",
+                operator="delta",
             ),
         ),
         schedules=(schedule,),

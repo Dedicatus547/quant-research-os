@@ -9,6 +9,7 @@ import pytest
 from quantos.application import data_qualified_release as release
 from quantos.config import load_yaml_contract
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
+from quantos.contracts.pit import SafeExpressionNode, SafeQlibExpressionSpec, SafeQlibOperator
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
     ResearchPolicy,
@@ -355,3 +356,38 @@ def test_helpers_change_only_requested_variant_fields() -> None:
     assert variant.evaluation_start == authoring.evaluation_start
     assert stressed.open_cost_rate == cost.open_cost_rate * 2
     assert stressed.minimum_cost_cny == cost.minimum_cost_cny * 2
+
+
+def test_data_qualified_helpers_preserve_a_single_window_generic_dag() -> None:
+    authoring, *_rest = _configs()
+    expression = SafeQlibExpressionSpec(
+        schema_version="safe-qlib-expression/v2",
+        expression_id="absolute_delta",
+        nodes=(
+            SafeExpressionNode(
+                node_id="price",
+                operator=SafeQlibOperator.FIELD,
+                field_name="adjusted_close",
+            ),
+            SafeExpressionNode(
+                node_id="delta",
+                operator=SafeQlibOperator.DELTA,
+                inputs=("price",),
+                window=2,
+            ),
+            SafeExpressionNode(
+                node_id="output", operator=SafeQlibOperator.ABS, inputs=("delta",)
+            ),
+        ),
+        output_node_id="output",
+    )
+    generic = authoring.model_copy(update={"expression": expression})
+    variant = release._variant_authoring(generic, window=5, top_k=60)
+
+    assert isinstance(variant.expression, SafeQlibExpressionSpec)
+    assert variant.expression.nodes[1].window == 5
+    assert variant.expression.nodes[2].operator is SafeQlibOperator.ABS
+    assert tuple(item.operator for item in release._operator_delays(variant)) == (
+        SafeQlibOperator.ABS,
+        SafeQlibOperator.DELTA,
+    )

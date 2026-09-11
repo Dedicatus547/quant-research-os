@@ -11,12 +11,14 @@ evidence.
 Documentation roles:
 
 - [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
-- [Implementation status](docs/implementation-status.md) tracks the completed P0-P12 stages, the
-  current P13 boundary, and the evidence summary.
+- [Implementation status](docs/implementation-status.md) tracks completed P0-P13 and FR-01/FR-02,
+  the current P14 boundary, and the evidence summary.
 - [P12 progress](docs/p12-progress.md) records the exchange Evidence boundary, bounded official-source
   probe, and clean-commit reproducibility freeze.
 - [P13 progress](docs/p13-progress.md) records the qualified event-feature boundary, synthetic
-  native-Qlib bridge freeze, qualification runner, and remaining frozen-Agent benchmark gate.
+  native-Qlib bridge freeze, qualification runner, and historical benchmark-gate progression.
+- [P14 entry review](docs/reviews/p14-entry-review.md) freezes the FR-01/FR-02 hard-gate evidence
+  and the boundary for starting P14a-P14c.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records

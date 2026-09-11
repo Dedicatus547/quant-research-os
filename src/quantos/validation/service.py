@@ -64,7 +64,11 @@ from quantos.contracts.validation import (
     validate_runtime_fingerprint_binding,
 )
 from quantos.data import QlibViewBuildError, SnapshotBuildError, verify_qlib_view, verify_snapshot
-from quantos.research.qlib import QlibResearchError, verify_signal_artifact
+from quantos.research.qlib import (
+    QlibResearchError,
+    verify_research_result,
+    verify_signal_artifact,
+)
 from quantos.research.qlib.pit_evidence import (
     load_pit_artifact_evidence,
     verify_compact_pit_evidence,
@@ -396,6 +400,11 @@ def _threshold_failures(
                 f"{threshold.metric}:{value:.17g}:{threshold.comparison}:{threshold.threshold:.17g}"
             )
     return tuple(failures)
+
+
+def _expression_parameter_window(resolved: ResolvedExperimentSpec) -> int | None:
+    windows = [node.window for node in resolved.expression.nodes if node.window is not None]
+    return windows[0] if len(windows) == 1 else None
 
 
 def _same_baseline_bindings(base: ResolvedExperimentSpec, variant: ResolvedExperimentSpec) -> bool:
@@ -819,10 +828,48 @@ class ValidationService:
             if _METRIC_GATE[item.metric] is ValidationGateId.G3_FACTOR_RESEARCH
         }
         if requested:
-            raise _GateRejected(
-                ReasonCode.SOURCE_INCOMPLETE,
-                "rank IC metrics require a verified Qlib ResearchResult artifact",
-                (state.signal_ref,),
+            if state.locators.research_result_path is None:
+                raise _GateRejected(
+                    ReasonCode.SOURCE_INCOMPLETE,
+                    "rank IC metrics require a verified Qlib ResearchResult artifact",
+                    (state.signal_ref,),
+                )
+            try:
+                result = verify_research_result(state.locators.research_result_path)
+            except QlibResearchError as error:
+                raise _GateRejected(error.reason_code, str(error), (state.signal_ref,)) from error
+            result_ref = _directory_ref(
+                "research_result", result.artifact_hash, state.locators.research_result_path
+            )
+            if (
+                result.resolved_experiment_hash != state.resolved.content_hash
+                or result.expression_spec_hash != state.resolved.expression.content_hash
+                or result.signal_artifact_hash != state.signal.artifact_hash
+                or result.research_policy_hash != state.research_policy.content_hash
+            ):
+                raise _GateRejected(
+                    ReasonCode.ARTIFACT_CORRUPTED,
+                    "ResearchResult does not bind the verified experiment, signal, and policy",
+                    (state.signal_ref, result_ref),
+                )
+            native = {item.name: item.value for item in result.metrics}
+            metric_names = {
+                SoftMetric.RANK_IC: "Rank IC",
+                SoftMetric.ICIR: "ICIR",
+            }
+            metrics = tuple(
+                ValidationMetric(
+                    metric=metric,
+                    value=native[metric_names[metric]],
+                    source=result_ref,
+                    detail="Qlib SigAnaRecord native summary from verified ResearchResult",
+                )
+                for metric in sorted(requested, key=str)
+            )
+            return _StageOutput(
+                "Qlib signal and native IC/Rank IC ResearchResult passed verification",
+                (state.signal_ref, result_ref),
+                metrics=metrics,
             )
         return _StageOutput(
             "Qlib factor SignalArtifact passed complete verification", (state.signal_ref,)
@@ -1056,15 +1103,10 @@ class ValidationService:
         ):
             variant = self._load_variant(locator)
             evidence.extend((variant.signal_ref, variant.backtest_ref))
-            output_node = next(
-                node
-                for node in variant.resolved.expression.nodes
-                if node.node_id == variant.resolved.expression.output_node_id
-            )
             if (
                 not _same_baseline_bindings(state.resolved, variant.resolved)
                 or variant.resolved.cost_policy_hash != state.resolved.cost_policy_hash
-                or output_node.window != locator.window
+                or _expression_parameter_window(variant.resolved) != locator.window
                 or variant.resolved.strategy.top_k != locator.top_k
                 or variant.resolved.evaluation_start != state.resolved.evaluation_start
                 or variant.resolved.evaluation_end != state.resolved.evaluation_end
@@ -1116,7 +1158,7 @@ class ValidationService:
             "fraction of complete perturbation cases with nonnegative Qlib annualized return",
         )
         return _StageOutput(
-            "complete momentum-window and top-k perturbation grid was evaluated",
+            "complete expression-window and top-k perturbation grid was evaluated",
             tuple(evidence),
             metrics=() if aggregate is None else (aggregate,),
             robustness_cases=tuple(cases),
@@ -1274,6 +1316,8 @@ class ValidationService:
                 verify_qlib_view(state.locators.qlib_view_path)
             if state.signal is not None and state.locators.signal_path is not None:
                 verify_signal_artifact(state.locators.signal_path)
+            if state.locators.research_result_path is not None:
+                verify_research_result(state.locators.research_result_path)
             if state.baseline is not None and state.locators.baseline_backtest_path is not None:
                 verify_backtest_artifact(state.locators.baseline_backtest_path)
             if state.locators.reproduction_backtest_path is not None:

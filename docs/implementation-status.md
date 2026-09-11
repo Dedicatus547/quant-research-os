@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-10
+Status date: 2026-09-11
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
@@ -16,7 +16,7 @@ workspace.
 | P1 | Deterministic contracts/hashes, temporal types, refs, reason codes, immutable events, strict YAML loading, two-layer authoring/resolved experiment contracts, and separate engineering/research validation policies PASS | No live dependency |
 | P2 | All 9 endpoint-shaped fixtures; raw/canonical Parquet; lifecycle, availability-aware bounded membership and sparse-status rules; content-addressed snapshot; exact file-set verification; resumable endpoint plans using a shared `pyrate-limiter`/`tenacity`; redacted request ledgers; injected-client live-shaped publication; scalable Arrow/PyArrow PIT, Signal and Qlib-view paths; official Qlib view with historical-universe/tradability sidecars and two independent identical builds PASS | Live acquisition completed 13,614/13,614 requests on the first attempt. The immutable snapshot passed 16/16 DQ gates; its official Qlib 0.9.7 view passed health checks, exact-file verification, and 668/668 binary32-aware semantic samples. P2 live qualification is complete |
 | P3 | Canonical request selectors are bound to a verified snapshot hash; temporal lineage is loaded mechanically from Parquet; complete operator-delay policies, source windows, input lag, membership as-of, fake-hash rejection, and unbound-proposal publication denial PASS. Reports now bind the exact canonical request, expression, selectors, and decision schedule | Live PIT audit completed and retained `SINGLE_SOURCE_NON_VINTAGE`; evidence bundle `17f3a368...a71f` |
-| P4 | Safe-expression translation to official Qlib syntax, historical-universe resolution, cross-section PIT evidence bundles, provenance-gated immutable SignalArtifact publication/verification, locked cost/research policies, and real `DatasetH`/`LGBModel`/Workflow/Record Template smoke PASS. Two independent real-Qlib synthetic signal builds and two purged ML runs reproduced their content hashes | Two independent live-data pipelines reproduced SignalArtifact `dba57f2a...e51e`; Rank IC/ICIR remain disabled and fail closed until an immutable ResearchResult adapter exists |
+| P4 | Safe-expression translation to official Qlib syntax, historical-universe resolution, cross-section PIT evidence bundles, provenance-gated immutable SignalArtifact publication/verification, locked cost/research policies, and real `DatasetH`/`LGBModel`/Workflow/Record Template smoke PASS. Two independent real-Qlib synthetic signal builds and two purged ML runs reproduced their content hashes | Two independent live-data pipelines reproduced SignalArtifact `dba57f2a...e51e`; the later FR-02 adapter now permits verified Qlib IC/Rank IC evidence without changing this historical P4 result |
 | P5 | Verified SignalArtifact-to-Qlib reference backtest, explicit Exchange/Simulator/Position/order-generator configuration, content-addressed BacktestArtifact, six arithmetic/schedule reconciliations, constraint golden cases, CLI run/verify, and clean-checkout double-run PASS | Two independent live-data pipelines reproduced BacktestArtifact `ec318505...4270` and reconciliation `c01cd819...0d1`; Qlib 0.9.7 blocked-trade evidence limitations remain explicit |
 | P6 | G0-G10 deterministic validation, hard-gate short circuit, frozen OOS access events, complete cost/parameter/subperiod evidence grids, policy-driven soft thresholds, independent-output-root reproducibility comparison, runtime-bound immutable ValidationReport v2, four golden outcomes, and native-Qlib full-pipeline synthetic double-run PASS | Live Validation E2E completed: `SUCCEEDED / REJECT`; G0-G4 and G6-G10 PASS, while G5 soft-rejected annualized turnover `29.5344 > 12` |
 | P7 | Self-hashed experiment manifests, imported OOS event chains, append-only strategy lifecycle, monotonic versions, rebuildable indexes, single-writer atomic publication, CLI, tamper/partial/duplicate/transition gates, and native-Qlib synthetic Release E2E double-run PASS | Live Registry/release double-run completed; engineering release `PASS / data_qualified=true`, rejected strategy immutably retained as `REJECTED` |
@@ -26,6 +26,8 @@ workspace.
 | P11 | Three validated repo Skills; typed proposal/compiler plus dataset/resolve/execution/job/validation/registry mappings; immutable receipts/audit events; bounded durable queue with duplicate/cancel/timeout/restart/failure gates; clean-commit frozen structured-Evidence proposal E2E through two native-Qlib release pipelines PASS with exact authority hashes | Synthetic-only `data_qualified=false`; the E2E uses a code-defined proposal and direct typed facades, not a production stdio/JSON-RPC transport or Agent-generated chain; Agent and reviewer outputs remain proposals and never mutate ValidationReport or Registry verdicts |
 | P12 | Isolated SSE/SZSE collector, count-backed completeness witnesses, raw staging, network-free Evidence publisher, deterministic PDF/text/HTML extraction, availability/license policy, exact-file verification, and full P0-P11 regression PASS. Clean commit `60b8c811...d6f7` reproduced Evidence Store `c55e9ba4...66a7f` byte-for-byte in two independent roots | Bounded official-source acquisition returned SSE 0/0 and SZSE 3/3; all three PDFs extracted successfully. SZSE permission remains `UNKNOWN`, so no announcement has become an admitted EventFeature or market conclusion |
 | P13 | Approved v2 benchmark, read-only Agent extraction, deterministic admission, immutable event artifacts and native-Qlib execution qualified | `SUCCEEDED / PASS`: real Store and admitted Agent proposal replayed on clean commit `46904c2…`; two roots match all principal content hashes. Bundle `c6abe067…d883`. Single announcement with citation-location assistance; no general extraction or profitability claim. See [freeze record](p13-v2-freeze.md) |
+| FR-01 | Existing admitted DSL now passes proposal compiler, resolution, PIT, SignalArtifact, Qlib backtest, and Validation without a project expression runtime; a non-return `field → delta → abs` DAG and negative field/operator cases pass | No new live-data conclusion; existing snapshot/view qualification boundaries remain unchanged |
+| FR-02 | Immutable Qlib ResearchResult adapter binds prediction, label, split, expression, policy, source files, native IC/Rank IC series and summaries; exact-file verification, tamper rejection, independent-root hashes, and G3 integration pass | Only Qlib-native IC/Rank IC outputs are qualified; coverage/turnover/autocorrelation remain outside scope |
 
 P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
 approved Store is materialized locally, and a real Agent proposal passed all six admission checks
@@ -67,7 +69,7 @@ finding.
   `PASS / data_qualified=true`；真实 HS300 Momentum 候选的研究 verdict 为
   `SUCCEEDED / REJECT`，Registry 状态为 `REJECTED`。
 - `Agent-assisted Research v0.2`：P8-P13 已完成批准范围内的验证，P13 v2 双根资格报告已
-  冻结；P14 仍需通过 FR-01/FR-02 入口条件，继续基于已冻结的
+  冻结；FR-01/FR-02 已通过，P14a-P14c 可以开始，继续基于已冻结的
   第一阶段基线与 P12 Evidence Store 实施；
   Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
 
@@ -77,16 +79,19 @@ finding.
 M0 基线冻结 → P8 Agent Boundary & Threat Hardening（完成）
 → P9 Research Semantic Contracts + Campaign Governance + Minimal DSL v2（完成）
 → P10 GPT + Codex Capability Spike（完成）→ P11 Quant Research MCP + Offline Proposal E2E（完成）
-→ P12 Real-world Evidence Acquisition（完成）→ P13 Qualified Event Feature E2E（实施中）
-→ P14 Research Ledger + Bounded Autonomous Research MVP
+→ P12 Real-world Evidence Acquisition（完成）→ P13 Qualified Event Feature E2E（完成）
+→ FR-01/FR-02 P14 hard entry gates（完成）→ P14a-P14c（下一步）
+→ P14d bounded autonomous loop（待 P14a-P14c 通过）
 ```
 
-Parallel factor-research prerequisites before P14:
+Completed factor-research prerequisites for P14:
 
 ```text
 FR-01 propagate the existing admitted DSL through proposal/compiler/resolution/execution
 FR-02 publish and verify a minimal immutable Qlib ResearchResult
 ```
+
+Both gates passed on 2026-09-11; see [`p14-entry-review.md`](reviews/p14-entry-review.md).
 
 P14 is decomposed into ledger/context persistence (P14a), frozen-family enumeration and duplicate
 evidence (P14b), campaign-level statistical selection (P14c), and only then the bounded autonomous
@@ -97,7 +102,7 @@ artifact、修改 Gate verdict 或直接标记 `VALIDATED`。v0.2 将 GPT + Code
 但 P10 必须先通过固定配置、统一 rubric 和硬性 go/no-go gate。确定性验收对象是相同 resolved
 Spec 与冻结输入产生的证据，而不是 Agent 文本的逐字一致。真实公告抽取在形成经过 admission
 policy 的 immutable EventFeatureArtifact 前始终只是 proposal；真实研究结论仍依赖独立的
-Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v13 第 40 节为准。P9 的冻结对象、
+Data-qualified market-data 轨道。详细退出条件以 `PLAN.md` v14 第 40 节为准。P9 的冻结对象、
 authority 分层、campaign 状态机和 DSL v2 运算符语义见
 [`p9-research-semantics.md`](p9-research-semantics.md)。
 

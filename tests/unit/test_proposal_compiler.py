@@ -11,6 +11,7 @@ from quantos.application import (
     ProposalMcpService,
     compile_experiment_proposal,
     proposal_mcp_policy,
+    resolve_experiment,
 )
 from quantos.contracts import (
     CampaignSegment,
@@ -30,6 +31,7 @@ from quantos.contracts import (
     ResearchSegment,
     SafeExpressionNode,
     SafeQlibExpressionSpec,
+    SafeQlibOperator,
     StrategyAuthoringSpec,
     SubmittableProposalKind,
     canonical_json_bytes,
@@ -215,6 +217,111 @@ def test_compiler_rejects_unbound_authority_and_unsupported_execution_inputs(
             agent_run_hashes=runs,
         )
     assert failure.value.reason_code is reason_code
+
+
+def test_non_return_dag_compiles_and_resolves_without_reauthoring() -> None:
+    observation, hypothesis, factor, experiment, campaign, family = _chain()
+    expression = SafeQlibExpressionSpec(
+        schema_version="safe-qlib-expression/v2",
+        expression_id="absolute_delta",
+        nodes=(
+            SafeExpressionNode(node_id="price", operator="field", field_name="adjusted_close"),
+            SafeExpressionNode(node_id="delta", operator="delta", inputs=("price",), window=2),
+            SafeExpressionNode(node_id="output", operator="abs", inputs=("delta",)),
+        ),
+        output_node_id="output",
+    )
+    family = family.model_copy(
+        update={
+            "allowed_operators": (
+                SafeQlibOperator.ABS,
+                SafeQlibOperator.DELTA,
+                SafeQlibOperator.FIELD,
+            )
+        }
+    )
+    factor = factor.model_copy(
+        update={
+            "family_hash": family.content_hash,
+            "factor_template_hash": family.factor_template_hash,
+            "expression": expression,
+        }
+    )
+    experiment = experiment.model_copy(update={"factor_proposal_hash": factor.content_hash})
+    campaign = campaign.model_copy(update={"family_hash": family.content_hash})
+    experiment = experiment.model_copy(update={"campaign_hash": campaign.content_hash})
+
+    compiled = compile_experiment_proposal(
+        observation,
+        hypothesis,
+        factor,
+        experiment,
+        campaign,
+        family,
+        agent_run_hashes=AGENT_RUNS,
+    )
+    resolved = resolve_experiment(
+        compiled.authoring_spec,
+        snapshot_hash=SNAPSHOT,
+        qlib_view_hash=VIEW,
+        qlib_version="0.9.7",
+        qlib_view_spec_hash="a" * 64,
+        pit_audit_evidence_hash="b" * 64,
+        research_policy_hash="c" * 64,
+        validation_policy_hash="d" * 64,
+        cost_policy_hash="e" * 64,
+        backtest_policy_hash="f" * 64,
+        code_commit_hash="1" * 40,
+        lockfile_hash="2" * 64,
+    )
+
+    assert compiled.authoring_spec.expression == expression
+    assert resolved.expression == expression
+
+
+def test_compiler_rejects_operator_outside_family_and_unqualified_field() -> None:
+    observation, hypothesis, factor, experiment, campaign, family = _chain()
+    changed = factor.expression.model_copy(
+        update={
+            "schema_version": "safe-qlib-expression/v2",
+            "nodes": (
+                *factor.expression.nodes,
+                SafeExpressionNode(node_id="absolute", operator="abs", inputs=("momentum_1d",)),
+            ),
+            "output_node_id": "absolute",
+        }
+    )
+    factor = factor.model_copy(update={"expression": changed})
+    experiment = experiment.model_copy(update={"factor_proposal_hash": factor.content_hash})
+    with pytest.raises(ProposalCompilationError, match="outside the frozen research family"):
+        compile_experiment_proposal(
+            observation, hypothesis, factor, experiment, campaign, family,
+            agent_run_hashes=AGENT_RUNS,
+        )
+
+    unknown = SafeQlibExpressionSpec(
+        expression_id="unknown",
+        nodes=(SafeExpressionNode(node_id="unknown", operator="field", field_name="raw_close"),),
+        output_node_id="unknown",
+    )
+    family = family.model_copy(update={"allowed_operators": (SafeQlibOperator.FIELD,)})
+    factor = factor.model_copy(
+        update={
+            "family_hash": family.content_hash,
+            "expression": unknown,
+            "registered_features": (
+                factor.registered_features[0].model_copy(update={"field_name": "raw_close"}),
+            ),
+        }
+    )
+    experiment = experiment.model_copy(update={"factor_proposal_hash": factor.content_hash})
+    campaign = campaign.model_copy(update={"family_hash": family.content_hash})
+    experiment = experiment.model_copy(update={"campaign_hash": campaign.content_hash})
+    with pytest.raises(ProposalCompilationError, match="absent from the qualified Qlib view"):
+        compile_experiment_proposal(
+            observation, hypothesis, factor, experiment, campaign, family,
+            agent_run_hashes=AGENT_RUNS,
+        )
 
 
 def test_compiler_is_offline_and_does_not_promote_validation_authority() -> None:
