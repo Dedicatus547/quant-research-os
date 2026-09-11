@@ -188,11 +188,7 @@ def _authoring_expression(
             ReasonCode.ARTIFACT_CORRUPTED,
             "factor proposal does not bind the frozen family template",
         )
-    fields = {
-        node.field_name
-        for node in nodes
-        if node.operator is SafeQlibOperator.FIELD
-    }
+    fields = {node.field_name for node in nodes if node.operator is SafeQlibOperator.FIELD}
     if fields != {"adjusted_close"}:
         raise ProposalCompilationError(
             ReasonCode.SCHEMA_INVALID,

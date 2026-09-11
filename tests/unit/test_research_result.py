@@ -56,12 +56,8 @@ def _inputs(tmp_path: Path) -> tuple[ResolvedExperimentSpec, ResearchPolicy, Pat
         ],
         names=("instrument", "datetime"),
     )
-    pd.DataFrame({"score": [0.1, 0.2, 0.3, 0.4]}, index=index).to_pickle(
-        native / "pred.pkl"
-    )
-    pd.DataFrame({"LABEL0": [0.2, 0.1, 0.4, 0.3]}, index=index).to_pickle(
-        native / "label.pkl"
-    )
+    pd.DataFrame({"score": [0.1, 0.2, 0.3, 0.4]}, index=index).to_pickle(native / "pred.pkl")
+    pd.DataFrame({"LABEL0": [0.2, 0.1, 0.4, 0.3]}, index=index).to_pickle(native / "label.pkl")
     dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
     pd.Series([0.1, 0.2], index=dates).to_pickle(native / "sig_analysis/ic.pkl")
     pd.Series([0.3, 0.4], index=dates).to_pickle(native / "sig_analysis/ric.pkl")

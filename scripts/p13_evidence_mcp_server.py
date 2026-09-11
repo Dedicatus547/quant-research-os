@@ -46,9 +46,7 @@ def _tool_result(payload: object) -> dict[str, object]:
     }
 
 
-def _response(
-    request: dict[str, Any], service: EvidenceMcpService
-) -> dict[str, object] | None:
+def _response(request: dict[str, Any], service: EvidenceMcpService) -> dict[str, object] | None:
     request_id = request.get("id")
     if request_id is None:
         return None

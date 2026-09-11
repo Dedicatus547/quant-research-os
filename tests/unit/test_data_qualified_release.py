@@ -375,9 +375,7 @@ def test_data_qualified_helpers_preserve_a_single_window_generic_dag() -> None:
                 inputs=("price",),
                 window=2,
             ),
-            SafeExpressionNode(
-                node_id="output", operator=SafeQlibOperator.ABS, inputs=("delta",)
-            ),
+            SafeExpressionNode(node_id="output", operator=SafeQlibOperator.ABS, inputs=("delta",)),
         ),
         output_node_id="output",
     )

@@ -31,9 +31,7 @@ class ResearchResultMetric(CanonicalContract):
 
 
 class ResearchResultSourceFile(CanonicalContract):
-    schema_version: Literal["research-result-source-file/v1"] = (
-        "research-result-source-file/v1"
-    )
+    schema_version: Literal["research-result-source-file/v1"] = "research-result-source-file/v1"
     logical_path: Literal[
         "label.pkl", "metrics.json", "pred.pkl", "sig_analysis/ic.pkl", "sig_analysis/ric.pkl"
     ]
@@ -42,9 +40,7 @@ class ResearchResultSourceFile(CanonicalContract):
 
 
 class ResearchResultArtifactFile(CanonicalContract):
-    schema_version: Literal["research-result-artifact-file/v1"] = (
-        "research-result-artifact-file/v1"
-    )
+    schema_version: Literal["research-result-artifact-file/v1"] = "research-result-artifact-file/v1"
     logical_path: str = Field(min_length=1)
     sha256: str = Field(pattern=SHA256_PATTERN)
     size_bytes: NonNegativeInt

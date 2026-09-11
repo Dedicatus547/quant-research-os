@@ -52,12 +52,8 @@ def test_native_sigana_outputs_flow_into_immutable_adapter(
     (native / "sig_analysis").mkdir(parents=True)
     prediction.to_pickle(native / "pred.pkl")
     label.to_pickle(native / "label.pkl")
-    cast("pd.Series[Any]", native_objects["ic.pkl"]).to_pickle(
-        native / "sig_analysis/ic.pkl"
-    )
-    cast("pd.Series[Any]", native_objects["ric.pkl"]).to_pickle(
-        native / "sig_analysis/ric.pkl"
-    )
+    cast("pd.Series[Any]", native_objects["ic.pkl"]).to_pickle(native / "sig_analysis/ic.pkl")
+    cast("pd.Series[Any]", native_objects["ric.pkl"]).to_pickle(native / "sig_analysis/ric.pkl")
     (native / "metrics.json").write_bytes(canonical_json_bytes(recorder.metrics))
 
     authoring = load_yaml_contract(

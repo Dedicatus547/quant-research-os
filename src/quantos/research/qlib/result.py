@@ -103,9 +103,7 @@ def _series_rows(value: object, *, name: str) -> tuple[ResearchResultSeriesRow, 
     rows = tuple(
         sorted(
             (
-                ResearchResultSeriesRow(
-                    trade_date=_trade_date(index), value=float(raw_value)
-                )
+                ResearchResultSeriesRow(trade_date=_trade_date(index), value=float(raw_value))
                 for index, raw_value in series.items()
             ),
             key=lambda item: item.trade_date,
@@ -179,8 +177,7 @@ def verify_research_result(path: Path) -> ResearchResultManifest:
             or resolved.qlib_view_hash != manifest.qlib_view_hash
             or resolved.qlib_version != manifest.qlib_version
             or policy.content_hash != manifest.research_policy_hash
-            or policy.label_horizon_trading_sessions
-            != manifest.label_horizon_trading_sessions
+            or policy.label_horizon_trading_sessions != manifest.label_horizon_trading_sessions
             or len(predictions) != manifest.prediction_row_count
             or len(labels) != manifest.label_row_count
             or len(ic) != manifest.ic_row_count

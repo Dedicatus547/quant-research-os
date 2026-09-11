@@ -104,9 +104,7 @@ def _synthetic_inputs(
         event_time=evidence.published_at,
         citations=(citation,),
     )
-    policy = EventFeatureAdmissionPolicySpec(
-        policy_id="p13-event-native-qlib/v1", cases=(case,)
-    )
+    policy = EventFeatureAdmissionPolicySpec(policy_id="p13-event-native-qlib/v1", cases=(case,))
     return evidence, extracted, proposal, FrozenEventFeatureAdmissionPolicy(policy)
 
 

@@ -295,7 +295,12 @@ def test_compiler_rejects_operator_outside_family_and_unqualified_field() -> Non
     experiment = experiment.model_copy(update={"factor_proposal_hash": factor.content_hash})
     with pytest.raises(ProposalCompilationError, match="outside the frozen research family"):
         compile_experiment_proposal(
-            observation, hypothesis, factor, experiment, campaign, family,
+            observation,
+            hypothesis,
+            factor,
+            experiment,
+            campaign,
+            family,
             agent_run_hashes=AGENT_RUNS,
         )
 
@@ -319,7 +324,12 @@ def test_compiler_rejects_operator_outside_family_and_unqualified_field() -> Non
     experiment = experiment.model_copy(update={"campaign_hash": campaign.content_hash})
     with pytest.raises(ProposalCompilationError, match="absent from the qualified Qlib view"):
         compile_experiment_proposal(
-            observation, hypothesis, factor, experiment, campaign, family,
+            observation,
+            hypothesis,
+            factor,
+            experiment,
+            campaign,
+            family,
             agent_run_hashes=AGENT_RUNS,
         )
 

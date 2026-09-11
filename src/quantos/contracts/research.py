@@ -71,8 +71,7 @@ class ExperimentAuthoringSpec(CanonicalContract):
             raise ValueError("evaluation_start cannot be after evaluation_end")
         if (
             isinstance(self.expression, SafeQlibExpressionSpec)
-            and self.expression.input_lag_trading_days
-            != self.strategy.input_lag_trading_days
+            and self.expression.input_lag_trading_days != self.strategy.input_lag_trading_days
         ):
             raise ValueError("expression and strategy input lag must match")
         return self
