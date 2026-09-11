@@ -65,10 +65,12 @@ class ResearchLedgerObjectRef(CanonicalContract):
 
     @model_validator(mode="after")
     def access_matches_campaign(self) -> Self:
+        if self.access is LedgerObjectAccess.PUBLIC_HISTORY and self.campaign_hash is not None:
+            raise ValueError("public ledger objects cannot bind a campaign")
         if self.access is not LedgerObjectAccess.PUBLIC_HISTORY and self.campaign_hash is None:
             raise ValueError("campaign and sealed ledger objects must bind a campaign")
-        if self.access is LedgerObjectAccess.PUBLIC_HISTORY and self.contamination_hashes:
-            raise ValueError("public ledger objects cannot carry sealed contamination")
+        if self.access is not LedgerObjectAccess.SEALED_CONFIRMATION and self.contamination_hashes:
+            raise ValueError("only sealed ledger objects can carry contamination")
         if self.access is LedgerObjectAccess.SEALED_CONFIRMATION and not self.contamination_hashes:
             raise ValueError("sealed ledger objects must carry contamination")
         return self
@@ -352,9 +354,14 @@ class ResearchLedgerSearchPolicy(CanonicalContract):
     allowed_node_kinds: tuple[ResearchLedgerNodeKind, ...]
     allowed_authorities: tuple[LedgerAssertionAuthority, ...]
     allow_cross_campaign_history: bool
+    max_query_bytes: PositiveInt
     max_query_terms: PositiveInt
+    max_hit_bytes: PositiveInt
     max_results: PositiveInt
     max_serialized_bytes: PositiveInt
+    max_index_entries: PositiveInt
+    max_terms_per_object: PositiveInt
+    max_index_serialized_bytes: PositiveInt
 
     @field_validator("allowed_node_kinds", "allowed_authorities")
     @classmethod
@@ -362,6 +369,14 @@ class ResearchLedgerSearchPolicy(CanonicalContract):
         if not value or value != tuple(sorted(set(value), key=str)):
             raise ValueError("ledger search allowlists must be nonempty, sorted, and unique")
         return value
+
+    @model_validator(mode="after")
+    def resource_limits_are_consistent(self) -> Self:
+        if self.max_hit_bytes > self.max_serialized_bytes:
+            raise ValueError("ledger search hit limit cannot exceed response limit")
+        if self.max_results > self.max_index_entries:
+            raise ValueError("ledger result count cannot exceed index entry limit")
+        return self
 
 
 class ResearchLedgerTermFrequency(CanonicalContract):

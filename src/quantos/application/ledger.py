@@ -7,7 +7,7 @@ import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Never
+from typing import Never, TypeVar
 from uuid import UUID, uuid5
 
 from quantos.artifacts.store import (
@@ -19,7 +19,7 @@ from quantos.artifacts.store import (
     sha256_file,
 )
 from quantos.contracts.agent import AgentRole, AgentRunManifest, AgentRunSpec
-from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.ledger import (
     LedgerAssertionAuthority,
     LedgerObjectAccess,
@@ -45,6 +45,7 @@ from quantos.contracts.status import ReasonCode
 
 _EVENT_NAMESPACE = UUID("90c2ea0f-42ee-5bda-abe5-847833e42720")
 _TOKEN = re.compile(r"[a-z0-9_]+|[\u3400-\u9fff]")
+C = TypeVar("C", bound=CanonicalContract)
 
 
 class ResearchLedgerError(RuntimeError):
@@ -69,9 +70,19 @@ def _aware(value: datetime) -> datetime:
     return value
 
 
+def _validated(value: C, *, label: str) -> C:
+    """Revalidate even model instances so unchecked model_copy updates cannot cross the boundary."""
+
+    try:
+        return type(value).model_validate(value.model_dump(mode="python"))
+    except ValueError as error:
+        raise ResearchLedgerError(ReasonCode.SCHEMA_INVALID, f"{label} is invalid") from error
+
+
 def bind_context_pack(pack: ResearchContextPack) -> ResearchContextAgentBinding:
     """Create the exact hash bridge that a P14 AgentRun must carry as input."""
 
+    pack = _validated(pack, label="ContextPack")
     return ResearchContextAgentBinding(
         campaign_hash=pack.campaign_hash,
         context_pack_hash=pack.content_hash,
@@ -118,7 +129,20 @@ def build_context_bound_agent_run_spec(
     """Construct a P14 AgentRunSpec with the ContextPack and all of its authority bindings."""
 
     binding = bind_context_pack(pack)
-    inputs = tuple(sorted({*_required_context_hashes(pack, binding), *additional_input_hashes}))
+    inputs = tuple(
+        sorted(
+            {
+                *_required_context_hashes(pack, binding),
+                *additional_input_hashes,
+                *evidence_hashes,
+                *instruction_hashes,
+                capability_policy_hash,
+                requested_model_configuration_hash,
+                skill_hash,
+                tool_schema_hash,
+            }
+        )
+    )
     spec = AgentRunSpec(
         run_id=run_id,
         role=role,
@@ -144,6 +168,9 @@ def verify_context_bound_agent_run_spec(
 ) -> None:
     """Fail closed if an AgentRunSpec can execute without its selected ContextPack authority."""
 
+    spec = _validated(spec, label="AgentRunSpec")
+    binding = _validated(binding, label="Agent context binding")
+    pack = _validated(pack, label="ContextPack")
     if binding != bind_context_pack(pack):
         _raise(ReasonCode.ARTIFACT_CORRUPTED, "Agent context binding does not match ContextPack")
     if (
@@ -163,9 +190,18 @@ def verify_context_bound_agent_manifest(
 ) -> None:
     """Verify the retained AgentRun evidence still carries the exact ContextPack binding."""
 
+    manifest = _validated(manifest, label="AgentRunManifest")
+    spec = _validated(spec, label="AgentRunSpec")
+    binding = _validated(binding, label="Agent context binding")
+    pack = _validated(pack, label="ContextPack")
     verify_context_bound_agent_run_spec(spec=spec, binding=binding, pack=pack)
-    if manifest.run_spec_hash != spec.content_hash or not set(spec.input_artifact_hashes).issubset(
-        manifest.input_hashes
+    if (
+        manifest.run_spec_hash != spec.content_hash
+        or manifest.model_configuration_hash != spec.requested_model_configuration_hash
+        or manifest.tool_schema_hash != spec.tool_schema_hash
+        or manifest.instruction_hashes != spec.instruction_hashes
+        or manifest.skill_hash != spec.skill_hash
+        or manifest.input_hashes != spec.input_artifact_hashes
     ):
         _raise(ReasonCode.ARTIFACT_CORRUPTED, "AgentRunManifest lost its ContextPack binding")
 
@@ -261,6 +297,7 @@ class ResearchLedgerService:
         """Append one deterministic event; an exact retry returns the existing event."""
 
         _aware(occurred_at)
+        object_ref = _validated(object_ref, label="ledger object reference")
         self._validate_object_bytes(object_ref, object_bytes)
         event_id = self._event_identity(
             ledger_id=ledger_id,
@@ -284,8 +321,15 @@ class ResearchLedgerService:
             if chain and occurred_at < chain[-1].occurred_at:
                 _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger event time moved backwards")
             known_objects = {item.object_ref.object_hash for item in chain}
+            known_object_refs = {item.object_ref.object_hash: item.object_ref for item in chain}
             if not set(parent_object_hashes).issubset(known_objects):
                 _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger event parent is not in the chain")
+            prior_object_ref = known_object_refs.get(object_ref.object_hash)
+            if prior_object_ref is not None and prior_object_ref != object_ref:
+                _raise(
+                    ReasonCode.DUPLICATE_ID_CONFLICT,
+                    "ledger object hash cannot change its access binding",
+                )
             same_node = [item for item in chain if item.node_id == node_id]
             if same_node:
                 _raise(ReasonCode.DUPLICATE_ID_CONFLICT, "ledger node_id is already bound")
@@ -364,6 +408,7 @@ class ResearchLedgerService:
         for ledger_id, events in groups.items():
             chain = tuple(sorted(events, key=lambda item: item.sequence))
             known_objects: set[str] = set()
+            known_object_refs: dict[str, ResearchLedgerObjectRef] = {}
             known_nodes: dict[str, ResearchLedgerObjectRef] = {}
             previous: ResearchLedgerEventV2 | None = None
             for expected_sequence, event in enumerate(chain, 1):
@@ -372,17 +417,35 @@ class ResearchLedgerService:
                 expected_previous = previous.content_hash if previous is not None else None
                 if event.previous_event_hash != expected_previous:
                     _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger predecessor hash is invalid")
+                expected_event_id = self._event_identity(
+                    ledger_id=event.ledger_id,
+                    node_id=event.node_id,
+                    node_kind=event.node_kind,
+                    object_ref=event.object_ref,
+                    authority=event.authority,
+                    parent_object_hashes=event.parent_object_hashes,
+                    agent_run_hash=event.agent_run_hash,
+                    human_review_evidence_hash=event.human_review_evidence_hash,
+                    verdict_report_hash=event.verdict_report_hash,
+                    occurred_at=event.occurred_at,
+                )
+                if event.event_id != expected_event_id:
+                    _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger event UUID is not deterministic")
                 if previous is not None and event.occurred_at < previous.occurred_at:
                     _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger event time moved backwards")
                 if not set(event.parent_object_hashes).issubset(known_objects):
                     _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger parent is missing or forward")
-                prior_ref = known_nodes.get(event.node_id)
-                if prior_ref is not None and prior_ref != event.object_ref:
+                if event.node_id in known_nodes:
+                    _raise(ReasonCode.DUPLICATE_ID_CONFLICT, "ledger node_id is duplicated")
+                prior_object_ref = known_object_refs.get(event.object_ref.object_hash)
+                if prior_object_ref is not None and prior_object_ref != event.object_ref:
                     _raise(
-                        ReasonCode.DUPLICATE_ID_CONFLICT, "ledger node_id has conflicting objects"
+                        ReasonCode.DUPLICATE_ID_CONFLICT,
+                        "ledger object hash has conflicting access bindings",
                     )
                 self._read_object(event.object_ref)
                 known_objects.add(event.object_ref.object_hash)
+                known_object_refs[event.object_ref.object_hash] = event.object_ref
                 known_nodes[event.node_id] = event.object_ref
                 previous = event
             verified[ledger_id] = chain
@@ -423,6 +486,10 @@ class ResearchLedgerService:
 
         _aware(created_at)
         chain = self._load_and_verify().get(ledger_id, ())
+        if not chain:
+            _raise(ReasonCode.SOURCE_INCOMPLETE, "ledger does not contain the requested chain")
+        if created_at < chain[-1].occurred_at:
+            _raise(ReasonCode.EVENT_CHAIN_INVALID, "ledger snapshot predates its chain head")
         return ResearchLedgerSnapshot(
             ledger_id=ledger_id,
             source_event_hashes=tuple(item.content_hash for item in chain),
@@ -436,20 +503,30 @@ class ResearchLedgerService:
         snapshot: ResearchLedgerSnapshot,
         policy: ResearchLedgerSearchPolicy,
     ) -> ResearchLedgerIndex:
+        snapshot = _validated(snapshot, label="ledger snapshot")
+        policy = _validated(policy, label="ledger search policy")
         rebuilt = self.verify(snapshot.ledger_id, created_at=snapshot.created_at)
         if rebuilt.content_hash != snapshot.content_hash or (
             rebuilt.source_event_hashes != snapshot.source_event_hashes
         ):
             _raise(ReasonCode.ARTIFACT_CORRUPTED, "ledger snapshot does not match authority")
         chain = self._load_and_verify().get(snapshot.ledger_id, ())
+        eligible = tuple(
+            event
+            for event in chain
+            if event.node_kind in policy.allowed_node_kinds
+            and event.authority in policy.allowed_authorities
+        )
+        if len(eligible) > policy.max_index_entries:
+            _raise(ReasonCode.RESOURCE_BUDGET_EXCEEDED, "ledger index entry budget exceeded")
         entries: list[ResearchLedgerIndexEntry] = []
-        for event in chain:
-            if (
-                event.node_kind not in policy.allowed_node_kinds
-                or event.authority not in policy.allowed_authorities
-            ):
-                continue
-            frequencies = Counter(_tokens(self._read_object(event.object_ref).decode("utf-8")))
+        for event in eligible:
+            encoded = self._read_object(event.object_ref)
+            if len(encoded) > policy.max_hit_bytes:
+                _raise(ReasonCode.RESOURCE_BUDGET_EXCEEDED, "ledger object byte budget exceeded")
+            frequencies = Counter(_tokens(encoded.decode("utf-8")))
+            if len(frequencies) > policy.max_terms_per_object:
+                _raise(ReasonCode.RESOURCE_BUDGET_EXCEEDED, "ledger object term budget exceeded")
             entries.append(
                 ResearchLedgerIndexEntry(
                     event_hash=event.content_hash,
@@ -464,12 +541,15 @@ class ResearchLedgerService:
                     ),
                 )
             )
-        return ResearchLedgerIndex(
+        index = ResearchLedgerIndex(
             ledger_snapshot_hash=snapshot.content_hash,
             search_policy_hash=policy.content_hash,
             source_event_hashes=snapshot.source_event_hashes,
             entries=tuple(entries),
         )
+        if len(index.canonical_bytes()) > policy.max_index_serialized_bytes:
+            _raise(ReasonCode.RESOURCE_BUDGET_EXCEEDED, "ledger index byte budget exceeded")
+        return index
 
     @staticmethod
     def _publish_derived(
@@ -544,6 +624,11 @@ class ResearchLedgerService:
         if reference.access is LedgerObjectAccess.SEALED_CONFIRMATION:
             return bool(
                 reference.object_hash in scope.authorized_sealed_object_hashes
+                and reference.campaign_hash in scope.readable_campaign_hashes
+                and (
+                    reference.campaign_hash == scope.campaign_hash
+                    or policy.allow_cross_campaign_history
+                )
                 and set(reference.contamination_hashes).issubset(
                     scope.inherited_contamination_hashes
                 )
@@ -563,6 +648,10 @@ class ResearchLedgerService:
         scope: ResearchLedgerAccessScope,
         request: ResearchLedgerSearchRequest,
     ) -> ResearchLedgerSearchResult:
+        snapshot = _validated(snapshot, label="ledger snapshot")
+        policy = _validated(policy, label="ledger search policy")
+        scope = _validated(scope, label="ledger access scope")
+        request = _validated(request, label="ledger search request")
         if (
             request.campaign_hash != scope.campaign_hash
             or request.ledger_snapshot_hash != snapshot.content_hash
@@ -571,6 +660,8 @@ class ResearchLedgerService:
             or request.access_scope_hash != scope.content_hash
         ):
             _raise(ReasonCode.ARTIFACT_CORRUPTED, "ledger search bindings disagree")
+        if len(request.query.encode("utf-8")) > policy.max_query_bytes:
+            _raise(ReasonCode.RESOURCE_BUDGET_EXCEEDED, "ledger query byte budget exceeded")
         query_terms = tuple(sorted(set(_tokens(request.query))))
         if not query_terms:
             _raise(ReasonCode.SCHEMA_INVALID, "ledger query has no searchable terms")
@@ -585,6 +676,8 @@ class ResearchLedgerService:
             score = sum(frequencies.get(term, 0) for term in query_terms)
             if score:
                 content = self._read_object(entry.object_ref).decode("utf-8")
+                if len(content.encode("utf-8")) > policy.max_hit_bytes:
+                    _raise(ReasonCode.RESOURCE_BUDGET_EXCEEDED, "ledger hit byte budget exceeded")
                 hits.append(
                     ResearchLedgerSearchHit(
                         event_hash=entry.event_hash,
@@ -628,6 +721,8 @@ class ResearchLedgerService:
         result: ResearchLedgerSearchResult,
         budget: ResearchContextBudgetPolicy,
     ) -> ResearchContextPack:
+        result = _validated(result, label="ledger search result")
+        budget = _validated(budget, label="context budget policy")
         expected = self.search(snapshot=snapshot, policy=policy, scope=scope, request=request)
         if result != expected:
             _raise(ReasonCode.ARTIFACT_CORRUPTED, "ledger search result is not reproducible")

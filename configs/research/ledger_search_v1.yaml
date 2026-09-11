@@ -22,6 +22,11 @@ allowed_authorities:
   - HUMAN_REVIEWED
   - SOURCE_ASSERTION
 allow_cross_campaign_history: true
+max_query_bytes: 4096
 max_query_terms: 32
+max_hit_bytes: 65536
 max_results: 50
 max_serialized_bytes: 262144
+max_index_entries: 10000
+max_terms_per_object: 4096
+max_index_serialized_bytes: 16777216

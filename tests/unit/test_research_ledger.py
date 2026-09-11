@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -20,6 +21,7 @@ from quantos.contracts import (
     ReasonCode,
     ResearchContextBudgetPolicy,
     ResearchLedgerAccessScope,
+    ResearchLedgerEventV2,
     ResearchLedgerNodeKind,
     ResearchLedgerObjectRef,
     ResearchLedgerSearchPolicy,
@@ -34,6 +36,7 @@ HISTORICAL_CAMPAIGN = "2" * 64
 AGENT_RUN = "3" * 64
 CONTAMINATION = "4" * 64
 NOW = datetime(2026, 9, 11, 10, tzinfo=UTC)
+SNAPSHOT_AT = NOW + timedelta(seconds=3)
 ROOT = Path(__file__).parents[2]
 
 
@@ -64,9 +67,14 @@ def _policy(*, cross_campaign: bool = True, max_bytes: int = 20_000):
         allowed_node_kinds=tuple(sorted(ResearchLedgerNodeKind, key=str)),
         allowed_authorities=tuple(sorted(LedgerAssertionAuthority, key=str)),
         allow_cross_campaign_history=cross_campaign,
+        max_query_bytes=1_000,
         max_query_terms=8,
+        max_hit_bytes=min(1_000, max_bytes),
         max_results=10,
         max_serialized_bytes=max_bytes,
+        max_index_entries=100,
+        max_terms_per_object=100,
+        max_index_serialized_bytes=100_000,
     )
 
 
@@ -137,6 +145,15 @@ def test_frozen_ledger_policies_are_bounded_and_complete() -> None:
     assert set(search.allowed_node_kinds) == set(ResearchLedgerNodeKind)
     assert set(search.allowed_authorities) == set(LedgerAssertionAuthority)
     assert search.max_serialized_bytes == context.max_serialized_bytes == 262_144
+    assert search.max_hit_bytes == context.max_item_bytes == 65_536
+    with pytest.raises(ValueError, match="hit limit"):
+        ResearchLedgerSearchPolicy.model_validate(
+            {**search.model_dump(mode="python"), "max_hit_bytes": 262_145}
+        )
+    with pytest.raises(ValueError, match="result count"):
+        ResearchLedgerSearchPolicy.model_validate(
+            {**search.model_dump(mode="python"), "max_index_entries": 1}
+        )
 
 
 def test_append_is_idempotent_and_rebuilds_identically_across_roots(tmp_path: Path) -> None:
@@ -150,7 +167,7 @@ def test_append_is_idempotent_and_rebuilds_identically_across_roots(tmp_path: Pa
     assert right_events == left_events
     assert duplicate_refs[0].object_hash == left_events[0].object_ref.object_hash
 
-    left_snapshot = left.verify("research-ledger", created_at=NOW)
+    left_snapshot = left.verify("research-ledger", created_at=SNAPSHOT_AT)
     right_snapshot = right.verify("research-ledger", created_at=NOW + timedelta(days=1))
     assert left_snapshot.content_hash == right_snapshot.content_hash
     assert left_snapshot.source_event_hashes == tuple(item.content_hash for item in left_events)
@@ -160,7 +177,7 @@ def test_append_is_idempotent_and_rebuilds_identically_across_roots(tmp_path: Pa
 def test_search_is_snapshot_bound_cross_campaign_and_sealed_safe(tmp_path: Path) -> None:
     service = ResearchLedgerService(tmp_path / "ledger")
     _, (_, historical, sealed) = _append_fixture(service)
-    snapshot = service.verify("research-ledger", created_at=NOW)
+    snapshot = service.verify("research-ledger", created_at=SNAPSHOT_AT)
     policy = _policy()
     scope = ResearchLedgerAccessScope(
         campaign_hash=CAMPAIGN,
@@ -218,12 +235,37 @@ def test_search_is_snapshot_bound_cross_campaign_and_sealed_safe(tmp_path: Path)
         request=local_request,
     )
     assert historical.object_hash not in {hit.object_ref.object_hash for hit in local_result.hits}
+    local_sealed_request = _request(
+        snapshot.content_hash, local_policy.content_hash, sealed_scope.content_hash
+    )
+    local_sealed_result = service.search(
+        snapshot=snapshot,
+        policy=local_policy,
+        scope=sealed_scope,
+        request=local_sealed_request,
+    )
+    assert sealed.object_hash not in {
+        hit.object_ref.object_hash for hit in local_sealed_result.hits
+    }
+
+    unchecked_scope = scope.model_copy(update={"readable_campaign_hashes": ()})
+    unchecked_request = _request(
+        snapshot.content_hash, policy.content_hash, unchecked_scope.content_hash
+    )
+    with pytest.raises(ResearchLedgerError) as invalid_scope:
+        service.search(
+            snapshot=snapshot,
+            policy=policy,
+            scope=unchecked_scope,
+            request=unchecked_request,
+        )
+    assert invalid_scope.value.reason_code is ReasonCode.SCHEMA_INVALID
 
 
 def test_context_pack_is_reproducible_and_fails_closed_on_budget(tmp_path: Path) -> None:
     service = ResearchLedgerService(tmp_path / "ledger")
     _append_fixture(service)
-    snapshot = service.verify("research-ledger", created_at=NOW)
+    snapshot = service.verify("research-ledger", created_at=SNAPSHOT_AT)
     policy = _policy()
     scope = ResearchLedgerAccessScope(
         campaign_hash=CAMPAIGN,
@@ -312,7 +354,7 @@ def test_context_pack_is_reproducible_and_fails_closed_on_budget(tmp_path: Path)
 def test_index_artifact_is_content_addressed_and_rebuildable(tmp_path: Path) -> None:
     service = ResearchLedgerService(tmp_path / "ledger")
     _append_fixture(service)
-    snapshot = service.verify("research-ledger", created_at=NOW)
+    snapshot = service.verify("research-ledger", created_at=SNAPSHOT_AT)
     policy = _policy()
 
     index, reference = service.publish_index(snapshot, policy, tmp_path / "derived")
@@ -360,7 +402,7 @@ def test_ledger_rejects_forward_parents_conflicts_and_tampering(tmp_path: Path) 
     event_path = next((tmp_path / "ledger/events/research-ledger").glob("*.json"))
     event_path.write_bytes(event_path.read_bytes() + b" ")
     with pytest.raises(ResearchLedgerError) as tampered:
-        service.verify("research-ledger", created_at=NOW)
+        service.verify("research-ledger", created_at=SNAPSHOT_AT)
     assert tampered.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
 
 
@@ -385,7 +427,7 @@ def test_ledger_rejects_noncanonical_objects_and_mismatched_bindings(tmp_path: P
         )
     assert invalid.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
 
-    with pytest.raises(ValueError, match="public ledger objects cannot"):
+    with pytest.raises(ValueError, match="only sealed ledger objects"):
         ResearchLedgerObjectRef(
             object_hash="a" * 64,
             media_type="application/json",
@@ -393,9 +435,26 @@ def test_ledger_rejects_noncanonical_objects_and_mismatched_bindings(tmp_path: P
             access=LedgerObjectAccess.PUBLIC_HISTORY,
             contamination_hashes=(CONTAMINATION,),
         )
+    with pytest.raises(ValueError, match="public ledger objects cannot bind"):
+        ResearchLedgerObjectRef(
+            object_hash="a" * 64,
+            media_type="application/json",
+            source_domain="quantos-contracts",
+            access=LedgerObjectAccess.PUBLIC_HISTORY,
+            campaign_hash=CAMPAIGN,
+        )
+    with pytest.raises(ValueError, match="only sealed ledger objects"):
+        ResearchLedgerObjectRef(
+            object_hash="a" * 64,
+            media_type="application/json",
+            source_domain="quantos-contracts",
+            access=LedgerObjectAccess.CAMPAIGN_INTERNAL,
+            campaign_hash=CAMPAIGN,
+            contamination_hashes=(CONTAMINATION,),
+        )
 
     _append_fixture(service)
-    snapshot = service.verify("research-ledger", created_at=NOW)
+    snapshot = service.verify("research-ledger", created_at=SNAPSHOT_AT)
     policy = _policy()
     scope = ResearchLedgerAccessScope(
         campaign_hash=CAMPAIGN,
@@ -463,14 +522,14 @@ def test_ledger_rejects_invalid_time_authority_and_unsafe_tree(tmp_path: Path) -
     unsafe = tmp_path / "unsafe"
     unsafe.write_text("not a directory", encoding="utf-8")
     with pytest.raises(ResearchLedgerError) as root:
-        ResearchLedgerService(unsafe).verify("research-ledger", created_at=NOW)
+        ResearchLedgerService(unsafe).verify("research-ledger", created_at=SNAPSHOT_AT)
     assert root.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
 
     unexpected = tmp_path / "unexpected"
     unexpected.mkdir()
     (unexpected / "extra.json").write_text("{}", encoding="utf-8")
     with pytest.raises(ResearchLedgerError) as tree:
-        ResearchLedgerService(unexpected).verify("research-ledger", created_at=NOW)
+        ResearchLedgerService(unexpected).verify("research-ledger", created_at=SNAPSHOT_AT)
     assert tree.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
 
 
@@ -480,12 +539,12 @@ def test_ledger_rejects_missing_objects_and_stale_snapshots(tmp_path: Path) -> N
     object_path = next((tmp_path / "missing/objects").glob("*/*.json"))
     object_path.unlink()
     with pytest.raises(ResearchLedgerError) as missing:
-        missing_service.verify("research-ledger", created_at=NOW)
+        missing_service.verify("research-ledger", created_at=SNAPSHOT_AT)
     assert missing.value.reason_code is ReasonCode.SOURCE_INCOMPLETE
 
     stale_service = ResearchLedgerService(tmp_path / "stale")
     _append_fixture(stale_service)
-    snapshot = stale_service.verify("research-ledger", created_at=NOW)
+    snapshot = stale_service.verify("research-ledger", created_at=SNAPSHOT_AT)
     extra, extra_bytes = _object({"title": "later beta"})
     stale_service.append(
         ledger_id="research-ledger",
@@ -501,10 +560,137 @@ def test_ledger_rejects_missing_objects_and_stale_snapshots(tmp_path: Path) -> N
     assert stale.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
 
 
+def test_ledger_rejects_unknown_or_time_reversed_snapshots(tmp_path: Path) -> None:
+    service = ResearchLedgerService(tmp_path / "ledger")
+    _append_fixture(service)
+
+    with pytest.raises(ResearchLedgerError) as unknown:
+        service.verify("unknown-ledger", created_at=SNAPSHOT_AT)
+    assert unknown.value.reason_code is ReasonCode.SOURCE_INCOMPLETE
+
+    with pytest.raises(ResearchLedgerError) as reversed_time:
+        service.verify("research-ledger", created_at=NOW)
+    assert reversed_time.value.reason_code is ReasonCode.EVENT_CHAIN_INVALID
+
+
+def test_ledger_recomputes_event_ids_and_rejects_duplicate_nodes(tmp_path: Path) -> None:
+    event_root = tmp_path / "event-id-ledger"
+    service = ResearchLedgerService(event_root)
+    reference, encoded = _object({"title": "alpha"})
+    first = service.append(
+        ledger_id="research-ledger",
+        node_id="evidence-1",
+        node_kind=ResearchLedgerNodeKind.EVIDENCE,
+        object_ref=reference,
+        object_bytes=encoded,
+        authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+        occurred_at=NOW,
+    )
+    original_path = next((event_root / "events/research-ledger").glob("*.json"))
+    arbitrary_id = UUID("00000000-0000-0000-0000-000000000001")
+    tampered = first.model_copy(update={"event_id": arbitrary_id})
+    original_path.unlink()
+    tampered_path = original_path.parent / f"{first.sequence:020d}-{arbitrary_id}.json"
+    tampered_path.write_bytes(tampered.canonical_bytes())
+    with pytest.raises(ResearchLedgerError) as invalid_id:
+        service.verify("research-ledger", created_at=SNAPSHOT_AT)
+    assert invalid_id.value.reason_code is ReasonCode.EVENT_CHAIN_INVALID
+
+    duplicate_root = tmp_path / "duplicate-node-ledger"
+    duplicate_service = ResearchLedgerService(duplicate_root)
+    first = duplicate_service.append(
+        ledger_id="research-ledger",
+        node_id="evidence-1",
+        node_kind=ResearchLedgerNodeKind.EVIDENCE,
+        object_ref=reference,
+        object_bytes=encoded,
+        authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+        occurred_at=NOW,
+    )
+    occurred_at = NOW + timedelta(seconds=1)
+    duplicate_id = duplicate_service._event_identity(
+        ledger_id="research-ledger",
+        node_id="evidence-1",
+        node_kind=ResearchLedgerNodeKind.EVIDENCE,
+        object_ref=reference,
+        authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+        parent_object_hashes=(),
+        agent_run_hash=None,
+        human_review_evidence_hash=None,
+        verdict_report_hash=None,
+        occurred_at=occurred_at,
+    )
+    duplicate = ResearchLedgerEventV2(
+        event_id=duplicate_id,
+        ledger_id="research-ledger",
+        sequence=2,
+        node_id="evidence-1",
+        node_kind=ResearchLedgerNodeKind.EVIDENCE,
+        object_ref=reference,
+        authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+        occurred_at=occurred_at,
+        previous_event_hash=first.content_hash,
+    )
+    duplicate_path = (
+        duplicate_root
+        / "events/research-ledger"
+        / f"{duplicate.sequence:020d}-{duplicate.event_id}.json"
+    )
+    duplicate_path.write_bytes(duplicate.canonical_bytes())
+    with pytest.raises(ResearchLedgerError) as duplicate_node:
+        duplicate_service.verify("research-ledger", created_at=SNAPSHOT_AT)
+    assert duplicate_node.value.reason_code is ReasonCode.DUPLICATE_ID_CONFLICT
+
+
+def test_object_hash_cannot_change_access_binding(tmp_path: Path) -> None:
+    service = ResearchLedgerService(tmp_path / "ledger")
+    internal, encoded = _object(
+        {"title": "private alpha"},
+        access=LedgerObjectAccess.CAMPAIGN_INTERNAL,
+        campaign_hash=CAMPAIGN,
+    )
+    service.append(
+        ledger_id="research-ledger",
+        node_id="result-1",
+        node_kind=ResearchLedgerNodeKind.RESEARCH_RESULT,
+        object_ref=internal,
+        object_bytes=encoded,
+        authority=LedgerAssertionAuthority.DETERMINISTIC_EVIDENCE,
+        occurred_at=NOW,
+    )
+    public = internal.model_copy(
+        update={"access": LedgerObjectAccess.PUBLIC_HISTORY, "campaign_hash": None}
+    )
+    with pytest.raises(ResearchLedgerError) as relabeled:
+        service.append(
+            ledger_id="research-ledger",
+            node_id="evidence-1",
+            node_kind=ResearchLedgerNodeKind.EVIDENCE,
+            object_ref=public,
+            object_bytes=encoded,
+            authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+            occurred_at=NOW + timedelta(seconds=1),
+        )
+    assert relabeled.value.reason_code is ReasonCode.DUPLICATE_ID_CONFLICT
+
+    unchecked = internal.model_copy(update={"access": LedgerObjectAccess.PUBLIC_HISTORY})
+    with pytest.raises(ResearchLedgerError) as invalid_reference:
+        ResearchLedgerService(tmp_path / "unchecked").append(
+            ledger_id="research-ledger",
+            node_id="evidence-1",
+            node_kind=ResearchLedgerNodeKind.EVIDENCE,
+            object_ref=unchecked,
+            object_bytes=encoded,
+            authority=LedgerAssertionAuthority.SOURCE_ASSERTION,
+            occurred_at=NOW,
+        )
+    assert invalid_reference.value.reason_code is ReasonCode.SCHEMA_INVALID
+
+
 def test_search_filters_and_budgets_fail_closed(tmp_path: Path) -> None:
     service = ResearchLedgerService(tmp_path / "ledger")
     _append_fixture(service)
-    snapshot = service.verify("research-ledger", created_at=NOW)
+    snapshot = service.verify("research-ledger", created_at=SNAPSHOT_AT)
     scope = ResearchLedgerAccessScope(
         campaign_hash=CAMPAIGN,
         ledger_snapshot_hash=snapshot.content_hash,
@@ -515,9 +701,14 @@ def test_search_filters_and_budgets_fail_closed(tmp_path: Path) -> None:
         allowed_node_kinds=(ResearchLedgerNodeKind.VALIDATION_REPORT,),
         allowed_authorities=(LedgerAssertionAuthority.DETERMINISTIC_VERDICT,),
         allow_cross_campaign_history=False,
+        max_query_bytes=100,
         max_query_terms=1,
+        max_hit_bytes=1_000,
         max_results=1,
         max_serialized_bytes=10_000,
+        max_index_entries=10,
+        max_terms_per_object=100,
+        max_index_serialized_bytes=100_000,
     )
     filtered_request = _request(snapshot.content_hash, filtered.content_hash, scope.content_hash)
     assert (
@@ -537,17 +728,41 @@ def test_search_filters_and_budgets_fail_closed(tmp_path: Path) -> None:
         service.search(snapshot=snapshot, policy=filtered, scope=scope, request=too_many)
     assert terms.value.reason_code is ReasonCode.RESOURCE_BUDGET_EXCEEDED
 
-    tiny = filtered.model_copy(update={"max_serialized_bytes": 1})
+    tiny = filtered.model_copy(update={"max_hit_bytes": 1, "max_serialized_bytes": 1})
     tiny_request = _request(snapshot.content_hash, tiny.content_hash, scope.content_hash)
     with pytest.raises(ResearchLedgerError) as response:
         service.search(snapshot=snapshot, policy=tiny, scope=scope, request=tiny_request)
     assert response.value.reason_code is ReasonCode.RESOURCE_BUDGET_EXCEEDED
 
+    bounded_cases = (
+        filtered.model_copy(update={"max_query_bytes": 1}),
+        filtered.model_copy(
+            update={
+                "allowed_node_kinds": (ResearchLedgerNodeKind.EVIDENCE,),
+                "allowed_authorities": (LedgerAssertionAuthority.SOURCE_ASSERTION,),
+                "max_hit_bytes": 1,
+            }
+        ),
+        _policy().model_copy(update={"max_index_entries": 1, "max_results": 1}),
+        _policy().model_copy(update={"max_terms_per_object": 1}),
+        _policy().model_copy(update={"max_index_serialized_bytes": 1}),
+    )
+    for bounded in bounded_cases:
+        bounded_request = _request(snapshot.content_hash, bounded.content_hash, scope.content_hash)
+        with pytest.raises(ResearchLedgerError) as exceeded:
+            service.search(
+                snapshot=snapshot,
+                policy=bounded,
+                scope=scope,
+                request=bounded_request,
+            )
+        assert exceeded.value.reason_code is ReasonCode.RESOURCE_BUDGET_EXCEEDED
+
 
 def test_context_pack_rejects_a_result_from_another_query(tmp_path: Path) -> None:
     service = ResearchLedgerService(tmp_path / "ledger")
     _append_fixture(service)
-    snapshot = service.verify("research-ledger", created_at=NOW)
+    snapshot = service.verify("research-ledger", created_at=SNAPSHOT_AT)
     policy = _policy()
     scope = ResearchLedgerAccessScope(
         campaign_hash=CAMPAIGN,
@@ -580,7 +795,7 @@ def test_context_pack_rejects_a_result_from_another_query(tmp_path: Path) -> Non
 def test_context_pack_is_a_required_agent_run_input(tmp_path: Path) -> None:
     service = ResearchLedgerService(tmp_path / "ledger")
     _append_fixture(service)
-    snapshot = service.verify("research-ledger", created_at=NOW)
+    snapshot = service.verify("research-ledger", created_at=SNAPSHOT_AT)
     policy = _policy()
     scope = ResearchLedgerAccessScope(
         campaign_hash=CAMPAIGN,
@@ -660,3 +875,12 @@ def test_context_pack_is_a_required_agent_run_input(tmp_path: Path) -> None:
             manifest=wrong_manifest, spec=spec, binding=binding, pack=pack
         )
     assert wrong_spec.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
+
+    extra_manifest_input = manifest.model_copy(
+        update={"input_hashes": tuple(sorted((*manifest.input_hashes, "f" * 64)))}
+    )
+    with pytest.raises(ResearchLedgerError) as extra_input:
+        verify_context_bound_agent_manifest(
+            manifest=extra_manifest_input, spec=spec, binding=binding, pack=pack
+        )
+    assert extra_input.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED

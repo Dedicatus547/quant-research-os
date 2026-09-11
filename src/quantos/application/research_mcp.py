@@ -194,7 +194,8 @@ class ResearchMcpService:
         default_policy = (
             p14_research_mcp_policy() if self._ledger_searches else research_mcp_policy()
         )
-        self._boundary = AgentRequestBoundary.from_policy(policy or default_policy)
+        effective_policy = policy or default_policy
+        self._boundary = AgentRequestBoundary.from_policy(effective_policy)
         self._compiled: dict[str, CompiledExperimentProposal] = {}
         for digest, binding in self._datasets.items():
             if digest != binding.snapshot.snapshot_hash:
@@ -208,6 +209,11 @@ class ResearchMcpService:
         for campaign_hash, binding in self._ledger_searches.items():
             if campaign_hash != binding.access_scope.campaign_hash:
                 raise ValueError("ledger search catalog key is not its campaign hash")
+            if (
+                binding.policy.max_serialized_bytes > effective_policy.max_payload_bytes
+                or binding.policy.max_hit_bytes > effective_policy.max_string_bytes
+            ):
+                raise ValueError("ledger search output exceeds the MCP resource boundary")
 
     @property
     def audit_decisions(self):  # inherited immutable decision records

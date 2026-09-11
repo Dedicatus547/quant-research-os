@@ -578,9 +578,14 @@ def test_ledger_cli_verifies_searches_and_builds_context(tmp_path: Path) -> None
         allowed_node_kinds=(ResearchLedgerNodeKind.EVIDENCE,),
         allowed_authorities=(LedgerAssertionAuthority.SOURCE_ASSERTION,),
         allow_cross_campaign_history=True,
+        max_query_bytes=1_000,
         max_query_terms=4,
+        max_hit_bytes=1_000,
         max_results=4,
         max_serialized_bytes=10_000,
+        max_index_entries=10,
+        max_terms_per_object=100,
+        max_index_serialized_bytes=100_000,
     )
     scope = ResearchLedgerAccessScope(
         campaign_hash=campaign_hash,
