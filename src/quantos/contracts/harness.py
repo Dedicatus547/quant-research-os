@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import ClassVar, Literal, Self
 
-from pydantic import Field, PositiveInt, field_validator, model_validator
+from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
 
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.evidence import LOGICAL_ID_PATTERN
@@ -245,6 +245,8 @@ class HarnessExecutionRequest(CanonicalContract):
     mcp_servers: tuple[HarnessMcpServer, ...]
     output_schema_json: str | None = Field(default=None, max_length=200_000)
     timeout_seconds: PositiveInt
+    total_timeout_seconds: PositiveInt
+    retry_backoff_milliseconds: NonNegativeInt = Field(default=0, le=5_000)
     max_transcript_bytes: PositiveInt
     max_input_tokens: PositiveInt
     max_output_tokens: PositiveInt
@@ -272,6 +274,12 @@ class HarnessExecutionRequest(CanonicalContract):
         if not isinstance(schema, dict):
             raise ValueError("harness output schema must be a JSON object")
         return value
+
+    @model_validator(mode="after")
+    def timeout_budget_is_consistent(self) -> Self:
+        if self.total_timeout_seconds < self.timeout_seconds:
+            raise ValueError("total harness timeout cannot be shorter than one attempt timeout")
+        return self
 
 
 class HarnessRuntimeIdentity(CanonicalContract):
@@ -313,6 +321,12 @@ class HarnessCapabilitySpikeSpecV2(CanonicalContract):
     schema_version: Literal["agent-harness-spike-spec/v2"] = "agent-harness-spike-spec/v2"
     spike_id: str = Field(pattern=LOGICAL_ID_PATTERN)
     execution_request_hash: str = Field(pattern=SHA256_PATTERN)
+    dataset_hash: str = Field(pattern=SHA256_PATTERN)
+    mcp_server_name: str = Field(min_length=1, max_length=64)
+    mcp_tool_name: str = Field(min_length=1, max_length=128)
+    max_transcript_bytes: PositiveInt
+    max_input_tokens: PositiveInt
+    max_output_tokens: PositiveInt
     required_capabilities: tuple[HarnessCapability, ...]
     input_hashes: tuple[str, ...]
 

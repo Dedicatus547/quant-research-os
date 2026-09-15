@@ -35,9 +35,11 @@ from quantos.contracts.harness import (
     HarnessCapabilitySpikeReportV2,
     HarnessCapabilitySpikeSpecV2,
     HarnessEnvironmentVariable,
+    HarnessErrorKind,
     HarnessExecutionRequest,
     HarnessMcpServer,
     HarnessRuntimePolicy,
+    HarnessTerminalError,
 )
 from quantos.contracts.status import ReasonCode, RunStatus
 from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
@@ -365,6 +367,12 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
     spec = HarnessCapabilitySpikeSpecV2(
         spike_id="p10-codex-sdk-20260915",
         execution_request_hash=request.content_hash,
+        dataset_hash="a" * 64,
+        mcp_server_name="quantosP10",
+        mcp_tool_name="dataset_describe",
+        max_transcript_bytes=request.max_transcript_bytes,
+        max_input_tokens=request.max_input_tokens,
+        max_output_tokens=request.max_output_tokens,
         required_capabilities=tuple(sorted(HarnessCapability, key=str)),
         input_hashes=inputs.all_input_hashes,
     )
@@ -383,13 +391,7 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         )
         else None
     )
-    usage = AgentUsage(
-        input_tokens=capture.usage.get("input_tokens", 0),
-        output_tokens=capture.usage.get("output_tokens", 0),
-        cached_input_tokens=capture.usage.get("cached_input_tokens", 0),
-        tool_calls=len(capture.tool_calls),
-        retry_count=0,
-    )
+    calls = tuple(call for attempt in execution.attempts for call in attempt.capture.tool_calls)
     interactions = tuple(
         ToolInteractionDigest(
             sequence=index,
@@ -402,10 +404,26 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
             ),
             succeeded=call.status == "completed" and call.error is None and call.result is not None,
         )
-        for index, call in enumerate(capture.tool_calls, start=1)
+        for index, call in enumerate(calls, start=1)
+    )
+    aggregate_usage = AgentUsage(
+        input_tokens=sum(item.capture.usage.get("input_tokens", 0) for item in execution.attempts),
+        output_tokens=sum(
+            item.capture.usage.get("output_tokens", 0) for item in execution.attempts
+        ),
+        cached_input_tokens=sum(
+            item.capture.usage.get("cached_input_tokens", 0) for item in execution.attempts
+        ),
+        tool_calls=len(interactions),
+        retry_count=len(execution.attempts) - 1,
     )
     runtime = execution.runtime
     terminal = execution.terminal_error
+    if terminal is None and proposal_hash is None:
+        terminal = HarnessTerminalError(
+            kind=HarnessErrorKind.OUTPUT_INVALID,
+            message_hash=sha256_bytes(b"P10 normalized output has no proposal"),
+        )
     manifest = AgentRunManifestV2(
         run_spec_hash=run_spec.content_hash,
         provider_model_identifier=MODEL_IDENTIFIER,
@@ -420,7 +438,7 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         interactions=interactions,
         input_hashes=inputs.all_input_hashes,
         output_proposal_hashes=((proposal_hash,) if proposal_hash else ()),
-        normalized_transcript_hash=capture.transcript_hash,
+        normalized_transcript_hash=execution.normalized_transcript_hash,
         provider_transcript_hash=(
             sha256_bytes(execution.provider_transcript)
             if execution.provider_transcript is not None
@@ -429,25 +447,46 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         provider_transcript_retention_reason=(
             None if execution.provider_transcript is not None else "SDK_HOST_UNAVAILABLE"
         ),
-        attempts=(
+        attempts=tuple(
             HarnessAttemptRecord(
-                attempt_index=1,
-                provider_thread_id=(capture.thread_ids[-1] if capture.thread_ids else None),
-                event_stream_hash=capture.transcript_hash,
-                usage=usage,
-                terminal_error_kind=(terminal.kind.value if terminal else None),
-                terminal_error_message_hash=(terminal.message_hash if terminal else None),
-                error_retryable=(terminal.retryable if terminal else False),
-                produced_proposal_hash=proposal_hash,
+                attempt_index=item.capture.attempt_index,
+                provider_thread_id=(
+                    item.capture.thread_ids[-1] if item.capture.thread_ids else None
+                ),
+                event_stream_hash=item.capture.transcript_hash,
+                usage=AgentUsage(
+                    input_tokens=item.capture.usage.get("input_tokens", 0),
+                    output_tokens=item.capture.usage.get("output_tokens", 0),
+                    cached_input_tokens=item.capture.usage.get("cached_input_tokens", 0),
+                    tool_calls=len(item.capture.tool_calls),
+                    retry_count=0,
+                ),
+                terminal_error_kind=(
+                    item.terminal_error.kind.value
+                    if item.terminal_error
+                    else (
+                        terminal.kind.value if item is execution.attempts[-1] and terminal else None
+                    )
+                ),
+                terminal_error_message_hash=(
+                    item.terminal_error.message_hash
+                    if item.terminal_error
+                    else (
+                        terminal.message_hash
+                        if item is execution.attempts[-1] and terminal
+                        else None
+                    )
+                ),
+                error_retryable=(item.terminal_error.retryable if item.terminal_error else False),
+                produced_proposal_hash=(proposal_hash if item is execution.attempts[-1] else None),
                 started_at=started_at,
                 completed_at=completed_at,
-            ),
+            )
+            for item in execution.attempts
         ),
-        aggregate_usage=usage,
-        run_status=RunStatus.SUCCEEDED if terminal is None and proposal_hash else RunStatus.FAILED,
-        failure_reason_code=(
-            None if terminal is None and proposal_hash else _failure_reason(terminal)
-        ),
+        aggregate_usage=aggregate_usage,
+        run_status=RunStatus.SUCCEEDED if terminal is None else RunStatus.FAILED,
+        failure_reason_code=(None if terminal is None else _failure_reason(terminal)),
         limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SYNTHETIC_CAPABILITY_SPIKE"),
         started_at=started_at,
         completed_at=completed_at,
@@ -466,7 +505,7 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         spec=spec,
         manifest=manifest,
         report=report,
-        transcript=capture.transcript,
+        transcript=execution.normalized_transcript,
         run_spec=run_spec,
     )
     return HarnessRunResult(
@@ -509,6 +548,7 @@ def _sdk_request(inputs: FrozenSpikeInputs) -> HarnessExecutionRequest:
         ),
         output_schema_json=(inputs.fixture_root / "output.schema.json").read_text(encoding="utf-8"),
         timeout_seconds=TIMEOUT_SECONDS,
+        total_timeout_seconds=TIMEOUT_SECONDS,
         max_transcript_bytes=MAX_TRANSCRIPT_BYTES,
         max_input_tokens=MAX_INPUT_TOKENS,
         max_output_tokens=MAX_OUTPUT_TOKENS,
@@ -531,7 +571,15 @@ def _sdk_run_spec(
         transcript_policy_hash=sha256_bytes(
             canonical_json_bytes({"max_bytes": request.max_transcript_bytes, "retain": True})
         ),
-        retry_budget_hash=sha256_bytes(canonical_json_bytes({"max_attempts": 1})),
+        retry_budget_hash=sha256_bytes(
+            canonical_json_bytes(
+                {
+                    "max_attempts": request.max_attempts,
+                    "retry_backoff_milliseconds": request.retry_backoff_milliseconds,
+                    "total_timeout_seconds": request.total_timeout_seconds,
+                }
+            )
+        ),
         tool_schema_hash=inputs.mcp_tool_schema_hash,
         instruction_hashes=inputs.instruction_hashes,
         skill_hash=inputs.skill_hash,
@@ -580,15 +628,24 @@ def _publish_sdk_run_artifacts(
     output_root.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".p10-sdk-", dir=output_root))
     destination = output_root / f"sha256-{report.content_hash}"
-    atomic_write_bytes(staging / "agent-events.jsonl", transcript)
-    atomic_write_bytes(staging / "agent-run-manifest.json", manifest.canonical_bytes())
-    atomic_write_bytes(staging / "agent-run-spec.json", run_spec.canonical_bytes())
-    atomic_write_bytes(staging / "harness-request.json", request.canonical_bytes())
-    atomic_write_bytes(staging / "harness-spike-spec.json", spec.canonical_bytes())
-    atomic_write_bytes(staging / "harness-spike-report.json", canonical_json_bytes(report))
-    if provider_transcript is not None:
-        atomic_write_bytes(staging / "provider-events.jsonl", provider_transcript)
-    publish_directory(staging, destination)
+    try:
+        atomic_write_bytes(staging / "agent-events.jsonl", transcript)
+        atomic_write_bytes(staging / "agent-run-manifest.json", manifest.canonical_bytes())
+        atomic_write_bytes(staging / "agent-run-spec.json", run_spec.canonical_bytes())
+        atomic_write_bytes(staging / "harness-request.json", request.canonical_bytes())
+        atomic_write_bytes(staging / "harness-spike-spec.json", spec.canonical_bytes())
+        atomic_write_bytes(staging / "harness-spike-report.json", canonical_json_bytes(report))
+        if provider_transcript is not None:
+            atomic_write_bytes(staging / "provider-events.jsonl", provider_transcript)
+        publish_directory(staging, destination)
+    finally:
+        if staging.exists():
+            for path in sorted(staging.rglob("*"), reverse=True):
+                if path.is_file():
+                    path.unlink()
+                elif path.is_dir():
+                    path.rmdir()
+            staging.rmdir()
     return (
         destination / "harness-spike-report.json",
         destination / "agent-run-manifest.json",

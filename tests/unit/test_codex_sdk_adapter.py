@@ -7,6 +7,7 @@ from typing import cast
 
 import pytest
 
+from quantos.application.agent_harness import HarnessAttemptResult
 from quantos.contracts import (
     HarnessEnvironmentVariable,
     HarnessErrorKind,
@@ -37,6 +38,7 @@ def _request(tmp_path: Path) -> HarnessExecutionRequest:
         ),
         mcp_servers=(),
         timeout_seconds=10,
+        total_timeout_seconds=30,
         max_transcript_bytes=100_000,
         max_input_tokens=1_000,
         max_output_tokens=100,
@@ -160,3 +162,43 @@ def test_adapter_timeout_becomes_hashed_failure_without_proposal(
     assert result.terminal_error.kind is HarnessErrorKind.TIMEOUT
     assert result.capture.agent_messages == ()
     assert result.provider_transcript is None
+
+
+def test_adapter_retries_only_retryable_errors_and_preserves_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = CodexSdkAdapter(authentication_home=tmp_path)
+    attempts = iter(
+        (
+            adapter._failed_result(
+                HarnessErrorKind.OVERLOADED,
+                RuntimeError("synthetic overload"),
+                retryable=True,
+                attempt=1,
+            ),
+            adapter._failed_result(
+                HarnessErrorKind.OUTPUT_INVALID,
+                RuntimeError("synthetic terminal failure"),
+                attempt=2,
+            ),
+        )
+    )
+
+    def execute_once(
+        _request: HarnessExecutionRequest, *, attempt_index: int, timeout_seconds: float
+    ) -> HarnessAttemptResult:
+        assert timeout_seconds > 0
+        result = next(attempts)
+        assert result.capture.attempt_index == attempt_index
+        return result
+
+    monkeypatch.setattr(adapter, "_execute_once", execute_once)
+    request = _request(tmp_path).model_copy(update={"max_attempts": 3})
+
+    result = adapter.execute(request)
+
+    assert [item.capture.attempt_index for item in result.attempts] == [1, 2]
+    assert result.attempts[0].terminal_error is not None
+    assert result.attempts[0].terminal_error.retryable is True
+    assert result.terminal_error is not None
+    assert result.terminal_error.kind is HarnessErrorKind.OUTPUT_INVALID

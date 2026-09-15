@@ -1,13 +1,12 @@
-"""Deterministic evaluation of bounded Codex CLI capability-spike captures."""
+"""Transport-neutral deterministic evaluation of P10 capability captures."""
 
 from __future__ import annotations
 
 import json
 import shlex
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Protocol, cast
 
 from quantos.application.agent_harness import (
     CommandObservation,
@@ -15,7 +14,7 @@ from quantos.application.agent_harness import (
     ToolCallObservation,
 )
 from quantos.contracts.agent import AgentRunManifest, AgentRunManifestV2
-from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.base import canonical_json_bytes
 from quantos.contracts.harness import (
     CodexHarnessSpikeReport,
     CodexHarnessSpikeSpec,
@@ -26,6 +25,21 @@ from quantos.contracts.harness import (
     HarnessDecision,
 )
 from quantos.contracts.status import ReasonCode
+from quantos.integrations.codex.legacy_v1 import (
+    CodexExecCapture as CodexExecCapture,
+)
+from quantos.integrations.codex.legacy_v1 import (
+    CommandCapture as CommandCapture,
+)
+from quantos.integrations.codex.legacy_v1 import (
+    HarnessTranscriptError as HarnessTranscriptError,
+)
+from quantos.integrations.codex.legacy_v1 import (
+    McpCapture as McpCapture,
+)
+from quantos.integrations.codex.legacy_v1 import (
+    parse_codex_exec_jsonl as parse_codex_exec_jsonl,
+)
 
 _DATASET_HASH = "a" * 64
 _SKILL_NONCE = "P10_SKILL_20260907"
@@ -33,180 +47,27 @@ _EXPECTED_FIELDS = ["adjusted_close", "membership", "tradable"]
 _DENIAL_MARKERS = ("read-only file system", "permission denied", "operation not permitted")
 
 
-class HarnessTranscriptError(ValueError):
-    """Raised when a Codex JSONL capture cannot be evaluated safely."""
-
-
-@dataclass(frozen=True)
-class CommandCapture:
-    sequence: int
-    command: str
-    output: str
-    exit_code: int | None
-    event_hash: str
-
-
-@dataclass(frozen=True)
-class McpCapture:
-    sequence: int
-    server: str
-    tool: str
-    arguments: Mapping[str, object]
-    result: Mapping[str, object] | None
-    error: object | None
-    status: str
-    event_hash: str
-
-
-@dataclass(frozen=True)
-class CodexExecCapture:
-    transcript_hash: str
-    transcript_size_bytes: int
-    event_count: int
-    event_hashes: tuple[str, ...]
-    thread_ids: tuple[str, ...]
-    turn_started: bool
-    turn_completed: bool
-    turn_failed: bool
-    commands: tuple[CommandCapture, ...]
-    mcp_calls: tuple[McpCapture, ...]
-    agent_messages: tuple[str, ...]
-    usage: Mapping[str, int]
-    approval_requested: bool
-    forbidden_marker_observed: bool
-
-    @property
-    def tool_calls(self) -> tuple[McpCapture, ...]:
-        return self.mcp_calls
-
-
 Capture = HarnessCapture | CodexExecCapture
 
 
-def parse_codex_exec_jsonl(
-    payload: bytes,
-    *,
-    max_bytes: int,
-    forbidden_marker: bytes | None = None,
-) -> CodexExecCapture:
-    """Parse bounded JSONL without logging transcript text or environment values."""
+class P10EvaluationSpec(Protocol):
+    @property
+    def dataset_hash(self) -> str: ...
 
-    if not payload or len(payload) > max_bytes:
-        raise HarnessTranscriptError("Codex transcript is empty or exceeds its frozen bound")
-    events: list[Mapping[str, object]] = []
-    event_hashes: list[str] = []
-    commands: list[CommandCapture] = []
-    mcp_calls: list[McpCapture] = []
-    thread_ids: list[str] = []
-    messages: list[str] = []
-    usage: dict[str, int] = {}
-    turn_started = False
-    turn_completed = False
-    turn_failed = False
-    approval_requested = False
-    for sequence, raw_line in enumerate(payload.splitlines(), start=1):
-        if not raw_line.strip():
-            continue
-        try:
-            value = cast(object, json.loads(raw_line))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise HarnessTranscriptError("Codex transcript contains invalid JSONL") from error
-        if not isinstance(value, dict):
-            raise HarnessTranscriptError("Codex transcript event must be an object")
-        untyped_event = cast(Mapping[object, object], value)
-        if not all(isinstance(key, str) for key in untyped_event):
-            raise HarnessTranscriptError("Codex transcript event must be an object")
-        event = cast(Mapping[str, object], untyped_event)
-        events.append(event)
-        event_hash = sha256_bytes(canonical_json_bytes(event))
-        event_hashes.append(event_hash)
-        event_type = event.get("type")
-        if not isinstance(event_type, str):
-            raise HarnessTranscriptError("Codex transcript event type is missing")
-        if "approval" in event_type.lower():
-            approval_requested = True
-        if event_type == "thread.started":
-            thread_id = event.get("thread_id")
-            if isinstance(thread_id, str) and thread_id:
-                thread_ids.append(thread_id)
-        elif event_type == "turn.started":
-            turn_started = True
-        elif event_type == "turn.completed":
-            turn_completed = True
-            usage = _integer_mapping(event.get("usage"), label="usage")
-        elif event_type == "turn.failed":
-            turn_failed = True
-        elif event_type == "item.completed":
-            raw_item = event.get("item")
-            if not isinstance(raw_item, dict):
-                raise HarnessTranscriptError("completed item payload is invalid")
-            untyped_item = cast(Mapping[object, object], raw_item)
-            if not all(isinstance(key, str) for key in untyped_item):
-                raise HarnessTranscriptError("completed item payload is invalid")
-            item = cast(Mapping[str, object], untyped_item)
-            item_type = item.get("type")
-            if isinstance(item_type, str) and "approval" in item_type.lower():
-                approval_requested = True
-            if item_type == "command_execution":
-                command = item.get("command")
-                output = item.get("aggregated_output", "")
-                exit_code = item.get("exit_code")
-                if (
-                    not isinstance(command, str)
-                    or not isinstance(output, str)
-                    or (exit_code is not None and not isinstance(exit_code, int))
-                ):
-                    raise HarnessTranscriptError("command capture is invalid")
-                commands.append(CommandCapture(sequence, command, output, exit_code, event_hash))
-            elif item_type == "mcp_tool_call":
-                server = item.get("server")
-                tool = item.get("tool")
-                arguments = item.get("arguments")
-                result = item.get("result")
-                status = item.get("status")
-                if (
-                    not isinstance(server, str)
-                    or not isinstance(tool, str)
-                    or not isinstance(arguments, dict)
-                    or (result is not None and not isinstance(result, dict))
-                    or not isinstance(status, str)
-                ):
-                    raise HarnessTranscriptError("MCP capture is invalid")
-                mcp_calls.append(
-                    McpCapture(
-                        sequence=sequence,
-                        server=server,
-                        tool=tool,
-                        arguments=cast(Mapping[str, object], arguments),
-                        result=cast(Mapping[str, object] | None, result),
-                        error=item.get("error"),
-                        status=status,
-                        event_hash=event_hash,
-                    )
-                )
-            elif item_type == "agent_message":
-                text = item.get("text")
-                if not isinstance(text, str):
-                    raise HarnessTranscriptError("Agent message capture is invalid")
-                messages.append(text)
-    if not events:
-        raise HarnessTranscriptError("Codex transcript contains no events")
-    return CodexExecCapture(
-        transcript_hash=sha256_bytes(payload),
-        transcript_size_bytes=len(payload),
-        event_count=len(events),
-        event_hashes=tuple(event_hashes),
-        thread_ids=tuple(thread_ids),
-        turn_started=turn_started,
-        turn_completed=turn_completed,
-        turn_failed=turn_failed,
-        commands=tuple(commands),
-        mcp_calls=tuple(mcp_calls),
-        agent_messages=tuple(messages),
-        usage=usage,
-        approval_requested=approval_requested,
-        forbidden_marker_observed=(forbidden_marker is not None and forbidden_marker in payload),
-    )
+    @property
+    def mcp_server_name(self) -> str: ...
+
+    @property
+    def mcp_tool_name(self) -> str: ...
+
+    @property
+    def max_transcript_bytes(self) -> int: ...
+
+    @property
+    def max_input_tokens(self) -> int: ...
+
+    @property
+    def max_output_tokens(self) -> int: ...
 
 
 def evaluate_codex_capture(
@@ -215,6 +76,15 @@ def evaluate_codex_capture(
     manual_baseline: Mapping[str, object],
 ) -> tuple[HarnessCapabilityCheck, ...]:
     """Evaluate hard P10 capabilities from transcript events, never Agent assertions."""
+
+    return _evaluate_p10_capture(spec, capture, manual_baseline)
+
+
+def _evaluate_p10_capture(
+    spec: P10EvaluationSpec,
+    capture: Capture,
+    manual_baseline: Mapping[str, object],
+) -> tuple[HarnessCapabilityCheck, ...]:
 
     transcript_evidence = (capture.transcript_hash,)
     thread_passed = (
@@ -327,27 +197,7 @@ def evaluate_harness_capture(
 ) -> tuple[HarnessCapabilityCheck, ...]:
     """Evaluate the unchanged P10 rubric from transport-neutral observations."""
 
-    legacy_shape = CodexHarnessSpikeSpec(
-        spike_id=spec.spike_id,
-        provider_model_identifier="sdk-runtime-bound-in-manifest",
-        model_reasoning_effort="medium",
-        codex_cli_version="codex-cli 0.0.0",
-        shell_environment=("LANG", "PATH", "TZ"),
-        capability_policy_hash="0" * 64,
-        instruction_hashes=("0" * 64,),
-        task_hash="0" * 64,
-        dataset_hash="a" * 64,
-        mcp_server_hash="0" * 64,
-        mcp_tool_schema_hash="0" * 64,
-        output_schema_hash="0" * 64,
-        manual_baseline_hash="0" * 64,
-        write_probe_hash="0" * 64,
-        required_capabilities=spec.required_capabilities,
-        max_transcript_bytes=2_000_000,
-        max_input_tokens=250_000,
-        max_output_tokens=4_096,
-    )
-    return evaluate_codex_capture(legacy_shape, capture, manual_baseline)
+    return _evaluate_p10_capture(spec, capture, manual_baseline)
 
 
 def build_harness_spike_report_v2(
@@ -362,7 +212,7 @@ def build_harness_spike_report_v2(
     return HarnessCapabilitySpikeReportV2(
         spike_spec_hash=spec.content_hash,
         agent_run_manifest_hash=manifest.content_hash,
-        transcript_hash=capture.transcript_hash,
+        transcript_hash=manifest.normalized_transcript_hash,
         checks=checks,
         decision=(
             HarnessDecision.GO if all(item.passed for item in checks) else HarnessDecision.NO_GO
@@ -370,18 +220,6 @@ def build_harness_spike_report_v2(
         limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SYNTHETIC_CAPABILITY_SPIKE"),
         created_at=created_at,
     )
-
-
-def _integer_mapping(value: object, *, label: str) -> dict[str, int]:
-    if not isinstance(value, dict):
-        raise HarnessTranscriptError(f"Codex transcript {label} is invalid")
-    mapping = cast(Mapping[object, object], value)
-    if not all(
-        isinstance(key, str) and isinstance(item, int) and item >= 0
-        for key, item in mapping.items()
-    ):
-        raise HarnessTranscriptError(f"Codex transcript {label} is invalid")
-    return cast(dict[str, int], value)
 
 
 def _find_command(capture: Capture, needle: str) -> CommandCapture | CommandObservation | None:
@@ -483,7 +321,7 @@ def _proposal_matches(capture: Capture, manual_baseline: Mapping[str, object]) -
     )
 
 
-def _usage_is_bounded(spec: CodexHarnessSpikeSpec, usage: Mapping[str, int]) -> bool:
+def _usage_is_bounded(spec: P10EvaluationSpec, usage: Mapping[str, int]) -> bool:
     input_tokens = usage.get("input_tokens")
     output_tokens = usage.get("output_tokens")
     return bool(

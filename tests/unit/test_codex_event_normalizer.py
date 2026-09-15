@@ -79,6 +79,7 @@ def test_provider_events_normalize_to_replayable_transport_neutral_capture() -> 
     "event",
     [
         {"method": "future/unknown", "payload": {}},
+        {"method": "item/started", "payload": {"item": {"type": "futureItem"}}},
         {"method": "item/completed", "payload": {"item": {"type": "futureItem"}}},
         {"method": "turn/started", "payload": {}},
     ],

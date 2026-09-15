@@ -516,6 +516,11 @@ class AgentRunManifestV2(CanonicalContract):
             range(1, len(self.attempts) + 1)
         ):
             raise ValueError("harness attempts must be nonempty and contiguous")
+        if any(
+            item.terminal_error_kind is None or not item.error_retryable
+            for item in self.attempts[:-1]
+        ):
+            raise ValueError("only retryable failed attempts may precede the terminal attempt")
         proposals = tuple(
             item.produced_proposal_hash
             for item in self.attempts
@@ -532,6 +537,8 @@ class AgentRunManifestV2(CanonicalContract):
                 raise ValueError("only the final harness attempt may produce a proposal")
         elif self.failure_reason_code is None or proposals:
             raise ValueError("failed Agent run requires a reason and no proposal")
+        elif self.attempts[-1].terminal_error_kind is None:
+            raise ValueError("failed Agent run requires a terminal attempt error")
         expected_usage = AgentUsage(
             input_tokens=sum(item.usage.input_tokens for item in self.attempts),
             output_tokens=sum(item.usage.output_tokens for item in self.attempts),

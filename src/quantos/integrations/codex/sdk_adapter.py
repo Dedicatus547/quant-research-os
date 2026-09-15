@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import cast
 from pydantic import ValidationError
 
 from quantos.application.agent_harness import (
+    HarnessAttemptResult,
     HarnessCaptureError,
     HarnessExecutionResult,
     capture_from_agent_events,
@@ -40,10 +42,52 @@ _HOST_MODULE = "quantos.integrations.codex.sdk_host"
 class CodexSdkAdapter:
     """Execute one bounded request in a fresh process group and isolated config home."""
 
-    def __init__(self, *, authentication_home: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        authentication_home: Path | None = None,
+        host_argv: tuple[str, ...] | None = None,
+    ) -> None:
         self._authentication_home = authentication_home
+        self._host_argv = host_argv or (sys.executable, "-m", _HOST_MODULE)
 
     def execute(self, request: HarnessExecutionRequest) -> HarnessExecutionResult:
+        attempts: list[HarnessAttemptResult] = []
+        deadline = time.monotonic() + request.total_timeout_seconds
+        for attempt_index in range(1, request.max_attempts + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                attempts.append(
+                    self._failed_result(
+                        HarnessErrorKind.TIMEOUT,
+                        TimeoutError("total harness wall-clock budget exhausted"),
+                        attempt=attempt_index,
+                    )
+                )
+                break
+            attempt = self._execute_once(
+                request,
+                attempt_index=attempt_index,
+                timeout_seconds=min(float(request.timeout_seconds), remaining),
+            )
+            attempts.append(attempt)
+            if attempt.terminal_error is None or not attempt.terminal_error.retryable:
+                break
+            backoff = min(
+                request.retry_backoff_milliseconds / 1_000,
+                max(0.0, deadline - time.monotonic()),
+            )
+            if backoff > 0:
+                time.sleep(backoff)
+        return HarnessExecutionResult(attempts=tuple(attempts))
+
+    def _execute_once(
+        self,
+        request: HarnessExecutionRequest,
+        *,
+        attempt_index: int,
+        timeout_seconds: float,
+    ) -> HarnessAttemptResult:
         with tempfile.TemporaryDirectory(prefix="quantos-codex-sdk-") as temporary:
             isolated_home = Path(temporary)
             self._link_authentication(isolated_home)
@@ -53,7 +97,7 @@ class CodexSdkAdapter:
             environment["CODEX_HOME"] = str(isolated_home)
             try:
                 process = subprocess.Popen(
-                    (sys.executable, "-m", _HOST_MODULE),
+                    self._host_argv,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -62,14 +106,16 @@ class CodexSdkAdapter:
                     start_new_session=True,
                 )
             except OSError as error:
-                return self._failed_result(HarnessErrorKind.TRANSPORT_START_FAILED, error)
+                return self._failed_result(
+                    HarnessErrorKind.TRANSPORT_START_FAILED, error, attempt=attempt_index
+                )
             try:
                 stdout, stderr = process.communicate(
-                    request.canonical_bytes(), timeout=request.timeout_seconds
+                    request.canonical_bytes(), timeout=timeout_seconds
                 )
             except subprocess.TimeoutExpired as error:
                 self._terminate_process_group(process)
-                return self._failed_result(HarnessErrorKind.TIMEOUT, error)
+                return self._failed_result(HarnessErrorKind.TIMEOUT, error, attempt=attempt_index)
 
         if process.returncode != 0:
             return self._failed_result(
@@ -77,18 +123,25 @@ class CodexSdkAdapter:
                 RuntimeError(
                     f"SDK host exited {process.returncode}; stderr={sha256_bytes(stderr)}"
                 ),
+                attempt=attempt_index,
             )
         if len(stdout) > request.max_transcript_bytes + 1_000_000:
             return self._failed_result(
-                HarnessErrorKind.OUTPUT_INVALID, ValueError("SDK host response exceeds its bound")
+                HarnessErrorKind.OUTPUT_INVALID,
+                ValueError("SDK host response exceeds its bound"),
+                attempt=attempt_index,
             )
         try:
             response = cast(object, json.loads(stdout))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            return self._failed_result(HarnessErrorKind.OUTPUT_INVALID, error)
+            return self._failed_result(
+                HarnessErrorKind.OUTPUT_INVALID, error, attempt=attempt_index
+            )
         if not isinstance(response, dict):
             return self._failed_result(
-                HarnessErrorKind.OUTPUT_INVALID, ValueError("SDK host response is not an object")
+                HarnessErrorKind.OUTPUT_INVALID,
+                ValueError("SDK host response is not an object"),
+                attempt=attempt_index,
             )
         body = cast(Mapping[str, object], response)
         terminal_error = self._terminal_error(body.get("error"))
@@ -97,6 +150,7 @@ class CodexSdkAdapter:
             return self._failed_result(
                 HarnessErrorKind.OUTPUT_INVALID,
                 ValueError("SDK host provider events are malformed"),
+                attempt=attempt_index,
             )
         provider_transcript = b"".join(
             canonical_json_bytes(event) + b"\n" for event in provider_events
@@ -105,6 +159,7 @@ class CodexSdkAdapter:
             return self._failed_result(
                 HarnessErrorKind.OUTPUT_INVALID,
                 ValueError("provider transcript exceeds its bound"),
+                attempt=attempt_index,
             )
         runtime = self._runtime_identity(body)
         if terminal_error is not None:
@@ -115,6 +170,7 @@ class CodexSdkAdapter:
                 retryable=terminal_error.retryable,
                 provider_transcript=provider_transcript,
                 runtime=runtime,
+                attempt=attempt_index,
             )
         thread_id = body.get("thread_id")
         if runtime is None or not isinstance(thread_id, str):
@@ -122,9 +178,12 @@ class CodexSdkAdapter:
                 HarnessErrorKind.RUNTIME_MISMATCH,
                 ValueError("SDK runtime identity or thread id is unavailable"),
                 provider_transcript=provider_transcript,
+                attempt=attempt_index,
             )
         try:
-            events = normalize_provider_events(provider_events, thread_id=thread_id)
+            events = normalize_provider_events(
+                provider_events, thread_id=thread_id, attempt=attempt_index
+            )
             capture = capture_from_agent_events(events, max_bytes=request.max_transcript_bytes)
         except (CodexEventNormalizationError, HarnessCaptureError, ValidationError) as error:
             return self._failed_result(
@@ -132,6 +191,7 @@ class CodexSdkAdapter:
                 error,
                 provider_transcript=provider_transcript,
                 runtime=runtime,
+                attempt=attempt_index,
             )
         validation_error: tuple[HarnessErrorKind, str] | None = None
         if (
@@ -158,7 +218,7 @@ class CodexSdkAdapter:
             validation_error = (HarnessErrorKind.OUTPUT_INVALID, "usage is absent or over budget")
         if validation_error is not None:
             kind, message = validation_error
-            return HarnessExecutionResult(
+            return HarnessAttemptResult(
                 capture=capture,
                 runtime=runtime,
                 terminal_error=HarnessTerminalError(
@@ -166,7 +226,7 @@ class CodexSdkAdapter:
                 ),
                 provider_transcript=provider_transcript,
             )
-        return HarnessExecutionResult(
+        return HarnessAttemptResult(
             capture=capture,
             runtime=runtime,
             terminal_error=None,
@@ -184,12 +244,13 @@ class CodexSdkAdapter:
 
     @staticmethod
     def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
-        try:
+        with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGTERM)
+        with suppress(subprocess.TimeoutExpired):
             process.wait(timeout=5)
-        except (ProcessLookupError, subprocess.TimeoutExpired):
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        if process.poll() is None:
             process.wait()
 
     @staticmethod
@@ -237,7 +298,8 @@ class CodexSdkAdapter:
         retryable: bool = False,
         provider_transcript: bytes | None = None,
         runtime: HarnessRuntimeIdentity | None = None,
-    ) -> HarnessExecutionResult:
+        attempt: int = 1,
+    ) -> HarnessAttemptResult:
         digest = message_hash or sha256_bytes(
             f"{type(error).__name__}: {error}".encode("utf-8", errors="replace")
         )
@@ -247,23 +309,26 @@ class CodexSdkAdapter:
                 sequence=1,
                 kind=AgentEventKind.ATTEMPT_STARTED,
                 provider_event_type="quantos.attempt.started",
-                payload={"attempt": 1},
+                payload={"attempt": attempt},
+                attempt=attempt,
             ),
             make_agent_event(
                 sequence=2,
                 kind=AgentEventKind.HARNESS_ERROR,
                 provider_event_type="quantos.harness.error",
                 payload=terminal.canonical_payload(),
+                attempt=attempt,
             ),
             make_agent_event(
                 sequence=3,
                 kind=AgentEventKind.ATTEMPT_FAILED,
                 provider_event_type="quantos.attempt.failed",
-                payload={"attempt": 1, "error_kind": kind.value},
+                payload={"attempt": attempt, "error_kind": kind.value},
+                attempt=attempt,
             ),
         )
         capture = capture_from_agent_events(events, max_bytes=1_000_000)
-        return HarnessExecutionResult(
+        return HarnessAttemptResult(
             capture=capture,
             runtime=runtime,
             terminal_error=terminal,

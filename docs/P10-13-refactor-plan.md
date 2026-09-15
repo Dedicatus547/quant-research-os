@@ -2,7 +2,7 @@
 
 > 版本：v2
 > 日期：2026-09-14
-> 状态：Implemented through M3 with offline coverage; M5 qualification is NO_GO (2026-09-15)
+> 状态：Implemented through M3; M4 in progress; M5 qualification is NO_GO (2026-09-15)
 > 适用仓库：`Dedicatus547/quant-research-os`
 > 目标范围：P10/P13 Agent harness integration
 > 新增资格门：`FR-03 — Official Codex Python SDK Qualification`

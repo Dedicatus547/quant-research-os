@@ -30,7 +30,7 @@ _IGNORED_METHODS = {
 
 
 def normalize_provider_events(
-    provider_events: Sequence[Mapping[str, object]], *, thread_id: str
+    provider_events: Sequence[Mapping[str, object]], *, thread_id: str, attempt: int = 1
 ) -> tuple[AgentEvent, ...]:
     if not thread_id:
         raise CodexEventNormalizationError("provider thread id is missing")
@@ -43,10 +43,11 @@ def normalize_provider_events(
                 kind=kind,
                 provider_event_type=provider_type,
                 payload=payload,
+                attempt=attempt,
             )
         )
 
-    append(AgentEventKind.ATTEMPT_STARTED, "quantos.attempt.started", {"attempt": 1})
+    append(AgentEventKind.ATTEMPT_STARTED, "quantos.attempt.started", {"attempt": attempt})
     append(
         AgentEventKind.THREAD_STARTED,
         "sdk.thread_start.result",
@@ -78,6 +79,10 @@ def normalize_provider_events(
                 append(AgentEventKind.COMMAND_STARTED, method, _command_payload(item))
             elif item_type == "mcpToolCall":
                 append(AgentEventKind.TOOL_STARTED, method, _tool_payload(item))
+            elif item_type in {"agentMessage", "userMessage", "reasoning", "plan"}:
+                continue
+            else:
+                raise CodexEventNormalizationError(f"unsupported started item type: {item_type!r}")
         elif method == "item/completed":
             item = _required_mapping(body, "item")
             item_type = item.get("type")
@@ -129,7 +134,11 @@ def normalize_provider_events(
             raise CodexEventNormalizationError(f"unsupported provider event method: {method}")
     if not terminal_seen:
         raise CodexEventNormalizationError("provider stream has no terminal turn event")
-    append(AgentEventKind.ATTEMPT_COMPLETED, "quantos.attempt.completed", {"attempt": 1})
+    append(
+        AgentEventKind.ATTEMPT_COMPLETED,
+        "quantos.attempt.completed",
+        {"attempt": attempt},
+    )
     return tuple(normalized)
 
 

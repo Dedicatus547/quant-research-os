@@ -31,10 +31,14 @@ Both were 6/9 and failed the same three capabilities.
 - exact optional dependency and lock;
 - v2 request, runtime, event, attempt, error, spec and manifest contracts;
 - SDK host, isolated adapter, process-group timeout cleanup and fail-closed normalizer;
+- bounded overload-only retries with per-attempt evidence, total wall-clock budget and backoff cap;
 - transport-neutral P10 and P13 evaluation/publication paths;
 - separate provider and normalized transcripts;
 - immutable failed-run publication with no proposal authority;
 - removal of the CLI execution argv/version-check backend;
+- historical CLI JSONL decoding isolated under `integrations.codex.legacy_v1` with schema-driven
+  v1/v2 replay dispatch;
+- local subprocess checks for invalid host input and complete timeout process-group termination;
 - offline contract, normalization, replay and regression coverage.
 
 No rubric was weakened and no SDK result is represented as the historical v1 CLI format. A future

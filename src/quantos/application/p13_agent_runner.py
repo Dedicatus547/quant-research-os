@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from quantos.application.agent_harness import (
     HarnessCapture,
-    capture_from_agent_events,
+    captures_from_agent_events,
     parse_agent_events,
 )
 from quantos.application.evidence_mcp import (
@@ -308,6 +308,7 @@ def _execution_request(workspace: Path, inputs: P13AgentInputs) -> HarnessExecut
         ),
         output_schema_json=canonical_json_bytes(inputs.output_schema).decode("utf-8"),
         timeout_seconds=TIMEOUT_SECONDS,
+        total_timeout_seconds=TIMEOUT_SECONDS,
         max_transcript_bytes=MAX_TRANSCRIPT_BYTES,
         max_input_tokens=MAX_INPUT_TOKENS,
         max_output_tokens=MAX_OUTPUT_TOKENS,
@@ -332,7 +333,15 @@ def _run_spec(
         transcript_policy_hash=sha256_bytes(
             canonical_json_bytes({"max_bytes": MAX_TRANSCRIPT_BYTES, "retain": True})
         ),
-        retry_budget_hash=sha256_bytes(canonical_json_bytes({"max_attempts": 1})),
+        retry_budget_hash=sha256_bytes(
+            canonical_json_bytes(
+                {
+                    "max_attempts": request.max_attempts,
+                    "retry_backoff_milliseconds": request.retry_backoff_milliseconds,
+                    "total_timeout_seconds": request.total_timeout_seconds,
+                }
+            )
+        ),
         tool_schema_hash=inputs.tool_schema_hash,
         instruction_hashes=inputs.instruction_hashes,
         skill_hash=inputs.skill_hash,
@@ -363,7 +372,11 @@ def _tool_interactions(capture: HarnessCapture) -> tuple[ToolInteractionDigest, 
 
 
 def _parse_success(
-    inputs: P13AgentInputs, capture: HarnessCapture, execution_succeeded: bool
+    inputs: P13AgentInputs,
+    capture: HarnessCapture,
+    execution_succeeded: bool,
+    *,
+    agent_run_hash: str | None = None,
 ) -> tuple[EvidenceExtractionDraft | None, EvidenceExtractionProposal | None]:
     successful_calls = tuple(
         call
@@ -414,7 +427,7 @@ def _parse_success(
         return None, None
     proposal = EvidenceExtractionProposal(
         proposal_id=draft.proposal_id,
-        agent_run_hash=capture.transcript_hash,
+        agent_run_hash=agent_run_hash or capture.transcript_hash,
         evidence_hash=draft.evidence_hash,
         extracted_text_hash=draft.extracted_text_hash,
         event_label=draft.event_label,
@@ -451,18 +464,55 @@ def load_p13_agent_run(
     manifest = AgentRunManifestV2.model_validate_json(read("agent-run-manifest.json"))
     spec = _run_spec(inputs, benchmark_policy_hash, request)
     events = parse_agent_events(read("agent-events.jsonl"), max_bytes=MAX_TRANSCRIPT_BYTES)
-    capture = capture_from_agent_events(events, max_bytes=MAX_TRANSCRIPT_BYTES)
-    draft, proposal = _parse_success(inputs, capture, manifest.run_status is RunStatus.SUCCEEDED)
+    captures = captures_from_agent_events(events, max_bytes=MAX_TRANSCRIPT_BYTES)
+    capture = captures[-1]
+    replay_interactions = tuple(
+        interaction.model_copy(update={"sequence": sequence})
+        for sequence, interaction in enumerate(
+            (
+                interaction
+                for attempt_capture in captures
+                for interaction in _tool_interactions(attempt_capture)
+            ),
+            start=1,
+        )
+    )
+    replay_usage = AgentUsage(
+        input_tokens=sum(item.usage.get("input_tokens", 0) for item in captures),
+        output_tokens=sum(item.usage.get("output_tokens", 0) for item in captures),
+        cached_input_tokens=sum(item.usage.get("cached_input_tokens", 0) for item in captures),
+        tool_calls=len(replay_interactions),
+        retry_count=len(captures) - 1,
+    )
+    provider_path = run_path / "provider-events.jsonl"
+    provider_binding_valid = False
+    if manifest.provider_transcript_hash is not None:
+        try:
+            provider_binding_valid = (
+                sha256_bytes(read("provider-events.jsonl")) == manifest.provider_transcript_hash
+            )
+        except (OSError, ValueError):
+            provider_binding_valid = False
+    elif manifest.provider_transcript_retention_reason is not None:
+        provider_binding_valid = not provider_path.exists() and not provider_path.is_symlink()
+    draft, proposal = _parse_success(
+        inputs,
+        capture,
+        manifest.run_status is RunStatus.SUCCEEDED,
+        agent_run_hash=manifest.normalized_transcript_hash,
+    )
     if (
         run_path.name != f"sha256-{manifest.content_hash}"
         or manifest.run_status is not RunStatus.SUCCEEDED
         or manifest.run_spec_hash != spec.content_hash
         or read("agent-run-spec.json") != spec.canonical_bytes()
-        or manifest.normalized_transcript_hash != capture.transcript_hash
+        or manifest.normalized_transcript_hash != sha256_bytes(read("agent-events.jsonl"))
         or manifest.input_hashes != inputs.input_hashes
-        or manifest.interactions != _tool_interactions(capture)
-        or manifest.aggregate_usage.input_tokens != capture.usage.get("input_tokens", 0)
-        or manifest.aggregate_usage.output_tokens != capture.usage.get("output_tokens", 0)
+        or manifest.interactions != replay_interactions
+        or manifest.aggregate_usage != replay_usage
+        or tuple(item.event_stream_hash for item in manifest.attempts)
+        != tuple(item.transcript_hash for item in captures)
+        or not provider_binding_valid
         or draft is None
         or proposal is None
         or manifest.output_proposal_hashes != (proposal.content_hash,)
@@ -501,14 +551,33 @@ def execute_p13_agent(
     execution = CodexSdkAdapter().execute(request)
     completed_at = datetime.now(UTC)
     capture = execution.capture
-    draft, proposal = _parse_success(inputs, capture, execution.terminal_error is None)
-    interactions = _tool_interactions(capture)
-    usage = AgentUsage(
-        input_tokens=capture.usage.get("input_tokens", 0),
-        output_tokens=capture.usage.get("output_tokens", 0),
-        cached_input_tokens=capture.usage.get("cached_input_tokens", 0),
+    draft, proposal = _parse_success(
+        inputs,
+        capture,
+        execution.terminal_error is None,
+        agent_run_hash=execution.normalized_transcript_hash,
+    )
+    interactions = tuple(
+        interaction.model_copy(update={"sequence": sequence})
+        for sequence, interaction in enumerate(
+            (
+                interaction
+                for attempt in execution.attempts
+                for interaction in _tool_interactions(attempt.capture)
+            ),
+            start=1,
+        )
+    )
+    aggregate_usage = AgentUsage(
+        input_tokens=sum(item.capture.usage.get("input_tokens", 0) for item in execution.attempts),
+        output_tokens=sum(
+            item.capture.usage.get("output_tokens", 0) for item in execution.attempts
+        ),
+        cached_input_tokens=sum(
+            item.capture.usage.get("cached_input_tokens", 0) for item in execution.attempts
+        ),
         tool_calls=len(interactions),
-        retry_count=0,
+        retry_count=len(execution.attempts) - 1,
     )
     terminal = execution.terminal_error
     if terminal is None and proposal is None:
@@ -534,7 +603,7 @@ def execute_p13_agent(
         interactions=interactions,
         input_hashes=inputs.input_hashes,
         output_proposal_hashes=((proposal_hash,) if proposal_hash is not None else ()),
-        normalized_transcript_hash=capture.transcript_hash,
+        normalized_transcript_hash=execution.normalized_transcript_hash,
         provider_transcript_hash=(
             sha256_bytes(execution.provider_transcript)
             if execution.provider_transcript is not None
@@ -543,21 +612,48 @@ def execute_p13_agent(
         provider_transcript_retention_reason=(
             None if execution.provider_transcript is not None else "SDK_HOST_UNAVAILABLE"
         ),
-        attempts=(
+        attempts=tuple(
             HarnessAttemptRecord(
-                attempt_index=1,
-                provider_thread_id=(capture.thread_ids[-1] if capture.thread_ids else None),
-                event_stream_hash=capture.transcript_hash,
-                usage=usage,
-                terminal_error_kind=(terminal_kind.value if terminal_kind else None),
-                terminal_error_message_hash=terminal_message_hash,
-                error_retryable=(terminal.retryable if terminal else False),
-                produced_proposal_hash=(proposal_hash if succeeded else None),
+                attempt_index=item.capture.attempt_index,
+                provider_thread_id=(
+                    item.capture.thread_ids[-1] if item.capture.thread_ids else None
+                ),
+                event_stream_hash=item.capture.transcript_hash,
+                usage=AgentUsage(
+                    input_tokens=item.capture.usage.get("input_tokens", 0),
+                    output_tokens=item.capture.usage.get("output_tokens", 0),
+                    cached_input_tokens=item.capture.usage.get("cached_input_tokens", 0),
+                    tool_calls=len(item.capture.tool_calls),
+                    retry_count=0,
+                ),
+                terminal_error_kind=(
+                    (
+                        terminal_kind.value
+                        if item is execution.attempts[-1] and terminal_kind is not None
+                        else None
+                    )
+                    if item.terminal_error is None
+                    else item.terminal_error.kind.value
+                ),
+                terminal_error_message_hash=(
+                    terminal_message_hash
+                    if item is execution.attempts[-1] and item.terminal_error is None
+                    else (
+                        item.terminal_error.message_hash
+                        if item.terminal_error is not None
+                        else None
+                    )
+                ),
+                error_retryable=(item.terminal_error.retryable if item.terminal_error else False),
+                produced_proposal_hash=(
+                    proposal_hash if succeeded and item is execution.attempts[-1] else None
+                ),
                 started_at=started_at,
                 completed_at=completed_at,
-            ),
+            )
+            for item in execution.attempts
         ),
-        aggregate_usage=usage,
+        aggregate_usage=aggregate_usage,
         run_status=RunStatus.SUCCEEDED if succeeded else RunStatus.FAILED,
         failure_reason_code=(None if succeeded else _failure_reason(terminal_kind)),
         limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SINGLE_SOURCE_NON_VINTAGE"),
@@ -570,7 +666,7 @@ def execute_p13_agent(
         staging.mkdir()
         atomic_write_bytes(staging / "agent-run-manifest.json", manifest.canonical_bytes())
         atomic_write_bytes(staging / "agent-run-spec.json", spec.canonical_bytes())
-        atomic_write_bytes(staging / "agent-events.jsonl", capture.transcript)
+        atomic_write_bytes(staging / "agent-events.jsonl", execution.normalized_transcript)
         atomic_write_bytes(staging / "harness-request.json", request.canonical_bytes())
         if execution.provider_transcript is not None:
             atomic_write_bytes(staging / "provider-events.jsonl", execution.provider_transcript)

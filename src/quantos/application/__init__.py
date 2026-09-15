@@ -42,11 +42,8 @@ from quantos.application.evidence_mcp import (
     evidence_mcp_policy,
 )
 from quantos.application.harness_spike import (
-    CodexExecCapture,
-    HarnessTranscriptError,
     build_codex_spike_report,
     evaluate_codex_capture,
-    parse_codex_exec_jsonl,
 )
 from quantos.application.ledger import (
     ResearchLedgerError,
@@ -122,7 +119,6 @@ __all__ = [
     "AuthorityRootResolver",
     "BoundaryAuditDecision",
     "CampaignGovernanceError",
-    "CodexExecCapture",
     "DatasetBinding",
     "DoctorReport",
     "EventFeatureAdmissionError",
@@ -133,7 +129,6 @@ __all__ = [
     "EvidenceMcpError",
     "EvidenceMcpService",
     "FrozenEventFeatureAdmissionPolicy",
-    "HarnessTranscriptError",
     "LedgerSearchBinding",
     "PITAuditService",
     "ProposalChainBinding",
@@ -165,7 +160,6 @@ __all__ = [
     "load_canonical_pit_request_json",
     "load_pit_spec_json",
     "p14_research_mcp_policy",
-    "parse_codex_exec_jsonl",
     "propagate_availability",
     "proposal_mcp_policy",
     "publish_capability_report",

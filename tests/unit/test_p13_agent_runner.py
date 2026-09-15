@@ -10,6 +10,7 @@ import pytest
 
 import quantos.application.p13_agent_runner as runner
 from quantos.application.agent_harness import (
+    HarnessAttemptResult,
     HarnessExecutionResult,
     capture_from_agent_events,
     make_agent_event,
@@ -222,10 +223,16 @@ def _sdk_execution(draft: EvidenceExtractionDraft, *, valid: bool = True) -> Har
     add(AgentEventKind.ATTEMPT_COMPLETED, {"attempt": 1})
     capture = capture_from_agent_events(tuple(events), max_bytes=100_000)
     return HarnessExecutionResult(
-        capture=capture,
-        runtime=HarnessRuntimeIdentity(sdk_version="0.154.0", runtime_version="0.154.0 test"),
-        terminal_error=None,
-        provider_transcript=b"provider\n",
+        attempts=(
+            HarnessAttemptResult(
+                capture=capture,
+                runtime=HarnessRuntimeIdentity(
+                    sdk_version="0.154.0", runtime_version="0.154.0 test"
+                ),
+                terminal_error=None,
+                provider_transcript=b"provider\n",
+            ),
+        )
     )
 
 
@@ -240,7 +247,9 @@ def _patch_sdk(monkeypatch: pytest.MonkeyPatch, execution: HarnessExecutionResul
 def _failed_sdk_execution(kind: HarnessErrorKind) -> HarnessExecutionResult:
     from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
 
-    return CodexSdkAdapter._failed_result(kind, RuntimeError("synthetic failure"))
+    return HarnessExecutionResult(
+        attempts=(CodexSdkAdapter._failed_result(kind, RuntimeError("synthetic failure")),)
+    )
 
 
 def test_p13_output_schema_is_accepted_by_json_schema_providers() -> None:

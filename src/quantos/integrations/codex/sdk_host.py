@@ -51,8 +51,11 @@ def _provider_event(method: str, payload: object) -> dict[str, object]:
 def _error_kind(error: BaseException) -> tuple[HarnessErrorKind, bool]:
     try:
         from openai_codex import (
+            InternalRpcError,
             InvalidParamsError,
             InvalidRequestError,
+            MethodNotFoundError,
+            ParseError,
             ServerBusyError,
             TransportClosedError,
         )
@@ -61,6 +64,12 @@ def _error_kind(error: BaseException) -> tuple[HarnessErrorKind, bool]:
     if isinstance(error, ServerBusyError):
         return HarnessErrorKind.OVERLOADED, True
     if isinstance(error, TransportClosedError):
+        return HarnessErrorKind.TRANSPORT_CLOSED, False
+    if isinstance(error, MethodNotFoundError):
+        return HarnessErrorKind.PROTOCOL_UNSUPPORTED, False
+    if isinstance(error, ParseError):
+        return HarnessErrorKind.OUTPUT_INVALID, False
+    if isinstance(error, InternalRpcError):
         return HarnessErrorKind.TRANSPORT_CLOSED, False
     if isinstance(error, (InvalidParamsError, InvalidRequestError, ValidationError, ValueError)):
         return HarnessErrorKind.CONFIGURATION_INVALID, False

@@ -109,3 +109,36 @@ def test_failed_v2_manifest_may_lack_runtime_but_never_proposal_authority() -> N
     )
 
     assert failed.output_proposal_hashes == ()
+
+
+def test_v2_manifest_rejects_non_retryable_intermediate_attempt() -> None:
+    manifest = _manifest()
+    payload = manifest.model_dump(mode="python")
+    failed_attempt = HarnessAttemptRecord(
+        attempt_index=1,
+        event_stream_hash="b" * 64,
+        usage=_usage(),
+        terminal_error_kind="OUTPUT_INVALID",
+        terminal_error_message_hash="b" * 64,
+        error_retryable=False,
+        started_at=NOW,
+        completed_at=NOW,
+    )
+    successful_attempt = manifest.attempts[0].model_copy(update={"attempt_index": 2})
+    doubled_usage = _usage().model_copy(
+        update={
+            "input_tokens": 20,
+            "output_tokens": 4,
+            "cached_input_tokens": 8,
+            "retry_count": 1,
+        }
+    )
+
+    with pytest.raises(ValidationError, match="retryable failed attempts"):
+        AgentRunManifestV2.model_validate(
+            {
+                **payload,
+                "attempts": (failed_attempt, successful_attempt),
+                "aggregate_usage": doubled_usage,
+            }
+        )

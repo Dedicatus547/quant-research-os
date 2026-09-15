@@ -46,6 +46,7 @@ class ToolCallObservation:
 
 @dataclass(frozen=True)
 class HarnessCapture:
+    attempt_index: int
     transcript: bytes
     transcript_hash: str
     transcript_size_bytes: int
@@ -63,11 +64,53 @@ class HarnessCapture:
 
 
 @dataclass(frozen=True)
-class HarnessExecutionResult:
+class HarnessAttemptResult:
     capture: HarnessCapture
     runtime: HarnessRuntimeIdentity | None
     terminal_error: HarnessTerminalError | None
     provider_transcript: bytes | None
+
+
+@dataclass(frozen=True)
+class HarnessExecutionResult:
+    attempts: tuple[HarnessAttemptResult, ...]
+
+    def __post_init__(self) -> None:
+        if not self.attempts or [item.capture.attempt_index for item in self.attempts] != list(
+            range(1, len(self.attempts) + 1)
+        ):
+            raise ValueError("harness execution attempts must be nonempty and contiguous")
+
+    @property
+    def capture(self) -> HarnessCapture:
+        return self.attempts[-1].capture
+
+    @property
+    def runtime(self) -> HarnessRuntimeIdentity | None:
+        return self.attempts[-1].runtime
+
+    @property
+    def terminal_error(self) -> HarnessTerminalError | None:
+        return self.attempts[-1].terminal_error
+
+    @property
+    def provider_transcript(self) -> bytes | None:
+        transcripts = [
+            item.provider_transcript
+            for item in self.attempts
+            if item.provider_transcript is not None
+        ]
+        if not transcripts:
+            return None
+        return b"".join(transcripts)
+
+    @property
+    def normalized_transcript(self) -> bytes:
+        return b"".join(item.capture.transcript for item in self.attempts)
+
+    @property
+    def normalized_transcript_hash(self) -> str:
+        return sha256_bytes(self.normalized_transcript)
 
 
 class LocalAgentHarness(Protocol):
@@ -92,11 +135,32 @@ def parse_agent_events(payload: bytes, *, max_bytes: int) -> tuple[AgentEvent, .
     return tuple(events)
 
 
+def captures_from_agent_events(
+    events: tuple[AgentEvent, ...], *, max_bytes: int
+) -> tuple[HarnessCapture, ...]:
+    if not events:
+        raise HarnessCaptureError("normalized transcript contains no events")
+    grouped: list[list[AgentEvent]] = []
+    for event in events:
+        if event.attempt > len(grouped):
+            if event.attempt != len(grouped) + 1:
+                raise HarnessCaptureError("normalized attempts are not contiguous")
+            grouped.append([])
+        grouped[event.attempt - 1].append(event)
+    captures = tuple(
+        capture_from_agent_events(tuple(group), max_bytes=max_bytes) for group in grouped
+    )
+    if sum(item.transcript_size_bytes for item in captures) > max_bytes:
+        raise HarnessCaptureError("combined normalized transcript exceeds its bound")
+    return captures
+
+
 def capture_from_agent_events(events: tuple[AgentEvent, ...], *, max_bytes: int) -> HarnessCapture:
     if not events:
         raise HarnessCaptureError("normalized transcript contains no events")
+    attempt_index = events[0].attempt
     for expected, event in enumerate(events, start=1):
-        if event.attempt != 1 or event.sequence != expected:
+        if event.attempt != attempt_index or event.sequence != expected:
             raise HarnessCaptureError("normalized event sequence is not contiguous")
     transcript = serialize_agent_events(events)
     if len(transcript) > max_bytes:
@@ -195,6 +259,7 @@ def capture_from_agent_events(events: tuple[AgentEvent, ...], *, max_bytes: int)
             usage = cast(dict[str, int], candidate)
 
     return HarnessCapture(
+        attempt_index=attempt_index,
         transcript=transcript,
         transcript_hash=sha256_bytes(transcript),
         transcript_size_bytes=len(transcript),
@@ -218,9 +283,10 @@ def make_agent_event(
     kind: AgentEventKind,
     provider_event_type: str,
     payload: dict[str, object],
+    attempt: int = 1,
 ) -> AgentEvent:
     return AgentEvent(
-        attempt=1,
+        attempt=attempt,
         sequence=sequence,
         kind=kind,
         provider_event_type=provider_event_type,
