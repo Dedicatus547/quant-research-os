@@ -32,6 +32,8 @@ Both were 6/9 and failed the same three capabilities.
 - v2 request, runtime, event, attempt, error, spec and manifest contracts;
 - SDK host, isolated adapter, process-group timeout cleanup and fail-closed normalizer;
 - bounded overload-only retries with per-attempt evidence, total wall-clock budget and backoff cap;
+- v2 execution request semantics binding retry/backoff/total timeout, plus pre-retention in-memory
+  rejection of echoed `TUSHARE_*` values and the synthetic P10 parent marker;
 - transport-neutral P10 and P13 evaluation/publication paths;
 - separate provider and normalized transcripts;
 - immutable failed-run publication with no proposal authority;

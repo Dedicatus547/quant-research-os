@@ -162,7 +162,7 @@ class LocalAgentHarness(Protocol):
     def execute(self, request: HarnessExecutionRequest) -> HarnessExecutionResult: ...
 ```
 
-`HarnessExecutionRequest` 至少绑定：
+`HarnessExecutionRequest`（schema `harness-execution-request/v2`）至少绑定：
 
 - resolved working directory 和 frozen input hashes；
 - prompt bytes/hash；
@@ -191,6 +191,9 @@ history persistence
 
 环境策略必须是 exact allowlist + exact values + `inherit=none`，不能只记录变量名。
 所有 policy 都必须 canonicalize 并进入 request/manifest hash。
+
+Adapter 必须在解析或保留 host 输出前，仅在内存中扫描父进程的 `TUSHARE_*` 值和资格测试
+marker；一旦观察到回显，立即以稳定错误哈希失败，丢弃原始输出且不得 retry。
 
 不可变 request 不得持有可变 `Mapping`。schema/config 使用 canonical bytes 或深度不可变的
 canonical contract。

@@ -235,7 +235,7 @@ class HarnessMcpServer(CanonicalContract):
 
 
 class HarnessExecutionRequest(CanonicalContract):
-    schema_version: Literal["harness-execution-request/v1"] = "harness-execution-request/v1"
+    schema_version: Literal["harness-execution-request/v2"] = "harness-execution-request/v2"
     run_id: str = Field(pattern=LOGICAL_ID_PATTERN)
     cwd: str = Field(min_length=1, max_length=4096)
     prompt: str = Field(min_length=1, max_length=200_000)

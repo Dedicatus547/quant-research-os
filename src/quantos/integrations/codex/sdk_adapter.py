@@ -37,6 +37,8 @@ from quantos.integrations.codex.event_normalizer import (
 )
 
 _HOST_MODULE = "quantos.integrations.codex.sdk_host"
+_SENSITIVE_PARENT_NAMES = frozenset({"P10_FORBIDDEN_SECRET"})
+_SENSITIVE_PARENT_PREFIXES = ("TUSHARE_",)
 
 
 class CodexSdkAdapter:
@@ -117,6 +119,12 @@ class CodexSdkAdapter:
                 self._terminate_process_group(process)
                 return self._failed_result(HarnessErrorKind.TIMEOUT, error, attempt=attempt_index)
 
+        if _contains_parent_secret(stdout, stderr):
+            return self._failed_result(
+                HarnessErrorKind.PERMISSION_DENIED,
+                ValueError("forbidden parent environment value observed in SDK host output"),
+                attempt=attempt_index,
+            )
         if process.returncode != 0:
             return self._failed_result(
                 HarnessErrorKind.TRANSPORT_CLOSED,
@@ -334,3 +342,18 @@ class CodexSdkAdapter:
             terminal_error=terminal,
             provider_transcript=provider_transcript,
         )
+
+
+def _contains_parent_secret(*payloads: bytes) -> bool:
+    """Scan in memory without returning, logging, or persisting sensitive values."""
+
+    markers = tuple(
+        value.encode("utf-8")
+        for name, value in os.environ.items()
+        if value
+        and (
+            name in _SENSITIVE_PARENT_NAMES
+            or any(name.startswith(prefix) for prefix in _SENSITIVE_PARENT_PREFIXES)
+        )
+    )
+    return any(marker in payload for marker in markers for payload in payloads)

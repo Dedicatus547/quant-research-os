@@ -202,3 +202,31 @@ def test_adapter_retries_only_retryable_errors_and_preserves_attempts(
     assert result.attempts[0].terminal_error.retryable is True
     assert result.terminal_error is not None
     assert result.terminal_error.kind is HarnessErrorKind.OUTPUT_INVALID
+
+
+@pytest.mark.parametrize("environment_name", ["P10_FORBIDDEN_SECRET", "TUSHARE_TOKEN"])
+def test_adapter_rejects_parent_secret_echo_without_retaining_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment_name: str
+) -> None:
+    secret = "synthetic-parent-secret-that-must-not-persist"
+    monkeypatch.setenv(environment_name, secret)
+
+    class LeakingProcess:
+        returncode = 0
+        pid = 123
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def communicate(self, _payload: bytes, timeout: float) -> tuple[bytes, bytes]:
+            assert timeout > 0
+            return _response().replace(b'"{}"', json.dumps(secret).encode()), b""
+
+    monkeypatch.setattr(subprocess, "Popen", LeakingProcess)
+
+    result = CodexSdkAdapter(authentication_home=tmp_path).execute(_request(tmp_path))
+
+    assert result.terminal_error is not None
+    assert result.terminal_error.kind is HarnessErrorKind.PERMISSION_DENIED
+    assert result.provider_transcript is None
+    assert secret.encode() not in result.normalized_transcript
