@@ -38,7 +38,7 @@ from quantos.artifacts.store import (
 from quantos.backtest import QlibBacktestService, verify_backtest_artifact
 from quantos.config import load_yaml_contract
 from quantos.contracts import (
-    AgentRunManifest,
+    AgentRunManifestV2,
     BacktestPolicy,
     CostPolicy,
     EventFeatureAdmissionPolicySpec,
@@ -499,7 +499,7 @@ def run(
     observed_evidence_hash: str | None = None
     observed_text_hash: str | None = None
     agent_result: P13AgentRunResult | None = None
-    retained_manifest: AgentRunManifest | None = None
+    retained_manifest: AgentRunManifestV2 | None = None
     agent_attempted = False
     admission: EventFeatureAdmissionRecord | None = None
     real: dict[str, str | int | bool] | None = None

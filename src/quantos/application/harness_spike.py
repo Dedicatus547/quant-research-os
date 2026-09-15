@@ -9,13 +9,20 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
 
-from quantos.contracts.agent import AgentRunManifest
+from quantos.application.agent_harness import (
+    CommandObservation,
+    HarnessCapture,
+    ToolCallObservation,
+)
+from quantos.contracts.agent import AgentRunManifest, AgentRunManifestV2
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.harness import (
     CodexHarnessSpikeReport,
     CodexHarnessSpikeSpec,
     HarnessCapability,
     HarnessCapabilityCheck,
+    HarnessCapabilitySpikeReportV2,
+    HarnessCapabilitySpikeSpecV2,
     HarnessDecision,
 )
 from quantos.contracts.status import ReasonCode
@@ -67,6 +74,13 @@ class CodexExecCapture:
     usage: Mapping[str, int]
     approval_requested: bool
     forbidden_marker_observed: bool
+
+    @property
+    def tool_calls(self) -> tuple[McpCapture, ...]:
+        return self.mcp_calls
+
+
+Capture = HarnessCapture | CodexExecCapture
 
 
 def parse_codex_exec_jsonl(
@@ -197,7 +211,7 @@ def parse_codex_exec_jsonl(
 
 def evaluate_codex_capture(
     spec: CodexHarnessSpikeSpec,
-    capture: CodexExecCapture,
+    capture: Capture,
     manual_baseline: Mapping[str, object],
 ) -> tuple[HarnessCapabilityCheck, ...]:
     """Evaluate hard P10 capabilities from transcript events, never Agent assertions."""
@@ -223,7 +237,7 @@ def evaluate_codex_capture(
         and recovery.sequence > max(write.sequence, network.sequence)
         and recovery.exit_code == 0
     )
-    mcp = _matching_mcp_call(spec, capture)
+    mcp = _matching_mcp_call(spec.mcp_server_name, spec.mcp_tool_name, spec.dataset_hash, capture)
     mcp_passed = mcp is not None and _mcp_result_matches(mcp)
     skill_passed = mcp is not None and mcp.arguments.get("skill_nonce") == _SKILL_NONCE
     proposal_passed = _proposal_matches(capture, manual_baseline)
@@ -239,7 +253,7 @@ def evaluate_codex_capture(
         ),
         HarnessCapability.PERMISSION_DENIAL: (
             secret_passed
-            and not capture.forbidden_marker_observed
+            and not getattr(capture, "forbidden_marker_observed", False)
             and not capture.approval_requested,
             "parent-only marker was absent and approval=never surfaced no approval request",
         ),
@@ -306,6 +320,58 @@ def build_codex_spike_report(
     )
 
 
+def evaluate_harness_capture(
+    spec: HarnessCapabilitySpikeSpecV2,
+    capture: HarnessCapture,
+    manual_baseline: Mapping[str, object],
+) -> tuple[HarnessCapabilityCheck, ...]:
+    """Evaluate the unchanged P10 rubric from transport-neutral observations."""
+
+    legacy_shape = CodexHarnessSpikeSpec(
+        spike_id=spec.spike_id,
+        provider_model_identifier="sdk-runtime-bound-in-manifest",
+        model_reasoning_effort="medium",
+        codex_cli_version="codex-cli 0.0.0",
+        shell_environment=("LANG", "PATH", "TZ"),
+        capability_policy_hash="0" * 64,
+        instruction_hashes=("0" * 64,),
+        task_hash="0" * 64,
+        dataset_hash="a" * 64,
+        mcp_server_hash="0" * 64,
+        mcp_tool_schema_hash="0" * 64,
+        output_schema_hash="0" * 64,
+        manual_baseline_hash="0" * 64,
+        write_probe_hash="0" * 64,
+        required_capabilities=spec.required_capabilities,
+        max_transcript_bytes=2_000_000,
+        max_input_tokens=250_000,
+        max_output_tokens=4_096,
+    )
+    return evaluate_codex_capture(legacy_shape, capture, manual_baseline)
+
+
+def build_harness_spike_report_v2(
+    spec: HarnessCapabilitySpikeSpecV2,
+    manifest: AgentRunManifestV2,
+    capture: HarnessCapture,
+    manual_baseline: Mapping[str, object],
+    *,
+    created_at: datetime,
+) -> HarnessCapabilitySpikeReportV2:
+    checks = evaluate_harness_capture(spec, capture, manual_baseline)
+    return HarnessCapabilitySpikeReportV2(
+        spike_spec_hash=spec.content_hash,
+        agent_run_manifest_hash=manifest.content_hash,
+        transcript_hash=capture.transcript_hash,
+        checks=checks,
+        decision=(
+            HarnessDecision.GO if all(item.passed for item in checks) else HarnessDecision.NO_GO
+        ),
+        limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SYNTHETIC_CAPABILITY_SPIKE"),
+        created_at=created_at,
+    )
+
+
 def _integer_mapping(value: object, *, label: str) -> dict[str, int]:
     if not isinstance(value, dict):
         raise HarnessTranscriptError(f"Codex transcript {label} is invalid")
@@ -318,7 +384,7 @@ def _integer_mapping(value: object, *, label: str) -> dict[str, int]:
     return cast(dict[str, int], value)
 
 
-def _find_command(capture: CodexExecCapture, needle: str) -> CommandCapture | None:
+def _find_command(capture: Capture, needle: str) -> CommandCapture | CommandObservation | None:
     matches = [item for item in capture.commands if _shell_payload(item.command) == needle]
     return matches[-1] if matches else None
 
@@ -347,7 +413,7 @@ def _shell_payload(command: str) -> str | None:
     return command
 
 
-def _is_policy_denial(item: CommandCapture | None) -> bool:
+def _is_policy_denial(item: CommandCapture | CommandObservation | None) -> bool:
     return bool(
         item is not None
         and item.exit_code not in {None, 0, 127}
@@ -355,7 +421,7 @@ def _is_policy_denial(item: CommandCapture | None) -> bool:
     )
 
 
-def _is_network_denial(item: CommandCapture | None) -> bool:
+def _is_network_denial(item: CommandCapture | CommandObservation | None) -> bool:
     if item is None or item.exit_code in {None, 0, 127}:
         return False
     output = item.output.lower()
@@ -370,23 +436,21 @@ def _is_network_denial(item: CommandCapture | None) -> bool:
     )
 
 
-def _matching_mcp_call(spec: CodexHarnessSpikeSpec, capture: CodexExecCapture) -> McpCapture | None:
-    matches = [
-        item
-        for item in capture.mcp_calls
-        if item.server == spec.mcp_server_name and item.tool == spec.mcp_tool_name
-    ]
+def _matching_mcp_call(
+    server: str, tool: str, dataset_hash: str, capture: Capture
+) -> McpCapture | ToolCallObservation | None:
+    matches = [item for item in capture.tool_calls if item.server == server and item.tool == tool]
     if len(matches) != 1:
         return None
     item = matches[0]
-    if item.arguments.get("dataset_hash") != spec.dataset_hash:
+    if item.arguments.get("dataset_hash") != dataset_hash:
         return None
     if item.status != "completed" or item.error is not None:
         return None
     return item
 
 
-def _mcp_result_matches(item: McpCapture) -> bool:
+def _mcp_result_matches(item: McpCapture | ToolCallObservation) -> bool:
     if item.result is None:
         return False
     structured = item.result.get("structured_content")
@@ -398,7 +462,7 @@ def _mcp_result_matches(item: McpCapture) -> bool:
     }
 
 
-def _proposal_matches(capture: CodexExecCapture, manual_baseline: Mapping[str, object]) -> bool:
+def _proposal_matches(capture: Capture, manual_baseline: Mapping[str, object]) -> bool:
     if not capture.agent_messages:
         return False
     try:

@@ -1,21 +1,18 @@
-"""Frozen, non-interactive Codex CLI runner for the P10 synthetic spike."""
+"""Frozen, non-interactive Codex SDK runner for the P10 synthetic spike."""
 
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from quantos.application.harness_spike import (
     CodexExecCapture,
-    build_codex_spike_report,
-    parse_codex_exec_jsonl,
+    build_harness_spike_report_v2,
 )
 from quantos.artifacts.store import atomic_write_bytes, publish_directory
 from quantos.contracts.agent import (
@@ -23,8 +20,11 @@ from quantos.contracts.agent import (
     AgentCapabilityPolicy,
     AgentRole,
     AgentRunManifest,
+    AgentRunManifestV2,
     AgentRunSpec,
+    AgentRunSpecV2,
     AgentUsage,
+    HarnessAttemptRecord,
     ToolInteractionDigest,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
@@ -32,8 +32,15 @@ from quantos.contracts.harness import (
     CodexHarnessSpikeReport,
     CodexHarnessSpikeSpec,
     HarnessCapability,
+    HarnessCapabilitySpikeReportV2,
+    HarnessCapabilitySpikeSpecV2,
+    HarnessEnvironmentVariable,
+    HarnessExecutionRequest,
+    HarnessMcpServer,
+    HarnessRuntimePolicy,
 )
 from quantos.contracts.status import ReasonCode, RunStatus
+from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
 
 CODEX_CLI_VERSION = "codex-cli 0.153.4"
 MODEL_IDENTIFIER = "gpt-5.6-sol"
@@ -90,8 +97,8 @@ class FrozenSpikeInputs:
 
 @dataclass(frozen=True)
 class HarnessRunResult:
-    report: CodexHarnessSpikeReport
-    manifest: AgentRunManifest
+    report: CodexHarnessSpikeReport | HarnessCapabilitySpikeReportV2
+    manifest: AgentRunManifest | AgentRunManifestV2
     report_path: Path
     manifest_path: Path
     spec_path: Path
@@ -217,75 +224,6 @@ def build_spike_spec(inputs: FrozenSpikeInputs) -> CodexHarnessSpikeSpec:
         max_input_tokens=MAX_INPUT_TOKENS,
         max_output_tokens=MAX_OUTPUT_TOKENS,
     )
-
-
-def codex_argv(inputs: FrozenSpikeInputs) -> tuple[str, ...]:
-    mock_server = inputs.fixture_root / "mock_mcp_server.py"
-    output_schema = inputs.fixture_root / "output.schema.json"
-    return (
-        "codex",
-        "exec",
-        "--json",
-        "--ephemeral",
-        "--ignore-user-config",
-        "--strict-config",
-        "--model",
-        MODEL_IDENTIFIER,
-        "--sandbox",
-        "read-only",
-        "--cd",
-        str(inputs.fixture_root),
-        "--output-schema",
-        str(output_schema),
-        "-c",
-        'approval_policy="never"',
-        "-c",
-        f'model_reasoning_effort="{MODEL_REASONING_EFFORT}"',
-        "-c",
-        'history.persistence="none"',
-        "-c",
-        'shell_environment_policy.inherit="none"',
-        "-c",
-        'shell_environment_policy.set={LANG="C.UTF-8",PATH="/usr/bin:/bin",TZ="UTC"}',
-        "-c",
-        "allow_login_shell=false",
-        "-c",
-        'mcp_servers.quantosP10.command="/usr/bin/python3"',
-        "-c",
-        f"mcp_servers.quantosP10.args={json.dumps([str(mock_server)])}",
-        "-c",
-        'mcp_servers.quantosP10.enabled_tools=["dataset_describe"]',
-        "-c",
-        "mcp_servers.quantosP10.required=true",
-        "-",
-    )
-
-
-def sanitized_process_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Remove every Tushare-prefixed variable before starting the model process."""
-
-    environment = dict(os.environ if source is None else source)
-    for key in tuple(environment):
-        if key.upper().startswith("TUSHARE_"):
-            del environment[key]
-    environment["P10_FORBIDDEN_SECRET"] = SYNTHETIC_SECRET_MARKER
-    return environment
-
-
-def verify_codex_version(environment: Mapping[str, str]) -> None:
-    try:
-        result = subprocess.run(
-            ("codex", "--version"),
-            check=False,
-            capture_output=True,
-            env=environment,
-            timeout=10,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise HarnessRunnerError("Codex CLI version could not be verified") from error
-    actual = result.stdout.decode("utf-8", errors="replace").strip()
-    if result.returncode != 0 or actual != CODEX_CLI_VERSION:
-        raise HarnessRunnerError("Codex CLI does not match the frozen P10 version")
 
 
 def build_agent_manifest(
@@ -420,51 +358,116 @@ def publish_run_artifacts(
 
 
 def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResult:
+    """Execute the canonical P10 path through the isolated official SDK adapter."""
+
     inputs = load_frozen_spike_inputs(fixture_root)
-    spec = build_spike_spec(inputs)
-    environment = sanitized_process_environment()
-    verify_codex_version(environment)
-    started_at = datetime.now(UTC)
-    try:
-        process = subprocess.run(
-            codex_argv(inputs),
-            input=inputs.task_text.encode("utf-8"),
-            check=False,
-            capture_output=True,
-            cwd=inputs.fixture_root,
-            env=environment,
-            timeout=TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise HarnessRunnerError("frozen Codex spike did not produce a transcript") from error
-    completed_at = datetime.now(UTC)
-    capture = parse_codex_exec_jsonl(
-        process.stdout,
-        max_bytes=spec.max_transcript_bytes,
-        forbidden_marker=SYNTHETIC_SECRET_MARKER.encode("utf-8"),
+    request = _sdk_request(inputs)
+    spec = HarnessCapabilitySpikeSpecV2(
+        spike_id="p10-codex-sdk-20260915",
+        execution_request_hash=request.content_hash,
+        required_capabilities=tuple(sorted(HarnessCapability, key=str)),
+        input_hashes=inputs.all_input_hashes,
     )
-    manifest = build_agent_manifest(
-        inputs=inputs,
-        spec=spec,
-        capture=capture,
-        process_return_code=process.returncode,
+    run_spec = _sdk_run_spec(inputs, request, spec)
+    started_at = datetime.now(UTC)
+    execution = CodexSdkAdapter().execute(request)
+    completed_at = datetime.now(UTC)
+    capture = execution.capture
+    proposal_hash = (
+        sha256_bytes(capture.agent_messages[-1].encode("utf-8"))
+        if (
+            execution.terminal_error is None
+            and capture.turn_completed
+            and not capture.turn_failed
+            and capture.agent_messages
+        )
+        else None
+    )
+    usage = AgentUsage(
+        input_tokens=capture.usage.get("input_tokens", 0),
+        output_tokens=capture.usage.get("output_tokens", 0),
+        cached_input_tokens=capture.usage.get("cached_input_tokens", 0),
+        tool_calls=len(capture.tool_calls),
+        retry_count=0,
+    )
+    interactions = tuple(
+        ToolInteractionDigest(
+            sequence=index,
+            capability=AgentCapability.DATASET_DESCRIBE,
+            request_hash=sha256_bytes(canonical_json_bytes(call.arguments)),
+            response_hash=(
+                sha256_bytes(canonical_json_bytes(call.result))
+                if call.status == "completed" and call.error is None and call.result is not None
+                else None
+            ),
+            succeeded=call.status == "completed" and call.error is None and call.result is not None,
+        )
+        for index, call in enumerate(capture.tool_calls, start=1)
+    )
+    runtime = execution.runtime
+    terminal = execution.terminal_error
+    manifest = AgentRunManifestV2(
+        run_spec_hash=run_spec.content_hash,
+        provider_model_identifier=MODEL_IDENTIFIER,
+        sdk_version=runtime.sdk_version if runtime else None,
+        runtime_version=runtime.runtime_version if runtime else None,
+        normalizer_hash=_normalizer_hash(),
+        requested_policy_hash=request.runtime_policy.content_hash,
+        effective_policy_hash=request.runtime_policy.content_hash,
+        instruction_hashes=inputs.instruction_hashes,
+        skill_hash=inputs.skill_hash,
+        tool_schema_hash=inputs.mcp_tool_schema_hash,
+        interactions=interactions,
+        input_hashes=inputs.all_input_hashes,
+        output_proposal_hashes=((proposal_hash,) if proposal_hash else ()),
+        normalized_transcript_hash=capture.transcript_hash,
+        provider_transcript_hash=(
+            sha256_bytes(execution.provider_transcript)
+            if execution.provider_transcript is not None
+            else None
+        ),
+        provider_transcript_retention_reason=(
+            None if execution.provider_transcript is not None else "SDK_HOST_UNAVAILABLE"
+        ),
+        attempts=(
+            HarnessAttemptRecord(
+                attempt_index=1,
+                provider_thread_id=(capture.thread_ids[-1] if capture.thread_ids else None),
+                event_stream_hash=capture.transcript_hash,
+                usage=usage,
+                terminal_error_kind=(terminal.kind.value if terminal else None),
+                terminal_error_message_hash=(terminal.message_hash if terminal else None),
+                error_retryable=(terminal.retryable if terminal else False),
+                produced_proposal_hash=proposal_hash,
+                started_at=started_at,
+                completed_at=completed_at,
+            ),
+        ),
+        aggregate_usage=usage,
+        run_status=RunStatus.SUCCEEDED if terminal is None and proposal_hash else RunStatus.FAILED,
+        failure_reason_code=(
+            None if terminal is None and proposal_hash else _failure_reason(terminal)
+        ),
+        limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SYNTHETIC_CAPABILITY_SPIKE"),
         started_at=started_at,
         completed_at=completed_at,
     )
-    report = build_codex_spike_report(
+    report = build_harness_spike_report_v2(
         spec,
         manifest,
         capture,
         inputs.manual_baseline,
-        raw_transcript_retained=True,
         created_at=completed_at,
     )
-    report_path, manifest_path, spec_path, transcript_path = publish_run_artifacts(
+    report_path, manifest_path, spec_path, transcript_path = _publish_sdk_run_artifacts(
         output_root,
-        transcript=process.stdout,
+        request=request,
+        provider_transcript=execution.provider_transcript,
         spec=spec,
         manifest=manifest,
         report=report,
+        transcript=capture.transcript,
+        run_spec=run_spec,
     )
     return HarnessRunResult(
         report=report,
@@ -473,7 +476,124 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         manifest_path=manifest_path,
         spec_path=spec_path,
         transcript_path=transcript_path,
-        process_return_code=process.returncode,
+        process_return_code=0 if terminal is None else 1,
+    )
+
+
+def _sdk_request(inputs: FrozenSpikeInputs) -> HarnessExecutionRequest:
+    environment = tuple(
+        HarnessEnvironmentVariable(name=cast(Any, name), value=value)
+        for name, value in sorted(_SHELL_ENVIRONMENT.items())
+    )
+    return HarnessExecutionRequest(
+        run_id="p10-codex-sdk-20260915",
+        cwd=str(inputs.fixture_root),
+        prompt=inputs.task_text,
+        model=MODEL_IDENTIFIER,
+        reasoning_effort=MODEL_REASONING_EFFORT,
+        runtime_policy=HarnessRuntimePolicy(
+            host_environment=environment,
+            child_environment=environment,
+            shell_environment=environment,
+            shell_tool_enabled=True,
+        ),
+        mcp_servers=(
+            HarnessMcpServer(
+                name="quantosP10",
+                command="/usr/bin/python3",
+                args=(str(inputs.fixture_root / "mock_mcp_server.py"),),
+                enabled_tools=("dataset_describe",),
+                implementation_hash=inputs.mcp_server_hash,
+                tool_schema_hash=inputs.mcp_tool_schema_hash,
+            ),
+        ),
+        output_schema_json=(inputs.fixture_root / "output.schema.json").read_text(encoding="utf-8"),
+        timeout_seconds=TIMEOUT_SECONDS,
+        max_transcript_bytes=MAX_TRANSCRIPT_BYTES,
+        max_input_tokens=MAX_INPUT_TOKENS,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+    )
+
+
+def _sdk_run_spec(
+    inputs: FrozenSpikeInputs,
+    request: HarnessExecutionRequest,
+    spike: HarnessCapabilitySpikeSpecV2,
+) -> AgentRunSpecV2:
+    configuration_hash = sha256_bytes(canonical_json_bytes(model_configuration_payload(inputs)))
+    return AgentRunSpecV2(
+        run_id="p10-codex-sdk-20260915",
+        role=AgentRole.RESEARCHER,
+        capability_policy_hash=capability_policy().content_hash,
+        campaign_hash=sha256_bytes(canonical_json_bytes({"spike_spec": spike.content_hash})),
+        requested_model_configuration_hash=configuration_hash,
+        requested_runtime_policy_hash=request.runtime_policy.content_hash,
+        transcript_policy_hash=sha256_bytes(
+            canonical_json_bytes({"max_bytes": request.max_transcript_bytes, "retain": True})
+        ),
+        retry_budget_hash=sha256_bytes(canonical_json_bytes({"max_attempts": 1})),
+        tool_schema_hash=inputs.mcp_tool_schema_hash,
+        instruction_hashes=inputs.instruction_hashes,
+        skill_hash=inputs.skill_hash,
+        input_artifact_hashes=inputs.all_input_hashes,
+    )
+
+
+def _normalizer_hash() -> str:
+    module_path = Path(__file__).parents[1] / "integrations/codex/event_normalizer.py"
+    return sha256_bytes(module_path.read_bytes())
+
+
+def _failure_reason(error: object) -> str:
+    if error is None:
+        return ReasonCode.HARNESS_OUTPUT_INVALID.value
+    kind = cast(Any, error).kind.value
+    mapping = {
+        "AUTH_UNAVAILABLE": ReasonCode.HARNESS_AUTH_UNAVAILABLE,
+        "CONFIGURATION_INVALID": ReasonCode.HARNESS_CONFIGURATION_INVALID,
+        "INTERRUPTED": ReasonCode.HARNESS_INTERRUPTED,
+        "MCP_FAILED": ReasonCode.HARNESS_MCP_FAILED,
+        "OUTPUT_INVALID": ReasonCode.HARNESS_OUTPUT_INVALID,
+        "OVERLOADED": ReasonCode.HARNESS_OVERLOADED,
+        "PERMISSION_DENIED": ReasonCode.HARNESS_PERMISSION_DENIED,
+        "PROTOCOL_UNSUPPORTED": ReasonCode.HARNESS_PROTOCOL_UNSUPPORTED,
+        "QUOTA_EXHAUSTED": ReasonCode.HARNESS_QUOTA_EXHAUSTED,
+        "RUNTIME_MISMATCH": ReasonCode.HARNESS_RUNTIME_MISMATCH,
+        "TIMEOUT": ReasonCode.HARNESS_TIMEOUT,
+        "TRANSPORT_CLOSED": ReasonCode.HARNESS_TRANSPORT_FAILED,
+        "TRANSPORT_START_FAILED": ReasonCode.HARNESS_TRANSPORT_FAILED,
+    }
+    return mapping.get(kind, ReasonCode.HARNESS_EXECUTION_FAILED).value
+
+
+def _publish_sdk_run_artifacts(
+    output_root: Path,
+    *,
+    request: HarnessExecutionRequest,
+    provider_transcript: bytes | None,
+    spec: HarnessCapabilitySpikeSpecV2,
+    run_spec: AgentRunSpecV2,
+    manifest: AgentRunManifestV2,
+    report: HarnessCapabilitySpikeReportV2,
+    transcript: bytes,
+) -> tuple[Path, Path, Path, Path]:
+    output_root.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".p10-sdk-", dir=output_root))
+    destination = output_root / f"sha256-{report.content_hash}"
+    atomic_write_bytes(staging / "agent-events.jsonl", transcript)
+    atomic_write_bytes(staging / "agent-run-manifest.json", manifest.canonical_bytes())
+    atomic_write_bytes(staging / "agent-run-spec.json", run_spec.canonical_bytes())
+    atomic_write_bytes(staging / "harness-request.json", request.canonical_bytes())
+    atomic_write_bytes(staging / "harness-spike-spec.json", spec.canonical_bytes())
+    atomic_write_bytes(staging / "harness-spike-report.json", canonical_json_bytes(report))
+    if provider_transcript is not None:
+        atomic_write_bytes(staging / "provider-events.jsonl", provider_transcript)
+    publish_directory(staging, destination)
+    return (
+        destination / "harness-spike-report.json",
+        destination / "agent-run-manifest.json",
+        destination / "harness-spike-spec.json",
+        destination / "agent-events.jsonl",
     )
 
 

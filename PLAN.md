@@ -2366,6 +2366,13 @@ thread、sandbox、MCP、Skills、失败恢复、transcript、usage、permission
 详细配置、失败恢复过程、哈希和 AgentRunManifest 样例见
 [`docs/adr/0001-gpt-codex-harness.md`](docs/adr/0001-gpt-codex-harness.md)。
 
+FR-03 的官方 Python SDK 重构代码已于 2026-09-15 完成核心实现与离线回归，但尚未通过
+新 runtime 资格门。`openai-codex==0.154.0` 的两次冻结 P10 运行均为 6/9 `NO_GO`：SDK 事件流
+未出现 shell command，因而不能证明 sandbox、parent-secret permission denial 与 failure
+recovery。该结果不修改上段历史 CLI 证据，也不允许 CLI 作为 fallback execution backend；P13 SDK
+live qualification 保持 `NOT_EVALUATED`。详见
+[`docs/fr03-codex-sdk-qualification.md`](docs/fr03-codex-sdk-qualification.md)。
+
 P11 已于 2026-09-08 完成。三个 repo Skills 均通过结构校验；11 个 MCP capability 被拆分为
 3 个 typed proposal ingress 与 8 个 existing-service mapping，不暴露 shell、路径、秘密或 verdict
 控制。写请求绑定 idempotency、AgentRun、Campaign、Budget、input hashes 与 append-only audit；

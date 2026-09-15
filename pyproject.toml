@@ -25,6 +25,11 @@ dependencies = [
   "typer>=0.16,<1",
 ]
 
+[project.optional-dependencies]
+agent-openai = [
+  "openai-codex==0.154.0",
+]
+
 [project.scripts]
 quantos = "quantos.cli:app"
 quantos-evidence-collector = "quantos.evidence.collector_cli:app"
@@ -71,6 +76,7 @@ addopts = "-ra --strict-config --strict-markers --disable-socket"
 testpaths = ["tests"]
 markers = [
   "live: requires an explicit Tushare token and network access",
+  "agent_live: requires an existing Codex login and provider network access",
 ]
 
 [tool.coverage.run]

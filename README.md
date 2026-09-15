@@ -107,6 +107,12 @@ for an explicitly non-frozen extraction attempt; it never promotes that attempt 
 EventFeature, EventStudy, or backtest qualification. Failed Codex transcripts retain only bounded
 events and hashes, never stderr text or secrets.
 
+The new official Python SDK execution path is implemented but is not yet qualified for canonical
+use: two SDK 0.154.0 P10 runs were `NO_GO` at 6/9 because no shell events were emitted. See
+[ADR-0002](docs/adr/0002-official-codex-python-sdk.md) and the
+[FR-03 matrix](docs/fr03-codex-sdk-qualification.md). Historical CLI artifacts remain evidence,
+not a fallback execution backend.
+
 The approved real benchmark is v2 (see
 [the approval record](docs/reviews/p13-benchmark-v2-review.md)). To continue deterministic
 evaluation from a retained successful extraction, pass `--agent-run` with its explicit

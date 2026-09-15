@@ -11,16 +11,14 @@ import pytest
 from quantos.application.harness_runner import (
     SYNTHETIC_SECRET_MARKER,
     HarnessRunnerError,
+    _sdk_request,
     build_agent_manifest,
     build_spike_spec,
     capability_policy,
-    codex_argv,
     load_frozen_spike_inputs,
     model_configuration_payload,
     publish_run_artifacts,
     safe_result_summary,
-    sanitized_process_environment,
-    verify_codex_version,
 )
 from quantos.application.harness_spike import (
     HarnessTranscriptError,
@@ -276,19 +274,19 @@ def test_failed_execution_manifest_cannot_publish_agent_output_authority() -> No
     assert manifest.failure_reason_code == "HARNESS_EXECUTION_FAILED"
 
 
-def test_runner_configuration_is_frozen_and_strips_tushare_environment() -> None:
+def test_runner_configuration_is_frozen_and_uses_exact_sdk_policy() -> None:
     inputs = load_frozen_spike_inputs(FIXTURE)
-    environment = sanitized_process_environment(
-        {"PATH": "/bin", "TUSHARE_TOKEN": "never-visible", "tushare_other": "also-hidden"}
-    )
-    argv = codex_argv(inputs)
+    request = _sdk_request(inputs)
     configuration = model_configuration_payload(inputs)
 
-    assert "TUSHARE_TOKEN" not in environment
-    assert "tushare_other" not in environment
-    assert environment["P10_FORBIDDEN_SECRET"] == SYNTHETIC_SECRET_MARKER
-    assert "--ignore-user-config" in argv
-    assert "allow_login_shell=false" in argv
+    assert {item.name for item in request.runtime_policy.host_environment} == {
+        "LANG",
+        "PATH",
+        "TZ",
+    }
+    assert request.runtime_policy.approval_policy == "never"
+    assert request.runtime_policy.login_shell_allowed is False
+    assert request.runtime_policy.network_allowed is False
     assert configuration["command_network_allowed"] is False
     assert capability_policy().max_requests == 1
 
@@ -304,15 +302,6 @@ def test_frozen_fixture_rejects_extra_files_and_symlink_root(tmp_path: Path) -> 
     linked.symlink_to(FIXTURE.resolve(), target_is_directory=True)
     with pytest.raises(HarnessRunnerError, match="root cannot be"):
         load_frozen_spike_inputs(linked)
-
-
-def test_version_check_fails_closed_on_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        return subprocess.CompletedProcess(["codex", "--version"], 0, b"codex-cli 0.0.0\n", b"")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    with pytest.raises(HarnessRunnerError, match="does not match"):
-        verify_codex_version({})
 
 
 def test_report_manifest_and_transcript_publish_as_one_immutable_tree(tmp_path: Path) -> None:

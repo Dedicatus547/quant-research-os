@@ -9,14 +9,22 @@ from typing import cast
 import pytest
 
 import quantos.application.p13_agent_runner as runner
+from quantos.application.agent_harness import (
+    HarnessExecutionResult,
+    capture_from_agent_events,
+    make_agent_event,
+)
 from quantos.application.evidence_mcp import evidence_mcp_tools
 from quantos.contracts import (
+    AgentEventKind,
     EvidenceCitation,
     EvidenceExtractionDraft,
     EvidenceRecord,
     EvidenceStoreManifest,
     ExtractedTextArtifact,
     ExtractionStatus,
+    HarnessErrorKind,
+    HarnessRuntimeIdentity,
     RunStatus,
     canonical_json_bytes,
     sha256_bytes,
@@ -168,6 +176,73 @@ def _jsonl(draft: EvidenceExtractionDraft, *, valid: bool = True) -> bytes:
     return b"".join(canonical_json_bytes(item) + b"\n" for item in events)
 
 
+def _sdk_execution(draft: EvidenceExtractionDraft, *, valid: bool = True) -> HarnessExecutionResult:
+    events = []
+
+    def add(kind: AgentEventKind, payload: dict[str, object]) -> None:
+        events.append(
+            make_agent_event(
+                sequence=len(events) + 1,
+                kind=kind,
+                provider_event_type=f"test.{kind.value.lower()}",
+                payload=payload,
+            )
+        )
+
+    add(AgentEventKind.ATTEMPT_STARTED, {"attempt": 1})
+    add(AgentEventKind.THREAD_STARTED, {"thread_id": "thread-p13"})
+    add(AgentEventKind.TURN_STARTED, {"status": "inProgress"})
+    if valid:
+        calls = [
+            ("evidence_get", {"view": True}),
+            ("evidence_cite", draft.citations[0].canonical_payload()),
+            ("evidence_cite", draft.citations[1].canonical_payload()),
+        ]
+        for index, (tool, structured) in enumerate(calls, start=1):
+            add(
+                AgentEventKind.TOOL_COMPLETED,
+                {
+                    "server": "quantosP13",
+                    "tool": tool,
+                    "arguments": {"request": index},
+                    "result": {"structured_content": structured},
+                    "error": None,
+                    "status": "completed",
+                },
+            )
+    add(
+        AgentEventKind.AGENT_MESSAGE,
+        {"text": draft.canonical_bytes().decode() if valid else "{}"},
+    )
+    add(
+        AgentEventKind.USAGE,
+        {"usage": {"input_tokens": 100, "cached_input_tokens": 50, "output_tokens": 20}},
+    )
+    add(AgentEventKind.TURN_COMPLETED, {"status": "completed"})
+    add(AgentEventKind.ATTEMPT_COMPLETED, {"attempt": 1})
+    capture = capture_from_agent_events(tuple(events), max_bytes=100_000)
+    return HarnessExecutionResult(
+        capture=capture,
+        runtime=HarnessRuntimeIdentity(sdk_version="0.154.0", runtime_version="0.154.0 test"),
+        terminal_error=None,
+        provider_transcript=b"provider\n",
+    )
+
+
+def _patch_sdk(monkeypatch: pytest.MonkeyPatch, execution: HarnessExecutionResult) -> None:
+    monkeypatch.setattr(
+        runner,
+        "CodexSdkAdapter",
+        lambda: SimpleNamespace(execute=lambda _request: execution),
+    )
+
+
+def _failed_sdk_execution(kind: HarnessErrorKind) -> HarnessExecutionResult:
+    from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
+
+    return CodexSdkAdapter._failed_result(kind, RuntimeError("synthetic failure"))
+
+
 def test_p13_output_schema_is_accepted_by_json_schema_providers() -> None:
     schema = runner.extraction_output_schema("a" * 64, "b" * 64)
     properties = schema["properties"]
@@ -198,14 +273,9 @@ def test_p13_agent_runner_publishes_successful_transcript_bound_proposal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inputs, draft = _inputs(tmp_path)
-    transcript = _jsonl(draft)
+    execution = _sdk_execution(draft)
     monkeypatch.setattr(runner, "load_p13_agent_inputs", lambda *_args, **_kwargs: inputs)
-    monkeypatch.setattr(runner, "verify_codex_version", lambda _environment: None)
-    monkeypatch.setattr(
-        runner.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout=transcript, stderr=b"", returncode=0),
-    )
+    _patch_sdk(monkeypatch, execution)
     result = runner.execute_p13_agent(
         tmp_path,
         tmp_path,
@@ -217,19 +287,20 @@ def test_p13_agent_runner_publishes_successful_transcript_bound_proposal(
 
     assert result.manifest.run_status is RunStatus.SUCCEEDED
     assert result.manifest.usage.tool_calls == 3
-    assert result.proposal.agent_run_hash == sha256_bytes(transcript)
+    assert result.proposal.agent_run_hash == execution.capture.transcript_hash
     assert result.manifest.output_proposal_hashes == (result.proposal.content_hash,)
     assert sorted(item.name for item in result.path.iterdir()) == [
+        "agent-events.jsonl",
         "agent-run-manifest.json",
         "agent-run-spec.json",
-        "codex-events.jsonl",
         "extraction-draft.json",
         "extraction-proposal.json",
+        "harness-request.json",
         "output-schema.json",
+        "provider-events.jsonl",
         "task.md",
         "tool-schema.json",
     ]
-    assert "TUSHARE_TOKEN" not in runner._environment()
     replay = runner.load_p13_agent_run(
         tmp_path,
         tmp_path,
@@ -288,14 +359,9 @@ def test_p13_agent_runner_retains_failed_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inputs, draft = _inputs(tmp_path)
-    transcript = _jsonl(draft, valid=False)
+    execution = _sdk_execution(draft, valid=False)
     monkeypatch.setattr(runner, "load_p13_agent_inputs", lambda *_args, **_kwargs: inputs)
-    monkeypatch.setattr(runner, "verify_codex_version", lambda _environment: None)
-    monkeypatch.setattr(
-        runner.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout=transcript, stderr=b"", returncode=0),
-    )
+    _patch_sdk(monkeypatch, execution)
     with pytest.raises(runner.P13AgentRunnerError, match="immutable run"):
         runner.execute_p13_agent(
             tmp_path,
@@ -315,14 +381,8 @@ def test_p13_agent_runner_retains_empty_transcript_and_stderr_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inputs, _draft = _inputs(tmp_path)
-    stderr = b"bounded synthetic stderr"
     monkeypatch.setattr(runner, "load_p13_agent_inputs", lambda *_args, **_kwargs: inputs)
-    monkeypatch.setattr(runner, "verify_codex_version", lambda _environment: None)
-    monkeypatch.setattr(
-        runner.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout=b"", stderr=stderr, returncode=1),
-    )
+    _patch_sdk(monkeypatch, _failed_sdk_execution(HarnessErrorKind.PROTOCOL_UNSUPPORTED))
     with pytest.raises(runner.P13AgentRunnerError, match="immutable run"):
         runner.execute_p13_agent(
             tmp_path,
@@ -334,10 +394,9 @@ def test_p13_agent_runner_retains_empty_transcript_and_stderr_hash(
         )
     run_path = next((tmp_path / "empty-runs").iterdir())
     manifest = json.loads((run_path / "agent-run-manifest.json").read_text())
-    assert manifest["failure_reason_code"] == "HARNESS_TRANSCRIPT_INVALID"
-    assert manifest["process_return_code"] == 1
-    assert manifest["process_stderr_hash"] == sha256_bytes(stderr)
-    assert (run_path / "codex-events.jsonl").read_bytes() == b""
+    assert manifest["failure_reason_code"] == "HARNESS_PROTOCOL_UNSUPPORTED"
+    assert manifest["output_proposal_hashes"] == []
+    assert (run_path / "agent-events.jsonl").read_bytes()
 
 
 def test_p13_agent_runner_classifies_process_start_failure_as_execution_failure(
@@ -345,12 +404,7 @@ def test_p13_agent_runner_classifies_process_start_failure_as_execution_failure(
 ) -> None:
     inputs, _draft = _inputs(tmp_path)
     monkeypatch.setattr(runner, "load_p13_agent_inputs", lambda *_args, **_kwargs: inputs)
-    monkeypatch.setattr(runner, "verify_codex_version", lambda _environment: None)
-
-    def fail_to_start(*_args: object, **_kwargs: object) -> object:
-        raise OSError("codex unavailable")
-
-    monkeypatch.setattr(runner.subprocess, "run", fail_to_start)
+    _patch_sdk(monkeypatch, _failed_sdk_execution(HarnessErrorKind.TRANSPORT_START_FAILED))
     with pytest.raises(runner.P13AgentRunnerError, match="immutable run"):
         runner.execute_p13_agent(
             tmp_path,
@@ -362,6 +416,6 @@ def test_p13_agent_runner_classifies_process_start_failure_as_execution_failure(
         )
     run_path = next((tmp_path / "start-failure-runs").iterdir())
     manifest = json.loads((run_path / "agent-run-manifest.json").read_text())
-    assert manifest["failure_reason_code"] == "HARNESS_EXECUTION_FAILED"
-    assert manifest["process_return_code"] is None
-    assert manifest["process_stderr_hash"] is None
+    assert manifest["failure_reason_code"] == "HARNESS_TRANSPORT_FAILED"
+    assert manifest["sdk_version"] is None
+    assert manifest["runtime_version"] is None

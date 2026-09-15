@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,24 +9,24 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from quantos.application.agent_harness import (
+    HarnessCapture,
+    capture_from_agent_events,
+    parse_agent_events,
+)
 from quantos.application.evidence_mcp import (
     evidence_mcp_policy,
     evidence_mcp_tool_schema_hash,
     evidence_mcp_tools,
 )
-from quantos.application.harness_runner import verify_codex_version
-from quantos.application.harness_spike import (
-    CodexExecCapture,
-    HarnessTranscriptError,
-    parse_codex_exec_jsonl,
-)
 from quantos.artifacts.store import atomic_write_bytes, confined_regular_file, publish_directory
 from quantos.contracts.agent import (
     AgentCapability,
     AgentRole,
-    AgentRunManifest,
-    AgentRunSpec,
+    AgentRunManifestV2,
+    AgentRunSpecV2,
     AgentUsage,
+    HarnessAttemptRecord,
     ToolInteractionDigest,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
@@ -39,10 +36,17 @@ from quantos.contracts.evidence import (
     EvidenceExtractionProposal,
 )
 from quantos.contracts.evidence_acquisition import EvidenceStoreManifest, ExtractionStatus
+from quantos.contracts.harness import (
+    HarnessEnvironmentVariable,
+    HarnessErrorKind,
+    HarnessExecutionRequest,
+    HarnessMcpServer,
+    HarnessRuntimePolicy,
+)
 from quantos.contracts.status import ReasonCode, RunStatus
 from quantos.evidence.publisher import verify_evidence_store
+from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
 
-CODEX_CLI_VERSION = "codex-cli 0.153.4"
 MODEL_IDENTIFIER = "gpt-5.6-sol"
 MODEL_REASONING_EFFORT = "medium"
 SHELL_ENVIRONMENT = {"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin", "TZ": "UTC"}
@@ -54,7 +58,7 @@ SERVER_NAME = "quantosP13"
 
 
 class P13AgentRunnerError(RuntimeError):
-    def __init__(self, message: str, *, manifest: AgentRunManifest | None = None) -> None:
+    def __init__(self, message: str, *, manifest: AgentRunManifestV2 | None = None) -> None:
         super().__init__(message)
         self.manifest = manifest
 
@@ -100,7 +104,7 @@ class P13AgentInputs:
 
 @dataclass(frozen=True)
 class P13AgentRunResult:
-    manifest: AgentRunManifest
+    manifest: AgentRunManifestV2
     draft: EvidenceExtractionDraft
     proposal: EvidenceExtractionProposal
     path: Path
@@ -252,7 +256,7 @@ def load_p13_agent_inputs(
 def _model_configuration(inputs: P13AgentInputs) -> dict[str, object]:
     return {
         "approval_policy": "never",
-        "codex_cli_version": CODEX_CLI_VERSION,
+        "adapter": "openai-codex-python-sdk",
         "ephemeral": True,
         "model_identifier": MODEL_IDENTIFIER,
         "model_reasoning_effort": MODEL_REASONING_EFFORT,
@@ -267,16 +271,68 @@ def _model_configuration(inputs: P13AgentInputs) -> dict[str, object]:
     }
 
 
-def _run_spec(inputs: P13AgentInputs, benchmark_policy_hash: str) -> AgentRunSpec:
+def _execution_request(workspace: Path, inputs: P13AgentInputs) -> HarnessExecutionRequest:
+    environment = (
+        HarnessEnvironmentVariable(name="LANG", value=SHELL_ENVIRONMENT["LANG"]),
+        HarnessEnvironmentVariable(name="PATH", value=SHELL_ENVIRONMENT["PATH"]),
+        HarnessEnvironmentVariable(name="TZ", value=SHELL_ENVIRONMENT["TZ"]),
+    )
+    server = workspace / "scripts/p13_evidence_mcp_server.py"
+    python = workspace / ".venv/bin/python"
+    return HarnessExecutionRequest(
+        run_id="p13-codex-sdk-sse-600010-20250805",
+        cwd=str(inputs.fixture_root),
+        prompt=inputs.task_text,
+        model=MODEL_IDENTIFIER,
+        reasoning_effort=MODEL_REASONING_EFFORT,
+        runtime_policy=HarnessRuntimePolicy(
+            host_environment=environment,
+            child_environment=environment,
+            shell_environment=environment,
+            shell_tool_enabled=False,
+        ),
+        mcp_servers=(
+            HarnessMcpServer(
+                name=SERVER_NAME,
+                command=str(python),
+                args=(
+                    str(server),
+                    str(inputs.store_path),
+                    inputs.store.store_hash,
+                    inputs.evidence_hash,
+                ),
+                enabled_tools=("evidence_cite", "evidence_get"),
+                implementation_hash=inputs.server_hash,
+                tool_schema_hash=inputs.tool_schema_hash,
+            ),
+        ),
+        output_schema_json=canonical_json_bytes(inputs.output_schema).decode("utf-8"),
+        timeout_seconds=TIMEOUT_SECONDS,
+        max_transcript_bytes=MAX_TRANSCRIPT_BYTES,
+        max_input_tokens=MAX_INPUT_TOKENS,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+    )
+
+
+def _run_spec(
+    inputs: P13AgentInputs,
+    benchmark_policy_hash: str,
+    request: HarnessExecutionRequest,
+) -> AgentRunSpecV2:
     policy = evidence_mcp_policy()
-    return AgentRunSpec(
-        run_id="p13-codex-real-sse-600010-20250805",
+    return AgentRunSpecV2(
+        run_id="p13-codex-sdk-sse-600010-20250805",
         role=AgentRole.RESEARCHER,
         capability_policy_hash=policy.content_hash,
         campaign_hash=sha256_bytes(canonical_json_bytes({"benchmark": benchmark_policy_hash})),
         requested_model_configuration_hash=sha256_bytes(
             canonical_json_bytes(_model_configuration(inputs))
         ),
+        requested_runtime_policy_hash=request.runtime_policy.content_hash,
+        transcript_policy_hash=sha256_bytes(
+            canonical_json_bytes({"max_bytes": MAX_TRANSCRIPT_BYTES, "retain": True})
+        ),
+        retry_budget_hash=sha256_bytes(canonical_json_bytes({"max_attempts": 1})),
         tool_schema_hash=inputs.tool_schema_hash,
         instruction_hashes=inputs.instruction_hashes,
         skill_hash=inputs.skill_hash,
@@ -285,67 +341,7 @@ def _run_spec(inputs: P13AgentInputs, benchmark_policy_hash: str) -> AgentRunSpe
     )
 
 
-def _codex_argv(
-    workspace: Path, inputs: P13AgentInputs, output_schema_path: Path
-) -> tuple[str, ...]:
-    server = workspace / "scripts/p13_evidence_mcp_server.py"
-    python = workspace / ".venv/bin/python"
-    server_args = [
-        str(server),
-        str(inputs.store_path),
-        inputs.store.store_hash,
-        inputs.evidence_hash,
-    ]
-    return (
-        "codex",
-        "exec",
-        "--json",
-        "--ephemeral",
-        "--ignore-user-config",
-        "--strict-config",
-        "--model",
-        MODEL_IDENTIFIER,
-        "--sandbox",
-        "read-only",
-        "--cd",
-        str(inputs.fixture_root),
-        "--output-schema",
-        str(output_schema_path),
-        "-c",
-        'approval_policy="never"',
-        "-c",
-        f'model_reasoning_effort="{MODEL_REASONING_EFFORT}"',
-        "-c",
-        'history.persistence="none"',
-        "-c",
-        "features.shell_tool=false",
-        "-c",
-        'shell_environment_policy.inherit="none"',
-        "-c",
-        'shell_environment_policy.set={LANG="C.UTF-8",PATH="/usr/bin:/bin",TZ="UTC"}',
-        "-c",
-        "allow_login_shell=false",
-        "-c",
-        f"mcp_servers.{SERVER_NAME}.command={json.dumps(str(python))}",
-        "-c",
-        f"mcp_servers.{SERVER_NAME}.args={json.dumps(server_args)}",
-        "-c",
-        f'mcp_servers.{SERVER_NAME}.enabled_tools=["evidence_cite","evidence_get"]',
-        "-c",
-        f"mcp_servers.{SERVER_NAME}.required=true",
-        "-",
-    )
-
-
-def _environment() -> dict[str, str]:
-    environment = dict(os.environ)
-    for key in tuple(environment):
-        if key.upper().startswith("TUSHARE_"):
-            del environment[key]
-    return environment
-
-
-def _tool_interactions(capture: CodexExecCapture) -> tuple[ToolInteractionDigest, ...]:
+def _tool_interactions(capture: HarnessCapture) -> tuple[ToolInteractionDigest, ...]:
     capabilities = {
         "evidence_cite": AgentCapability.EVIDENCE_CITE,
         "evidence_get": AgentCapability.EVIDENCE_GET,
@@ -362,41 +358,20 @@ def _tool_interactions(capture: CodexExecCapture) -> tuple[ToolInteractionDigest
             ),
             succeeded=call.status == "completed" and call.error is None and call.result is not None,
         )
-        for index, call in enumerate(capture.mcp_calls, start=1)
-    )
-
-
-def _empty_capture(payload: bytes) -> CodexExecCapture:
-    """Represent an unparseable process output without discarding its hash."""
-
-    return CodexExecCapture(
-        transcript_hash=sha256_bytes(payload),
-        transcript_size_bytes=len(payload),
-        event_count=0,
-        event_hashes=(),
-        thread_ids=(),
-        turn_started=False,
-        turn_completed=False,
-        turn_failed=False,
-        commands=(),
-        mcp_calls=(),
-        agent_messages=(),
-        usage={},
-        approval_requested=False,
-        forbidden_marker_observed=False,
+        for index, call in enumerate(capture.tool_calls, start=1)
     )
 
 
 def _parse_success(
-    inputs: P13AgentInputs, capture: CodexExecCapture, return_code: int | None
+    inputs: P13AgentInputs, capture: HarnessCapture, execution_succeeded: bool
 ) -> tuple[EvidenceExtractionDraft | None, EvidenceExtractionProposal | None]:
     successful_calls = tuple(
         call
-        for call in capture.mcp_calls
+        for call in capture.tool_calls
         if call.status == "completed" and call.error is None and call.result is not None
     )
     if (
-        return_code != 0
+        not execution_succeeded
         or not capture.turn_started
         or not capture.turn_completed
         or capture.turn_failed
@@ -472,20 +447,22 @@ def load_p13_agent_run(
     def read(name: str) -> bytes:
         return confined_regular_file(run_path, name).read_bytes()
 
-    manifest = AgentRunManifest.model_validate_json(read("agent-run-manifest.json"))
-    spec = _run_spec(inputs, benchmark_policy_hash)
-    capture = parse_codex_exec_jsonl(read("codex-events.jsonl"), max_bytes=MAX_TRANSCRIPT_BYTES)
-    draft, proposal = _parse_success(inputs, capture, manifest.process_return_code)
+    request = _execution_request(workspace, inputs)
+    manifest = AgentRunManifestV2.model_validate_json(read("agent-run-manifest.json"))
+    spec = _run_spec(inputs, benchmark_policy_hash, request)
+    events = parse_agent_events(read("agent-events.jsonl"), max_bytes=MAX_TRANSCRIPT_BYTES)
+    capture = capture_from_agent_events(events, max_bytes=MAX_TRANSCRIPT_BYTES)
+    draft, proposal = _parse_success(inputs, capture, manifest.run_status is RunStatus.SUCCEEDED)
     if (
         run_path.name != f"sha256-{manifest.content_hash}"
         or manifest.run_status is not RunStatus.SUCCEEDED
         or manifest.run_spec_hash != spec.content_hash
         or read("agent-run-spec.json") != spec.canonical_bytes()
-        or manifest.transcript_hash != capture.transcript_hash
+        or manifest.normalized_transcript_hash != capture.transcript_hash
         or manifest.input_hashes != inputs.input_hashes
         or manifest.interactions != _tool_interactions(capture)
-        or manifest.usage.input_tokens != capture.usage.get("input_tokens", 0)
-        or manifest.usage.output_tokens != capture.usage.get("output_tokens", 0)
+        or manifest.aggregate_usage.input_tokens != capture.usage.get("input_tokens", 0)
+        or manifest.aggregate_usage.output_tokens != capture.usage.get("output_tokens", 0)
         or draft is None
         or proposal is None
         or manifest.output_proposal_hashes != (proposal.content_hash,)
@@ -494,6 +471,7 @@ def load_p13_agent_run(
         or read("output-schema.json") != canonical_json_bytes(inputs.output_schema)
         or read("tool-schema.json") != canonical_json_bytes(evidence_mcp_tools())
         or read("task.md") != inputs.task_text.encode("utf-8")
+        or read("harness-request.json") != request.canonical_bytes()
     ):
         raise P13AgentRunnerError("retained P13 run does not bind the requested frozen inputs")
     return P13AgentRunResult(manifest=manifest, draft=draft, proposal=proposal, path=run_path)
@@ -516,123 +494,86 @@ def execute_p13_agent(
         expected_evidence_hash=expected_evidence_hash,
         fixture_root=fixture_root,
     )
-    spec = _run_spec(inputs, benchmark_policy_hash)
-    environment = _environment()
-    verify_codex_version(environment)
+    request = _execution_request(workspace, inputs)
+    spec = _run_spec(inputs, benchmark_policy_hash, request)
     output_root.mkdir(parents=True, exist_ok=True)
     started_at = datetime.now(UTC)
+    execution = CodexSdkAdapter().execute(request)
+    completed_at = datetime.now(UTC)
+    capture = execution.capture
+    draft, proposal = _parse_success(inputs, capture, execution.terminal_error is None)
+    interactions = _tool_interactions(capture)
+    usage = AgentUsage(
+        input_tokens=capture.usage.get("input_tokens", 0),
+        output_tokens=capture.usage.get("output_tokens", 0),
+        cached_input_tokens=capture.usage.get("cached_input_tokens", 0),
+        tool_calls=len(interactions),
+        retry_count=0,
+    )
+    terminal = execution.terminal_error
+    if terminal is None and proposal is None:
+        terminal_kind = HarnessErrorKind.OUTPUT_INVALID
+        terminal_message_hash = sha256_bytes(b"P13 normalized output failed admission")
+    else:
+        terminal_kind = terminal.kind if terminal else None
+        terminal_message_hash = terminal.message_hash if terminal else None
+    succeeded = proposal is not None and terminal_kind is None
+    proposal_hash = proposal.content_hash if proposal is not None else None
+    runtime = execution.runtime
+    manifest = AgentRunManifestV2(
+        run_spec_hash=spec.content_hash,
+        provider_model_identifier=MODEL_IDENTIFIER,
+        sdk_version=runtime.sdk_version if runtime else None,
+        runtime_version=runtime.runtime_version if runtime else None,
+        normalizer_hash=_normalizer_hash(),
+        requested_policy_hash=request.runtime_policy.content_hash,
+        effective_policy_hash=request.runtime_policy.content_hash,
+        instruction_hashes=inputs.instruction_hashes,
+        skill_hash=inputs.skill_hash,
+        tool_schema_hash=inputs.tool_schema_hash,
+        interactions=interactions,
+        input_hashes=inputs.input_hashes,
+        output_proposal_hashes=((proposal_hash,) if proposal_hash is not None else ()),
+        normalized_transcript_hash=capture.transcript_hash,
+        provider_transcript_hash=(
+            sha256_bytes(execution.provider_transcript)
+            if execution.provider_transcript is not None
+            else None
+        ),
+        provider_transcript_retention_reason=(
+            None if execution.provider_transcript is not None else "SDK_HOST_UNAVAILABLE"
+        ),
+        attempts=(
+            HarnessAttemptRecord(
+                attempt_index=1,
+                provider_thread_id=(capture.thread_ids[-1] if capture.thread_ids else None),
+                event_stream_hash=capture.transcript_hash,
+                usage=usage,
+                terminal_error_kind=(terminal_kind.value if terminal_kind else None),
+                terminal_error_message_hash=terminal_message_hash,
+                error_retryable=(terminal.retryable if terminal else False),
+                produced_proposal_hash=(proposal_hash if succeeded else None),
+                started_at=started_at,
+                completed_at=completed_at,
+            ),
+        ),
+        aggregate_usage=usage,
+        run_status=RunStatus.SUCCEEDED if succeeded else RunStatus.FAILED,
+        failure_reason_code=(None if succeeded else _failure_reason(terminal_kind)),
+        limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SINGLE_SOURCE_NON_VINTAGE"),
+        started_at=started_at,
+        completed_at=completed_at,
+    )
     with tempfile.TemporaryDirectory(prefix=".p13-agent-", dir=output_root) as temporary:
         temporary_path = Path(temporary)
-        schema_path = temporary_path / "output-schema.json"
-        atomic_write_bytes(
-            schema_path,
-            canonical_json_bytes(inputs.output_schema),
-            expected_sha256=inputs.output_schema_hash,
-        )
-        process_stdout = b""
-        process_stderr = b""
-        return_code: int | None = None
-        process_execution_failed = False
-        transcript_invalid = False
-        try:
-            process = subprocess.run(
-                _codex_argv(workspace, inputs, schema_path),
-                input=inputs.task_text.encode("utf-8"),
-                check=False,
-                capture_output=True,
-                cwd=inputs.fixture_root,
-                env=environment,
-                timeout=TIMEOUT_SECONDS,
-            )
-            process_stdout = process.stdout
-            process_stderr = process.stderr
-            return_code = process.returncode
-        except subprocess.TimeoutExpired as error:
-            process_execution_failed = True
-            if isinstance(error.stdout, bytes):
-                process_stdout = error.stdout
-            if isinstance(error.stderr, bytes):
-                process_stderr = error.stderr
-        except OSError:
-            process_execution_failed = True
-        completed_at = datetime.now(UTC)
-        try:
-            capture = parse_codex_exec_jsonl(process_stdout, max_bytes=MAX_TRANSCRIPT_BYTES)
-        except HarnessTranscriptError:
-            transcript_invalid = not process_execution_failed
-            capture = _empty_capture(process_stdout)
-        draft, proposal = _parse_success(inputs, capture, return_code)
-        interactions = _tool_interactions(capture)
-        usage = AgentUsage(
-            input_tokens=capture.usage.get("input_tokens", 0),
-            output_tokens=capture.usage.get("output_tokens", 0),
-            cached_input_tokens=capture.usage.get("cached_input_tokens", 0),
-            tool_calls=len(interactions),
-            retry_count=sum(
-                not (call.status == "completed" and call.error is None and call.result is not None)
-                for call in capture.mcp_calls
-            ),
-        )
-        succeeded = draft is not None and proposal is not None
-        manifest = AgentRunManifest(
-            run_spec_hash=spec.content_hash,
-            provider_thread_id=(capture.thread_ids[-1] if capture.thread_ids else "UNAVAILABLE"),
-            provider_model_identifier=MODEL_IDENTIFIER,
-            model_snapshot_immutable=False,
-            model_configuration_hash=spec.requested_model_configuration_hash,
-            harness_identifier=CODEX_CLI_VERSION,
-            sandbox_policy_hash=sha256_bytes(
-                canonical_json_bytes(
-                    {
-                        "mode": "read-only",
-                        "network_allowed": False,
-                        "shell_tool": False,
-                        "allow_login_shell": False,
-                    }
-                )
-            ),
-            permission_policy_hash=sha256_bytes(canonical_json_bytes({"approval_policy": "never"})),
-            runtime_policy_hash=sha256_bytes(
-                canonical_json_bytes(
-                    {
-                        "shell_environment": {"inherit": "none", "set": SHELL_ENVIRONMENT},
-                        "timeout_seconds": TIMEOUT_SECONDS,
-                    }
-                )
-            ),
-            instruction_hashes=inputs.instruction_hashes,
-            skill_hash=inputs.skill_hash,
-            tool_schema_hash=inputs.tool_schema_hash,
-            interactions=interactions,
-            input_hashes=inputs.input_hashes,
-            output_proposal_hashes=((proposal.content_hash,) if proposal is not None else ()),
-            transcript_hash=capture.transcript_hash,
-            usage=usage,
-            run_status=RunStatus.SUCCEEDED if succeeded else RunStatus.FAILED,
-            failure_reason_code=(
-                None
-                if succeeded
-                else (
-                    ReasonCode.HARNESS_EXECUTION_FAILED.value
-                    if process_execution_failed
-                    else (
-                        ReasonCode.HARNESS_TRANSCRIPT_INVALID.value
-                        if transcript_invalid
-                        else ReasonCode.HARNESS_EXECUTION_FAILED.value
-                    )
-                )
-            ),
-            limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SINGLE_SOURCE_NON_VINTAGE"),
-            started_at=started_at,
-            completed_at=completed_at,
-            process_return_code=return_code,
-            process_stderr_hash=(sha256_bytes(process_stderr) if process_stderr else None),
-        )
         staging = temporary_path / "published"
         staging.mkdir()
         atomic_write_bytes(staging / "agent-run-manifest.json", manifest.canonical_bytes())
         atomic_write_bytes(staging / "agent-run-spec.json", spec.canonical_bytes())
-        atomic_write_bytes(staging / "codex-events.jsonl", process_stdout)
+        atomic_write_bytes(staging / "agent-events.jsonl", capture.transcript)
+        atomic_write_bytes(staging / "harness-request.json", request.canonical_bytes())
+        if execution.provider_transcript is not None:
+            atomic_write_bytes(staging / "provider-events.jsonl", execution.provider_transcript)
         atomic_write_bytes(
             staging / "output-schema.json", canonical_json_bytes(inputs.output_schema)
         )
@@ -649,3 +590,29 @@ def execute_p13_agent(
             manifest=manifest,
         )
     return P13AgentRunResult(manifest=manifest, draft=draft, proposal=proposal, path=destination)
+
+
+def _normalizer_hash() -> str:
+    module_path = Path(__file__).parents[1] / "integrations/codex/event_normalizer.py"
+    return sha256_bytes(module_path.read_bytes())
+
+
+def _failure_reason(kind: HarnessErrorKind | None) -> str:
+    mapping = {
+        HarnessErrorKind.AUTH_UNAVAILABLE: ReasonCode.HARNESS_AUTH_UNAVAILABLE,
+        HarnessErrorKind.CONFIGURATION_INVALID: ReasonCode.HARNESS_CONFIGURATION_INVALID,
+        HarnessErrorKind.INTERRUPTED: ReasonCode.HARNESS_INTERRUPTED,
+        HarnessErrorKind.MCP_FAILED: ReasonCode.HARNESS_MCP_FAILED,
+        HarnessErrorKind.OUTPUT_INVALID: ReasonCode.HARNESS_OUTPUT_INVALID,
+        HarnessErrorKind.OVERLOADED: ReasonCode.HARNESS_OVERLOADED,
+        HarnessErrorKind.PERMISSION_DENIED: ReasonCode.HARNESS_PERMISSION_DENIED,
+        HarnessErrorKind.PROTOCOL_UNSUPPORTED: ReasonCode.HARNESS_PROTOCOL_UNSUPPORTED,
+        HarnessErrorKind.QUOTA_EXHAUSTED: ReasonCode.HARNESS_QUOTA_EXHAUSTED,
+        HarnessErrorKind.RUNTIME_MISMATCH: ReasonCode.HARNESS_RUNTIME_MISMATCH,
+        HarnessErrorKind.TIMEOUT: ReasonCode.HARNESS_TIMEOUT,
+        HarnessErrorKind.TRANSPORT_CLOSED: ReasonCode.HARNESS_TRANSPORT_FAILED,
+        HarnessErrorKind.TRANSPORT_START_FAILED: ReasonCode.HARNESS_TRANSPORT_FAILED,
+    }
+    if kind is None:
+        return ReasonCode.HARNESS_EXECUTION_FAILED.value
+    return mapping.get(kind, ReasonCode.HARNESS_EXECUTION_FAILED).value
