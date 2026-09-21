@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one non-canonical Codex SDK shell-isolation diagnostic."""
+"""Run non-canonical Codex SDK D0 matrix and direct app-server D0.5 diagnostics."""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from quantos.integrations.codex.versioning import (
 MODEL_IDENTIFIER = "gpt-5.6-sol"
 MODEL_REASONING_EFFORT = "medium"
 PINNED_SDK_VERSION = CODEX_SDK_VERSION
+PINNED_RUNTIME_PACKAGE_VERSION = CODEX_RUNTIME_PACKAGE_VERSION
 PROMPT = (
     "Run /usr/bin/pwd as a shell command.\n"
     "After the command completes, report the exact working directory.\n"
@@ -43,6 +44,7 @@ PROMPT = (
 )
 MAX_PROVIDER_TRANSCRIPT_BYTES = 1_000_000
 DEFAULT_TIMEOUT_SECONDS = 90
+COMMAND_EXEC_TIMEOUT_MS = 10_000
 VARIANTS = (
     "default",
     "shell-on-unified-default",
@@ -228,7 +230,9 @@ def _canonical_jsonl_objects(payload: bytes, *, label: str) -> list[dict[str, ob
     return values
 
 
-def verify_matrix(matrix_path: Path) -> dict[str, object]:
+def verify_matrix(
+    matrix_path: Path, *, expected_sdk_version: str = PINNED_SDK_VERSION
+) -> dict[str, object]:
     if {
         str(path.relative_to(matrix_path)) for path in regular_tree_files(matrix_path)
     } != {"matrix.json"}:
@@ -370,8 +374,8 @@ def verify_matrix(matrix_path: Path) -> dict[str, object]:
             or runtime_identity.get("runtime_version") != result.get("runtime_version")
             or runtime_identity.get("runtime_binary_hash") != runtime_binary_hash
             or runtime_identity.get("protocol_identifier") != CODEX_PROTOCOL_IDENTIFIER
-            or result.get("sdk_version") != CODEX_SDK_VERSION
-            or result.get("runtime_package_version") != CODEX_RUNTIME_PACKAGE_VERSION
+            or result.get("sdk_version") != expected_sdk_version
+            or result.get("runtime_package_version") != expected_sdk_version
             or not isinstance(runtime_binary_hash, str)
             or SHA256_PATTERN.fullmatch(runtime_binary_hash) is None
         ):
@@ -528,9 +532,9 @@ def run_diagnostic(
                 f"expected openai-codex {expected_sdk_version}, got {openai_codex.__version__}"
             )
         runtime_package_version = version(CODEX_RUNTIME_DISTRIBUTION)
-        if runtime_package_version != CODEX_RUNTIME_PACKAGE_VERSION:
+        if runtime_package_version != expected_sdk_version:
             raise RuntimeError(
-                "installed bundled Codex runtime package does not match the frozen version"
+                "installed bundled Codex runtime package does not match the expected version"
             )
         config = _config(variant)
         events: list[dict[str, object]] = []
@@ -559,8 +563,8 @@ def run_diagnostic(
                 runtime_version = server_info.version if server_info is not None else None
                 if not runtime_version:
                     raise RuntimeError("Codex runtime version is unavailable")
-                if runtime_version.partition(" ")[0] != CODEX_RUNTIME_PACKAGE_VERSION:
-                    raise RuntimeError("reported Codex runtime version does not match the pin")
+                if runtime_version.partition(" ")[0] != expected_sdk_version:
+                    raise RuntimeError("reported Codex runtime version does not match expectation")
                 thread = codex.thread_start(
                     approval_mode=ApprovalMode.deny_all,
                     config=cast(Any, config),
@@ -617,6 +621,145 @@ def run_diagnostic(
             result=result,
             normalized_transcript=normalized_transcript,
         )
+        return destination, result
+
+
+def run_command_exec_probe(
+    *,
+    output_root: Path,
+    expected_sdk_version: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[Path, dict[str, object]]:
+    """Run D0.5 directly against app-server without a model thread or SDK adapter."""
+    import openai_codex
+    from codex_cli_bin import bundled_codex_path
+    from openai_codex.client import CodexClient, CodexConfig
+    from openai_codex.generated.v2_all import CommandExecResponse
+
+    if openai_codex.__version__ != expected_sdk_version:
+        raise RuntimeError(
+            f"expected openai-codex {expected_sdk_version}, got {openai_codex.__version__}"
+        )
+    runtime_package_version = version(CODEX_RUNTIME_DISTRIBUTION)
+    if runtime_package_version != expected_sdk_version:
+        raise RuntimeError(
+            "installed bundled Codex runtime package does not match the expected version"
+        )
+    runtime_path = Path(bundled_codex_path())
+    runtime_binary_hash = _sha256_file(runtime_path)
+    with (
+        tempfile.TemporaryDirectory(prefix="quantos-codex-d05-workspace-", dir="/tmp") as cwd,
+        tempfile.TemporaryDirectory(prefix="quantos-codex-d05-home-", dir="/tmp") as codex_home,
+    ):
+        requests = [
+            {
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {
+                        "name": "quantos_d0_5",
+                        "title": "QuantOS D0.5",
+                        "version": "1.0.0",
+                    },
+                    "capabilities": {"experimentalApi": True},
+                },
+            },
+            {"method": "initialized", "params": {}},
+            {
+                "id": 1,
+                "method": "command/exec",
+                "params": {
+                    "command": ["/usr/bin/pwd"],
+                    "cwd": cwd,
+                    "sandboxPolicy": {
+                        "type": "externalSandbox",
+                        "networkAccess": "restricted",
+                    },
+                    "timeoutMs": COMMAND_EXEC_TIMEOUT_MS,
+                },
+            },
+        ]
+        request_bytes = b"".join(canonical_json_bytes(item) + b"\n" for item in requests)
+        client = CodexClient(
+            CodexConfig(
+                client_name="quantos_d0_5",
+                client_title="QuantOS D0.5",
+                client_version="1.0.0",
+                cwd=cwd,
+                env={
+                    "CODEX_HOME": codex_home,
+                    "LANG": "C.UTF-8",
+                    "PATH": "/usr/bin:/bin",
+                    "TZ": "UTC",
+                },
+            )
+        )
+        try:
+            with _deadline(timeout_seconds):
+                client.start()
+                initialization = client.initialize()
+                command = client.request(
+                    "command/exec",
+                    cast(Any, requests[2]["params"]),
+                    response_model=CommandExecResponse,
+                )
+        finally:
+            client.close()
+        initialize_result = cast(
+            dict[str, object], initialization.model_dump(mode="json", by_alias=True)
+        )
+        command_result = cast(dict[str, object], command.model_dump(mode="json", by_alias=True))
+        responses = [{"id": 0, "result": initialize_result}, {"id": 1, "result": command_result}]
+        user_agent = initialization.userAgent
+        runtime_version = None
+        if isinstance(user_agent, str):
+            reported_version = user_agent.partition("/")[2].partition(" ")[0]
+            runtime_version = reported_version or None
+        command_stdout = command_result.get("stdout")
+        command_stderr = command_result.get("stderr")
+        command_exit_code = command_result.get("exitCode")
+        succeeded = (
+            command_exit_code == 0
+            and command_stdout == f"{cwd}\n"
+            and command_stderr == ""
+        )
+        result = {
+            "schema_version": "codex-app-server-command-exec-result/v1",
+            "authority": "NON_CANONICAL_DIAGNOSTIC",
+            "probe": "D0.5_COMMAND_EXEC",
+            "sdk_version": openai_codex.__version__,
+            "runtime_package_version": runtime_package_version,
+            "runtime_version": runtime_version,
+            "runtime_binary_hash": runtime_binary_hash,
+            "app_server_user_agent": user_agent,
+            "initialize_succeeded": True,
+            "command_exit_code": command_exit_code,
+            "command_stdout_matches_cwd": command_stdout == f"{cwd}\n",
+            "command_stderr_empty": command_stderr == "",
+            "decision": "COMMAND_EXEC_AVAILABLE" if succeeded else "COMMAND_EXEC_FAILED",
+        }
+        files = {
+            "requests.jsonl": request_bytes,
+            "responses.jsonl": b"".join(
+                canonical_json_bytes(item) + b"\n" for item in responses
+            ),
+            "result.json": canonical_json_bytes(result),
+        }
+        manifest = {
+            "schema_version": "codex-app-server-command-exec-manifest/v1",
+            "authority": "NON_CANONICAL_DIAGNOSTIC",
+            "files": {name: sha256_bytes(payload) for name, payload in sorted(files.items())},
+        }
+        manifest_bytes = canonical_json_bytes(manifest)
+        output_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".codex-d05-", dir=output_root) as temporary:
+            staging = Path(temporary) / "published"
+            staging.mkdir()
+            for name, payload in files.items():
+                atomic_write_bytes(staging / name, payload)
+            atomic_write_bytes(staging / "diagnostic-manifest.json", manifest_bytes)
+            destination = output_root / f"sha256-{sha256_bytes(manifest_bytes)}"
+            publish_directory(staging, destination)
         return destination, result
 
 
@@ -677,6 +820,7 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--variant", choices=VARIANTS)
     mode.add_argument("--all-variants", action="store_true")
+    mode.add_argument("--command-exec", action="store_true")
     mode.add_argument("--verify-matrix", type=Path)
     parser.add_argument("--output-root", type=Path, default=Path("/tmp/quantos-codex-sdk-d0"))
     parser.add_argument("--authentication-home", type=Path, default=Path.home() / ".codex")
@@ -684,7 +828,9 @@ def main() -> None:
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     args = parser.parse_args()
     if args.verify_matrix is not None:
-        matrix = verify_matrix(args.verify_matrix)
+        matrix = verify_matrix(
+            args.verify_matrix, expected_sdk_version=args.expected_sdk_version
+        )
         print(
             json.dumps(
                 {
@@ -692,6 +838,27 @@ def main() -> None:
                     "eligible_for_p10": matrix["eligible_for_p10"],
                     "matrix_path": str(args.verify_matrix),
                     "verified": True,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+    if args.command_exec:
+        destination, result = run_command_exec_probe(
+            output_root=args.output_root,
+            expected_sdk_version=args.expected_sdk_version,
+            timeout_seconds=args.timeout_seconds,
+        )
+        print(
+            json.dumps(
+                {
+                    "decision": result["decision"],
+                    "diagnostic_path": str(destination),
+                    "runtime_binary_hash": result["runtime_binary_hash"],
+                    "runtime_package_version": result["runtime_package_version"],
+                    "runtime_version": result["runtime_version"],
+                    "sdk_version": result["sdk_version"],
                 },
                 indent=2,
                 sort_keys=True,

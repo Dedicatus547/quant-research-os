@@ -21,6 +21,8 @@ Decision: **NO_GO**
 | Failure recovery | **FAIL** | without the two expected failed commands, later recovery could not be proven |
 | P13 frozen benchmark | NOT_EVALUATED | blocked by the P10 hard gate; the approved frozen Store is not materialized in this checkout |
 | Minimal D0 shell matrix | **OBSERVABILITY_GAP** | aggregate matrix `214c236c...f6fc` verified all four 0.154.0 bundles; every completed turn had zero raw `commandExecution` events and `eligible_for_p10=false` |
+| D0.5 direct app-server control | PASS | both 0.154.0 and candidate 0.155.1 executed `/usr/bin/pwd` through `command/exec` with exit 0; this control uses `externalSandbox` because app-server is already inside the host sandbox |
+| Candidate 0.155.1 D0 shell matrix | **OBSERVABILITY_GAP** | aggregate matrix `87ad91ae...f577` passed offline verification; the same four completed variants all had zero raw `commandExecution` events |
 | Exact dependency lock | PASS | `pyproject.toml` and `uv.lock` fix SDK and bundled runtime packages at 0.154.0 |
 
 Two live P10 runs were retained under temporary qualification roots rather than checked in. Their
@@ -52,5 +54,6 @@ historical v1 CLI format. The frozen 0.154.0 runtime must first produce a
 `SHELL_SURFACE_AVAILABLE` D0 matrix and obtain P10 9/9 before P13 live qualification or FR-03 Go.
 See the
 [failure-isolation plan](fr03-codex-sdk-failure-isolation-plan.md).
-The prepared provider-facing reproduction is
-[here](fr03-codex-sdk-upstream-reproduction.md); it has not been submitted externally.
+The provider-facing reproduction is
+[documented here](fr03-codex-sdk-upstream-reproduction.md) and was submitted as
+[openai/codex#46947](https://github.com/openai/codex/issues/46947).

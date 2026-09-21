@@ -20,6 +20,10 @@ policy。当前证据只支持以下结论：
    被禁止；
 6. SDK 与 bundled runtime 已通过 `pyproject.toml` 和 `uv.lock` exact pin 到 0.154.0；任何
    后续版本变更都必须建立新的资格证据。
+7. D0.5 直接调用 app-server `command/exec` 时，0.154.0 与候选 0.155.1 都能成功执行
+   `/usr/bin/pwd`；0 command 并不是 app-server command surface 整体不可用。
+8. 完全相同的 D0 matrix 在临时 0.155.1 overlay 上仍是四个 completed turn、四个 0 command；
+   canonical lock 未升级，最小复现已提交为 `openai/codex#46947`。
 
 FR-03 保持 `NO_GO`。当前继续在冻结的 0.154.0 上运行 D0 机械矩阵并保留失败证据。
 
@@ -65,6 +69,19 @@ uv run --extra agent-openai python scripts/codex_sdk_failure_isolation.py \
 验证器检查矩阵目录名、canonical JSON、四个 bundle manifest、精确文件集、逐文件 hash、
 requested config/variant 绑定、冻结 runtime identity，并从 raw provider transcript 重算 result
 summary 与可选 normalized transcript；随后再重算 classification 与 P10 eligibility。
+
+D0.5 不创建 thread，不调用模型，也不经过 QuantOS adapter，而是直接向 bundled app-server
+发送 `initialize` / `initialized` / `command/exec`：
+
+```bash
+UV_CACHE_DIR=/tmp/quantos-uv-cache \
+uv run --extra agent-openai python scripts/codex_sdk_failure_isolation.py \
+  --command-exec \
+  --expected-sdk-version 0.154.0
+```
+
+探针使用 `externalSandbox` 和 restricted network，因为当前 app-server 已运行在外层 sandbox
+内；它只验证 command surface 可达，不为 thread sandbox policy 提供 attestation。
 
 ### 2.2 版本身份绑定
 
@@ -149,9 +166,25 @@ denial，应优先使用结构化原因。
 SDK package、runtime package 和 runtime reported version 均为 0.154.0，classification 为
 `OBSERVABILITY_GAP`，`eligible_for_p10=false`。
 
-可直接交给上游的最小复现已整理在
-[`fr03-codex-sdk-upstream-reproduction.md`](fr03-codex-sdk-upstream-reproduction.md)。该文件只准备
-复现材料，不代表已向外部提交。
+最小复现已整理在
+[`fr03-codex-sdk-upstream-reproduction.md`](fr03-codex-sdk-upstream-reproduction.md)，并提交为
+[openai/codex#46947](https://github.com/openai/codex/issues/46947)。
+
+### 3.1 D0.5 与 0.155.1 对照
+
+| version | direct `command/exec` | D0 positive variants | D0 negative control | matrix |
+|---|---|---:|---:|---|
+| 0.154.0 | `COMMAND_EXEC_AVAILABLE` (`f54d8e71...9f52`) | 0 / 0 / 0 | 0 | `214c236c...f6fc` |
+| 0.155.1 candidate | `COMMAND_EXEC_AVAILABLE` (`9799041b...6be1`) | 0 / 0 / 0 | 0 | `87ad91ae...f577` |
+
+0.155.1 通过 `uv run --with openai-codex==0.155.1` 临时运行。`pyproject.toml` 和 `uv.lock`
+均未修改，故这不是 canonical runtime 升级。0.155.1 matrix 已通过离线完整性验证，分类仍为
+`OBSERVABILITY_GAP / eligible_for_p10=false`。
+
+两版 D0/D0.5 bundle 已冻结在本地 runtime-artifact 目录
+`artifacts/feasibility/codex-sdk-diagnostics/`；目录遵循仓库规则，不作为 source-controlled
+canonical evidence。上游报告见
+[openai/codex#46947](https://github.com/openai/codex/issues/46947)。
 
 ## 4. 0.154.0 冻结与执行门
 

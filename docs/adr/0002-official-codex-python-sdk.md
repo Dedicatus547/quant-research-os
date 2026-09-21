@@ -66,3 +66,17 @@ isolated host fails closed with `RUNTIME_MISMATCH` when either installed distrib
 reported runtime differs from 0.154.0. Matrix
 `214c236cf3239d14c46a4a404a2eafe9311d688131c78c3f646fc035fb7cf6fc` passed offline integrity
 verification and remains `OBSERVABILITY_GAP / eligible_for_p10=false`.
+
+## 2026-09-21 D0.5 and candidate comparison
+
+A direct app-server JSON-RPC control now executes `/usr/bin/pwd` through `command/exec` without a
+thread or model. It passes on both 0.154.0 and 0.155.1, using `externalSandbox` because the probe is
+already hosted inside an outer sandbox. This establishes only that the command surface is
+reachable; it does not attest the thread sandbox policy.
+
+The same four-variant D0 matrix was run with 0.155.1 as a temporary dependency overlay. All four
+turns completed with zero raw `commandExecution` events. Matrix
+`87ad91ae46ee767b910f067b99b86c5ef0b7ee97b2920e0594666ee7c096f577` passed offline integrity
+verification and remains `OBSERVABILITY_GAP / eligible_for_p10=false`. The canonical dependency
+and lock remain at 0.154.0. The reproducer was submitted as
+[openai/codex#46947](https://github.com/openai/codex/issues/46947).

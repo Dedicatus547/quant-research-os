@@ -1,13 +1,16 @@
-# Codex Python SDK 0.154.0 commandExecution observability gap
+# Codex Python SDK 0.154.0 / 0.155.1 commandExecution observability gap
 
 Date: 2026-09-21
 
 ## Summary
 
-An ephemeral Codex Python SDK thread completes successfully but emits no raw
+An ephemeral Codex Python SDK thread completes successfully on both tested versions but emits no raw
 `item/started` event with `item.type=commandExecution` when the prompt explicitly requires
 `/usr/bin/pwd`. Explicitly enabling `shell_tool`, disabling `unified_exec`, and disabling
 `shell_tool` all produce the same zero-command observation.
+
+A direct app-server `command/exec` D0.5 control succeeds on both bundled binaries. This narrows the
+gap to the thread/model tool path rather than the app-server command surface as a whole.
 
 This report does not claim that a sandbox or network policy failed. It reports that the command
 surface cannot be observed or qualified through the current SDK event stream.
@@ -27,6 +30,19 @@ sandbox:                     read_only
 
 Aggregate diagnostic matrix:
 `214c236cf3239d14c46a4a404a2eafe9311d688131c78c3f646fc035fb7cf6fc`.
+
+Candidate comparison identity:
+
+```text
+openai-codex package:         0.155.1
+openai-codex-cli-bin package: 0.155.1
+app-server reported version:  0.155.1 (Ubuntu 22.4.0; x86_64) unknown (codex_python_sdk; 0.155.1)
+runtime binary SHA-256:       0753dfe1d8b87a52436deb13eb1c549661ef4c84fee2c5aa688385eebeccb761
+aggregate matrix:             87ad91ae46ee767b910f067b99b86c5ef0b7ee97b2920e0594666ee7c096f577
+```
+
+The candidate was run as a temporary dependency overlay. `pyproject.toml` and `uv.lock` remain
+pinned to 0.154.0.
 
 ## Minimal prompt
 
@@ -69,10 +85,22 @@ uv run --extra agent-openai python scripts/codex_sdk_failure_isolation.py \
   --verify-matrix /tmp/quantos-codex-sdk-d0-0.154.0/matrix-sha256-<matrix-hash>
 ```
 
+Run the identical candidate matrix without updating the project lock:
+
+```bash
+UV_CACHE_DIR=/tmp/quantos-uv-cache \
+uv run --with openai-codex==0.155.1 \
+  python scripts/codex_sdk_failure_isolation.py \
+  --all-variants \
+  --expected-sdk-version 0.155.1 \
+  --output-root /tmp/quantos-codex-sdk-d0-0.155.1
+```
+
 ## Actual result
 
-All four turns completed. Every raw provider transcript contained agent message, reasoning, and
-user message item types, with zero `commandExecution` items. The aggregate classification was:
+All four turns completed in both versions. Every raw provider transcript contained agent message,
+reasoning, and user message item types, with zero `commandExecution` items. Both aggregate
+classifications were:
 
 ```json
 {
@@ -80,6 +108,21 @@ user message item types, with zero `commandExecution` items. The aggregate class
   "eligible_for_p10": false
 }
 ```
+
+## Direct app-server control
+
+The D0.5 probe sends `initialize`, `initialized`, and this request directly to the bundled
+app-server, without a model or thread:
+
+```json
+{"id":1,"method":"command/exec","params":{"command":["/usr/bin/pwd"],"cwd":"<temp-dir>","sandboxPolicy":{"type":"externalSandbox","networkAccess":"restricted"},"timeoutMs":10000}}
+```
+
+Both 0.154.0 and 0.155.1 returned exit code 0, empty stderr, and the exact temporary cwd on stdout.
+Their content-addressed D0.5 bundle hashes are `f54d8e714a6b3194e61e6b8540a2c59e307cf1cb5a51ac6c15d886da7c1a9f52`
+and `9799041b9190356b277ef59d13bd6304f9a9e3dffa62ea95b0f08a3426c56be1`, respectively.
+`externalSandbox` is intentional because the probe runs inside an existing host sandbox; this
+control does not attest thread sandbox policy.
 
 ## Expected result
 
@@ -94,3 +137,5 @@ thread-start response should expose a resolved tool/config surface that permits 
 The diagnostic bundles are explicitly `NON_CANONICAL_DIAGNOSTIC`. They contain requested config,
 runtime identity, raw provider events, optional normalized events, result summary, and file hashes.
 They contain no credential bytes. Agent text is not used as evidence that a command executed.
+
+Submitted upstream as [openai/codex#46947](https://github.com/openai/codex/issues/46947).

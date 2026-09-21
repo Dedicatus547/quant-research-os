@@ -28,7 +28,7 @@ workspace.
 | P13 | Approved v2 benchmark, read-only Agent extraction, deterministic admission, immutable event artifacts and native-Qlib execution qualified | `SUCCEEDED / PASS`: real Store and admitted Agent proposal replayed on clean commit `46904c2…`; two roots match all principal content hashes. Bundle `c6abe067…d883`. Single announcement with citation-location assistance; no general extraction or profitability claim. See [freeze record](p13-v2-freeze.md) |
 | FR-01 | Existing admitted DSL now passes proposal compiler, resolution, PIT, SignalArtifact, Qlib backtest, and Validation without a project expression runtime; a non-return `field → delta → abs` DAG and negative field/operator cases pass | No new live-data conclusion; existing snapshot/view qualification boundaries remain unchanged |
 | FR-02 | Immutable Qlib ResearchResult adapter binds prediction, label, split, expression, policy, source files, native IC/Rank IC series and summaries; exact-file verification, tamper rejection, independent-root hashes, and G3 integration pass | Only Qlib-native IC/Rank IC outputs are qualified; coverage/turnover/autocorrelation remain outside scope |
-| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0 matrix runner and CLI-execution removal implemented; offline regression PASS | **NO_GO**: two SDK P10 runs passed 6/9 and four minimal variants emitted no shell events, producing `OBSERVABILITY_GAP`; P13 SDK qualification remains NOT_EVALUATED |
+| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0/D0.5 diagnostics and CLI-execution removal implemented; offline regression PASS | **NO_GO**: two SDK P10 runs passed 6/9; identical 0.154.0 and candidate 0.155.1 matrices emitted no shell events even though direct app-server `command/exec` passed; P13 SDK qualification remains NOT_EVALUATED; upstream issue #46947 |
 
 FR-03 update (2026-09-15): the core SDK integration and offline coverage are complete.
 The exact SDK and bundled runtime authenticated and supplied structured output, MCP, Skill, usage,
@@ -45,6 +45,14 @@ now treats 0.154.0 as the explicit frozen FR-03 target and can publish one aggre
 a mechanical classification and P10 eligibility flag. The latest verified matrix is
 `214c236cf3239d14c46a4a404a2eafe9311d688131c78c3f646fc035fb7cf6fc`; it binds both installed
 distribution versions, the app-server reported version and the runtime binary hash.
+
+FR-03 update (2026-09-21): a direct D0.5 JSON-RPC control proved that bundled app-server
+`command/exec` can execute `/usr/bin/pwd` on both 0.154.0 and 0.155.1. The identical D0 matrix was
+then run with 0.155.1 as a temporary `uv --with` overlay; all four turns again completed with zero
+command events. Matrix `87ad91ae46ee767b910f067b99b86c5ef0b7ee97b2920e0594666ee7c096f577`
+passed offline verification. `pyproject.toml` and `uv.lock` remain pinned to 0.154.0. The minimal
+reproduction was submitted upstream as
+[openai/codex#46947](https://github.com/openai/codex/issues/46947).
 
 P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
 approved Store is materialized locally, and a real Agent proposal passed all six admission checks
