@@ -24,8 +24,12 @@ policy。当前证据只支持以下结论：
    `/usr/bin/pwd`；0 command 并不是 app-server command surface 整体不可用。
 8. 完全相同的 D0 matrix 在临时 0.155.1 overlay 上仍是四个 completed turn、四个 0 command；
    canonical lock 未升级，最小复现已提交为 `openai/codex#46947`。
+9. D0.6 绕过 Python SDK high-level thread/turn wrapper，直接向 app-server 发送
+   逐版本机械捕获的 wire request。0.154.0 与 0.155.1 均是四个 completed
+   turn、四个 0 command，且离线 verifier 通过。
 
-FR-03 保持 `NO_GO`。当前继续在冻结的 0.154.0 上运行 D0 机械矩阵并保留失败证据。
+FR-03 保持 `NO_GO`。D0.6 完成后暂停主动 runtime debugging；当前将结果保留为
+非权威诊断证据，并等待上游反馈。
 
 ## 2. 已落地的工程修正
 
@@ -36,7 +40,7 @@ fixture 解耦的 D0：
 
 - 临时空 workspace；
 - 临时 `CODEX_HOME`，只链接既有的 regular `auth.json`；
-- 无 MCP、Skill、output schema；
+- 无项目/用户配置的 MCP、Skill、output schema；runtime 自带能力在对照间保持一致；
 - 固定 prompt，只要求执行 `/usr/bin/pwd`；
 - `read-only` sandbox、`deny_all` approval、关闭 history 与 login shell；
 - 最小环境 `CODEX_HOME/LANG/PATH/TZ`；
@@ -185,6 +189,27 @@ SDK package、runtime package 和 runtime reported version 均为 0.154.0，clas
 `artifacts/feasibility/codex-sdk-diagnostics/`；目录遵循仓库规则，不作为 source-controlled
 canonical evidence。上游报告见
 [openai/codex#46947](https://github.com/openai/codex/issues/46947)。
+
+### 3.2 D0.6 raw thread 对照
+
+D0.6 使用 capture-only fake transport 逐版本冻结 SDK 最终 wire shape，然后由
+raw executor 直接启动 bundled app-server 并发送 `initialize`、`account/read`、
+`thread/start` 和 `turn/start`。Raw executor 不调用 `openai_codex.Codex`、
+`Thread.turn()` 或 QuantOS event normalizer。
+
+| version | raw positive variants | raw negative control | classification | matrix |
+|---|---:|---:|---|---|
+| 0.154.0 | 0 / 0 / 0 | 0 | `RAW_THREAD_OBSERVABILITY_GAP` | `80715924...947d7` |
+| 0.155.1 candidate | 0 / 0 / 0 | 0 | `RAW_THREAD_OBSERVABILITY_GAP` | `af78f1e7...0b438` |
+
+八个 turn 都是 `completed`，引用完整性和 item lifecycle 检查均通过。两个
+matrix 都通过离线验证，`eligible_for_p10=false`。这证明同一 observability
+gap 可在不使用 high-level wrapper 的路径上复现；它不证明 wrapper 之外的
+某个单一组件必然失效。
+
+D0.6 实施与完整边界见
+[`fr03-d06-raw-app-server-isolation-test.md`](fr03-d06-raw-app-server-isolation-test.md)。本地结果
+已准备为 `openai/codex#46947` 的待追加更新，但本次未执行外部 issue 写入。
 
 ## 4. 0.154.0 冻结与执行门
 

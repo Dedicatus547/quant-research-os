@@ -18,6 +18,7 @@ _config: Any = MODULE._config
 _classify_matrix: Any = MODULE._classify_matrix
 _summarize: Any = MODULE._summarize
 _verify_matrix: Any = MODULE.verify_matrix
+_verify_raw_matrix: Any = MODULE.verify_raw_matrix
 _run_command_exec_probe: Any = MODULE.run_command_exec_probe
 PINNED_SDK_VERSION: str = MODULE.PINNED_SDK_VERSION
 PINNED_RUNTIME_PACKAGE_VERSION: str = MODULE.PINNED_RUNTIME_PACKAGE_VERSION
@@ -72,6 +73,102 @@ def test_diagnostic_summary_uses_raw_command_events() -> None:
     assert result["decision"] == "SHELL_OBSERVED"
     assert result["command_count"] == 1
     assert result["instruction_sources"] is None
+
+
+def test_raw_wire_fixture_captures_final_sdk_payload() -> None:
+    fixture = MODULE._build_raw_wire_fixture("default", expected_sdk_version="0.154.0")
+    requests = fixture["requests"]
+
+    assert requests["initialize"]["params"]["clientInfo"] == {
+        "name": "codex_python_sdk",
+        "title": "Codex Python SDK",
+        "version": "0.154.0",
+    }
+    assert requests["account_read"]["params"] == {"refreshToken": False}
+    assert requests["thread_start"]["params"]["model"] == "gpt-5.6-sol"
+    turn_params = requests["turn_start"]["params"]
+    assert turn_params["approvalPolicy"] == "never"
+    assert "model" not in turn_params
+    assert turn_params["input"] == [{"type": "text", "text": MODULE.PROMPT}]
+    assert turn_params["sandboxPolicy"] == {
+        "networkAccess": False,
+        "type": "readOnly",
+    }
+
+
+def _raw_provider_events(command: bool = True) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = [
+        {
+            "method": "turn/started",
+            "params": {
+                "threadId": "thread-1",
+                "turn": {"id": "turn-1", "status": "inProgress"},
+            },
+        }
+    ]
+    if command:
+        events.extend(
+            [
+                {
+                    "method": "item/started",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "item": {
+                            "id": "command-1",
+                            "type": "commandExecution",
+                            "status": "inProgress",
+                        },
+                    },
+                },
+                {
+                    "method": "item/completed",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "item": {
+                            "id": "command-1",
+                            "type": "commandExecution",
+                            "status": "completed",
+                            "exitCode": 0,
+                        },
+                    },
+                },
+            ]
+        )
+    events.append(
+        {
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turn": {"id": "turn-1", "status": "completed"},
+            },
+        }
+    )
+    return events
+
+
+def test_raw_event_summary_requires_scoped_complete_lifecycle() -> None:
+    summary = MODULE._raw_event_summary(
+        _raw_provider_events(), thread_id="thread-1", turn_id="turn-1"
+    )
+
+    assert summary["command_started_count"] == 1
+    assert summary["command_completed_count"] == 1
+    assert summary["command_succeeded_count"] == 1
+    assert summary["reference_integrity"] is True
+    assert summary["lifecycle_integrity"] is True
+
+    mismatched = _raw_provider_events()
+    mismatched[1]["params"]["turnId"] = "other-turn"
+    invalid = MODULE._raw_event_summary(mismatched, thread_id="thread-1", turn_id="turn-1")
+    assert invalid["reference_integrity"] is False
+    assert invalid["integrity_error"] == "CROSS_TURN_EVENT"
+
+
+def test_raw_artifact_guard_rejects_secret_markers() -> None:
+    with pytest.raises(RuntimeError, match="prohibited secret marker"):
+        MODULE._safe_artifact_payload("provider event", b'{"access_token":"must-not-be-persisted"}')
 
 
 def _matrix_result(
@@ -308,6 +405,128 @@ def test_matrix_verifier_recomputes_requested_config_binding(
 
     with pytest.raises(RuntimeError, match="requested config binding"):
         _verify_matrix(matrix_path)
+
+
+def _publish_raw_fixture_bundle(output_root: Path, variant: str) -> tuple[Path, dict[str, object]]:
+    version = "0.154.0"
+    fixture = MODULE._build_raw_wire_fixture(variant, expected_sdk_version=version)
+    requests = fixture["requests"]
+    replacements = {
+        MODULE.RAW_SENTINELS["binary"]: "/tmp/codex",
+        MODULE.RAW_SENTINELS["codex_home"]: "/tmp/codex-home",
+        MODULE.RAW_SENTINELS["path_dir"]: "/tmp/codex-path",
+        MODULE.RAW_SENTINELS["workspace"]: "/tmp/workspace",
+    }
+
+    def resolved(name: str, request_id: int, *, thread: bool = False) -> dict[str, object]:
+        values = {
+            **replacements,
+            MODULE.RAW_SENTINELS["request_id"]: request_id,
+        }
+        if thread:
+            values[MODULE.RAW_SENTINELS["thread_id"]] = "thread-1"
+        return MODULE._substitute_sentinels(requests[name], values)
+
+    events = _raw_provider_events(command=False)
+    summary = MODULE._raw_event_summary(events, thread_id="thread-1", turn_id="turn-1")
+    result = {
+        "schema_version": "codex-raw-thread-result/v1",
+        "authority": "NON_CANONICAL_DIAGNOSTIC",
+        "probe": "D0.6_RAW_THREAD",
+        "variant": variant,
+        "sdk_version": version,
+        "runtime_package_version": version,
+        "runtime_version": f"{version} test",
+        "runtime_binary_hash": "a" * 64,
+        "wire_fixture_hash": MODULE.sha256_bytes(MODULE.canonical_json_bytes(fixture)),
+        "model": MODULE.MODEL_IDENTIFIER,
+        "reasoning_effort": MODULE.MODEL_REASONING_EFFORT,
+        "prompt_hash": MODULE.sha256_bytes(MODULE.PROMPT.encode()),
+        "thread_id": "thread-1",
+        "turn_id": "turn-1",
+        **summary,
+        "decision": "SHELL_NOT_OBSERVED",
+        "limitations": list(MODULE.RAW_LIMITATIONS),
+    }
+    environment = {
+        "schema_version": "codex-raw-thread-environment/v1",
+        "app_server_argv": MODULE._substitute_sentinels(fixture["app_server_argv"], replacements),
+        "app_server_environment": MODULE._substitute_sentinels(
+            fixture["environment"], replacements
+        ),
+        "shell_environment_policy": MODULE._config(variant)["shell_environment_policy"],
+        "workspace": "/tmp/workspace",
+    }
+    runtime_identity = {
+        "schema_version": "codex-raw-thread-runtime-identity/v1",
+        "sdk_distribution": MODULE.CODEX_SDK_DISTRIBUTION,
+        "sdk_version": version,
+        "runtime_distribution": MODULE.CODEX_RUNTIME_DISTRIBUTION,
+        "runtime_package_version": version,
+        "runtime_version": f"{version} test",
+        "runtime_binary_hash": "a" * 64,
+        "protocol_identifier": MODULE.CODEX_PROTOCOL_IDENTIFIER,
+    }
+    files = {
+        "runtime-identity.json": MODULE.canonical_json_bytes(runtime_identity),
+        "wire-fixture.json": MODULE.canonical_json_bytes(fixture),
+        "effective-environment.json": MODULE.canonical_json_bytes(environment),
+        "initialize-request.json": MODULE.canonical_json_bytes(resolved("initialize", 0)),
+        "initialize-response.json": MODULE.canonical_json_bytes(
+            {"id": 0, "result": {"serverInfo": {"version": f"{version} test"}}}
+        ),
+        "account-read-request.json": MODULE.canonical_json_bytes(resolved("account_read", 1)),
+        "account-read-summary.json": MODULE.canonical_json_bytes({"authenticated": True}),
+        "thread-start-request.json": MODULE.canonical_json_bytes(resolved("thread_start", 2)),
+        "thread-start-response.json": MODULE.canonical_json_bytes(
+            {"id": 2, "result": {"thread": {"id": "thread-1"}}}
+        ),
+        "turn-start-request.json": MODULE.canonical_json_bytes(
+            resolved("turn_start", 3, thread=True)
+        ),
+        "turn-start-response.json": MODULE.canonical_json_bytes(
+            {"id": 3, "result": {"turn": {"id": "turn-1"}}}
+        ),
+        "provider-events.jsonl": b"".join(
+            MODULE.canonical_json_bytes(event) + b"\n" for event in events
+        ),
+        "stderr-summary.json": MODULE.canonical_json_bytes(
+            {"byte_count": 0, "line_count": 0, "sha256": MODULE.sha256_bytes(b"")}
+        ),
+        "result.json": MODULE.canonical_json_bytes(result),
+    }
+    return MODULE._publish_raw_bundle(output_root, files), result
+
+
+def test_raw_matrix_publication_is_offline_verifiable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run_raw_thread_diagnostic(**kwargs: Any) -> tuple[Path, dict[str, object]]:
+        return _publish_raw_fixture_bundle(kwargs["output_root"], kwargs["variant"])
+
+    monkeypatch.setattr(MODULE, "run_raw_thread_diagnostic", fake_run_raw_thread_diagnostic)
+    matrix_path, matrix = MODULE.run_raw_thread_matrix(
+        output_root=tmp_path,
+        authentication_home=tmp_path,
+        expected_sdk_version="0.154.0",
+    )
+
+    assert matrix["classification"] == "RAW_THREAD_OBSERVABILITY_GAP"
+    assert _verify_raw_matrix(matrix_path) == matrix
+
+    forged_matrix = {**matrix, "unexpected": True}
+    forged_bytes = MODULE.canonical_json_bytes(forged_matrix)
+    forged_path = tmp_path / f"raw-matrix-sha256-{MODULE.sha256_bytes(forged_bytes)}"
+    forged_path.mkdir()
+    (forged_path / "matrix.json").write_bytes(forged_bytes)
+    with pytest.raises(RuntimeError, match="matrix identity"):
+        _verify_raw_matrix(forged_path)
+
+    first = matrix["variants"][0]
+    result_path = tmp_path / f"raw-sha256-{first['bundle_hash']}" / "result.json"
+    result_path.write_text("{}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="file hash"):
+        _verify_raw_matrix(matrix_path)
 
 
 def test_frozen_version_matches_project_and_lock() -> None:

@@ -80,3 +80,22 @@ turns completed with zero raw `commandExecution` events. Matrix
 verification and remains `OBSERVABILITY_GAP / eligible_for_p10=false`. The canonical dependency
 and lock remain at 0.154.0. The reproducer was submitted as
 [openai/codex#46947](https://github.com/openai/codex/issues/46947).
+
+## 2026-09-21 D0.6 raw thread comparison
+
+The diagnostic runner now captures the final request shape produced by each SDK version through a
+capture-only fake transport and replays that shape directly over app-server stdio. The raw executor
+preserves the SDK client identity, `account/read` preflight, child `PATH`, approval, sandbox, model,
+effort, prompt, and feature configuration while bypassing `Codex.thread_start()`, `Thread.turn()`,
+the SDK message router, and the QuantOS normalizer.
+
+All four raw 0.154.0 turns and all four temporary-overlay 0.155.1 turns completed with zero
+`commandExecution` starts. Matrices `80715924852e96b36328893e8878f99a315f2f35136e3e9c32754353d3a947d7`
+and `af78f1e7ef2de7b633c49d31ef5afdeb4741cfad367c7e501aa1cf0412b0b438` passed offline
+hash, wire-fixture, environment, reference-integrity, lifecycle, and classification verification.
+Both are `RAW_THREAD_OBSERVABILITY_GAP / eligible_for_p10=false`.
+
+The gap therefore reproduces without the Python SDK high-level thread/turn wrapper; the wrapper is
+not required for this observation. This does not fully exclude independent SDK-path defects and
+does not attest or falsify the effective sandbox policy. FR-03 remains `NO_GO`, and the canonical
+dependency lock remains at 0.154.0.

@@ -23,6 +23,8 @@ Decision: **NO_GO**
 | Minimal D0 shell matrix | **OBSERVABILITY_GAP** | aggregate matrix `214c236c...f6fc` verified all four 0.154.0 bundles; every completed turn had zero raw `commandExecution` events and `eligible_for_p10=false` |
 | D0.5 direct app-server control | PASS | both 0.154.0 and candidate 0.155.1 executed `/usr/bin/pwd` through `command/exec` with exit 0; this control uses `externalSandbox` because app-server is already inside the host sandbox |
 | Candidate 0.155.1 D0 shell matrix | **OBSERVABILITY_GAP** | aggregate matrix `87ad91ae...f577` passed offline verification; the same four completed variants all had zero raw `commandExecution` events |
+| D0.6 raw app-server thread matrix | **RAW_THREAD_OBSERVABILITY_GAP** | 0.154.0 matrix `80715924...947d7` bypassed the SDK high-level thread/turn wrapper; all four turns completed with zero command invocations and passed offline verification |
+| Candidate 0.155.1 D0.6 raw matrix | **RAW_THREAD_OBSERVABILITY_GAP** | temporary-overlay matrix `af78f1e7...0b438` produced the same four completed zero-command observations and passed offline verification |
 | Exact dependency lock | PASS | `pyproject.toml` and `uv.lock` fix SDK and bundled runtime packages at 0.154.0 |
 
 Two live P10 runs were retained under temporary qualification roots rather than checked in. Their
@@ -45,6 +47,9 @@ Both were 6/9 and failed the same three capabilities.
 - historical CLI JSONL decoding isolated under `integrations.codex.legacy_v1` with schema-driven
   v1/v2 replay dispatch;
 - local subprocess checks for invalid host input and complete timeout process-group termination;
+- raw app-server D0.6 runner with per-version capture-only wire fixtures, exact client/account/thread/
+  turn request retention, bounded stdout and hash-only stderr handling, lifecycle/reference validation,
+  content-addressed bundles, and model-free matrix replay verification;
 - offline contract, normalization, replay and regression coverage.
 
 New runs now use v3 provenance, bind the bundled runtime binary hash, retain a separate capability
@@ -52,6 +57,9 @@ observation, and leave effective policy unattested unless runtime evidence suppo
 v2 artifacts remain replayable. No rubric was weakened and no SDK result is represented as the
 historical v1 CLI format. The frozen 0.154.0 runtime must first produce a
 `SHELL_SURFACE_AVAILABLE` D0 matrix and obtain P10 9/9 before P13 live qualification or FR-03 Go.
+The D0.6 result establishes that the zero-command observation also reproduces without the Python
+SDK high-level thread/turn wrapper; it does not fully exclude independent SDK-path defects or attest
+the effective sandbox policy.
 See the
 [failure-isolation plan](fr03-codex-sdk-failure-isolation-plan.md).
 The provider-facing reproduction is
