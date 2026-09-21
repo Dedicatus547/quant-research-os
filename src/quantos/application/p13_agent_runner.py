@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from pydantic import ValidationError
 
@@ -24,7 +26,9 @@ from quantos.contracts.agent import (
     AgentCapability,
     AgentRole,
     AgentRunManifestV2,
+    AgentRunManifestV3,
     AgentRunSpecV2,
+    AgentRunSpecV3,
     AgentUsage,
     HarnessAttemptRecord,
     ToolInteractionDigest,
@@ -37,15 +41,24 @@ from quantos.contracts.evidence import (
 )
 from quantos.contracts.evidence_acquisition import EvidenceStoreManifest, ExtractionStatus
 from quantos.contracts.harness import (
+    HarnessCapabilityObservation,
     HarnessEnvironmentVariable,
     HarnessErrorKind,
     HarnessExecutionRequest,
     HarnessMcpServer,
+    HarnessRuntimeIdentityV2,
     HarnessRuntimePolicy,
 )
 from quantos.contracts.status import ReasonCode, RunStatus
 from quantos.evidence.publisher import verify_evidence_store
 from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
+from quantos.integrations.codex.versioning import (
+    CODEX_PROTOCOL_IDENTIFIER,
+    CODEX_RUNTIME_DISTRIBUTION,
+    CODEX_RUNTIME_PACKAGE_VERSION,
+    CODEX_SDK_DISTRIBUTION,
+    CODEX_SDK_VERSION,
+)
 
 MODEL_IDENTIFIER = "gpt-5.6-sol"
 MODEL_REASONING_EFFORT = "medium"
@@ -58,7 +71,12 @@ SERVER_NAME = "quantosP13"
 
 
 class P13AgentRunnerError(RuntimeError):
-    def __init__(self, message: str, *, manifest: AgentRunManifestV2 | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        manifest: AgentRunManifestV2 | AgentRunManifestV3 | None = None,
+    ) -> None:
         super().__init__(message)
         self.manifest = manifest
 
@@ -104,7 +122,7 @@ class P13AgentInputs:
 
 @dataclass(frozen=True)
 class P13AgentRunResult:
-    manifest: AgentRunManifestV2
+    manifest: AgentRunManifestV2 | AgentRunManifestV3
     draft: EvidenceExtractionDraft
     proposal: EvidenceExtractionProposal
     path: Path
@@ -262,7 +280,12 @@ def _model_configuration(inputs: P13AgentInputs) -> dict[str, object]:
         "model_reasoning_effort": MODEL_REASONING_EFFORT,
         "network_allowed": False,
         "output_schema_hash": inputs.output_schema_hash,
+        "protocol_identifier": CODEX_PROTOCOL_IDENTIFIER,
+        "runtime_distribution": CODEX_RUNTIME_DISTRIBUTION,
+        "runtime_package_version": CODEX_RUNTIME_PACKAGE_VERSION,
         "sandbox_mode": "read-only",
+        "sdk_distribution": CODEX_SDK_DISTRIBUTION,
+        "sdk_version": CODEX_SDK_VERSION,
         "shell_environment_inherit": "none",
         "shell_tool_enabled": False,
         "allow_login_shell": False,
@@ -319,9 +342,9 @@ def _run_spec(
     inputs: P13AgentInputs,
     benchmark_policy_hash: str,
     request: HarnessExecutionRequest,
-) -> AgentRunSpecV2:
+) -> AgentRunSpecV3:
     policy = evidence_mcp_policy()
-    return AgentRunSpecV2(
+    return AgentRunSpecV3(
         run_id="p13-codex-sdk-sse-600010-20250805",
         role=AgentRole.RESEARCHER,
         capability_policy_hash=policy.content_hash,
@@ -348,6 +371,17 @@ def _run_spec(
         evidence_hashes=(inputs.evidence_hash,),
         input_artifact_hashes=inputs.input_hashes,
     )
+
+
+def _run_spec_v2(
+    inputs: P13AgentInputs,
+    benchmark_policy_hash: str,
+    request: HarnessExecutionRequest,
+) -> AgentRunSpecV2:
+    current = _run_spec(inputs, benchmark_policy_hash, request)
+    payload = current.model_dump(mode="python")
+    payload["schema_version"] = "agent-run-spec/v2"
+    return AgentRunSpecV2.model_validate(payload)
 
 
 def _tool_interactions(capture: HarnessCapture) -> tuple[ToolInteractionDigest, ...]:
@@ -461,8 +495,25 @@ def load_p13_agent_run(
         return confined_regular_file(run_path, name).read_bytes()
 
     request = _execution_request(workspace, inputs)
-    manifest = AgentRunManifestV2.model_validate_json(read("agent-run-manifest.json"))
-    spec = _run_spec(inputs, benchmark_policy_hash, request)
+    manifest_bytes = read("agent-run-manifest.json")
+    try:
+        manifest_payload = json.loads(manifest_bytes)
+    except json.JSONDecodeError as error:
+        raise P13AgentRunnerError("retained P13 manifest is invalid JSON") from error
+    if not isinstance(manifest_payload, dict):
+        raise P13AgentRunnerError("retained P13 manifest is not an object")
+    typed_manifest_payload = cast(dict[str, object], manifest_payload)
+    schema_version = typed_manifest_payload.get("schema_version")
+    if schema_version == "agent-run-manifest/v3":
+        manifest: AgentRunManifestV2 | AgentRunManifestV3 = AgentRunManifestV3.model_validate(
+            typed_manifest_payload
+        )
+        spec: AgentRunSpecV2 | AgentRunSpecV3 = _run_spec(inputs, benchmark_policy_hash, request)
+    elif schema_version == "agent-run-manifest/v2":
+        manifest = AgentRunManifestV2.model_validate(typed_manifest_payload)
+        spec = _run_spec_v2(inputs, benchmark_policy_hash, request)
+    else:
+        raise P13AgentRunnerError("retained P13 manifest schema is unsupported")
     events = parse_agent_events(read("agent-events.jsonl"), max_bytes=MAX_TRANSCRIPT_BYTES)
     captures = captures_from_agent_events(events, max_bytes=MAX_TRANSCRIPT_BYTES)
     capture = captures[-1]
@@ -495,6 +546,27 @@ def load_p13_agent_run(
             provider_binding_valid = False
     elif manifest.provider_transcript_retention_reason is not None:
         provider_binding_valid = not provider_path.exists() and not provider_path.is_symlink()
+    observation_binding_valid = True
+    if isinstance(manifest, AgentRunManifestV3):
+        try:
+            observation_bytes = read("harness-capability-observation.json")
+            observation = HarnessCapabilityObservation.model_validate_json(observation_bytes)
+            expected_observation = HarnessCapabilityObservation(
+                command_count=len(capture.commands),
+                shell_command_observed=bool(capture.commands),
+                approval_request_observed=capture.approval_requested,
+                normalized_transcript_hash=manifest.normalized_transcript_hash,
+                provider_transcript_hash=manifest.provider_transcript_hash,
+            )
+            observation_binding_valid = all(
+                (
+                    sha256_bytes(observation_bytes) == manifest.capability_observation_hash,
+                    observation.content_hash == manifest.capability_observation_hash,
+                    observation == expected_observation,
+                )
+            )
+        except (OSError, ValidationError, ValueError):
+            observation_binding_valid = False
     draft, proposal = _parse_success(
         inputs,
         capture,
@@ -513,6 +585,7 @@ def load_p13_agent_run(
         or tuple(item.event_stream_hash for item in manifest.attempts)
         != tuple(item.transcript_hash for item in captures)
         or not provider_binding_valid
+        or not observation_binding_valid
         or draft is None
         or proposal is None
         or manifest.output_proposal_hashes != (proposal.content_hash,)
@@ -589,14 +662,37 @@ def execute_p13_agent(
     succeeded = proposal is not None and terminal_kind is None
     proposal_hash = proposal.content_hash if proposal is not None else None
     runtime = execution.runtime
-    manifest = AgentRunManifestV2(
+    provider_transcript_hash = (
+        sha256_bytes(execution.provider_transcript)
+        if execution.provider_transcript is not None
+        else None
+    )
+    observation = HarnessCapabilityObservation(
+        command_count=len(capture.commands),
+        shell_command_observed=bool(capture.commands),
+        approval_request_observed=capture.approval_requested,
+        normalized_transcript_hash=execution.normalized_transcript_hash,
+        provider_transcript_hash=provider_transcript_hash,
+    )
+    manifest = AgentRunManifestV3(
         run_spec_hash=spec.content_hash,
         provider_model_identifier=MODEL_IDENTIFIER,
         sdk_version=runtime.sdk_version if runtime else None,
+        runtime_package_version=(
+            runtime.runtime_package_version
+            if isinstance(runtime, HarnessRuntimeIdentityV2)
+            else None
+        ),
         runtime_version=runtime.runtime_version if runtime else None,
+        runtime_binary_hash=(
+            runtime.runtime_binary_hash if isinstance(runtime, HarnessRuntimeIdentityV2) else None
+        ),
+        protocol_identifier=CODEX_PROTOCOL_IDENTIFIER,
         normalizer_hash=_normalizer_hash(),
         requested_policy_hash=request.runtime_policy.content_hash,
-        effective_policy_hash=request.runtime_policy.content_hash,
+        resolved_runtime_config_hash=None,
+        capability_observation_hash=observation.content_hash,
+        attested_policy_hash=None,
         instruction_hashes=inputs.instruction_hashes,
         skill_hash=inputs.skill_hash,
         tool_schema_hash=inputs.tool_schema_hash,
@@ -604,11 +700,7 @@ def execute_p13_agent(
         input_hashes=inputs.input_hashes,
         output_proposal_hashes=((proposal_hash,) if proposal_hash is not None else ()),
         normalized_transcript_hash=execution.normalized_transcript_hash,
-        provider_transcript_hash=(
-            sha256_bytes(execution.provider_transcript)
-            if execution.provider_transcript is not None
-            else None
-        ),
+        provider_transcript_hash=provider_transcript_hash,
         provider_transcript_retention_reason=(
             None if execution.provider_transcript is not None else "SDK_HOST_UNAVAILABLE"
         ),
@@ -656,7 +748,11 @@ def execute_p13_agent(
         aggregate_usage=aggregate_usage,
         run_status=RunStatus.SUCCEEDED if succeeded else RunStatus.FAILED,
         failure_reason_code=(None if succeeded else _failure_reason(terminal_kind)),
-        limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SINGLE_SOURCE_NON_VINTAGE"),
+        limitations=(
+            "EFFECTIVE_RUNTIME_POLICY_NOT_ATTESTED",
+            "MODEL_IDENTIFIER_NOT_IMMUTABLE",
+            "SINGLE_SOURCE_NON_VINTAGE",
+        ),
         started_at=started_at,
         completed_at=completed_at,
     )
@@ -667,6 +763,9 @@ def execute_p13_agent(
         atomic_write_bytes(staging / "agent-run-manifest.json", manifest.canonical_bytes())
         atomic_write_bytes(staging / "agent-run-spec.json", spec.canonical_bytes())
         atomic_write_bytes(staging / "agent-events.jsonl", execution.normalized_transcript)
+        atomic_write_bytes(
+            staging / "harness-capability-observation.json", observation.canonical_bytes()
+        )
         atomic_write_bytes(staging / "harness-request.json", request.canonical_bytes())
         if execution.provider_transcript is not None:
             atomic_write_bytes(staging / "provider-events.jsonl", execution.provider_transcript)

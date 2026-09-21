@@ -20,7 +20,7 @@ def replay_harness_capture(
     *,
     max_bytes: int,
 ) -> HarnessCapture | CodexExecCapture:
-    if manifest_schema_version == "agent-run-manifest/v2":
+    if manifest_schema_version in {"agent-run-manifest/v2", "agent-run-manifest/v3"}:
         return captures_from_agent_events(
             parse_agent_events(transcript, max_bytes=max_bytes), max_bytes=max_bytes
         )[-1]

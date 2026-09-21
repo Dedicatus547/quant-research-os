@@ -81,7 +81,9 @@ def _response() -> bytes:
     return canonical_json_bytes(
         {
             "provider_events": events,
+            "runtime_package_version": "0.154.0",
             "runtime_version": "0.154.0 test",
+            "runtime_binary_hash": "a" * 64,
             "sdk_version": "0.154.0",
             "thread_id": "thread-test",
         }
@@ -127,6 +129,7 @@ def test_adapter_starts_host_with_exact_environment_and_isolated_auth(
     assert "TUSHARE_TOKEN" not in observed_environment
     assert result.terminal_error is None
     assert result.runtime is not None and result.runtime.sdk_version == "0.154.0"
+    assert result.runtime.runtime_package_version == "0.154.0"
     assert result.capture.agent_messages == ("{}",)
 
 
@@ -162,6 +165,31 @@ def test_adapter_timeout_becomes_hashed_failure_without_proposal(
     assert result.terminal_error.kind is HarnessErrorKind.TIMEOUT
     assert result.capture.agent_messages == ()
     assert result.provider_transcript is None
+
+
+def test_adapter_rejects_missing_runtime_package_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class MissingIdentityProcess:
+        returncode = 0
+        pid = 123
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def communicate(self, _payload: bytes, timeout: float) -> tuple[bytes, bytes]:
+            assert timeout > 0
+            response = cast(dict[str, object], json.loads(_response()))
+            response.pop("runtime_package_version")
+            return canonical_json_bytes(response), b""
+
+    monkeypatch.setattr(subprocess, "Popen", MissingIdentityProcess)
+
+    result = CodexSdkAdapter(authentication_home=tmp_path).execute(_request(tmp_path))
+
+    assert result.terminal_error is not None
+    assert result.terminal_error.kind is HarnessErrorKind.RUNTIME_MISMATCH
+    assert result.runtime is None
 
 
 def test_adapter_retries_only_retryable_errors_and_preserves_attempts(

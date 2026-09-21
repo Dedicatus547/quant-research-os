@@ -19,6 +19,7 @@ from quantos.application.harness_runner import (
     model_configuration_payload,
     publish_run_artifacts,
     safe_result_summary,
+    sdk_model_configuration_payload,
 )
 from quantos.application.harness_spike import (
     HarnessTranscriptError,
@@ -89,7 +90,7 @@ def _valid_events() -> list[dict[str, object]]:
         ),
         _command(
             "/usr/bin/curl --max-time 2 -fsS https://example.com",
-            "curl: (6) Could not resolve host: example.com\n",
+            "curl: (7) operation not permitted\n",
             6,
         ),
         _command("/usr/bin/pwd", "/fixture\n", 0),
@@ -160,6 +161,15 @@ def test_valid_capture_passes_all_hard_capabilities_and_builds_go_report() -> No
         (
             4,
             _command("/usr/bin/python3 write_probe.py", "/usr/bin/python3: not found\n", 127),
+            HarnessCapability.SANDBOX,
+        ),
+        (
+            5,
+            _command(
+                "/usr/bin/curl --max-time 2 -fsS https://example.com",
+                "curl: (6) Could not resolve host: example.com\n",
+                6,
+            ),
             HarnessCapability.SANDBOX,
         ),
         (
@@ -278,6 +288,7 @@ def test_runner_configuration_is_frozen_and_uses_exact_sdk_policy() -> None:
     inputs = load_frozen_spike_inputs(FIXTURE)
     request = _sdk_request(inputs)
     configuration = model_configuration_payload(inputs)
+    sdk_configuration = sdk_model_configuration_payload(inputs)
 
     assert {item.name for item in request.runtime_policy.host_environment} == {
         "LANG",
@@ -288,6 +299,8 @@ def test_runner_configuration_is_frozen_and_uses_exact_sdk_policy() -> None:
     assert request.runtime_policy.login_shell_allowed is False
     assert request.runtime_policy.network_allowed is False
     assert configuration["command_network_allowed"] is False
+    assert "codex_cli_version" not in sdk_configuration
+    assert sdk_configuration["adapter_identifier"] == "openai-codex-python-sdk"
     assert capability_policy().max_requests == 1
 
 

@@ -2,16 +2,32 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel, ValidationError
 
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.harness import HarnessErrorKind, HarnessExecutionRequest
+from quantos.integrations.codex.versioning import (
+    CODEX_RUNTIME_DISTRIBUTION,
+    CODEX_RUNTIME_PACKAGE_VERSION,
+    CODEX_SDK_VERSION,
+)
 
 MAX_HOST_REQUEST_BYTES = 1_000_000
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _sdk_config(request: HarnessExecutionRequest) -> dict[str, object]:
@@ -79,6 +95,7 @@ def _error_kind(error: BaseException) -> tuple[HarnessErrorKind, bool]:
 def execute(request: HarnessExecutionRequest) -> dict[str, object]:
     try:
         import openai_codex
+        from codex_cli_bin import bundled_codex_path  # pyright: ignore[reportMissingTypeStubs]
         from openai_codex import ApprovalMode, Codex, CodexConfig, Sandbox
         from openai_codex.generated.v2_all import ReasoningEffort
         from openai_codex.models import JsonObject
@@ -87,6 +104,20 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
 
     provider_events: list[dict[str, object]] = []
     try:
+        try:
+            runtime_package_version = version(CODEX_RUNTIME_DISTRIBUTION)
+        except PackageNotFoundError as error:
+            return _failure(HarnessErrorKind.RUNTIME_MISMATCH, error, retryable=False)
+        if (
+            openai_codex.__version__ != CODEX_SDK_VERSION
+            or runtime_package_version != CODEX_RUNTIME_PACKAGE_VERSION
+        ):
+            return _failure(
+                HarnessErrorKind.RUNTIME_MISMATCH,
+                RuntimeError("installed Codex SDK/runtime package identity does not match the pin"),
+                retryable=False,
+            )
+        runtime_binary_hash = _sha256_file(Path(bundled_codex_path()))
         child_environment = {
             item.name: item.value for item in request.runtime_policy.child_environment
         }
@@ -104,6 +135,12 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                 return _failure(
                     HarnessErrorKind.RUNTIME_MISMATCH,
                     RuntimeError("Codex runtime version is unavailable"),
+                    retryable=False,
+                )
+            if runtime_version.partition(" ")[0] != CODEX_RUNTIME_PACKAGE_VERSION:
+                return _failure(
+                    HarnessErrorKind.RUNTIME_MISMATCH,
+                    RuntimeError("reported Codex runtime version does not match the pin"),
                     retryable=False,
                 )
             thread = codex.thread_start(
@@ -135,6 +172,8 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
         return {
             "provider_events": provider_events,
             "runtime_version": runtime_version,
+            "runtime_package_version": runtime_package_version,
+            "runtime_binary_hash": runtime_binary_hash,
             "sdk_version": openai_codex.__version__,
             "thread_id": thread.id,
         }

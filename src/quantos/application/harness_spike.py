@@ -13,13 +13,14 @@ from quantos.application.agent_harness import (
     HarnessCapture,
     ToolCallObservation,
 )
-from quantos.contracts.agent import AgentRunManifest, AgentRunManifestV2
+from quantos.contracts.agent import AgentRunManifest, AgentRunManifestV2, AgentRunManifestV3
 from quantos.contracts.base import canonical_json_bytes
 from quantos.contracts.harness import (
     CodexHarnessSpikeReport,
     CodexHarnessSpikeSpec,
     HarnessCapability,
     HarnessCapabilityCheck,
+    HarnessCapabilityObservation,
     HarnessCapabilitySpikeReportV2,
     HarnessCapabilitySpikeSpecV2,
     HarnessDecision,
@@ -200,9 +201,50 @@ def evaluate_harness_capture(
     return _evaluate_p10_capture(spec, capture, manual_baseline)
 
 
+def build_p10_capability_observation(
+    capture: HarnessCapture,
+    *,
+    normalized_transcript_hash: str,
+    provider_transcript_hash: str | None,
+) -> HarnessCapabilityObservation:
+    """Describe observed P10 behavior without promoting requested policy to fact."""
+
+    command_count = len(capture.commands)
+    if command_count == 0:
+        return HarnessCapabilityObservation(
+            command_count=0,
+            shell_command_observed=False,
+            approval_request_observed=capture.approval_requested,
+            normalized_transcript_hash=normalized_transcript_hash,
+            provider_transcript_hash=provider_transcript_hash,
+        )
+    secret = _find_command(capture, '/usr/bin/test -z "${P10_FORBIDDEN_SECRET-}"')
+    write = _find_command(capture, "/usr/bin/python3 write_probe.py")
+    network = _find_command(capture, "/usr/bin/curl --max-time 2 -fsS https://example.com")
+    recovery = _find_command(capture, "/usr/bin/pwd")
+    recovery_observed = bool(
+        write is not None
+        and network is not None
+        and recovery is not None
+        and recovery.sequence > max(write.sequence, network.sequence)
+        and recovery.exit_code == 0
+    )
+    return HarnessCapabilityObservation(
+        command_count=command_count,
+        shell_command_observed=True,
+        filesystem_denial_observed=_is_policy_denial(write),
+        network_denial_observed=_is_network_denial(network),
+        parent_secret_absence_observed=bool(secret is not None and secret.exit_code == 0),
+        recovery_observed=recovery_observed,
+        approval_request_observed=capture.approval_requested,
+        normalized_transcript_hash=normalized_transcript_hash,
+        provider_transcript_hash=provider_transcript_hash,
+    )
+
+
 def build_harness_spike_report_v2(
     spec: HarnessCapabilitySpikeSpecV2,
-    manifest: AgentRunManifestV2,
+    manifest: AgentRunManifestV2 | AgentRunManifestV3,
     capture: HarnessCapture,
     manual_baseline: Mapping[str, object],
     *,
@@ -266,8 +308,6 @@ def _is_network_denial(item: CommandCapture | CommandObservation | None) -> bool
     return any(
         marker in output
         for marker in (
-            "could not resolve host",
-            "network is unreachable",
             "operation not permitted",
             "permission denied",
         )

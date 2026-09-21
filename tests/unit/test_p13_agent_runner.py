@@ -25,7 +25,7 @@ from quantos.contracts import (
     ExtractedTextArtifact,
     ExtractionStatus,
     HarnessErrorKind,
-    HarnessRuntimeIdentity,
+    HarnessRuntimeIdentityV2,
     RunStatus,
     canonical_json_bytes,
     sha256_bytes,
@@ -226,8 +226,11 @@ def _sdk_execution(draft: EvidenceExtractionDraft, *, valid: bool = True) -> Har
         attempts=(
             HarnessAttemptResult(
                 capture=capture,
-                runtime=HarnessRuntimeIdentity(
-                    sdk_version="0.154.0", runtime_version="0.154.0 test"
+                runtime=HarnessRuntimeIdentityV2(
+                    sdk_version="0.154.0",
+                    runtime_package_version="0.154.0",
+                    runtime_version="0.154.0 test",
+                    runtime_binary_hash="f" * 64,
                 ),
                 terminal_error=None,
                 provider_transcript=b"provider\n",
@@ -304,6 +307,7 @@ def test_p13_agent_runner_publishes_successful_transcript_bound_proposal(
         "agent-run-spec.json",
         "extraction-draft.json",
         "extraction-proposal.json",
+        "harness-capability-observation.json",
         "harness-request.json",
         "output-schema.json",
         "provider-events.jsonl",
@@ -319,12 +323,67 @@ def test_p13_agent_runner_publishes_successful_transcript_bound_proposal(
         benchmark_policy_hash="1" * 64,
     )
     assert replay.proposal == result.proposal
+    observation_path = result.path / "harness-capability-observation.json"
+    observation_bytes = observation_path.read_bytes()
+    observation_path.write_text("{}")
+    with pytest.raises(runner.P13AgentRunnerError, match="does not bind"):
+        runner.load_p13_agent_run(
+            tmp_path,
+            tmp_path,
+            result.path,
+            expected_store_hash="b" * 64,
+            expected_evidence_hash=inputs.evidence_hash,
+            benchmark_policy_hash="1" * 64,
+        )
+    observation_path.write_bytes(observation_bytes)
     (result.path / "extraction-proposal.json").write_text("{}")
     with pytest.raises(runner.P13AgentRunnerError, match="does not bind"):
         runner.load_p13_agent_run(
             tmp_path,
             tmp_path,
             result.path,
+            expected_store_hash="b" * 64,
+            expected_evidence_hash=inputs.evidence_hash,
+            benchmark_policy_hash="1" * 64,
+        )
+
+
+def test_p13_replay_recomputes_capability_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inputs, draft = _inputs(tmp_path)
+    execution = _sdk_execution(draft)
+    monkeypatch.setattr(runner, "load_p13_agent_inputs", lambda *_args, **_kwargs: inputs)
+    _patch_sdk(monkeypatch, execution)
+    result = runner.execute_p13_agent(
+        tmp_path,
+        tmp_path,
+        tmp_path / "runs",
+        expected_store_hash="b" * 64,
+        expected_evidence_hash=inputs.evidence_hash,
+        benchmark_policy_hash="1" * 64,
+    )
+
+    observation_path = result.path / "harness-capability-observation.json"
+    observation = json.loads(observation_path.read_bytes())
+    observation["command_count"] = 1
+    observation["shell_command_observed"] = True
+    observation_bytes = canonical_json_bytes(observation)
+    observation_path.write_bytes(observation_bytes)
+
+    manifest_path = result.path / "agent-run-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["capability_observation_hash"] = sha256_bytes(observation_bytes)
+    manifest_bytes = canonical_json_bytes(manifest)
+    manifest_path.write_bytes(manifest_bytes)
+    rewritten_path = result.path.with_name(f"sha256-{sha256_bytes(manifest_bytes)}")
+    result.path.rename(rewritten_path)
+
+    with pytest.raises(runner.P13AgentRunnerError, match="does not bind"):
+        runner.load_p13_agent_run(
+            tmp_path,
+            tmp_path,
+            rewritten_path,
             expected_store_hash="b" * 64,
             expected_evidence_hash=inputs.evidence_hash,
             benchmark_policy_hash="1" * 64,
@@ -427,4 +486,5 @@ def test_p13_agent_runner_classifies_process_start_failure_as_execution_failure(
     manifest = json.loads((run_path / "agent-run-manifest.json").read_text())
     assert manifest["failure_reason_code"] == "HARNESS_TRANSPORT_FAILED"
     assert manifest["sdk_version"] is None
+    assert manifest["runtime_package_version"] is None
     assert manifest["runtime_version"] is None

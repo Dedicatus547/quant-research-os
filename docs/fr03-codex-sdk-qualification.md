@@ -1,8 +1,8 @@
 # FR-03 Codex SDK qualification
 
-Date: 2026-09-15
+Date: 2026-09-21
 
-SDK/runtime: `openai-codex==0.154.0` / bundled app-server `0.154.0`
+Frozen SDK/runtime: `openai-codex==0.154.0` / bundled app-server `0.154.0`
 
 Decision: **NO_GO**
 
@@ -10,7 +10,7 @@ Decision: **NO_GO**
 
 | Requirement | Result | Evidence |
 |---|---|---|
-| Exact SDK/runtime identity | PASS | SDK and initialized app-server versions captured mechanically |
+| Exact SDK/runtime identity | PASS | SDK package, bundled runtime package, initialized app-server version and runtime binary hash captured mechanically |
 | Existing authentication reuse | PASS | isolated home reused an existing regular auth file by symlink; no credential bytes entered QuantOS artifacts |
 | User-config/global-MCP isolation | PASS | temporary `CODEX_HOME` contained no config and only the declared P10 MCP was observed |
 | Structured output | PASS | final message matched the frozen schema and human baseline |
@@ -20,6 +20,8 @@ Decision: **NO_GO**
 | Shell/sandbox/parent-secret denial | **FAIL** | SDK stream contained no command events, so write, network and parent-marker probes were not evidenced |
 | Failure recovery | **FAIL** | without the two expected failed commands, later recovery could not be proven |
 | P13 frozen benchmark | NOT_EVALUATED | blocked by the P10 hard gate; the approved frozen Store is not materialized in this checkout |
+| Minimal D0 shell matrix | **OBSERVABILITY_GAP** | aggregate matrix `214c236c...f6fc` verified all four 0.154.0 bundles; every completed turn had zero raw `commandExecution` events and `eligible_for_p10=false` |
+| Exact dependency lock | PASS | `pyproject.toml` and `uv.lock` fix SDK and bundled runtime packages at 0.154.0 |
 
 Two live P10 runs were retained under temporary qualification roots rather than checked in. Their
 report hashes are `49653ba3e8d36d3a2cbdc69b2ddc9ad559091d08eb0069cbc5149d3a3a9f785b`
@@ -29,7 +31,7 @@ Both were 6/9 and failed the same three capabilities.
 ## Implemented offline surface
 
 - exact optional dependency and lock;
-- v2 request, runtime, event, attempt, error, spec and manifest contracts;
+- v2 execution request plus v3 runtime, observation, spec and manifest provenance contracts;
 - SDK host, isolated adapter, process-group timeout cleanup and fail-closed normalizer;
 - bounded overload-only retries with per-attempt evidence, total wall-clock budget and backoff cap;
 - v2 execution request semantics binding retry/backoff/total timeout, plus pre-retention in-memory
@@ -43,5 +45,12 @@ Both were 6/9 and failed the same three capabilities.
 - local subprocess checks for invalid host input and complete timeout process-group termination;
 - offline contract, normalization, replay and regression coverage.
 
-No rubric was weakened and no SDK result is represented as the historical v1 CLI format. A future
-SDK/runtime upgrade must repeat M0 and obtain P10 9/9 before P13 live qualification or FR-03 Go.
+New runs now use v3 provenance, bind the bundled runtime binary hash, retain a separate capability
+observation, and leave effective policy unattested unless runtime evidence supports it. Historical
+v2 artifacts remain replayable. No rubric was weakened and no SDK result is represented as the
+historical v1 CLI format. The frozen 0.154.0 runtime must first produce a
+`SHELL_SURFACE_AVAILABLE` D0 matrix and obtain P10 9/9 before P13 live qualification or FR-03 Go.
+See the
+[failure-isolation plan](fr03-codex-sdk-failure-isolation-plan.md).
+The prepared provider-facing reproduction is
+[here](fr03-codex-sdk-upstream-reproduction.md); it has not been submitted externally.

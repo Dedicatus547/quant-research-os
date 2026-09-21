@@ -291,6 +291,52 @@ class HarnessRuntimeIdentity(CanonicalContract):
     normalizer_version: Literal["quantos-codex-normalizer/v1"] = "quantos-codex-normalizer/v1"
 
 
+class HarnessRuntimeIdentityV2(CanonicalContract):
+    schema_version: Literal["harness-runtime-identity/v2"] = "harness-runtime-identity/v2"
+    adapter: Literal["openai-codex-python-sdk"] = "openai-codex-python-sdk"
+    sdk_distribution: Literal["openai-codex"] = "openai-codex"
+    sdk_version: str = Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")
+    runtime_distribution: Literal["openai-codex-cli-bin"] = "openai-codex-cli-bin"
+    runtime_package_version: str = Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")
+    runtime_version: str = Field(min_length=1, max_length=500)
+    runtime_binary_hash: str = Field(pattern=SHA256_PATTERN)
+    protocol: Literal["codex-app-server-jsonrpc-v2"] = "codex-app-server-jsonrpc-v2"
+    normalizer_version: Literal["quantos-codex-normalizer/v1"] = "quantos-codex-normalizer/v1"
+
+
+class HarnessCapabilityObservation(CanonicalContract):
+    """Observed runtime behavior, kept separate from requested policy."""
+
+    schema_version: Literal["harness-capability-observation/v1"] = (
+        "harness-capability-observation/v1"
+    )
+    command_count: NonNegativeInt
+    shell_command_observed: bool
+    filesystem_denial_observed: bool | None = None
+    network_denial_observed: bool | None = None
+    parent_secret_absence_observed: bool | None = None
+    recovery_observed: bool | None = None
+    approval_request_observed: bool
+    normalized_transcript_hash: str = Field(pattern=SHA256_PATTERN)
+    provider_transcript_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def command_observations_are_consistent(self) -> Self:
+        if self.shell_command_observed != (self.command_count > 0):
+            raise ValueError("shell observation and command count disagree")
+        if self.command_count == 0 and any(
+            value is not None
+            for value in (
+                self.filesystem_denial_observed,
+                self.network_denial_observed,
+                self.parent_secret_absence_observed,
+                self.recovery_observed,
+            )
+        ):
+            raise ValueError("command behavior cannot be observed without command events")
+        return self
+
+
 class HarnessTerminalError(CanonicalContract):
     schema_version: Literal["harness-terminal-error/v1"] = "harness-terminal-error/v1"
     kind: HarnessErrorKind

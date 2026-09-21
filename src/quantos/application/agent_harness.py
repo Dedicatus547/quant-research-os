@@ -15,6 +15,7 @@ from quantos.contracts.harness import (
     AgentEventKind,
     HarnessExecutionRequest,
     HarnessRuntimeIdentity,
+    HarnessRuntimeIdentityV2,
     HarnessTerminalError,
 )
 
@@ -66,7 +67,7 @@ class HarnessCapture:
 @dataclass(frozen=True)
 class HarnessAttemptResult:
     capture: HarnessCapture
-    runtime: HarnessRuntimeIdentity | None
+    runtime: HarnessRuntimeIdentity | HarnessRuntimeIdentityV2 | None
     terminal_error: HarnessTerminalError | None
     provider_transcript: bytes | None
 
@@ -86,7 +87,7 @@ class HarnessExecutionResult:
         return self.attempts[-1].capture
 
     @property
-    def runtime(self) -> HarnessRuntimeIdentity | None:
+    def runtime(self) -> HarnessRuntimeIdentity | HarnessRuntimeIdentityV2 | None:
         return self.attempts[-1].runtime
 
     @property

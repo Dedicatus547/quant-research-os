@@ -29,6 +29,7 @@ from quantos.contracts.harness import (
     HarnessErrorKind,
     HarnessExecutionRequest,
     HarnessRuntimeIdentity,
+    HarnessRuntimeIdentityV2,
     HarnessTerminalError,
 )
 from quantos.integrations.codex.event_normalizer import (
@@ -288,11 +289,15 @@ class CodexSdkAdapter:
             )
 
     @staticmethod
-    def _runtime_identity(body: Mapping[str, object]) -> HarnessRuntimeIdentity | None:
+    def _runtime_identity(
+        body: Mapping[str, object],
+    ) -> HarnessRuntimeIdentity | HarnessRuntimeIdentityV2 | None:
         try:
-            return HarnessRuntimeIdentity(
+            return HarnessRuntimeIdentityV2(
                 sdk_version=cast(str, body["sdk_version"]),
+                runtime_package_version=cast(str, body["runtime_package_version"]),
                 runtime_version=cast(str, body["runtime_version"]),
+                runtime_binary_hash=cast(str, body["runtime_binary_hash"]),
             )
         except (KeyError, ValidationError):
             return None
@@ -305,7 +310,7 @@ class CodexSdkAdapter:
         message_hash: str | None = None,
         retryable: bool = False,
         provider_transcript: bytes | None = None,
-        runtime: HarnessRuntimeIdentity | None = None,
+        runtime: HarnessRuntimeIdentity | HarnessRuntimeIdentityV2 | None = None,
         attempt: int = 1,
     ) -> HarnessAttemptResult:
         digest = message_hash or sha256_bytes(

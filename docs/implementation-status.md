@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-15
+Status date: 2026-09-21
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
@@ -28,7 +28,7 @@ workspace.
 | P13 | Approved v2 benchmark, read-only Agent extraction, deterministic admission, immutable event artifacts and native-Qlib execution qualified | `SUCCEEDED / PASS`: real Store and admitted Agent proposal replayed on clean commit `46904c2…`; two roots match all principal content hashes. Bundle `c6abe067…d883`. Single announcement with citation-location assistance; no general extraction or profitability claim. See [freeze record](p13-v2-freeze.md) |
 | FR-01 | Existing admitted DSL now passes proposal compiler, resolution, PIT, SignalArtifact, Qlib backtest, and Validation without a project expression runtime; a non-return `field → delta → abs` DAG and negative field/operator cases pass | No new live-data conclusion; existing snapshot/view qualification boundaries remain unchanged |
 | FR-02 | Immutable Qlib ResearchResult adapter binds prediction, label, split, expression, policy, source files, native IC/Rank IC series and summaries; exact-file verification, tamper rejection, independent-root hashes, and G3 integration pass | Only Qlib-native IC/Rank IC outputs are qualified; coverage/turnover/autocorrelation remain outside scope |
-| FR-03 | Official Python SDK 0.154.0 adapter, isolated host, v2 events/attempts/provenance, transport-neutral P10/P13 paths and CLI-execution removal implemented; offline regression PASS | **NO_GO**: two SDK P10 runs passed 6/9 but emitted no shell events, so sandbox, permission-denial and recovery evidence is absent; P13 SDK qualification remains NOT_EVALUATED |
+| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0 matrix runner and CLI-execution removal implemented; offline regression PASS | **NO_GO**: two SDK P10 runs passed 6/9 and four minimal variants emitted no shell events, producing `OBSERVABILITY_GAP`; P13 SDK qualification remains NOT_EVALUATED |
 
 FR-03 update (2026-09-15): the core SDK integration and offline coverage are complete.
 The exact SDK and bundled runtime authenticated and supplied structured output, MCP, Skill, usage,
@@ -37,6 +37,14 @@ failed the same three hard checks because the SDK stream contained no shell exec
 therefore remains `NO_GO`; this does not revise the historical CLI P10/P13 evidence. See
 [ADR-0002](adr/0002-official-codex-python-sdk.md) and the
 [qualification matrix](fr03-codex-sdk-qualification.md).
+
+FR-03 update (2026-09-18): new SDK runs use `AgentRunManifestV3`; requested policy, observed
+behavior and attested policy are no longer conflated, and the bundled runtime binary is hashed.
+Four non-canonical 0.154.0 minimal variants all completed with zero command events. The repository
+now treats 0.154.0 as the explicit frozen FR-03 target and can publish one aggregate D0 matrix with
+a mechanical classification and P10 eligibility flag. The latest verified matrix is
+`214c236cf3239d14c46a4a404a2eafe9311d688131c78c3f646fc035fb7cf6fc`; it binds both installed
+distribution versions, the app-server reported version and the runtime binary hash.
 
 P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
 approved Store is materialized locally, and a real Agent proposal passed all six admission checks

@@ -33,7 +33,7 @@ QuantOS application orchestration
 本项目尚未发布，因此本次采用破坏性重构：
 
 - 新运行只支持 SDK，不保留可执行的 CLI backend 或 backend selector；
-- 新运行直接使用 `AgentRunManifestV2` 和新的规范化事件格式；
+- 新运行直接使用 `AgentRunManifestV3` 和新的规范化事件格式；
 - 旧 P10/P13 artifact、hash 和 v1 schema 保持不可变；
 - 只保留最小只读 legacy decoder/verifier，不提供新的 CLI execution path；
 - 不要求重新运行 CLI，也不建立长期 CLI/SDK 双栈。
@@ -101,7 +101,7 @@ Agent 输出始终只是 proposal，绝不是 validated evidence。
 - transport-neutral local harness port；
 - isolated SDK host；
 - SDK adapter 和 provider-event normalizer；
-- `AgentRunManifestV2`、attempt model 和可离线重放的规范化 transcript；
+- `AgentRunManifestV3`、attempt model、capability observation 和可离线重放的规范化 transcript；
 - P10 capability evaluator 迁移；
 - P13 extraction runner 迁移；
 - SDK-only P10/P13 qualification；
@@ -121,7 +121,7 @@ Port 只服务已验证的 local Codex runtime。不得为了假想的未来 pro
 
 ```text
 quantos.contracts
-    AgentRunManifestV2 / HarnessAttemptRecord / canonical event contracts
+    AgentRunManifestV3 / HarnessAttemptRecord / capability observation / canonical event contracts
     不 import openai_codex、Qlib、Tushare、Agent harness 或 LLM SDK
 
 quantos.application
@@ -228,13 +228,13 @@ host 不得接受任意 command、任意环境变量或任意 writable root。
 
 ## 8. Run contracts V2 与 attempt model
 
-新 canonical run 使用 `agent-run-spec/v2` 和 `agent-run-manifest/v2`。v1 contracts 保持冻结，
-不得修改字段语义，也不要把 SDK 信息编码进一个自由格式字符串。
+新 canonical run 使用 `agent-run-spec/v3` 和 `agent-run-manifest/v3`。v1/v2 contracts 保持冻结，
+不得修改字段语义，也不要把 SDK 信息编码进一个自由格式字符串。v2 只用于历史 replay。
 
-`AgentRunSpecV2` 在现有输入绑定之外，增加完整 requested runtime policy hash、transcript policy hash
+`AgentRunSpecV3` 在现有输入绑定之外，增加完整 requested runtime policy hash、transcript policy hash
 和 attempt/retry budget hash；它不包含 provider 或 SDK object。
 
-V2 至少包含：
+V3 至少包含：
 
 ```text
 run_spec_hash
@@ -244,14 +244,14 @@ model_snapshot_immutable=false
 
 adapter_identity
 sdk_distribution/version
-bundled_runtime_identity/version
+bundled_runtime_distribution/package_version/reported_version/binary_hash
 provider_protocol_identity
 normalizer_identity/version/hash
 
 requested_policy_hash
-effective_policy_hash
-sandbox_policy_hash
-permission_policy_hash
+resolved_runtime_config_hash or null
+capability_observation_hash
+attested_policy_hash or explicit unattested limitation
 
 attempts
 aggregate_usage
@@ -410,7 +410,7 @@ reasoning effort 和 limits。判定要求仍为 `9/9 → GO`。
 ```text
 load frozen P13 inputs
         ↓
-build AgentRunSpecV2 + HarnessExecutionRequest
+build AgentRunSpecV3 + HarnessExecutionRequest
         ↓
 LocalAgentHarness.execute()
         ↓
@@ -460,7 +460,7 @@ loader 先读取 manifest 的 `schema_version` 决定 verifier：
 
 ```text
 agent-run-manifest/v1 → frozen legacy verifier
-agent-run-manifest/v2 → normalized transcript verifier
+agent-run-manifest/v2|v3 → normalized transcript verifier
 other                 → fail closed
 ```
 
@@ -484,13 +484,14 @@ Exit：
 
 任一项失败即暂停重构；不要用 CLI wrapper 模拟缺失的 SDK protocol capability。
 
-### M1 — 冻结 v2 contracts
+### M1 — 冻结 v3 contracts
 
 实现并冻结：
 
-- `AgentRunSpecV2`；
-- `AgentRunManifestV2`；
+- `AgentRunSpecV3`；
+- `AgentRunManifestV3`；
 - `HarnessAttemptRecord`；
+- `HarnessCapabilityObservation`；
 - `AgentEventV1` 和 payload contracts；
 - runtime/policy identity；
 - stable error/ReasonCode mapping。

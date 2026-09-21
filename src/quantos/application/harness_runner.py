@@ -13,6 +13,7 @@ from typing import Any, cast
 from quantos.application.harness_spike import (
     CodexExecCapture,
     build_harness_spike_report_v2,
+    build_p10_capability_observation,
 )
 from quantos.artifacts.store import atomic_write_bytes, publish_directory
 from quantos.contracts.agent import (
@@ -21,8 +22,9 @@ from quantos.contracts.agent import (
     AgentRole,
     AgentRunManifest,
     AgentRunManifestV2,
+    AgentRunManifestV3,
     AgentRunSpec,
-    AgentRunSpecV2,
+    AgentRunSpecV3,
     AgentUsage,
     HarnessAttemptRecord,
     ToolInteractionDigest,
@@ -32,17 +34,26 @@ from quantos.contracts.harness import (
     CodexHarnessSpikeReport,
     CodexHarnessSpikeSpec,
     HarnessCapability,
+    HarnessCapabilityObservation,
     HarnessCapabilitySpikeReportV2,
     HarnessCapabilitySpikeSpecV2,
     HarnessEnvironmentVariable,
     HarnessErrorKind,
     HarnessExecutionRequest,
     HarnessMcpServer,
+    HarnessRuntimeIdentityV2,
     HarnessRuntimePolicy,
     HarnessTerminalError,
 )
 from quantos.contracts.status import ReasonCode, RunStatus
 from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
+from quantos.integrations.codex.versioning import (
+    CODEX_PROTOCOL_IDENTIFIER,
+    CODEX_RUNTIME_DISTRIBUTION,
+    CODEX_RUNTIME_PACKAGE_VERSION,
+    CODEX_SDK_DISTRIBUTION,
+    CODEX_SDK_VERSION,
+)
 
 CODEX_CLI_VERSION = "codex-cli 0.153.4"
 MODEL_IDENTIFIER = "gpt-5.6-sol"
@@ -100,7 +111,7 @@ class FrozenSpikeInputs:
 @dataclass(frozen=True)
 class HarnessRunResult:
     report: CodexHarnessSpikeReport | HarnessCapabilitySpikeReportV2
-    manifest: AgentRunManifest | AgentRunManifestV2
+    manifest: AgentRunManifest | AgentRunManifestV2 | AgentRunManifestV3
     report_path: Path
     manifest_path: Path
     spec_path: Path
@@ -201,6 +212,38 @@ def model_configuration_payload(inputs: FrozenSpikeInputs) -> dict[str, object]:
         "output_schema_hash": inputs.output_schema_hash,
         "sandbox_mode": "read-only",
         "shell_environment": _SHELL_ENVIRONMENT,
+    }
+
+
+def sdk_model_configuration_payload(inputs: FrozenSpikeInputs) -> dict[str, object]:
+    """Requested SDK configuration without legacy CLI identity."""
+
+    return {
+        "adapter_identifier": "openai-codex-python-sdk",
+        "approval_policy": "never",
+        "command_network_allowed": False,
+        "ephemeral": True,
+        "ignore_user_config": True,
+        "login_shell_allowed": False,
+        "mcp": {
+            "command": "/usr/bin/python3",
+            "enabled_tools": ["dataset_describe"],
+            "implementation_hash": inputs.mcp_server_hash,
+            "required": True,
+            "server": "quantosP10",
+            "tool_schema_hash": inputs.mcp_tool_schema_hash,
+        },
+        "model_identifier": MODEL_IDENTIFIER,
+        "model_reasoning_effort": MODEL_REASONING_EFFORT,
+        "output_schema_hash": inputs.output_schema_hash,
+        "protocol_identifier": CODEX_PROTOCOL_IDENTIFIER,
+        "runtime_distribution": CODEX_RUNTIME_DISTRIBUTION,
+        "runtime_package_version": CODEX_RUNTIME_PACKAGE_VERSION,
+        "sandbox_mode": "read-only",
+        "sdk_distribution": CODEX_SDK_DISTRIBUTION,
+        "sdk_version": CODEX_SDK_VERSION,
+        "shell_environment": _SHELL_ENVIRONMENT,
+        "shell_tool_enabled": True,
     }
 
 
@@ -419,19 +462,40 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
     )
     runtime = execution.runtime
     terminal = execution.terminal_error
+    provider_transcript_hash = (
+        sha256_bytes(execution.provider_transcript)
+        if execution.provider_transcript is not None
+        else None
+    )
+    observation = build_p10_capability_observation(
+        capture,
+        normalized_transcript_hash=execution.normalized_transcript_hash,
+        provider_transcript_hash=provider_transcript_hash,
+    )
     if terminal is None and proposal_hash is None:
         terminal = HarnessTerminalError(
             kind=HarnessErrorKind.OUTPUT_INVALID,
             message_hash=sha256_bytes(b"P10 normalized output has no proposal"),
         )
-    manifest = AgentRunManifestV2(
+    manifest = AgentRunManifestV3(
         run_spec_hash=run_spec.content_hash,
         provider_model_identifier=MODEL_IDENTIFIER,
         sdk_version=runtime.sdk_version if runtime else None,
+        runtime_package_version=(
+            runtime.runtime_package_version
+            if isinstance(runtime, HarnessRuntimeIdentityV2)
+            else None
+        ),
         runtime_version=runtime.runtime_version if runtime else None,
+        runtime_binary_hash=(
+            runtime.runtime_binary_hash if isinstance(runtime, HarnessRuntimeIdentityV2) else None
+        ),
+        protocol_identifier=CODEX_PROTOCOL_IDENTIFIER,
         normalizer_hash=_normalizer_hash(),
         requested_policy_hash=request.runtime_policy.content_hash,
-        effective_policy_hash=request.runtime_policy.content_hash,
+        resolved_runtime_config_hash=None,
+        capability_observation_hash=observation.content_hash,
+        attested_policy_hash=None,
         instruction_hashes=inputs.instruction_hashes,
         skill_hash=inputs.skill_hash,
         tool_schema_hash=inputs.mcp_tool_schema_hash,
@@ -439,11 +503,7 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         input_hashes=inputs.all_input_hashes,
         output_proposal_hashes=((proposal_hash,) if proposal_hash else ()),
         normalized_transcript_hash=execution.normalized_transcript_hash,
-        provider_transcript_hash=(
-            sha256_bytes(execution.provider_transcript)
-            if execution.provider_transcript is not None
-            else None
-        ),
+        provider_transcript_hash=provider_transcript_hash,
         provider_transcript_retention_reason=(
             None if execution.provider_transcript is not None else "SDK_HOST_UNAVAILABLE"
         ),
@@ -487,7 +547,11 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         aggregate_usage=aggregate_usage,
         run_status=RunStatus.SUCCEEDED if terminal is None else RunStatus.FAILED,
         failure_reason_code=(None if terminal is None else _failure_reason(terminal)),
-        limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SYNTHETIC_CAPABILITY_SPIKE"),
+        limitations=(
+            "EFFECTIVE_RUNTIME_POLICY_NOT_ATTESTED",
+            "MODEL_IDENTIFIER_NOT_IMMUTABLE",
+            "SYNTHETIC_CAPABILITY_SPIKE",
+        ),
         started_at=started_at,
         completed_at=completed_at,
     )
@@ -504,6 +568,7 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         provider_transcript=execution.provider_transcript,
         spec=spec,
         manifest=manifest,
+        observation=observation,
         report=report,
         transcript=execution.normalized_transcript,
         run_spec=run_spec,
@@ -559,9 +624,9 @@ def _sdk_run_spec(
     inputs: FrozenSpikeInputs,
     request: HarnessExecutionRequest,
     spike: HarnessCapabilitySpikeSpecV2,
-) -> AgentRunSpecV2:
-    configuration_hash = sha256_bytes(canonical_json_bytes(model_configuration_payload(inputs)))
-    return AgentRunSpecV2(
+) -> AgentRunSpecV3:
+    configuration_hash = sha256_bytes(canonical_json_bytes(sdk_model_configuration_payload(inputs)))
+    return AgentRunSpecV3(
         run_id="p10-codex-sdk-20260915",
         role=AgentRole.RESEARCHER,
         capability_policy_hash=capability_policy().content_hash,
@@ -620,8 +685,9 @@ def _publish_sdk_run_artifacts(
     request: HarnessExecutionRequest,
     provider_transcript: bytes | None,
     spec: HarnessCapabilitySpikeSpecV2,
-    run_spec: AgentRunSpecV2,
-    manifest: AgentRunManifestV2,
+    run_spec: AgentRunSpecV3,
+    manifest: AgentRunManifestV3,
+    observation: HarnessCapabilityObservation,
     report: HarnessCapabilitySpikeReportV2,
     transcript: bytes,
 ) -> tuple[Path, Path, Path, Path]:
@@ -632,6 +698,9 @@ def _publish_sdk_run_artifacts(
         atomic_write_bytes(staging / "agent-events.jsonl", transcript)
         atomic_write_bytes(staging / "agent-run-manifest.json", manifest.canonical_bytes())
         atomic_write_bytes(staging / "agent-run-spec.json", run_spec.canonical_bytes())
+        atomic_write_bytes(
+            staging / "harness-capability-observation.json", observation.canonical_bytes()
+        )
         atomic_write_bytes(staging / "harness-request.json", request.canonical_bytes())
         atomic_write_bytes(staging / "harness-spike-spec.json", spec.canonical_bytes())
         atomic_write_bytes(staging / "harness-spike-report.json", canonical_json_bytes(report))

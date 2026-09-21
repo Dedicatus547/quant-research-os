@@ -28,6 +28,23 @@ def test_replay_dispatches_v2_by_manifest_schema_not_filename() -> None:
     assert capture.event_count == 1
 
 
+def test_replay_dispatches_v3_to_normalized_event_decoder() -> None:
+    transcript = serialize_agent_events(
+        (
+            make_agent_event(
+                sequence=1,
+                kind=AgentEventKind.ATTEMPT_STARTED,
+                provider_event_type="quantos.attempt.started",
+                payload={"attempt": 1},
+            ),
+        )
+    )
+
+    capture = replay_harness_capture("agent-run-manifest/v3", transcript, max_bytes=10_000)
+
+    assert capture.event_count == 1
+
+
 def test_replay_dispatches_historical_v1_without_sdk() -> None:
     transcript = (
         canonical_json_bytes({"type": "thread.started", "thread_id": "legacy-thread"}) + b"\n"

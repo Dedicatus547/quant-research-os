@@ -1,10 +1,10 @@
 # ADR-0002: Official Codex Python SDK execution boundary
 
-Status: implemented, qualification **NO_GO** on 2026-09-15.
+Status: implemented, qualification **NO_GO**; amended 2026-09-18.
 
 ## Decision
 
-New P10/P13 harness code uses the exact-pinned `openai-codex==0.154.0` Python SDK through a
+New P10/P13 harness code currently uses the exact-pinned `openai-codex==0.154.0` Python SDK through a
 QuantOS-owned process-isolated adapter. There is no `codex exec` execution backend. Historical v1
 CLI artifacts remain immutable and their contracts/parser remain read-only verification code.
 
@@ -16,10 +16,16 @@ does not read, copy, print, or persist credentials. User config, plugins and glo
 are absent from that home.
 
 Provider notifications are retained separately and normalized fail-closed into
-`quantos-agent-event/v1`. V2 run provenance binds SDK/runtime identity, requested and effective
-policy hashes, normalizer identity/hash, every attempt, aggregate usage, stable terminal errors,
-the normalized transcript, and either a provider-transcript hash or a non-retention reason. Failed
-attempts cannot carry a proposal hash.
+`quantos-agent-event/v1`. New runs use v3 provenance. It binds the SDK distribution/version,
+bundled runtime distribution/reported version/binary hash, normalizer identity/hash, every attempt,
+aggregate usage, stable terminal errors, capability observation, normalized transcript, and either
+a provider-transcript hash or a non-retention reason. Failed attempts cannot carry a proposal hash.
+
+Requested policy, resolved runtime configuration, capability observation, and attested effective
+policy are separate fields. The harness never derives an effective-policy claim by copying the
+requested-policy hash. When no runtime attestation exists, v3 requires the explicit
+`EFFECTIVE_RUNTIME_POLICY_NOT_ATTESTED` limitation. V2 remains available only for historical
+artifact replay.
 
 The SDK package launches a pinned bundled app-server runtime. These choices follow the official
 [Codex SDK documentation](https://developers.openai.com/codex/sdk/) and
@@ -37,3 +43,26 @@ This is a hard `NO_GO`, not an inferred sandbox failure or a research rejection.
 ADR-0001 CLI qualification remains historical evidence, but it does not qualify SDK 0.154.0. P13
 SDK live qualification and FR-03 cutover remain blocked until a newly pinned SDK/runtime produces
 all 9/9 P10 observations without relaxing the rubric.
+
+## 2026-09-18 amendment
+
+The project freezes `openai-codex==0.154.0` and the matching bundled runtime packages as the current
+FR-03 implementation target. A later dependency upgrade is a separate qualification change and
+must not silently replace this evidence set.
+
+A standalone non-canonical D0 diagnostic ran four 0.154.0 variants: defaults, explicit
+`shell_tool=true`, `shell_tool=true` with `unified_exec=false`, and `shell_tool=false`. Every turn
+completed and every raw provider transcript contained zero `commandExecution` events. The new D0
+runner aggregates these variants into a content-addressed matrix with a mechanical classification
+and P10 eligibility flag. The current result is an observability gap, not proof that sandbox or
+network policy took effect. See the
+[failure-isolation plan](../fr03-codex-sdk-failure-isolation-plan.md).
+
+## 2026-09-21 identity hardening
+
+The frozen identity now includes the installed `openai-codex` version, installed
+`openai-codex-cli-bin` version, app-server reported version, and bundled runtime binary hash. The
+isolated host fails closed with `RUNTIME_MISMATCH` when either installed distribution or the
+reported runtime differs from 0.154.0. Matrix
+`214c236cf3239d14c46a4a404a2eafe9311d688131c78c3f646fc035fb7cf6fc` passed offline integrity
+verification and remains `OBSERVABILITY_GAP / eligible_for_p10=false`.
