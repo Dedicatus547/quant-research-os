@@ -171,6 +171,259 @@ def test_raw_artifact_guard_rejects_secret_markers() -> None:
         MODULE._safe_artifact_payload("provider event", b'{"access_token":"must-not-be-persisted"}')
 
 
+def _d07_source_fixture() -> dict[str, bytes]:
+    feature_specs = "\n".join(
+        f"FeatureSpec {{ id: Feature::{name}, default_enabled: {enabled}, }}"
+        for name, enabled in (
+            ("CodeModeHost", "true"),
+            ("ShellTool", "true"),
+            ("UnifiedExec", "true"),
+        )
+    )
+    values = {
+        "codex-rs/models-manager/models.json": json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.6-sol",
+                        "tool_mode": "code_mode_only",
+                        "use_responses_lite": True,
+                        "shell_type": "unified_exec",
+                    }
+                ]
+            }
+        ),
+        "codex-rs/core/src/tools/mod.rs": " ".join(
+            (
+                "model_info.tool_mode.unwrap_or_else(||",
+                "Feature::CodeModeOnly",
+                "ToolMode::CodeModeOnly",
+                "requested_tool_mode == ToolMode::CodeMode",
+            )
+        ),
+        "codex-rs/core/src/tools/spec_plan.rs": " ".join(
+            (
+                "if is_hidden_by_code_mode_only(turn_context, model_info, &tool_name, exposure)",
+                "tool_mode == ToolMode::CodeModeOnly",
+                "register_code_mode_executors(turn_context, model_info, &mut registry)",
+                "registry.prepend_trusted(Arc::new(CodeModeWaitHandler))",
+                "registry.prepend_trusted(Arc::new(execute_handler))",
+                "!features.enabled(Feature::ShellTool)",
+                "registry.add(ExecCommandHandler::new(options))",
+                "registry.add(ExecCommandHandler::one_shot(options))",
+            )
+        ),
+        "codex-rs/core/src/client.rs": " ".join(
+            (
+                "let (instructions, tools) = if model_info.use_responses_lite",
+                "ResponseItem::AdditionalTools",
+                "(String::new(), None)",
+                "tools,",
+            )
+        ),
+        "codex-rs/core/src/tools/code_mode/mod.rs": (
+            "fn submit_nested_tool( handle_tool_call_with_source( ToolCallSource::CodeMode"
+        ),
+        "codex-rs/features/src/lib.rs": feature_specs,
+        "codex-rs/core/tests/suite/code_mode.rs": (
+            "code-mode-only must retain code-mode tools "
+            "code-mode-only must never expose direct shell tools ev_custom_tool_call("
+        ),
+        "codex-rs/app-server/tests/suite/v2/code_mode_host.rs": "code_mode host",
+    }
+    return {name: value.encode() for name, value in values.items()}
+
+
+def test_d07_source_characterization_is_mechanical_and_fail_closed() -> None:
+    architecture, manifest = MODULE._characterize_d07_source_files(
+        _d07_source_fixture(),
+        expected_sdk_version="0.154.0",
+        parser_sha256="a" * 64,
+    )
+
+    assert architecture["tool_mode"] == "code_mode_only"
+    assert architecture["use_responses_lite"] is True
+    assert architecture["responses_lite"] == {
+        "request_tools_expected": "ABSENT_OR_NULL",
+        "additional_tools_expected": True,
+    }
+    assert manifest["release_commit"] == MODULE.D07_RELEASES["0.154.0"]["release_commit"]
+
+    broken = _d07_source_fixture()
+    broken["codex-rs/core/src/client.rs"] = b"unknown request construction"
+    with pytest.raises(RuntimeError, match="source shape"):
+        MODULE._characterize_d07_source_files(
+            broken,
+            expected_sdk_version="0.154.0",
+            parser_sha256="a" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    ("tools_value", "expected"),
+    [
+        pytest.param(None, "ABSENT", id="absent"),
+        (None, "NULL"),
+        ([], "EMPTY"),
+        ([{}], "NONEMPTY"),
+    ],
+)
+def test_d07_request_projection_preserves_tools_state(
+    tools_value: object, expected: str, request: pytest.FixtureRequest
+) -> None:
+    payload: dict[str, object] = {
+        "model": MODULE.MODEL_IDENTIFIER,
+        "input": [
+            {
+                "type": "additional_tools",
+                "tools": [
+                    {"name": "wait", "description": "wait"},
+                    {"name": "exec", "description": "execute"},
+                ],
+            }
+        ],
+    }
+    if request.node.callspec.id != "absent":
+        payload["tools"] = tools_value
+    projection = MODULE._project_d07_request(
+        MODULE.canonical_json_bytes(payload), ordinal=1
+    )
+
+    assert projection["request_tools_state"] == expected
+    assert projection["model_visible_tool_names"] == ["exec", "wait"]
+    assert projection["exec_visibility"] == "OBSERVED_TRUE"
+    assert projection["wait_visibility"] == "OBSERVED_TRUE"
+
+
+def test_d07_request_projection_rejects_duplicate_tools() -> None:
+    payload = {
+        "model": MODULE.MODEL_IDENTIFIER,
+        "input": [
+            {
+                "type": "additional_tools",
+                "tools": [{"name": "exec"}, {"name": "exec"}],
+            }
+        ],
+    }
+    with pytest.raises(RuntimeError, match="duplicated"):
+        MODULE._project_d07_request(MODULE.canonical_json_bytes(payload), ordinal=1)
+
+
+def test_d07_request_projection_flattens_responses_lite_namespaces() -> None:
+    payload = {
+        "model": MODULE.MODEL_IDENTIFIER,
+        "input": [
+            {
+                "type": "additional_tools",
+                "tools": [
+                    {
+                        "type": "namespace",
+                        "name": "functions",
+                        "tools": [{"name": "wait"}, {"name": "exec"}],
+                    },
+                    {
+                        "type": "namespace",
+                        "name": "collaboration",
+                        "tools": [{"name": "spawn_agent"}],
+                    },
+                ],
+            }
+        ],
+    }
+    projection = MODULE._project_d07_request(
+        MODULE.canonical_json_bytes(payload), ordinal=1
+    )
+
+    assert projection["additional_tools_count"] == 2
+    assert projection["model_visible_tool_names"] == ["exec", "spawn_agent", "wait"]
+    assert projection["exec_visibility"] == "OBSERVED_TRUE"
+
+
+def _d07_surface(
+    ordinal: int, *, exec_visible: bool, call_output: bool = False
+) -> dict[str, object]:
+    names = ["exec", "wait"] if exec_visible else ["wait"]
+    return {
+        "request_ordinal": ordinal,
+        "exec_visibility": "OBSERVED_TRUE" if exec_visible else "OBSERVED_FALSE",
+        "tool_output_call_ids": ["d07-exec-call-1"] if call_output else [],
+        "model_visible_tool_names": names,
+    }
+
+
+def test_d07_shadow_classification_boundaries() -> None:
+    summary = {
+        "turn_status": "completed",
+        "reference_integrity": True,
+        "lifecycle_integrity": True,
+    }
+    successful_probe = {
+        "started_count": 1,
+        "completed_count": 1,
+        "successful_probe_count": 1,
+    }
+    assert MODULE._d07_classify_shadow(
+        phase="D0.7B1",
+        request_surfaces=[
+            _d07_surface(1, exec_visible=True),
+            _d07_surface(2, exec_visible=True, call_output=True),
+        ],
+        event_summary=summary,
+        command_probe=successful_probe,
+        final_message="DONE",
+        shadow_error_kind=None,
+        terminal_error=None,
+    ) == "CODE_MODE_CHAIN_AVAILABLE"
+    assert MODULE._d07_classify_shadow(
+        phase="D0.7B1",
+        request_surfaces=[_d07_surface(1, exec_visible=False), _d07_surface(2, exec_visible=False)],
+        event_summary=summary,
+        command_probe=successful_probe,
+        final_message="DONE",
+        shadow_error_kind=None,
+        terminal_error=None,
+    ) == "MODEL_VISIBLE_CODE_MODE_MISSING"
+    assert MODULE._d07_classify_shadow(
+        phase="D0.7B1",
+        request_surfaces=[
+            _d07_surface(1, exec_visible=True),
+            _d07_surface(2, exec_visible=True, call_output=True),
+        ],
+        event_summary=summary,
+        command_probe={**successful_probe, "completed_count": 0},
+        final_message="DONE",
+        shadow_error_kind=None,
+        terminal_error=None,
+    ) == "COMMAND_LIFECYCLE_GAP"
+
+
+def test_d07_artifact_guard_rejects_broader_secret_markers() -> None:
+    for payload in (
+        b'{"Authorization":"Bearer redacted"}',
+        b'{"cookie":"redacted"}',
+        b'{"account_id":"redacted"}',
+        b'{"TUSHARE_TOKEN":"redacted"}',
+    ):
+        with pytest.raises(RuntimeError, match="prohibited secret marker"):
+            MODULE._safe_d07_artifact_payload("candidate", payload)
+
+
+def test_d07_publication_rejects_tampering(tmp_path: Path) -> None:
+    destination = MODULE._publish_d07_bundle(
+        tmp_path,
+        phase="TEST",
+        prefix="test",
+        files={"result.json": MODULE.canonical_json_bytes({"ok": True})},
+    )
+    manifest, payloads = MODULE._read_d07_bundle_files(destination)
+    assert manifest["phase"] == "TEST"
+    assert json.loads(payloads["result.json"])["ok"] is True
+
+    (destination / "result.json").write_bytes(b"{}")
+    with pytest.raises(RuntimeError, match="file hash"):
+        MODULE._read_d07_bundle_files(destination)
+
+
 def _matrix_result(
     variant: str, command_count: int, *, version: str = "0.154.0"
 ) -> dict[str, object]:

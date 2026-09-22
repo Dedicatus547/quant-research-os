@@ -28,7 +28,7 @@ workspace.
 | P13 | Approved v2 benchmark, read-only Agent extraction, deterministic admission, immutable event artifacts and native-Qlib execution qualified | `SUCCEEDED / PASS`: real Store and admitted Agent proposal replayed on clean commit `46904c2…`; two roots match all principal content hashes. Bundle `c6abe067…d883`. Single announcement with citation-location assistance; no general extraction or profitability claim. See [freeze record](p13-v2-freeze.md) |
 | FR-01 | Existing admitted DSL now passes proposal compiler, resolution, PIT, SignalArtifact, Qlib backtest, and Validation without a project expression runtime; a non-return `field → delta → abs` DAG and negative field/operator cases pass | No new live-data conclusion; existing snapshot/view qualification boundaries remain unchanged |
 | FR-02 | Immutable Qlib ResearchResult adapter binds prediction, label, split, expression, policy, source files, native IC/Rank IC series and summaries; exact-file verification, tamper rejection, independent-root hashes, and G3 integration pass | Only Qlib-native IC/Rank IC outputs are qualified; coverage/turnover/autocorrelation remain outside scope |
-| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0/D0.5/D0.6 diagnostics and CLI-execution removal implemented; offline regression PASS | **NO_GO**: two SDK P10 runs passed 6/9; both SDK D0 and raw app-server D0.6 matrices on 0.154.0/candidate 0.155.1 emitted no command events even though direct `command/exec` passed; P13 SDK qualification remains NOT_EVALUATED; upstream issue #46947 |
+| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0-D0.7 diagnostics, exact-source Code Mode characterization, credential-free loopback chain tests, live safe projection and offline replay implemented; offline regression PASS | **NO_GO**: D0.7 proves Responses Lite exposes model-visible Code Mode `exec`, but 0.154.0/0.155.1 shadow chains cannot mechanically prove nested dispatch or `commandExecution`; both are `INCONCLUSIVE`, while 0.154.0 live is `LIVE_EXEC_NOT_OBSERVED`; P13 SDK qualification remains NOT_EVALUATED; upstream issue #46947 |
 
 FR-03 update (2026-09-15): the core SDK integration and offline coverage are complete.
 The exact SDK and bundled runtime authenticated and supplied structured output, MCP, Skill, usage,
@@ -63,6 +63,17 @@ This makes the high-level wrapper unnecessary to reproduce the observation, with
 any single app-server, tool-registry, model, shell, or sandbox component is broken. The canonical
 dependency and lock remain unchanged. The local reproduction is ready for an upstream issue update;
 no external issue write was performed in this implementation run.
+
+FR-03 update (2026-09-21, D0.7): exact-tag source bundles for 0.154.0 and candidate 0.155.1
+mechanically establish `gpt-5.6-sol` as `CodeModeOnly + Responses Lite + unified_exec`. Both
+credential-free loopback preflights passed. Both deterministic shadow chains then showed top-level
+`tools` absent while namespace-aware `additional_tools` exposed `exec`/`wait`, and both round-tripped
+the scripted exec call id into a second model request. Neither public event stream exposed host/nested
+dispatch or emitted `commandExecution`, so both B1 results are strictly `INCONCLUSIVE`, not a claimed
+runtime failure. The 0.154.0 live observation completed with zero commands and is
+`LIVE_EXEC_NOT_OBSERVED`; raw live HTTP was not retained. All seven source/shadow/live bundles passed
+offline replay verification. Canonical dependencies remain 0.154.0 and P10 was not rerun. See
+[the D0.7 qualification record](fr03-d07-codex-sdk-test.md).
 
 P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
 approved Store is materialized locally, and a real Agent proposal passed all six admission checks

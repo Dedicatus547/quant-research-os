@@ -27,9 +27,18 @@ policy。当前证据只支持以下结论：
 9. D0.6 绕过 Python SDK high-level thread/turn wrapper，直接向 app-server 发送
    逐版本机械捕获的 wire request。0.154.0 与 0.155.1 均是四个 completed
    turn、四个 0 command，且离线 verifier 通过。
+10. D0.7A 已从 exact release source 机械确认两版 `gpt-5.6-sol` 均为
+    `CodeModeOnly + Responses Lite + unified_exec`；旧 D0 的 direct-shell surface 假设不完整。
+11. 无凭据 loopback preflight 在两版均通过；B1 首个 request 的顶层 `tools` absent，而
+    `additional_tools` namespace 子工具明确包含 model-visible `exec` / `wait`。
+12. 两版 scripted `exec` 都回传了相同 call id 的第二次 tool-output request，但 public event
+    stream 没有 `commandExecution`，且不暴露 host invocation/nested dispatch，所以 B1 均为
+    `INCONCLUSIVE`，不能宣称 nested command 已执行或 lifecycle 缺失。
+13. 0.154.0 live D0.7C turn completed、command count 为 0；因 raw live HTTP 不保留，分类仅为
+    `LIVE_EXEC_NOT_OBSERVED`，不能归因于 provider defect。
 
-FR-03 保持 `NO_GO`。D0.6 完成后暂停主动 runtime debugging；当前将结果保留为
-非权威诊断证据，并等待上游反馈。
+FR-03 保持 `NO_GO`。D0.7 结果作为非权威诊断证据保留；在 public/structured surface 能证明
+nested dispatch 和 command lifecycle 前，不重跑完整 P10，也不降低任何 hard gate。
 
 ## 2. 已落地的工程修正
 
@@ -211,6 +220,24 @@ D0.6 实施与完整边界见
 [`fr03-d06-raw-app-server-isolation-test.md`](fr03-d06-raw-app-server-isolation-test.md)。本地结果
 已准备为 `openai/codex#46947` 的待追加更新，但本次未执行外部 issue 写入。
 
+### 3.3 D0.7 Code Mode / Responses Lite 对照
+
+| version | source | loopback preflight | deterministic chain | live |
+|---|---|---|---|---|
+| 0.154.0 | `ARCHITECTURE_CHARACTERIZED` (`0b21e05e...f047f46c`) | `SHADOW_PROVIDER_PREFLIGHT_AVAILABLE` (`dd4abe0f...4fed97d6`) | `INCONCLUSIVE` (`df0c69c4...a7d99c79`) | `LIVE_EXEC_NOT_OBSERVED` (`7da8cf78...74fbc1ab`) |
+| 0.155.1 candidate | `ARCHITECTURE_CHARACTERIZED` (`41e76a96...fdf14a96`) | `SHADOW_PROVIDER_PREFLIGHT_AVAILABLE` (`1dc124a5...76b88c0`) | `INCONCLUSIVE` (`5378e069...45ea34b`) | not run |
+
+所有 bundle 都通过 `--verify-d07-bundle` 离线重算。source 绑定 tag object、peeled commit、
+archive/file hash 与 parser identity；runtime 绑定 SDK/runtime/app-server version、binary hash，
+并通过 distribution `RECORD` 证明 packaged `codex-code-mode-host` ownership。shadow 阶段使用无
+`auth.json` 的临时 `CODEX_HOME` 和拒绝认证头的 loopback-only server；raw request 仅在内存中
+生成白名单投影后丢弃。
+
+B1 已证明 model-visible `exec` 和 scripted call 的 protocol roundtrip，但没有证明
+`tools.exec_command` dispatch。没有 command event 时 L4/L5 为 `UNKNOWN`，不能借 assistant/tool
+output 文本推断执行。完整设计、实现命令、artifact contract 与限制见
+[`fr03-d07-codex-sdk-test.md`](fr03-d07-codex-sdk-test.md)。
+
 ## 4. 0.154.0 冻结与执行门
 
 ### 4.1 固定版本
@@ -228,10 +255,12 @@ D0.6 实施与完整边界见
 
 1. 验证 lock 与环境中的 SDK version 一致；
 2. 验证 runtime reported version 与 bundled binary hash；
-3. 通过 `--all-variants` 运行完整 D0 矩阵；
-4. 只有矩阵分类为 `SHELL_SURFACE_AVAILABLE` 才恢复冻结 P10；
-5. P10 必须 9/9，随后才运行 P13 SDK qualification；
-6. P13 成功后才能将 FR-03 改为 `GO`。
+3. 保留历史 D0/D0.6 矩阵，不再把 direct `shell_tool` exposure 当作 CodeModeOnly 的充分模型；
+4. 以 D0.7 request projection 和 structured runtime evidence 关闭 nested dispatch / command
+   lifecycle 的证据缺口；
+5. 只有 CodeMode-aware execution contract 可机械观察并满足时才恢复冻结 P10；
+6. P10 必须 9/9，随后才运行 P13 SDK qualification；
+7. P13 成功后才能将 FR-03 改为 `GO`。
 
 ## 5. D0 判定规则
 
@@ -297,7 +326,7 @@ P10 未通过时，P13 新的 SDK live qualification 不执行。历史 CLI P10/
 ```text
 0.154.0 exact pin and lock
         ↓
-D0 matrix SHELL_SURFACE_AVAILABLE
+CodeMode-aware nested dispatch + command lifecycle mechanically evidenced
         ↓
 P10 SDK 9/9
         ↓

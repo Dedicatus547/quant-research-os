@@ -25,6 +25,10 @@ Decision: **NO_GO**
 | Candidate 0.155.1 D0 shell matrix | **OBSERVABILITY_GAP** | aggregate matrix `87ad91ae...f577` passed offline verification; the same four completed variants all had zero raw `commandExecution` events |
 | D0.6 raw app-server thread matrix | **RAW_THREAD_OBSERVABILITY_GAP** | 0.154.0 matrix `80715924...947d7` bypassed the SDK high-level thread/turn wrapper; all four turns completed with zero command invocations and passed offline verification |
 | Candidate 0.155.1 D0.6 raw matrix | **RAW_THREAD_OBSERVABILITY_GAP** | temporary-overlay matrix `af78f1e7...0b438` produced the same four completed zero-command observations and passed offline verification |
+| D0.7 exact-source architecture | PASS | exact 0.154.0/0.155.1 tags establish `gpt-5.6-sol = CodeModeOnly + Responses Lite + unified_exec`; source bundles `0b21e05e...f047f46c` / `41e76a96...fdf14a96` passed offline replay |
+| D0.7 shadow provider preflight | PASS | credential-free loopback injection completed exactly one fixed request/response on both versions; bundles `dd4abe0f...4fed97d6` / `1dc124a5...76b88c0` verified |
+| D0.7 deterministic Code Mode chain | **INCONCLUSIVE** | both versions exposed `exec`/`wait` under Responses Lite `additional_tools` and round-tripped the scripted call id, but retained public events contained no `commandExecution` and do not expose host/nested dispatch; bundles `df0c69c4...a7d99c79` / `5378e069...45ea34b` verified |
+| D0.7 live observation | **LIVE_EXEC_NOT_OBSERVED** | 0.154.0 live turn completed with zero command events; raw live HTTP was intentionally not retained, so model-visible exec remains unknown; bundle `7da8cf78...74fbc1ab` verified |
 | Exact dependency lock | PASS | `pyproject.toml` and `uv.lock` fix SDK and bundled runtime packages at 0.154.0 |
 
 Two live P10 runs were retained under temporary qualification roots rather than checked in. Their
@@ -50,16 +54,22 @@ Both were 6/9 and failed the same three capabilities.
 - raw app-server D0.6 runner with per-version capture-only wire fixtures, exact client/account/thread/
   turn request retention, bounded stdout and hash-only stderr handling, lifecycle/reference validation,
   content-addressed bundles, and model-free matrix replay verification;
+- D0.7 exact-release parser, credential-free loopback Responses server, Responses Lite namespace-aware
+  request projection, packaged Code Mode host ownership/architecture binding, four-valued pipeline
+  observations, deterministic scripted SSE chain, live safe projection, content-addressed publication,
+  secret scanning and bottom-up offline replay verification;
 - offline contract, normalization, replay and regression coverage.
 
 New runs now use v3 provenance, bind the bundled runtime binary hash, retain a separate capability
 observation, and leave effective policy unattested unless runtime evidence supports it. Historical
 v2 artifacts remain replayable. No rubric was weakened and no SDK result is represented as the
-historical v1 CLI format. The frozen 0.154.0 runtime must first produce a
-`SHELL_SURFACE_AVAILABLE` D0 matrix and obtain P10 9/9 before P13 live qualification or FR-03 Go.
-The D0.6 result establishes that the zero-command observation also reproduces without the Python
-SDK high-level thread/turn wrapper; it does not fully exclude independent SDK-path defects or attest
-the effective sandbox policy.
+historical v1 CLI format. D0.7 invalidates the old assumption that direct shell exposure is the
+relevant model surface: exact source and shadow request evidence show Responses Lite
+`additional_tools` contains model-visible Code Mode `exec`. However, the retained surface cannot
+mechanically prove nested `tools.exec_command` dispatch or a command lifecycle, and the live run again
+observed zero command events. A CodeMode-aware P10 must not run until that evidence boundary is closed;
+P10 still requires 9/9 before P13 live qualification or FR-03 Go. No sandbox policy is attested by
+the D0.7 result.
 See the
 [failure-isolation plan](fr03-codex-sdk-failure-isolation-plan.md).
 The provider-facing reproduction is

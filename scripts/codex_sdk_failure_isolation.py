@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
-"""Run non-canonical Codex SDK D0, app-server D0.5, and raw-thread D0.6 diagnostics."""
+"""Run non-canonical Codex SDK D0 through Code Mode D0.7 diagnostics."""
 
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
+import http.server
+import inspect
 import json
 import os
+import platform
 import queue
 import re
 import signal
 import subprocess
+import tarfile
 import tempfile
 import threading
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
-from importlib.metadata import version
+from importlib.metadata import distribution, version
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -79,6 +84,49 @@ VARIANTS = (
 POSITIVE_VARIANTS = VARIANTS[:-1]
 NEGATIVE_VARIANT = "shell-off"
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+D07_SOURCE_PATHS = (
+    "codex-rs/models-manager/models.json",
+    "codex-rs/core/src/tools/mod.rs",
+    "codex-rs/core/src/tools/spec_plan.rs",
+    "codex-rs/core/src/client.rs",
+    "codex-rs/core/src/tools/code_mode/mod.rs",
+    "codex-rs/features/src/lib.rs",
+    "codex-rs/core/tests/suite/code_mode.rs",
+    "codex-rs/app-server/tests/suite/v2/code_mode_host.rs",
+)
+D07_RELEASES: dict[str, dict[str, str]] = {
+    "0.154.0": {
+        "release_tag": "rust-v0.154.0",
+        "tag_object_sha": "36eab01061df3cde5f95ec20a526777b430091ba",
+        "release_commit": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+        "source_archive_sha256": "1c4cdc3b87ba290b5d110425b4f6ff21663e236580bc760d1e149bd2d9f9519f",
+    },
+    "0.155.1": {
+        "release_tag": "rust-v0.155.1",
+        "tag_object_sha": "4e21628f9ec9ee656650cd2b62ef92225725b5ac",
+        "release_commit": "be2951ea34f0d295ed0becf97079f92fa5f6950e",
+        "source_archive_sha256": "b9e18d40d322586913e94d6747f3f934922c4f5130eb5a349ba019c57b83dad8",
+    },
+}
+D07_SOURCE_MAX_FILE_BYTES = 2_000_000
+D07_SOURCE_MAX_TOTAL_BYTES = 5_000_000
+D07_SHADOW_MAX_REQUEST_BYTES = 2_000_000
+D07_SHADOW_MAX_TOTAL_BYTES = 4_000_000
+D07_SCRIPT = (
+    'const result = await tools.exec_command({cmd: "/usr/bin/pwd"});\n'
+    "text(result.output);"
+)
+D07_OBSERVATION_STATUSES = {
+    "OBSERVED_TRUE",
+    "OBSERVED_FALSE",
+    "UNKNOWN",
+    "NOT_APPLICABLE",
+}
+D07_PROHIBITED_ARTIFACT_PATTERN = re.compile(
+    rb"authorization|cookie|access[_-]?token|refresh[_-]?token|"
+    rb"session[_-]?credential|account[_-]?(?:email|id)|TUSHARE_|P10_FORBIDDEN_SECRET",
+    re.IGNORECASE,
+)
 
 
 @contextmanager
@@ -253,6 +301,869 @@ def _canonical_jsonl_objects(payload: bytes, *, label: str) -> list[dict[str, ob
             raise RuntimeError(f"{label} contains a non-canonical line")
         values.append(value)
     return values
+
+
+def _d07_parser_sha256() -> str:
+    payload = {
+        "release_provenance": D07_RELEASES,
+        "source_paths": D07_SOURCE_PATHS,
+        "parsers": [
+            inspect.getsource(_d07_feature_default),
+            inspect.getsource(_d07_require_source_shape),
+            inspect.getsource(_characterize_d07_source_files),
+        ],
+    }
+    return sha256_bytes(canonical_json_bytes(payload))
+
+
+def _d07_request_extractor_sha256() -> str:
+    return sha256_bytes(inspect.getsource(_project_d07_request).encode())
+
+
+def _d07_release(expected_sdk_version: str) -> dict[str, str]:
+    release = D07_RELEASES.get(expected_sdk_version)
+    if release is None:
+        raise RuntimeError("D0.7 source characterization has no frozen release provenance")
+    return dict(release)
+
+
+def _d07_source_text(files: dict[str, bytes], path: str) -> str:
+    payload = files.get(path)
+    if payload is None:
+        raise RuntimeError(f"D0.7 source fixture is missing {path}")
+    try:
+        return payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise RuntimeError(f"D0.7 source fixture is not UTF-8: {path}") from error
+
+
+def _d07_feature_default(source: str, feature: str) -> bool:
+    pattern = re.compile(
+        rf"FeatureSpec\s*\{{\s*id:\s*Feature::{re.escape(feature)},"
+        rf".*?default_enabled:\s*(true|false),\s*\}}",
+        re.DOTALL,
+    )
+    matches = pattern.findall(source)
+    if len(matches) != 1:
+        raise RuntimeError(f"D0.7 could not uniquely parse Feature::{feature}")
+    return matches[0] == "true"
+
+
+def _d07_require_source_shape(source: str, fragments: Sequence[str], *, label: str) -> None:
+    missing = [fragment for fragment in fragments if fragment not in source]
+    if missing:
+        raise RuntimeError(f"D0.7 source shape is unsupported for {label}")
+
+
+def _characterize_d07_source_files(
+    files: dict[str, bytes],
+    *,
+    expected_sdk_version: str,
+    parser_sha256: str,
+) -> tuple[dict[str, object], dict[str, object]]:
+    release = _d07_release(expected_sdk_version)
+    if set(files) != set(D07_SOURCE_PATHS):
+        raise RuntimeError("D0.7 source fixture file set is invalid")
+    if not SHA256_PATTERN.fullmatch(parser_sha256):
+        raise RuntimeError("D0.7 parser identity is invalid")
+
+    try:
+        model_catalog = json.loads(
+            _d07_source_text(files, "codex-rs/models-manager/models.json")
+        )
+    except json.JSONDecodeError as error:
+        raise RuntimeError("D0.7 model catalog is invalid JSON") from error
+    models = model_catalog.get("models") if isinstance(model_catalog, dict) else None
+    if not isinstance(models, list):
+        raise RuntimeError("D0.7 model catalog shape is unsupported")
+    matching_models = [
+        model
+        for model in models
+        if isinstance(model, dict) and model.get("slug") == MODEL_IDENTIFIER
+    ]
+    if len(matching_models) != 1:
+        raise RuntimeError("D0.7 model catalog does not contain one exact target model")
+    model = cast(dict[str, object], matching_models[0])
+    tool_mode = model.get("tool_mode")
+    use_responses_lite = model.get("use_responses_lite")
+    shell_type = model.get("shell_type")
+    if (
+        not isinstance(tool_mode, str)
+        or not isinstance(use_responses_lite, bool)
+        or not isinstance(shell_type, str)
+    ):
+        raise RuntimeError("D0.7 target model execution metadata is invalid")
+
+    tools_mod = _d07_source_text(files, "codex-rs/core/src/tools/mod.rs")
+    spec_plan = _d07_source_text(files, "codex-rs/core/src/tools/spec_plan.rs")
+    client = _d07_source_text(files, "codex-rs/core/src/client.rs")
+    code_mode = _d07_source_text(files, "codex-rs/core/src/tools/code_mode/mod.rs")
+    features = _d07_source_text(files, "codex-rs/features/src/lib.rs")
+    code_mode_tests = _d07_source_text(files, "codex-rs/core/tests/suite/code_mode.rs")
+    host_tests = _d07_source_text(
+        files, "codex-rs/app-server/tests/suite/v2/code_mode_host.rs"
+    )
+
+    _d07_require_source_shape(
+        tools_mod,
+        (
+            "model_info.tool_mode.unwrap_or_else(||",
+            "Feature::CodeModeOnly",
+            "ToolMode::CodeModeOnly",
+            "requested_tool_mode == ToolMode::CodeMode",
+        ),
+        label="tool-mode precedence",
+    )
+    _d07_require_source_shape(
+        spec_plan,
+        (
+            "if is_hidden_by_code_mode_only(turn_context, model_info, &tool_name, exposure)",
+            "tool_mode == ToolMode::CodeModeOnly",
+            "register_code_mode_executors(turn_context, model_info, &mut registry)",
+            "registry.prepend_trusted(Arc::new(CodeModeWaitHandler))",
+            "registry.prepend_trusted(Arc::new(execute_handler))",
+            "!features.enabled(Feature::ShellTool)",
+            "registry.add(ExecCommandHandler::new(options))",
+            "registry.add(ExecCommandHandler::one_shot(options))",
+        ),
+        label="Code Mode tool exposure",
+    )
+    _d07_require_source_shape(
+        client,
+        (
+            "let (instructions, tools) = if model_info.use_responses_lite",
+            "ResponseItem::AdditionalTools",
+            "(String::new(), None)",
+            "tools,",
+        ),
+        label="Responses Lite request construction",
+    )
+    _d07_require_source_shape(
+        code_mode,
+        (
+            "fn submit_nested_tool(",
+            "handle_tool_call_with_source(",
+            "ToolCallSource::CodeMode",
+        ),
+        label="nested tool dispatch",
+    )
+    _d07_require_source_shape(
+        code_mode_tests,
+        (
+            "code-mode-only must retain code-mode tools",
+            "code-mode-only must never expose direct shell tools",
+            'ev_custom_tool_call(',
+        ),
+        label="Code Mode exact-release tests",
+    )
+    _d07_require_source_shape(
+        host_tests,
+        ("code_mode", "host"),
+        label="app-server Code Mode host tests",
+    )
+
+    source_files = {
+        path: {"sha256": sha256_bytes(payload), "size": len(payload)}
+        for path, payload in sorted(files.items())
+    }
+    source_manifest: dict[str, object] = {
+        "schema_version": "codex-d07-source-manifest/v1",
+        "authority": "NON_CANONICAL_DIAGNOSTIC",
+        "sdk_version": expected_sdk_version,
+        **release,
+        "files": source_files,
+        "parser_sha256": parser_sha256,
+    }
+    architecture: dict[str, object] = {
+        "schema_version": "codex-d07-upstream-architecture/v1",
+        "authority": "NON_CANONICAL_DIAGNOSTIC",
+        "release_tag": release["release_tag"],
+        "release_commit": release["release_commit"],
+        "model": MODEL_IDENTIFIER,
+        "tool_mode": tool_mode,
+        "use_responses_lite": use_responses_lite,
+        "shell_type": shell_type,
+        "code_mode_host_enabled_by_default": _d07_feature_default(
+            features, "CodeModeHost"
+        ),
+        "shell_tool_enabled_by_default": _d07_feature_default(features, "ShellTool"),
+        "unified_exec_enabled_by_default": _d07_feature_default(features, "UnifiedExec"),
+        "model_metadata_overrides_feature_default": True,
+        "code_mode_only_hides_nested_tools_from_direct_model_surface": True,
+        "shell_tool_false_removes_nested_shell": True,
+        "unified_exec_false_preserves_one_shot_shell": True,
+        "responses_lite": {
+            "request_tools_expected": "ABSENT_OR_NULL",
+            "additional_tools_expected": True,
+        },
+        "source_manifest_sha256": sha256_bytes(canonical_json_bytes(source_manifest)),
+        "parser_sha256": parser_sha256,
+    }
+    return architecture, source_manifest
+
+
+def _read_d07_source_archive(
+    archive_path: Path, *, expected_sdk_version: str
+) -> tuple[dict[str, bytes], str]:
+    if archive_path.is_symlink() or not archive_path.is_file():
+        raise RuntimeError("D0.7 source archive must be a regular file")
+    archive_hash = _sha256_file(archive_path)
+    release = _d07_release(expected_sdk_version)
+    if archive_hash != release["source_archive_sha256"]:
+        raise RuntimeError("D0.7 source archive hash does not match frozen provenance")
+    prefix = f"codex-{release['release_tag']}/"
+    files: dict[str, bytes] = {}
+    total_bytes = 0
+    try:
+        with tarfile.open(archive_path, mode="r:gz") as archive:
+            members = {member.name: member for member in archive.getmembers()}
+            for path in D07_SOURCE_PATHS:
+                member_name = f"{prefix}{path}"
+                member = members.get(member_name)
+                if member is None or not member.isfile() or member.issym() or member.islnk():
+                    raise RuntimeError(f"D0.7 source archive member is invalid: {path}")
+                if member.size < 1 or member.size > D07_SOURCE_MAX_FILE_BYTES:
+                    raise RuntimeError(f"D0.7 source archive member size is invalid: {path}")
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise RuntimeError(f"D0.7 source archive member cannot be read: {path}")
+                payload = stream.read(D07_SOURCE_MAX_FILE_BYTES + 1)
+                if len(payload) != member.size:
+                    raise RuntimeError(f"D0.7 source archive member length mismatch: {path}")
+                total_bytes += len(payload)
+                if total_bytes > D07_SOURCE_MAX_TOTAL_BYTES:
+                    raise RuntimeError("D0.7 source fixture exceeds its aggregate bound")
+                files[path] = payload
+    except (tarfile.TarError, OSError) as error:
+        raise RuntimeError("D0.7 source archive cannot be parsed") from error
+    return files, archive_hash
+
+
+def _safe_d07_artifact_payload(name: str, payload: bytes) -> bytes:
+    if D07_PROHIBITED_ARTIFACT_PATTERN.search(payload):
+        raise RuntimeError(f"D0.7 prohibited secret marker observed before persisting {name}")
+    return payload
+
+
+def _publish_d07_bundle(
+    output_root: Path,
+    *,
+    phase: str,
+    prefix: str,
+    files: dict[str, bytes],
+    source_fixture_names: set[str] | None = None,
+) -> Path:
+    source_names = source_fixture_names or set()
+    safe_files = {
+        name: payload if name in source_names else _safe_d07_artifact_payload(name, payload)
+        for name, payload in files.items()
+    }
+    manifest = {
+        "schema_version": "codex-d07-diagnostic-manifest/v1",
+        "authority": "NON_CANONICAL_DIAGNOSTIC",
+        "phase": phase,
+        "files": {name: sha256_bytes(payload) for name, payload in sorted(safe_files.items())},
+    }
+    manifest_bytes = canonical_json_bytes(manifest)
+    output_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f".{prefix}-", dir=output_root) as temporary:
+        staging = Path(temporary) / "published"
+        staging.mkdir()
+        for name, payload in safe_files.items():
+            destination = staging / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_bytes(destination, payload)
+        atomic_write_bytes(staging / "diagnostic-manifest.json", manifest_bytes)
+        destination = output_root / f"{prefix}-sha256-{sha256_bytes(manifest_bytes)}"
+        publish_directory(staging, destination)
+    return destination
+
+
+def run_d07_source_characterization(
+    *,
+    source_archive: Path,
+    output_root: Path,
+    expected_sdk_version: str,
+) -> tuple[Path, dict[str, object]]:
+    files, archive_hash = _read_d07_source_archive(
+        source_archive, expected_sdk_version=expected_sdk_version
+    )
+    parser_sha256 = _d07_parser_sha256()
+    architecture, source_manifest = _characterize_d07_source_files(
+        files,
+        expected_sdk_version=expected_sdk_version,
+        parser_sha256=parser_sha256,
+    )
+    if source_manifest.get("source_archive_sha256") != archive_hash:
+        raise RuntimeError("D0.7 source archive binding is invalid")
+    payloads = {
+        "upstream-architecture.json": canonical_json_bytes(architecture),
+        "upstream-source-manifest.json": canonical_json_bytes(source_manifest),
+        **{f"source-fixtures/{path}": payload for path, payload in files.items()},
+    }
+    source_names = {name for name in payloads if name.startswith("source-fixtures/")}
+    destination = _publish_d07_bundle(
+        output_root,
+        phase="D0.7A",
+        prefix="d07a-source",
+        files=payloads,
+        source_fixture_names=source_names,
+    )
+    return destination, architecture
+
+
+def _read_d07_bundle_files(bundle_path: Path) -> tuple[dict[str, object], dict[str, bytes]]:
+    manifest_bytes = confined_regular_file(bundle_path, "diagnostic-manifest.json").read_bytes()
+    manifest_hash = sha256_bytes(manifest_bytes)
+    if not bundle_path.name.endswith(f"-sha256-{manifest_hash}"):
+        raise RuntimeError("D0.7 bundle path does not match its manifest hash")
+    manifest = _canonical_object(manifest_bytes, label="D0.7 diagnostic manifest")
+    files_value = manifest.get("files")
+    if (
+        manifest.get("schema_version") != "codex-d07-diagnostic-manifest/v1"
+        or manifest.get("authority") != "NON_CANONICAL_DIAGNOSTIC"
+        or set(manifest) != {"authority", "files", "phase", "schema_version"}
+        or not isinstance(manifest.get("phase"), str)
+        or not isinstance(files_value, dict)
+    ):
+        raise RuntimeError("D0.7 diagnostic manifest is invalid")
+    files = cast(dict[str, object], files_value)
+    actual_names = {
+        str(path.relative_to(bundle_path)) for path in regular_tree_files(bundle_path)
+    }
+    if actual_names != {*files, "diagnostic-manifest.json"}:
+        raise RuntimeError("D0.7 bundle file set is invalid")
+    payloads: dict[str, bytes] = {}
+    for name, expected_hash in files.items():
+        if (
+            not isinstance(name, str)
+            or name.startswith("/")
+            or ".." in Path(name).parts
+            or not isinstance(expected_hash, str)
+            or SHA256_PATTERN.fullmatch(expected_hash) is None
+        ):
+            raise RuntimeError("D0.7 manifest file entry is invalid")
+        payload = confined_regular_file(bundle_path, name).read_bytes()
+        if sha256_bytes(payload) != expected_hash:
+            raise RuntimeError("D0.7 bundle file hash is invalid")
+        if not name.startswith("source-fixtures/"):
+            _safe_d07_artifact_payload(name, payload)
+        payloads[name] = payload
+    return manifest, payloads
+
+
+def _verify_d07a_bundle(
+    bundle_path: Path, *, expected_sdk_version: str
+) -> dict[str, object]:
+    manifest, payloads = _read_d07_bundle_files(bundle_path)
+    if manifest.get("phase") != "D0.7A":
+        raise RuntimeError("D0.7 architecture bundle phase is invalid")
+    expected_names = {
+        "upstream-architecture.json",
+        "upstream-source-manifest.json",
+        *{f"source-fixtures/{path}" for path in D07_SOURCE_PATHS},
+    }
+    if set(payloads) != expected_names:
+        raise RuntimeError("D0.7 architecture bundle file set is invalid")
+    architecture = _canonical_object(
+        payloads["upstream-architecture.json"], label="D0.7 upstream architecture"
+    )
+    source_manifest = _canonical_object(
+        payloads["upstream-source-manifest.json"], label="D0.7 upstream source manifest"
+    )
+    parser_sha256 = _d07_parser_sha256()
+    if source_manifest.get("parser_sha256") != parser_sha256:
+        raise RuntimeError("D0.7 architecture parser identity is invalid")
+    source_files = {
+        path: payloads[f"source-fixtures/{path}"] for path in D07_SOURCE_PATHS
+    }
+    recomputed_architecture, recomputed_manifest = _characterize_d07_source_files(
+        source_files,
+        expected_sdk_version=expected_sdk_version,
+        parser_sha256=parser_sha256,
+    )
+    if source_manifest != recomputed_manifest or architecture != recomputed_architecture:
+        raise RuntimeError("D0.7 architecture result does not match its source fixtures")
+    release = _d07_release(expected_sdk_version)
+    if any(source_manifest.get(key) != value for key, value in release.items()):
+        raise RuntimeError("D0.7 architecture release provenance is invalid")
+    return architecture
+
+
+def _distribution_record_entry(
+    distribution_name: str, target: Path
+) -> tuple[str, str]:
+    package = distribution(distribution_name)
+    target_resolved = target.resolve(strict=True)
+    matches = [
+        item
+        for item in package.files or ()
+        if Path(item.locate()).resolve(strict=True) == target_resolved
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("D0.7 runtime file ownership is ambiguous")
+    item = matches[0]
+    if item.hash is None or item.hash.mode != "sha256":
+        raise RuntimeError("D0.7 runtime RECORD has no SHA-256 binding")
+    padding = "=" * (-len(item.hash.value) % 4)
+    try:
+        record_hash = base64.urlsafe_b64decode(item.hash.value + padding).hex()
+    except ValueError as error:
+        raise RuntimeError("D0.7 runtime RECORD hash is invalid") from error
+    if record_hash != _sha256_file(target):
+        raise RuntimeError("D0.7 runtime file does not match its RECORD hash")
+    return str(item), record_hash
+
+
+def _binary_architecture(path: Path) -> dict[str, object]:
+    with path.open("rb") as stream:
+        header = stream.read(64)
+    if header.startswith(b"\x7fELF") and len(header) >= 20:
+        byte_order = "little" if header[5] == 1 else "big" if header[5] == 2 else None
+        if byte_order is None:
+            raise RuntimeError("D0.7 ELF byte order is invalid")
+        machine = int.from_bytes(header[18:20], byte_order)
+        expected_machine = {
+            "x86_64": 62,
+            "amd64": 62,
+            "aarch64": 183,
+            "arm64": 183,
+        }.get(platform.machine().lower())
+        return {
+            "format": "ELF",
+            "class_bits": 64 if header[4] == 2 else 32 if header[4] == 1 else None,
+            "machine": machine,
+            "platform_machine": platform.machine(),
+            "matches_platform": expected_machine is None or expected_machine == machine,
+        }
+    return {
+        "format": "UNKNOWN",
+        "class_bits": None,
+        "machine": None,
+        "platform_machine": platform.machine(),
+        "matches_platform": None,
+    }
+
+
+def _d07_static_runtime_identities(
+    expected_sdk_version: str,
+) -> tuple[dict[str, object], dict[str, object]]:
+    import openai_codex
+    from codex_cli_bin import bundled_codex_path, bundled_package_dir, bundled_path_dir
+
+    if openai_codex.__version__ != expected_sdk_version:
+        raise RuntimeError(
+            f"expected openai-codex {expected_sdk_version}, got {openai_codex.__version__}"
+        )
+    runtime_package_version = version(CODEX_RUNTIME_DISTRIBUTION)
+    if runtime_package_version != expected_sdk_version:
+        raise RuntimeError("installed bundled Codex runtime package does not match expectation")
+    runtime_path = Path(bundled_codex_path())
+    path_dir = bundled_path_dir()
+    if path_dir is None:
+        raise RuntimeError("bundled Codex PATH directory is unavailable")
+    host_path = Path(bundled_package_dir()) / "bin" / "codex-code-mode-host"
+    for label, path in (("runtime", runtime_path), ("Code Mode host", host_path)):
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(f"D0.7 {label} must be a regular non-symlink file")
+        if not os.access(path, os.X_OK):
+            raise RuntimeError(f"D0.7 {label} is not executable")
+    runtime_record_path, runtime_record_hash = _distribution_record_entry(
+        CODEX_RUNTIME_DISTRIBUTION, runtime_path
+    )
+    host_record_path, host_record_hash = _distribution_record_entry(
+        CODEX_RUNTIME_DISTRIBUTION, host_path
+    )
+    runtime_identity: dict[str, object] = {
+        "schema_version": "codex-d07-runtime-identity/v1",
+        "sdk_distribution": CODEX_SDK_DISTRIBUTION,
+        "sdk_version": openai_codex.__version__,
+        "runtime_distribution": CODEX_RUNTIME_DISTRIBUTION,
+        "runtime_package_version": runtime_package_version,
+        "runtime_version": None,
+        "runtime_path": str(runtime_path),
+        "runtime_binary_hash": runtime_record_hash,
+        "runtime_record_path": runtime_record_path,
+        "protocol_identifier": CODEX_PROTOCOL_IDENTIFIER,
+    }
+    host_architecture = _binary_architecture(host_path)
+    if host_architecture["matches_platform"] is False:
+        raise RuntimeError("D0.7 Code Mode host architecture does not match the platform")
+    host_identity: dict[str, object] = {
+        "schema_version": "codex-d07-code-mode-host-identity/v1",
+        "path": str(host_path),
+        "regular_file": True,
+        "executable": True,
+        "sha256": host_record_hash,
+        "owning_distribution": CODEX_RUNTIME_DISTRIBUTION,
+        "package_version": runtime_package_version,
+        "record_path": host_record_path,
+        "runtime_record_path": runtime_record_path,
+        "architecture": host_architecture,
+    }
+    return runtime_identity, host_identity
+
+
+def _d07_sse(events: Sequence[dict[str, object]]) -> bytes:
+    chunks: list[bytes] = []
+    for event in events:
+        event_type = event.get("type")
+        if not isinstance(event_type, str):
+            raise RuntimeError("D0.7 scripted SSE event has no type")
+        chunks.append(f"event: {event_type}\n".encode())
+        chunks.append(b"data: " + canonical_json_bytes(event) + b"\n\n")
+    return b"".join(chunks)
+
+
+def _d07_final_response_events(response_id: str, message_id: str) -> list[dict[str, object]]:
+    return [
+        {"type": "response.created", "response": {"id": response_id}},
+        {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "message",
+                "role": "assistant",
+                "id": message_id,
+                "content": [{"type": "output_text", "text": "DONE"}],
+            },
+        },
+        {
+            "type": "response.completed",
+            "response": {
+                "id": response_id,
+                "usage": {
+                    "input_tokens": 0,
+                    "input_tokens_details": None,
+                    "output_tokens": 0,
+                    "output_tokens_details": None,
+                    "total_tokens": 0,
+                },
+            },
+        },
+    ]
+
+
+def _d07_exec_response_events() -> list[dict[str, object]]:
+    return [
+        {"type": "response.created", "response": {"id": "resp-d07-exec"}},
+        {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "custom_tool_call",
+                "call_id": "d07-exec-call-1",
+                "name": "exec",
+                "input": D07_SCRIPT,
+            },
+        },
+        {
+            "type": "response.completed",
+            "response": {
+                "id": "resp-d07-exec",
+                "usage": {
+                    "input_tokens": 0,
+                    "input_tokens_details": None,
+                    "output_tokens": 0,
+                    "output_tokens_details": None,
+                    "total_tokens": 0,
+                },
+            },
+        },
+    ]
+
+
+class _D07ShadowState:
+    def __init__(self, responses: Sequence[bytes]) -> None:
+        self.responses = list(responses)
+        self.requests: list[bytes] = []
+        self.request_bytes = 0
+        self.error_kind: str | None = None
+        self.lock = threading.Lock()
+
+    def fail(self, kind: str) -> None:
+        with self.lock:
+            if self.error_kind is None:
+                self.error_kind = kind
+
+
+class _D07ShadowHttpServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+
+    def __init__(self, state: _D07ShadowState) -> None:
+        self.state = state
+        super().__init__(("127.0.0.1", 0), _D07ShadowHandler)
+
+
+class _D07ShadowHandler(http.server.BaseHTTPRequestHandler):
+    server: _D07ShadowHttpServer
+
+    def log_message(self, _format: str, *_args: object) -> None:
+        return
+
+    def _reject(self, kind: str, status: int = 400) -> None:
+        self.server.state.fail(kind)
+        self.send_response(status)
+        self.send_header("content-length", "0")
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        self._reject("UNEXPECTED_GET")
+
+    def do_POST(self) -> None:
+        if self.path != "/v1/responses":
+            self._reject("UNEXPECTED_PATH")
+            return
+        lowered_headers = {name.lower() for name in self.headers}
+        if "authorization" in lowered_headers or "cookie" in lowered_headers:
+            self._reject("PROHIBITED_CREDENTIAL_HEADER")
+            return
+        content_type = self.headers.get_content_type()
+        if content_type != "application/json":
+            self._reject("UNEXPECTED_CONTENT_TYPE")
+            return
+        try:
+            content_length = int(self.headers.get("content-length", ""))
+        except ValueError:
+            self._reject("INVALID_CONTENT_LENGTH")
+            return
+        if content_length < 1 or content_length > D07_SHADOW_MAX_REQUEST_BYTES:
+            self._reject("REQUEST_SIZE_OUT_OF_RANGE", status=413)
+            return
+        body = self.rfile.read(content_length)
+        if len(body) != content_length:
+            self._reject("TRUNCATED_REQUEST")
+            return
+        try:
+            parsed = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._reject("INVALID_JSON")
+            return
+        if not isinstance(parsed, dict):
+            self._reject("REQUEST_NOT_OBJECT")
+            return
+        if parsed.get("model") != MODEL_IDENTIFIER or not isinstance(parsed.get("input"), list):
+            self._reject("UNEXPECTED_REQUEST_SHAPE")
+            return
+        state = self.server.state
+        with state.lock:
+            ordinal = len(state.requests)
+            if state.request_bytes + len(body) > D07_SHADOW_MAX_TOTAL_BYTES:
+                if state.error_kind is None:
+                    state.error_kind = "TOTAL_REQUEST_SIZE_EXCEEDED"
+                response = None
+            elif ordinal >= len(state.responses):
+                if state.error_kind is None:
+                    state.error_kind = "UNEXPECTED_EXTRA_REQUEST"
+                response = None
+            else:
+                state.requests.append(body)
+                state.request_bytes += len(body)
+                response = state.responses[ordinal]
+        if response is None:
+            self._reject("UNEXPECTED_EXTRA_REQUEST", status=409)
+            return
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.send_header("content-length", str(len(response)))
+        self.send_header("connection", "close")
+        self.end_headers()
+        self.wfile.write(response)
+
+
+@contextmanager
+def _d07_shadow_server(
+    responses: Sequence[bytes],
+) -> Iterator[tuple[str, _D07ShadowState]]:
+    state = _D07ShadowState(responses)
+    server = _D07ShadowHttpServer(state)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        if host != "127.0.0.1":
+            raise RuntimeError("D0.7 shadow provider did not bind loopback")
+        yield f"http://127.0.0.1:{port}/v1", state
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def _d07_request_tools_state(request: dict[str, object]) -> str:
+    if "tools" not in request:
+        return "ABSENT"
+    value = request["tools"]
+    if value is None:
+        return "NULL"
+    if isinstance(value, list) and not value:
+        return "EMPTY"
+    if isinstance(value, list):
+        return "NONEMPTY"
+    raise RuntimeError("D0.7 request tools field has an invalid shape")
+
+
+def _project_d07_request(raw: bytes, *, ordinal: int) -> dict[str, object]:
+    try:
+        request = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError("D0.7 shadow request is invalid JSON") from error
+    if not isinstance(request, dict):
+        raise RuntimeError("D0.7 shadow request is not an object")
+    model = request.get("model")
+    if model != MODEL_IDENTIFIER:
+        raise RuntimeError("D0.7 shadow request model does not match")
+    input_items = request.get("input")
+    if not isinstance(input_items, list):
+        raise RuntimeError("D0.7 shadow request input is invalid")
+    item_types: list[str] = []
+    additional_tools: list[dict[str, object]] = []
+    tool_output_call_ids: list[str] = []
+    tool_output_observations: list[dict[str, object]] = []
+    for item_value in input_items:
+        if not isinstance(item_value, dict) or not isinstance(item_value.get("type"), str):
+            raise RuntimeError("D0.7 shadow request input item is invalid")
+        item = cast(dict[str, object], item_value)
+        item_type = cast(str, item["type"])
+        item_types.append(item_type)
+        if item_type == "additional_tools":
+            tools = item.get("tools")
+            if not isinstance(tools, list):
+                raise RuntimeError("D0.7 additional_tools payload is invalid")
+            for tool in tools:
+                if not isinstance(tool, dict):
+                    raise RuntimeError("D0.7 tool schema is invalid")
+                additional_tools.append(cast(dict[str, object], tool))
+        if item_type in {"custom_tool_call_output", "function_call_output"}:
+            call_id = item.get("call_id")
+            if not isinstance(call_id, str):
+                raise RuntimeError("D0.7 tool output has no call id")
+            tool_output_call_ids.append(call_id)
+            output = item.get("output")
+            if isinstance(output, str):
+                output_bytes = output.encode("utf-8", errors="strict")
+                output_kind = "string"
+                searchable = output.lower()
+            elif isinstance(output, (dict, list)):
+                output_bytes = canonical_json_bytes(output)
+                output_kind = "object" if isinstance(output, dict) else "array"
+                searchable = output_bytes.decode("utf-8", errors="strict").lower()
+            else:
+                output_bytes = canonical_json_bytes(output)
+                output_kind = "null" if output is None else type(output).__name__
+                searchable = ""
+            if "code mode is unavailable" in searchable:
+                output_classification = "CODE_MODE_HOST_UNAVAILABLE"
+            elif "exec_command" in searchable and "not defined" in searchable:
+                output_classification = "NESTED_TOOL_UNAVAILABLE"
+            elif "error" in searchable or "failed" in searchable:
+                output_classification = "SCRIPT_EXECUTION_ERROR"
+            else:
+                output_classification = "SUCCESS_OR_UNCLASSIFIED"
+            tool_output_observations.append(
+                {
+                    "call_id": call_id,
+                    "item_type": item_type,
+                    "output_kind": output_kind,
+                    "output_sha256": sha256_bytes(output_bytes),
+                    "output_classification": output_classification,
+                }
+            )
+    tool_names: list[str] = []
+
+    def collect_model_visible_names(tool: dict[str, object]) -> None:
+        nested = tool.get("tools")
+        if tool.get("type") == "namespace":
+            if not isinstance(nested, list):
+                raise RuntimeError("D0.7 namespace tool has no child tools")
+            for child in nested:
+                if not isinstance(child, dict):
+                    raise RuntimeError("D0.7 namespace child tool is invalid")
+                collect_model_visible_names(cast(dict[str, object], child))
+            return
+        name = tool.get("name")
+        if not isinstance(name, str):
+            raise RuntimeError("D0.7 model-visible tool has no name")
+        tool_names.append(name)
+
+    for tool in additional_tools:
+        collect_model_visible_names(tool)
+    if len(tool_names) != len(set(tool_names)):
+        raise RuntimeError("D0.7 model-visible tool names are duplicated")
+    sorted_names = sorted(tool_names)
+    return {
+        "schema_version": "codex-d07-request-surface/v1",
+        "request_ordinal": ordinal,
+        "model": model,
+        "request_tools_state": _d07_request_tools_state(cast(dict[str, object], request)),
+        "input_item_types": item_types,
+        "additional_tools_count": len(additional_tools),
+        "model_visible_tool_names": sorted_names,
+        "model_visible_tool_names_sha256": sha256_bytes(canonical_json_bytes(sorted_names)),
+        "tool_schemas_sha256": sha256_bytes(canonical_json_bytes(additional_tools)),
+        "exec_visibility": "OBSERVED_TRUE" if "exec" in tool_names else "OBSERVED_FALSE",
+        "wait_visibility": "OBSERVED_TRUE" if "wait" in tool_names else "OBSERVED_FALSE",
+        "tool_output_call_ids": tool_output_call_ids,
+        "tool_output_observations": tool_output_observations,
+        "raw_request_sha256": sha256_bytes(raw),
+        "extractor_sha256": _d07_request_extractor_sha256(),
+    }
+
+
+def _d07_final_message(events: Sequence[dict[str, object]]) -> str | None:
+    messages: list[str] = []
+    for event in events:
+        if event.get("method") != "item/completed":
+            continue
+        params = event.get("params")
+        item = params.get("item") if isinstance(params, dict) else None
+        if isinstance(item, dict) and item.get("type") == "agentMessage":
+            text = item.get("text")
+            if isinstance(text, str):
+                messages.append(text)
+    return messages[-1] if messages else None
+
+
+def _d07_command_probe(
+    events: Sequence[dict[str, object]], *, workspace: str
+) -> dict[str, object]:
+    started: dict[str, dict[str, object]] = {}
+    completed: dict[str, dict[str, object]] = {}
+    for event in events:
+        method = event.get("method")
+        params = event.get("params")
+        item = params.get("item") if isinstance(params, dict) else None
+        if not isinstance(item, dict) or item.get("type") != "commandExecution":
+            continue
+        item_id = item.get("id")
+        if not isinstance(item_id, str):
+            raise RuntimeError("D0.7 command event has no item id")
+        target = (
+            started
+            if method == "item/started"
+            else completed
+            if method == "item/completed"
+            else None
+        )
+        if target is None:
+            continue
+        if item_id in target:
+            raise RuntimeError("D0.7 command lifecycle contains a duplicate item")
+        target[item_id] = cast(dict[str, object], item)
+    matching_ids = set(started) & set(completed)
+    successful = [
+        item_id
+        for item_id in matching_ids
+        if completed[item_id].get("status") == "completed"
+        and completed[item_id].get("exitCode") == 0
+        and completed[item_id].get("aggregatedOutput") == f"{workspace}\n"
+    ]
+    return {
+        "started_count": len(started),
+        "completed_count": len(completed),
+        "matching_item_ids": sorted(matching_ids),
+        "successful_probe_count": len(successful),
+        "stderr_observation": "UNKNOWN",
+    }
 
 
 def verify_matrix(
@@ -1256,6 +2167,1084 @@ def _raw_event_summary(
     }
 
 
+def _d07_observation(
+    status: str,
+    *,
+    count: int | None,
+    artifact: str,
+    pointer: str,
+    rule: str,
+) -> dict[str, object]:
+    if status not in D07_OBSERVATION_STATUSES:
+        raise ValueError("invalid D0.7 observation status")
+    if count is not None and (isinstance(count, bool) or count < 0):
+        raise ValueError("invalid D0.7 observation count")
+    return {
+        "status": status,
+        "count": count,
+        "source_artifact": artifact,
+        "source_pointer": pointer,
+        "derivation_rule": rule,
+    }
+
+
+def _d07_architecture_reference(
+    architecture_bundle: Path, *, expected_sdk_version: str
+) -> dict[str, object]:
+    architecture = _verify_d07a_bundle(
+        architecture_bundle, expected_sdk_version=expected_sdk_version
+    )
+    manifest_bytes = confined_regular_file(
+        architecture_bundle, "diagnostic-manifest.json"
+    ).read_bytes()
+    architecture_bytes = confined_regular_file(
+        architecture_bundle, "upstream-architecture.json"
+    ).read_bytes()
+    return {
+        "schema_version": "codex-d07-upstream-architecture-ref/v1",
+        "sdk_version": expected_sdk_version,
+        "release_commit": architecture["release_commit"],
+        "architecture_sha256": sha256_bytes(architecture_bytes),
+        "diagnostic_manifest_sha256": sha256_bytes(manifest_bytes),
+    }
+
+
+def _d07_provider_config(base_url: str, *, execution_path: str) -> bytes:
+    if not base_url.startswith("http://127.0.0.1:") or not base_url.endswith("/v1"):
+        raise RuntimeError("D0.7 provider URL is not loopback-only")
+    if '"' in execution_path or "\n" in execution_path:
+        raise RuntimeError("D0.7 execution PATH is invalid")
+    return (
+        f'model = "{MODEL_IDENTIFIER}"\n'
+        'model_provider = "quantos_shadow"\n'
+        "check_for_update_on_startup = false\n"
+        "allow_login_shell = false\n"
+        "\n"
+        "[history]\n"
+        'persistence = "none"\n'
+        "\n"
+        "[shell_environment_policy]\n"
+        'inherit = "none"\n'
+        "\n"
+        "[shell_environment_policy.set]\n"
+        'LANG = "C.UTF-8"\n'
+        f'PATH = "{execution_path}"\n'
+        'TZ = "UTC"\n'
+        "\n"
+        "[model_providers.quantos_shadow]\n"
+        'name = "QuantOS deterministic loopback"\n'
+        f'base_url = "{base_url}"\n'
+        'wire_api = "responses"\n'
+        "requires_openai_auth = false\n"
+        "request_max_retries = 0\n"
+        "stream_max_retries = 0\n"
+        "stream_idle_timeout_ms = 10000\n"
+    ).encode()
+
+
+def _d07_classify_shadow(
+    *,
+    phase: str,
+    request_surfaces: Sequence[dict[str, object]],
+    event_summary: dict[str, object],
+    command_probe: dict[str, object],
+    final_message: str | None,
+    shadow_error_kind: str | None,
+    terminal_error: BaseException | None,
+) -> str:
+    if phase not in {"D0.7B0", "D0.7B1"}:
+        raise ValueError("invalid D0.7 shadow phase")
+    expected_requests = 1 if phase == "D0.7B0" else 2
+    if terminal_error is not None or shadow_error_kind is not None:
+        return (
+            "SHADOW_PROVIDER_INJECTION_UNAVAILABLE"
+            if phase == "D0.7B0" or not request_surfaces
+            else "SCRIPTED_EXEC_REJECTED"
+        )
+    if len(request_surfaces) != expected_requests:
+        return (
+            "SHADOW_PROVIDER_INJECTION_UNAVAILABLE"
+            if phase == "D0.7B0"
+            else "SCRIPTED_EXEC_REJECTED"
+        )
+    if phase == "D0.7B0":
+        if event_summary.get("turn_status") == "completed" and final_message == "DONE":
+            return "SHADOW_PROVIDER_PREFLIGHT_AVAILABLE"
+        return "SHADOW_PROVIDER_INJECTION_UNAVAILABLE"
+    first, second = request_surfaces
+    output_observations = second.get("tool_output_observations", [])
+    if not isinstance(output_observations, list):
+        return "EVIDENCE_INVALID"
+    output_classes = {
+        observation.get("output_classification")
+        for observation in output_observations
+        if isinstance(observation, dict)
+    }
+    if "CODE_MODE_HOST_UNAVAILABLE" in output_classes:
+        return "CODE_MODE_HOST_UNAVAILABLE"
+    if first.get("exec_visibility") != "OBSERVED_TRUE":
+        return "MODEL_VISIBLE_CODE_MODE_MISSING"
+    if "d07-exec-call-1" not in cast(list[object], second.get("tool_output_call_ids", [])):
+        return "SCRIPTED_EXEC_REJECTED"
+    if "NESTED_TOOL_UNAVAILABLE" in output_classes:
+        return "NESTED_SHELL_MISSING"
+    if "SCRIPT_EXECUTION_ERROR" in output_classes:
+        return "SCRIPTED_EXEC_REJECTED"
+    started = command_probe.get("started_count")
+    completed = command_probe.get("completed_count")
+    if (
+        (isinstance(started, int) and started > 0)
+        or (isinstance(completed, int) and completed > 0)
+    ) and (started != completed or started != 1):
+        return "COMMAND_LIFECYCLE_GAP"
+    if started == completed == 1 and command_probe.get("successful_probe_count") != 1:
+        return "COMMAND_PROBE_FAILED"
+    if started != 1 or completed != 1:
+        return "INCONCLUSIVE"
+    if command_probe.get("successful_probe_count") != 1:
+        return "COMMAND_PROBE_FAILED"
+    if (
+        event_summary.get("turn_status") == "completed"
+        and event_summary.get("reference_integrity") is True
+        and event_summary.get("lifecycle_integrity") is True
+        and final_message == "DONE"
+    ):
+        return "CODE_MODE_CHAIN_AVAILABLE"
+    return "INCONCLUSIVE"
+
+
+def _d07_pipeline_observation(
+    *,
+    phase: str,
+    request_surfaces: Sequence[dict[str, object]],
+    events: Sequence[dict[str, object]],
+    event_summary: dict[str, object],
+    command_probe: dict[str, object],
+) -> dict[str, object]:
+    is_chain = phase == "D0.7B1"
+    started = cast(int, command_probe["started_count"])
+    completed = cast(int, command_probe["completed_count"])
+    second_seen = len(request_surfaces) >= 2
+    turn_completed = event_summary.get("turn_status") == "completed"
+    observations = {
+        "L0_turn_started": _d07_observation(
+            "OBSERVED_TRUE" if events else "OBSERVED_FALSE",
+            count=1 if events else 0,
+            artifact="provider-events.jsonl",
+            pointer="/0" if events else "",
+            rule="D07-TURN-EVENT-SEEN",
+        ),
+        "L1_first_model_request_captured": _d07_observation(
+            "OBSERVED_TRUE" if request_surfaces else "OBSERVED_FALSE",
+            count=1 if request_surfaces else 0,
+            artifact="request-1-surface.json",
+            pointer="/request_ordinal",
+            rule="D07-FIRST-REQUEST-PROJECTION",
+        ),
+        "L2_model_visible_exec_present": _d07_observation(
+            cast(str, request_surfaces[0]["exec_visibility"])
+            if request_surfaces
+            else "NOT_APPLICABLE",
+            count=(
+                1
+                if request_surfaces
+                and request_surfaces[0].get("exec_visibility") == "OBSERVED_TRUE"
+                else 0
+                if request_surfaces
+                else None
+            ),
+            artifact="request-1-surface.json",
+            pointer="/exec_visibility",
+            rule="D07-ADDITIONAL-TOOLS-EXEC-MEMBERSHIP",
+        ),
+        "L3_scripted_exec_accepted": _d07_observation(
+            (
+                "OBSERVED_TRUE"
+                if is_chain
+                and second_seen
+                and "d07-exec-call-1"
+                in cast(list[object], request_surfaces[1].get("tool_output_call_ids", []))
+                else "OBSERVED_FALSE"
+                if is_chain and request_surfaces
+                else "NOT_APPLICABLE"
+            ),
+            count=1 if is_chain and second_seen else 0 if is_chain and request_surfaces else None,
+            artifact="request-2-surface.json" if is_chain else "result.json",
+            pointer="/tool_output_call_ids" if is_chain else "/phase",
+            rule="D07-EXEC-CALL-OUTPUT-ROUNDTRIP",
+        ),
+        "L4_code_mode_host_invoked": _d07_observation(
+            "UNKNOWN" if is_chain else "NOT_APPLICABLE",
+            count=None,
+            artifact="provider-events.jsonl" if is_chain else "result.json",
+            pointer="" if is_chain else "/phase",
+            rule="D07-PUBLIC-SURFACE-NOT-OBSERVABLE",
+        ),
+        "L5_nested_exec_command_dispatched": _d07_observation(
+            "UNKNOWN" if is_chain else "NOT_APPLICABLE",
+            count=None,
+            artifact="provider-events.jsonl" if is_chain else "result.json",
+            pointer="" if is_chain else "/phase",
+            rule="D07-PUBLIC-SURFACE-NOT-OBSERVABLE",
+        ),
+        "L6_command_execution_started": _d07_observation(
+            "OBSERVED_TRUE" if started else "OBSERVED_FALSE" if is_chain else "NOT_APPLICABLE",
+            count=started if is_chain else None,
+            artifact="provider-events.jsonl" if is_chain else "result.json",
+            pointer="" if is_chain else "/phase",
+            rule="D07-COMMAND-ITEM-START-COUNT",
+        ),
+        "L7_command_execution_completed": _d07_observation(
+            "OBSERVED_TRUE" if completed else "OBSERVED_FALSE" if is_chain else "NOT_APPLICABLE",
+            count=completed if is_chain else None,
+            artifact="provider-events.jsonl" if is_chain else "result.json",
+            pointer="" if is_chain else "/phase",
+            rule="D07-COMMAND-ITEM-COMPLETE-COUNT",
+        ),
+        "L8_second_model_request_captured": _d07_observation(
+            "OBSERVED_TRUE" if second_seen else "OBSERVED_FALSE" if is_chain else "NOT_APPLICABLE",
+            count=1 if second_seen else 0 if is_chain else None,
+            artifact="request-2-surface.json" if is_chain else "result.json",
+            pointer="/request_ordinal" if is_chain else "/phase",
+            rule="D07-SECOND-REQUEST-PROJECTION",
+        ),
+        "L9_turn_completed": _d07_observation(
+            "OBSERVED_TRUE" if turn_completed else "OBSERVED_FALSE",
+            count=1 if turn_completed else 0,
+            artifact="provider-events.jsonl",
+            pointer="",
+            rule="D07-TURN-COMPLETED-STATUS",
+        ),
+    }
+    return {
+        "schema_version": "codex-d07-pipeline-observation/v1",
+        "phase": phase,
+        "observations": observations,
+    }
+
+
+def _run_d07_shadow(
+    *,
+    phase: str,
+    output_root: Path,
+    architecture_bundle: Path,
+    expected_sdk_version: str,
+    timeout_seconds: int,
+) -> tuple[Path, dict[str, object]]:
+    from codex_cli_bin import bundled_codex_path, bundled_path_dir
+
+    architecture_ref = _d07_architecture_reference(
+        architecture_bundle, expected_sdk_version=expected_sdk_version
+    )
+    runtime_identity, host_identity = _d07_static_runtime_identities(expected_sdk_version)
+    runtime_path = Path(bundled_codex_path())
+    path_dir_value = bundled_path_dir()
+    if path_dir_value is None:
+        raise RuntimeError("bundled Codex PATH directory is unavailable")
+    path_dir = Path(path_dir_value)
+    fixture = _build_raw_wire_fixture("default", expected_sdk_version=expected_sdk_version)
+    fixture_requests = fixture.get("requests")
+    if not isinstance(fixture_requests, dict):
+        raise RuntimeError("D0.7 wire fixture has no requests")
+    response_events = (
+        [_d07_final_response_events("resp-d07-final", "msg-d07-final")]
+        if phase == "D0.7B0"
+        else [
+            _d07_exec_response_events(),
+            _d07_final_response_events("resp-d07-final", "msg-d07-final"),
+        ]
+    )
+    responses = [_d07_sse(events) for events in response_events]
+
+    with (
+        tempfile.TemporaryDirectory(prefix="quantos-codex-d07-workspace-", dir="/tmp") as cwd,
+        tempfile.TemporaryDirectory(prefix="quantos-codex-d07-home-", dir="/tmp") as codex_home,
+        _d07_shadow_server(responses) as (base_url, shadow_state),
+    ):
+        if (Path(codex_home) / "auth.json").exists():
+            raise RuntimeError("D0.7 shadow CODEX_HOME unexpectedly contains auth.json")
+        execution_path = (
+            f"{Path(cast(str, host_identity['path'])).parent}:{path_dir}:/usr/bin:/bin"
+        )
+        atomic_write_bytes(
+            Path(codex_home) / "config.toml",
+            _d07_provider_config(base_url, execution_path=execution_path),
+        )
+        environment = {
+            "CODEX_HOME": codex_home,
+            "LANG": "C.UTF-8",
+            "PATH": execution_path,
+            "TZ": "UTC",
+        }
+        argv = [str(runtime_path), "app-server", "--listen", "stdio://"]
+        replacements: dict[str, object] = {
+            RAW_SENTINELS["binary"]: str(runtime_path),
+            RAW_SENTINELS["codex_home"]: codex_home,
+            RAW_SENTINELS["path_dir"]: str(path_dir),
+            RAW_SENTINELS["workspace"]: cwd,
+        }
+
+        def request(name: str, request_id: int, **extra: object) -> dict[str, object]:
+            template = fixture_requests.get(name)
+            if not isinstance(template, dict):
+                raise RuntimeError(f"D0.7 wire fixture is missing {name}")
+            resolved = _substitute_sentinels(
+                template,
+                {
+                    **replacements,
+                    RAW_SENTINELS["request_id"]: request_id,
+                    **extra,
+                },
+            )
+            if not isinstance(resolved, dict):
+                raise RuntimeError(f"D0.7 resolved {name} request is invalid")
+            return cast(dict[str, object], resolved)
+
+        events: list[dict[str, object]] = []
+        thread_id: str | None = None
+        turn_id: str | None = None
+        runtime_version: str | None = None
+        terminal_error: BaseException | None = None
+        client: _RawAppServer | None = None
+        stderr_summary: dict[str, object] = {
+            "byte_count": 0,
+            "line_count": 0,
+            "sha256": hashlib.sha256().hexdigest(),
+        }
+        try:
+            deadline = time.monotonic() + timeout_seconds
+            client = _RawAppServer(argv=argv, cwd=cwd, environment=environment)
+            _, initialize_result = client.request(request("initialize", 0), deadline=deadline)
+            runtime_version = _runtime_version_from_initialize(initialize_result)
+            if not runtime_version or runtime_version.partition(" ")[0] != expected_sdk_version:
+                raise RuntimeError("reported Codex runtime version does not match expectation")
+            initialized = _substitute_sentinels(
+                fixture_requests["initialized"], replacements
+            )
+            if not isinstance(initialized, dict):
+                raise RuntimeError("D0.7 initialized notification is invalid")
+            client.send(cast(dict[str, object], initialized))
+            _, thread_result = client.request(request("thread_start", 1), deadline=deadline)
+            thread = thread_result.get("thread")
+            if not isinstance(thread, dict) or not isinstance(thread.get("id"), str):
+                raise RuntimeError("D0.7 thread/start response has no thread id")
+            thread_id = cast(str, thread["id"])
+            _, events, turn_id = client.turn(
+                request(
+                    "turn_start",
+                    2,
+                    **{RAW_SENTINELS["thread_id"]: thread_id},
+                ),
+                expected_thread_id=thread_id,
+                deadline=deadline,
+            )
+        except Exception as error:
+            terminal_error = error
+        finally:
+            if client is not None:
+                client.close()
+                stderr_summary = client.stderr_summary()
+
+        runtime_identity["runtime_version"] = runtime_version
+        request_surfaces: list[dict[str, object]] = []
+        try:
+            request_surfaces = [
+                _project_d07_request(raw, ordinal=index)
+                for index, raw in enumerate(shadow_state.requests, start=1)
+            ]
+        except Exception as error:
+            if terminal_error is None:
+                terminal_error = error
+        event_summary = _raw_event_summary(events, thread_id=thread_id, turn_id=turn_id)
+        command_probe = _d07_command_probe(events, workspace=cwd)
+        final_message = _d07_final_message(events)
+        classification = _d07_classify_shadow(
+            phase=phase,
+            request_surfaces=request_surfaces,
+            event_summary=event_summary,
+            command_probe=command_probe,
+            final_message=final_message,
+            shadow_error_kind=shadow_state.error_kind,
+            terminal_error=terminal_error,
+        )
+        pipeline = _d07_pipeline_observation(
+            phase=phase,
+            request_surfaces=request_surfaces,
+            events=events,
+            event_summary=event_summary,
+            command_probe=command_probe,
+        )
+        result: dict[str, object] = {
+            "schema_version": "codex-d07-shadow-result/v1",
+            "authority": "NON_CANONICAL_DIAGNOSTIC",
+            "phase": phase,
+            "sdk_version": expected_sdk_version,
+            "runtime_package_version": runtime_identity["runtime_package_version"],
+            "runtime_version": runtime_version,
+            "runtime_binary_hash": runtime_identity["runtime_binary_hash"],
+            "model": MODEL_IDENTIFIER,
+            "request_count": len(request_surfaces),
+            "thread_id": thread_id,
+            "turn_id": turn_id,
+            "final_message": final_message,
+            "shadow_error_kind": shadow_state.error_kind,
+            **event_summary,
+            **command_probe,
+            "primary_classification": classification,
+            "secondary_findings": [],
+            "limitations": [
+                "RAW_REQUEST_DISCARDED_AFTER_ALLOWLISTED_EXTRACTION",
+                "CODE_MODE_HOST_INVOCATION_NOT_PUBLICLY_OBSERVABLE",
+                "NESTED_DISPATCH_NOT_PUBLICLY_OBSERVABLE",
+                "MODEL_IDENTIFIER_NOT_IMMUTABLE",
+            ],
+        }
+        if terminal_error is not None:
+            result["terminal_error_kind"] = type(terminal_error).__name__
+            result["terminal_error_message_hash"] = sha256_bytes(
+                str(terminal_error).encode("utf-8", errors="replace")
+            )
+        provider_config_projection = {
+            "schema_version": "codex-d07-provider-config-projection/v1",
+            "provider": "quantos_shadow",
+            "wire_api": "responses",
+            "requires_openai_auth": False,
+            "loopback_only": True,
+            "base_url_scheme": "http",
+            "base_url_host": "127.0.0.1",
+            "base_url_port": int(base_url.rsplit(":", 1)[1].removesuffix("/v1")),
+            "auth_json_present": False,
+        }
+        files: dict[str, bytes] = {
+            "runtime-identity.json": canonical_json_bytes(runtime_identity),
+            "provider-config-projection.json": canonical_json_bytes(provider_config_projection),
+            "scripted-response-final.json": canonical_json_bytes(
+                {
+                    "schema_version": "codex-d07-scripted-response/v1",
+                    "events": response_events[-1],
+                    "sse_sha256": sha256_bytes(responses[-1]),
+                }
+            ),
+            "provider-events.jsonl": b"".join(
+                canonical_json_bytes(event) + b"\n" for event in events
+            ),
+            "pipeline-observation.json": canonical_json_bytes(pipeline),
+            "stderr-summary.json": canonical_json_bytes(stderr_summary),
+            "result.json": canonical_json_bytes(result),
+        }
+        if request_surfaces:
+            files["request-1-surface.json"] = canonical_json_bytes(request_surfaces[0])
+        if phase == "D0.7B1":
+            files["code-mode-host-identity.json"] = canonical_json_bytes(host_identity)
+            files["upstream-architecture-ref.json"] = canonical_json_bytes(architecture_ref)
+            files["scripted-response-1.json"] = canonical_json_bytes(
+                {
+                    "schema_version": "codex-d07-scripted-response/v1",
+                    "events": response_events[0],
+                    "sse_sha256": sha256_bytes(responses[0]),
+                }
+            )
+            files["scripted-response-2.json"] = files.pop("scripted-response-final.json")
+            if len(request_surfaces) >= 2:
+                files["request-2-surface.json"] = canonical_json_bytes(request_surfaces[1])
+        prefix = "shadow-preflight" if phase == "D0.7B0" else "shadow-chain"
+        destination = _publish_d07_bundle(
+            output_root=output_root,
+            prefix=prefix,
+            phase=phase,
+            files=files,
+        )
+        return destination, result
+
+
+def run_d07_shadow_preflight(
+    *,
+    output_root: Path,
+    architecture_bundle: Path,
+    expected_sdk_version: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[Path, dict[str, object]]:
+    return _run_d07_shadow(
+        phase="D0.7B0",
+        output_root=output_root,
+        architecture_bundle=architecture_bundle,
+        expected_sdk_version=expected_sdk_version,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def run_d07_shadow_chain(
+    *,
+    output_root: Path,
+    architecture_bundle: Path,
+    expected_sdk_version: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[Path, dict[str, object]]:
+    return _run_d07_shadow(
+        phase="D0.7B1",
+        output_root=output_root,
+        architecture_bundle=architecture_bundle,
+        expected_sdk_version=expected_sdk_version,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _verify_d07_request_surface(
+    value: dict[str, object], *, ordinal: int
+) -> None:
+    expected_keys = {
+        "additional_tools_count",
+        "exec_visibility",
+        "extractor_sha256",
+        "input_item_types",
+        "model",
+        "model_visible_tool_names",
+        "model_visible_tool_names_sha256",
+        "raw_request_sha256",
+        "request_ordinal",
+        "request_tools_state",
+        "schema_version",
+        "tool_output_call_ids",
+        "tool_output_observations",
+        "tool_schemas_sha256",
+        "wait_visibility",
+    }
+    if (
+        set(value) != expected_keys
+        or value.get("schema_version") != "codex-d07-request-surface/v1"
+        or value.get("request_ordinal") != ordinal
+        or value.get("model") != MODEL_IDENTIFIER
+        or value.get("request_tools_state") not in {"ABSENT", "NULL", "EMPTY", "NONEMPTY"}
+        or value.get("extractor_sha256") != _d07_request_extractor_sha256()
+    ):
+        raise RuntimeError("D0.7 request surface identity is invalid")
+    names = value.get("model_visible_tool_names")
+    item_types = value.get("input_item_types")
+    call_ids = value.get("tool_output_call_ids")
+    output_observations = value.get("tool_output_observations")
+    count = value.get("additional_tools_count")
+    if (
+        not isinstance(names, list)
+        or any(not isinstance(name, str) for name in names)
+        or names != sorted(set(names))
+        or not isinstance(item_types, list)
+        or any(not isinstance(item, str) for item in item_types)
+        or not isinstance(call_ids, list)
+        or any(not isinstance(call_id, str) for call_id in call_ids)
+        or not isinstance(output_observations, list)
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+    ):
+        raise RuntimeError("D0.7 request surface shape is invalid")
+    if [
+        observation.get("call_id")
+        for observation in output_observations
+        if isinstance(observation, dict)
+    ] != call_ids or any(
+        not isinstance(observation, dict)
+        or set(observation)
+        != {
+            "call_id",
+            "item_type",
+            "output_classification",
+            "output_kind",
+            "output_sha256",
+        }
+        or observation.get("output_classification")
+        not in {
+            "CODE_MODE_HOST_UNAVAILABLE",
+            "NESTED_TOOL_UNAVAILABLE",
+            "SCRIPT_EXECUTION_ERROR",
+            "SUCCESS_OR_UNCLASSIFIED",
+        }
+        or not isinstance(observation.get("output_sha256"), str)
+        or SHA256_PATTERN.fullmatch(cast(str, observation["output_sha256"])) is None
+        for observation in output_observations
+    ):
+        raise RuntimeError("D0.7 tool output projection is invalid")
+    if value.get("model_visible_tool_names_sha256") != sha256_bytes(
+        canonical_json_bytes(names)
+    ):
+        raise RuntimeError("D0.7 request tool-name hash is invalid")
+    for key in ("raw_request_sha256", "tool_schemas_sha256"):
+        candidate = value.get(key)
+        if not isinstance(candidate, str) or SHA256_PATTERN.fullmatch(candidate) is None:
+            raise RuntimeError("D0.7 request surface hash is invalid")
+    expected_exec = "OBSERVED_TRUE" if "exec" in names else "OBSERVED_FALSE"
+    expected_wait = "OBSERVED_TRUE" if "wait" in names else "OBSERVED_FALSE"
+    if value.get("exec_visibility") != expected_exec or value.get(
+        "wait_visibility"
+    ) != expected_wait:
+        raise RuntimeError("D0.7 request tool visibility is invalid")
+
+
+def _verify_d07_scripted_response(
+    value: dict[str, object], *, expected_events: Sequence[dict[str, object]]
+) -> None:
+    if (
+        set(value) != {"events", "schema_version", "sse_sha256"}
+        or value.get("schema_version") != "codex-d07-scripted-response/v1"
+        or value.get("events") != list(expected_events)
+        or value.get("sse_sha256") != sha256_bytes(_d07_sse(expected_events))
+    ):
+        raise RuntimeError("D0.7 scripted response fixture is invalid")
+
+
+def _d07_workspace_from_events(events: Sequence[dict[str, object]]) -> str | None:
+    candidates: set[str] = set()
+    for event in events:
+        params = event.get("params")
+        item = params.get("item") if isinstance(params, dict) else None
+        if not isinstance(item, dict) or item.get("type") != "commandExecution":
+            continue
+        cwd = item.get("cwd")
+        if isinstance(cwd, str):
+            candidates.add(cwd)
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return None
+
+
+def _find_d07a_reference(
+    bundle_path: Path, reference: dict[str, object], *, expected_sdk_version: str
+) -> Path:
+    expected_manifest_hash = reference.get("diagnostic_manifest_sha256")
+    if not isinstance(expected_manifest_hash, str):
+        raise RuntimeError("D0.7 architecture reference has no manifest hash")
+    candidates: list[Path] = []
+    for child in bundle_path.parent.iterdir():
+        if child.is_dir() and child.name.endswith(f"-sha256-{expected_manifest_hash}"):
+            candidates.append(child)
+    unique = {candidate.resolve() for candidate in candidates}
+    if len(unique) != 1:
+        raise RuntimeError("D0.7 architecture reference cannot be resolved uniquely")
+    path = next(iter(unique))
+    architecture = _verify_d07a_bundle(path, expected_sdk_version=expected_sdk_version)
+    architecture_hash = sha256_bytes(
+        confined_regular_file(path, "upstream-architecture.json").read_bytes()
+    )
+    if (
+        reference.get("schema_version") != "codex-d07-upstream-architecture-ref/v1"
+        or reference.get("sdk_version") != expected_sdk_version
+        or reference.get("architecture_sha256") != architecture_hash
+        or reference.get("release_commit") != architecture.get("release_commit")
+    ):
+        raise RuntimeError("D0.7 architecture reference binding is invalid")
+    return path
+
+
+def verify_d07_bundle(
+    bundle_path: Path, *, expected_sdk_version: str = PINNED_SDK_VERSION
+) -> dict[str, object]:
+    manifest, payloads = _read_d07_bundle_files(bundle_path)
+    phase = manifest.get("phase")
+    if phase == "D0.7A":
+        return _verify_d07a_bundle(
+            bundle_path, expected_sdk_version=expected_sdk_version
+        )
+    if phase not in {"D0.7B0", "D0.7B1", "D0.7C"}:
+        raise RuntimeError("unsupported D0.7 bundle phase")
+    if phase == "D0.7C":
+        return _verify_d07c_payloads(payloads, expected_sdk_version=expected_sdk_version)
+
+    common_names = {
+        "pipeline-observation.json",
+        "provider-config-projection.json",
+        "provider-events.jsonl",
+        "result.json",
+        "runtime-identity.json",
+        "stderr-summary.json",
+    }
+    phase_names = (
+        {"scripted-response-final.json"}
+        if phase == "D0.7B0"
+        else {
+            "code-mode-host-identity.json",
+            "scripted-response-1.json",
+            "scripted-response-2.json",
+            "upstream-architecture-ref.json",
+        }
+    )
+    allowed_names = common_names | phase_names | {
+        "request-1-surface.json",
+        "request-2-surface.json",
+    }
+    if not common_names | phase_names <= set(payloads) or not set(payloads) <= allowed_names:
+        raise RuntimeError("D0.7 shadow bundle file set is invalid")
+    if phase == "D0.7B0" and "request-2-surface.json" in payloads:
+        raise RuntimeError("D0.7 preflight contains an unexpected second request")
+
+    runtime_identity = _canonical_object(
+        payloads["runtime-identity.json"], label="D0.7 runtime identity"
+    )
+    result = _canonical_object(payloads["result.json"], label="D0.7 shadow result")
+    provider_config = _canonical_object(
+        payloads["provider-config-projection.json"], label="D0.7 provider config"
+    )
+    stderr_summary = _canonical_object(
+        payloads["stderr-summary.json"], label="D0.7 stderr summary"
+    )
+    events = _canonical_jsonl_objects(
+        payloads["provider-events.jsonl"], label="D0.7 provider events"
+    )
+    if (
+        runtime_identity.get("schema_version") != "codex-d07-runtime-identity/v1"
+        or runtime_identity.get("sdk_version") != expected_sdk_version
+        or runtime_identity.get("runtime_package_version") != expected_sdk_version
+        or runtime_identity.get("runtime_version") != result.get("runtime_version")
+        or runtime_identity.get("runtime_binary_hash") != result.get("runtime_binary_hash")
+        or result.get("phase") != phase
+        or result.get("sdk_version") != expected_sdk_version
+        or provider_config.get("loopback_only") is not True
+        or provider_config.get("requires_openai_auth") is not False
+        or provider_config.get("auth_json_present") is not False
+        or provider_config.get("base_url_host") != "127.0.0.1"
+        or set(stderr_summary) != {"byte_count", "line_count", "sha256"}
+    ):
+        raise RuntimeError("D0.7 shadow identity or provider binding is invalid")
+
+    request_surfaces: list[dict[str, object]] = []
+    for ordinal in (1, 2):
+        name = f"request-{ordinal}-surface.json"
+        if name not in payloads:
+            continue
+        surface = _canonical_object(payloads[name], label=f"D0.7 request {ordinal}")
+        _verify_d07_request_surface(surface, ordinal=ordinal)
+        request_surfaces.append(surface)
+    if request_surfaces and [value["request_ordinal"] for value in request_surfaces] != list(
+        range(1, len(request_surfaces) + 1)
+    ):
+        raise RuntimeError("D0.7 request projections are not contiguous")
+
+    if phase == "D0.7B0":
+        fixture = _canonical_object(
+            payloads["scripted-response-final.json"], label="D0.7 final response"
+        )
+        _verify_d07_scripted_response(
+            fixture,
+            expected_events=_d07_final_response_events("resp-d07-final", "msg-d07-final"),
+        )
+    else:
+        first_fixture = _canonical_object(
+            payloads["scripted-response-1.json"], label="D0.7 first response"
+        )
+        second_fixture = _canonical_object(
+            payloads["scripted-response-2.json"], label="D0.7 second response"
+        )
+        _verify_d07_scripted_response(
+            first_fixture, expected_events=_d07_exec_response_events()
+        )
+        _verify_d07_scripted_response(
+            second_fixture,
+            expected_events=_d07_final_response_events("resp-d07-final", "msg-d07-final"),
+        )
+        reference = _canonical_object(
+            payloads["upstream-architecture-ref.json"],
+            label="D0.7 architecture reference",
+        )
+        _find_d07a_reference(
+            bundle_path, reference, expected_sdk_version=expected_sdk_version
+        )
+        recorded_host = _canonical_object(
+            payloads["code-mode-host-identity.json"], label="D0.7 Code Mode host identity"
+        )
+        _, current_host = _d07_static_runtime_identities(expected_sdk_version)
+        if recorded_host != current_host:
+            raise RuntimeError("D0.7 Code Mode host identity no longer matches")
+
+    thread_id = result.get("thread_id")
+    turn_id = result.get("turn_id")
+    event_summary = _raw_event_summary(
+        events,
+        thread_id=thread_id if isinstance(thread_id, str) else None,
+        turn_id=turn_id if isinstance(turn_id, str) else None,
+    )
+    workspace = _d07_workspace_from_events(events)
+    if workspace is None:
+        workspace = "<D07-NO-COMMAND-WORKSPACE>"
+    command_probe = _d07_command_probe(events, workspace=workspace)
+    for key, value in {**event_summary, **command_probe}.items():
+        if result.get(key) != value:
+            raise RuntimeError("D0.7 result does not match retained provider events")
+    if result.get("request_count") != len(request_surfaces):
+        raise RuntimeError("D0.7 result request count is invalid")
+    terminal_error = (
+        RuntimeError("retained terminal error")
+        if "terminal_error_kind" in result
+        else None
+    )
+    classification = _d07_classify_shadow(
+        phase=cast(str, phase),
+        request_surfaces=request_surfaces,
+        event_summary=event_summary,
+        command_probe=command_probe,
+        final_message=_d07_final_message(events),
+        shadow_error_kind=(
+            cast(str, result["shadow_error_kind"])
+            if isinstance(result.get("shadow_error_kind"), str)
+            else None
+        ),
+        terminal_error=terminal_error,
+    )
+    if result.get("primary_classification") != classification:
+        raise RuntimeError("D0.7 shadow classification is invalid")
+    expected_pipeline = _d07_pipeline_observation(
+        phase=cast(str, phase),
+        request_surfaces=request_surfaces,
+        events=events,
+        event_summary=event_summary,
+        command_probe=command_probe,
+    )
+    pipeline = _canonical_object(
+        payloads["pipeline-observation.json"], label="D0.7 pipeline observation"
+    )
+    if pipeline != expected_pipeline:
+        raise RuntimeError("D0.7 pipeline observation is invalid")
+    return result
+
+
+def _d07_live_pipeline(
+    *, events: Sequence[dict[str, object]], event_summary: dict[str, object]
+) -> dict[str, object]:
+    started = cast(int, event_summary["command_started_count"])
+    completed = cast(int, event_summary["command_completed_count"])
+    turn_completed = event_summary.get("turn_status") == "completed"
+    observations = {
+        "L0_turn_started": _d07_observation(
+            "OBSERVED_TRUE" if events else "OBSERVED_FALSE",
+            count=1 if events else 0,
+            artifact="provider-events.jsonl",
+            pointer="/0" if events else "",
+            rule="D07-TURN-EVENT-SEEN",
+        ),
+        "L1_first_model_request_captured": _d07_observation(
+            "UNKNOWN",
+            count=None,
+            artifact="result.json",
+            pointer="/limitations",
+            rule="D07-LIVE-HTTP-NOT-RETAINED",
+        ),
+        "L2_model_visible_exec_present": _d07_observation(
+            "UNKNOWN",
+            count=None,
+            artifact="result.json",
+            pointer="/limitations",
+            rule="D07-LIVE-HTTP-NOT-RETAINED",
+        ),
+        "L3_scripted_exec_accepted": _d07_observation(
+            "NOT_APPLICABLE",
+            count=None,
+            artifact="result.json",
+            pointer="/phase",
+            rule="D07-LIVE-NOT-SCRIPTED",
+        ),
+        "L4_code_mode_host_invoked": _d07_observation(
+            "UNKNOWN",
+            count=None,
+            artifact="provider-events.jsonl",
+            pointer="",
+            rule="D07-PUBLIC-SURFACE-NOT-OBSERVABLE",
+        ),
+        "L5_nested_exec_command_dispatched": _d07_observation(
+            "UNKNOWN",
+            count=None,
+            artifact="provider-events.jsonl",
+            pointer="",
+            rule="D07-PUBLIC-SURFACE-NOT-OBSERVABLE",
+        ),
+        "L6_command_execution_started": _d07_observation(
+            "OBSERVED_TRUE" if started else "OBSERVED_FALSE",
+            count=started,
+            artifact="provider-events.jsonl",
+            pointer="",
+            rule="D07-COMMAND-ITEM-START-COUNT",
+        ),
+        "L7_command_execution_completed": _d07_observation(
+            "OBSERVED_TRUE" if completed else "OBSERVED_FALSE",
+            count=completed,
+            artifact="provider-events.jsonl",
+            pointer="",
+            rule="D07-COMMAND-ITEM-COMPLETE-COUNT",
+        ),
+        "L8_second_model_request_captured": _d07_observation(
+            "UNKNOWN",
+            count=None,
+            artifact="result.json",
+            pointer="/limitations",
+            rule="D07-LIVE-HTTP-NOT-RETAINED",
+        ),
+        "L9_turn_completed": _d07_observation(
+            "OBSERVED_TRUE" if turn_completed else "OBSERVED_FALSE",
+            count=1 if turn_completed else 0,
+            artifact="provider-events.jsonl",
+            pointer="",
+            rule="D07-TURN-COMPLETED-STATUS",
+        ),
+    }
+    return {
+        "schema_version": "codex-d07-pipeline-observation/v1",
+        "phase": "D0.7C",
+        "observations": observations,
+    }
+
+
+def _d07_classify_live(event_summary: dict[str, object]) -> str:
+    if (
+        event_summary.get("reference_integrity") is not True
+        or event_summary.get("lifecycle_integrity") is not True
+        or event_summary.get("turn_status") != "completed"
+    ):
+        return "LIVE_DIAGNOSTIC_FAILED"
+    started = event_summary.get("command_started_count")
+    completed = event_summary.get("command_completed_count")
+    if started == completed and isinstance(started, int) and started > 0:
+        return "LIVE_CODE_MODE_EXECUTED"
+    if started == 0 and completed == 0:
+        return "LIVE_EXEC_NOT_OBSERVED"
+    return "LIVE_INCONCLUSIVE"
+
+
+def run_d07_live_observation(
+    *,
+    output_root: Path,
+    authentication_home: Path,
+    shadow_chain_bundle: Path,
+    expected_sdk_version: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[Path, dict[str, object]]:
+    qualified = verify_d07_bundle(
+        shadow_chain_bundle, expected_sdk_version=expected_sdk_version
+    )
+    if qualified.get("primary_classification") not in {
+        "CODE_MODE_CHAIN_AVAILABLE",
+        "MODEL_VISIBLE_CODE_MODE_MISSING",
+        "SCRIPTED_EXEC_REJECTED",
+        "COMMAND_LIFECYCLE_GAP",
+        "COMMAND_PROBE_FAILED",
+        "INCONCLUSIVE",
+    }:
+        raise RuntimeError("D0.7C requires an interpretable D0.7B1 result")
+    with tempfile.TemporaryDirectory(prefix="quantos-codex-d07-live-", dir="/tmp") as temporary:
+        raw_bundle, raw_result = run_raw_thread_diagnostic(
+            variant="default",
+            output_root=Path(temporary),
+            authentication_home=authentication_home,
+            expected_sdk_version=expected_sdk_version,
+            timeout_seconds=timeout_seconds,
+        )
+        events_payload = confined_regular_file(raw_bundle, "provider-events.jsonl").read_bytes()
+        events = _canonical_jsonl_objects(events_payload, label="D0.7 live provider events")
+    thread_id = raw_result.get("thread_id")
+    turn_id = raw_result.get("turn_id")
+    event_summary = _raw_event_summary(
+        events,
+        thread_id=thread_id if isinstance(thread_id, str) else None,
+        turn_id=turn_id if isinstance(turn_id, str) else None,
+    )
+    classification = _d07_classify_live(event_summary)
+    runtime_identity, _ = _d07_static_runtime_identities(expected_sdk_version)
+    runtime_identity["runtime_version"] = raw_result.get("runtime_version")
+    requested_config = {
+        "schema_version": "codex-d07-live-config/v1",
+        "model": MODEL_IDENTIFIER,
+        "reasoning_effort": MODEL_REASONING_EFFORT,
+        "sandbox": "readOnly",
+        "approval_policy": "never",
+        "prompt_sha256": sha256_bytes(PROMPT.encode()),
+        "source_probe": "D0.6_RAW_THREAD/default",
+    }
+    result: dict[str, object] = {
+        "schema_version": "codex-d07-live-result/v1",
+        "authority": "NON_CANONICAL_DIAGNOSTIC",
+        "phase": "D0.7C",
+        "sdk_version": expected_sdk_version,
+        "runtime_package_version": raw_result.get("runtime_package_version"),
+        "runtime_version": raw_result.get("runtime_version"),
+        "runtime_binary_hash": raw_result.get("runtime_binary_hash"),
+        "model": MODEL_IDENTIFIER,
+        "thread_id": thread_id,
+        "turn_id": turn_id,
+        **event_summary,
+        "primary_classification": classification,
+        "secondary_findings": [],
+        "limitations": [
+            "LIVE_PROVIDER_HTTP_NOT_RETAINED",
+            "MODEL_VISIBLE_EXEC_UNKNOWN",
+            "CODE_MODE_HOST_INVOCATION_NOT_PUBLICLY_OBSERVABLE",
+            "NESTED_DISPATCH_NOT_PUBLICLY_OBSERVABLE",
+            "MODEL_IDENTIFIER_NOT_IMMUTABLE",
+        ],
+    }
+    files = {
+        "runtime-identity.json": canonical_json_bytes(runtime_identity),
+        "requested-config.json": canonical_json_bytes(requested_config),
+        "provider-events.jsonl": events_payload,
+        "pipeline-observation.json": canonical_json_bytes(
+            _d07_live_pipeline(events=events, event_summary=event_summary)
+        ),
+        "result.json": canonical_json_bytes(result),
+    }
+    destination = _publish_d07_bundle(
+        output_root,
+        phase="D0.7C",
+        prefix="live",
+        files=files,
+    )
+    return destination, result
+
+
+def _verify_d07c_payloads(
+    payloads: dict[str, bytes], *, expected_sdk_version: str
+) -> dict[str, object]:
+    if set(payloads) != {
+        "pipeline-observation.json",
+        "provider-events.jsonl",
+        "requested-config.json",
+        "result.json",
+        "runtime-identity.json",
+    }:
+        raise RuntimeError("D0.7 live bundle file set is invalid")
+    runtime_identity = _canonical_object(
+        payloads["runtime-identity.json"], label="D0.7 live runtime identity"
+    )
+    requested_config = _canonical_object(
+        payloads["requested-config.json"], label="D0.7 live requested config"
+    )
+    result = _canonical_object(payloads["result.json"], label="D0.7 live result")
+    events = _canonical_jsonl_objects(
+        payloads["provider-events.jsonl"], label="D0.7 live provider events"
+    )
+    if (
+        runtime_identity.get("sdk_version") != expected_sdk_version
+        or runtime_identity.get("runtime_package_version") != expected_sdk_version
+        or runtime_identity.get("runtime_version") != result.get("runtime_version")
+        or runtime_identity.get("runtime_binary_hash") != result.get("runtime_binary_hash")
+        or requested_config.get("model") != MODEL_IDENTIFIER
+        or requested_config.get("prompt_sha256") != sha256_bytes(PROMPT.encode())
+        or result.get("phase") != "D0.7C"
+        or result.get("sdk_version") != expected_sdk_version
+    ):
+        raise RuntimeError("D0.7 live identity binding is invalid")
+    thread_id = result.get("thread_id")
+    turn_id = result.get("turn_id")
+    event_summary = _raw_event_summary(
+        events,
+        thread_id=thread_id if isinstance(thread_id, str) else None,
+        turn_id=turn_id if isinstance(turn_id, str) else None,
+    )
+    for key, value in event_summary.items():
+        if result.get(key) != value:
+            raise RuntimeError("D0.7 live result does not match retained events")
+    if result.get("primary_classification") != _d07_classify_live(event_summary):
+        raise RuntimeError("D0.7 live classification is invalid")
+    pipeline = _canonical_object(
+        payloads["pipeline-observation.json"], label="D0.7 live pipeline observation"
+    )
+    if pipeline != _d07_live_pipeline(events=events, event_summary=event_summary):
+        raise RuntimeError("D0.7 live pipeline observation is invalid")
+    return result
+
+
 def _raw_classify_matrix(results: Sequence[dict[str, object]]) -> str:
     by_variant = {str(result.get("variant")): result for result in results}
     if set(by_variant) != set(VARIANTS) or len(results) != len(VARIANTS):
@@ -2053,12 +4042,122 @@ def main() -> None:
     mode.add_argument("--command-exec", action="store_true")
     mode.add_argument("--verify-matrix", type=Path)
     mode.add_argument("--verify-raw-matrix", type=Path)
+    mode.add_argument("--characterize-code-mode-source", action="store_true")
+    mode.add_argument("--shadow-provider-preflight", action="store_true")
+    mode.add_argument("--shadow-code-mode-chain", action="store_true")
+    mode.add_argument("--live-code-mode-observation", action="store_true")
+    mode.add_argument("--verify-d07-bundle", type=Path)
     parser.add_argument("--raw-thread", action="store_true")
     parser.add_argument("--output-root", type=Path, default=Path("/tmp/quantos-codex-sdk-d0"))
     parser.add_argument("--authentication-home", type=Path, default=Path.home() / ".codex")
+    parser.add_argument("--source-archive", type=Path)
+    parser.add_argument("--architecture-bundle", type=Path)
+    parser.add_argument("--shadow-chain-bundle", type=Path)
     parser.add_argument("--expected-sdk-version", default=PINNED_SDK_VERSION)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     args = parser.parse_args()
+    d07_mode = any(
+        (
+            args.characterize_code_mode_source,
+            args.shadow_provider_preflight,
+            args.shadow_code_mode_chain,
+            args.live_code_mode_observation,
+            args.verify_d07_bundle is not None,
+        )
+    )
+    if d07_mode and args.raw_thread:
+        raise RuntimeError("--raw-thread cannot be combined with a D0.7 mode")
+    if args.verify_d07_bundle is not None:
+        result = verify_d07_bundle(
+            args.verify_d07_bundle, expected_sdk_version=args.expected_sdk_version
+        )
+        print(
+            json.dumps(
+                {
+                    "diagnostic_path": str(args.verify_d07_bundle),
+                    "phase": result.get("phase", "D0.7A"),
+                    "primary_classification": result.get(
+                        "primary_classification", "ARCHITECTURE_CHARACTERIZED"
+                    ),
+                    "verified": True,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+    if args.characterize_code_mode_source:
+        if args.source_archive is None:
+            raise RuntimeError("--source-archive is required for source characterization")
+        destination, architecture = run_d07_source_characterization(
+            source_archive=args.source_archive,
+            output_root=args.output_root,
+            expected_sdk_version=args.expected_sdk_version,
+        )
+        print(
+            json.dumps(
+                {
+                    "diagnostic_path": str(destination),
+                    "phase": "D0.7A",
+                    "release_commit": architecture["release_commit"],
+                    "sdk_version": args.expected_sdk_version,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+    if args.shadow_provider_preflight or args.shadow_code_mode_chain:
+        if args.architecture_bundle is None:
+            raise RuntimeError("--architecture-bundle is required for a D0.7 shadow run")
+        runner = (
+            run_d07_shadow_preflight
+            if args.shadow_provider_preflight
+            else run_d07_shadow_chain
+        )
+        destination, result = runner(
+            output_root=args.output_root,
+            architecture_bundle=args.architecture_bundle,
+            expected_sdk_version=args.expected_sdk_version,
+            timeout_seconds=args.timeout_seconds,
+        )
+        print(
+            json.dumps(
+                {
+                    "diagnostic_path": str(destination),
+                    "phase": result["phase"],
+                    "primary_classification": result["primary_classification"],
+                    "request_count": result["request_count"],
+                    "runtime_version": result["runtime_version"],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+    if args.live_code_mode_observation:
+        if args.shadow_chain_bundle is None:
+            raise RuntimeError("--shadow-chain-bundle is required for D0.7 live observation")
+        destination, result = run_d07_live_observation(
+            output_root=args.output_root,
+            authentication_home=args.authentication_home,
+            shadow_chain_bundle=args.shadow_chain_bundle,
+            expected_sdk_version=args.expected_sdk_version,
+            timeout_seconds=args.timeout_seconds,
+        )
+        print(
+            json.dumps(
+                {
+                    "diagnostic_path": str(destination),
+                    "phase": result["phase"],
+                    "primary_classification": result["primary_classification"],
+                    "runtime_version": result["runtime_version"],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
     if args.verify_raw_matrix is not None:
         matrix = verify_raw_matrix(
             args.verify_raw_matrix, expected_sdk_version=args.expected_sdk_version
