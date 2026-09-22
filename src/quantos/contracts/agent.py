@@ -608,7 +608,9 @@ class AgentRunManifestV3(CanonicalContract):
     runtime_version: str | None = Field(default=None, min_length=1, max_length=500)
     runtime_binary_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
     protocol_identifier: Literal["codex-app-server-jsonrpc-v2"] = "codex-app-server-jsonrpc-v2"
-    normalizer_identifier: Literal["quantos-codex-normalizer/v1"] = "quantos-codex-normalizer/v1"
+    normalizer_identifier: Literal["quantos-codex-normalizer/v1", "quantos-codex-normalizer/v2"] = (
+        "quantos-codex-normalizer/v2"
+    )
     normalizer_hash: str = Field(pattern=SHA256_PATTERN)
     requested_policy_hash: str = Field(pattern=SHA256_PATTERN)
     resolved_runtime_config_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)

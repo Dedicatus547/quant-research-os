@@ -8,7 +8,7 @@ from typing import cast
 from quantos.application.agent_harness import make_agent_event
 from quantos.contracts.harness import AgentEvent, AgentEventKind
 
-NORMALIZER_IDENTIFIER = "quantos-codex-normalizer/v1"
+NORMALIZER_IDENTIFIER = "quantos-codex-normalizer/v2"
 
 
 class CodexEventNormalizationError(ValueError):
@@ -76,7 +76,7 @@ def normalize_provider_events(
             item = _required_mapping(body, "item")
             item_type = item.get("type")
             if item_type == "commandExecution":
-                append(AgentEventKind.COMMAND_STARTED, method, _command_payload(item))
+                append(AgentEventKind.COMMAND_STARTED, method, _command_payload(item, body))
             elif item_type == "mcpToolCall":
                 append(AgentEventKind.TOOL_STARTED, method, _tool_payload(item))
             elif item_type in {"agentMessage", "userMessage", "reasoning", "plan"}:
@@ -87,7 +87,7 @@ def normalize_provider_events(
             item = _required_mapping(body, "item")
             item_type = item.get("type")
             if item_type == "commandExecution":
-                command = _command_payload(item)
+                command = _command_payload(item, body)
                 kind = (
                     AgentEventKind.COMMAND_COMPLETED
                     if item.get("status") == "completed"
@@ -170,7 +170,9 @@ def _turn_payload(body: Mapping[str, object]) -> dict[str, object]:
     }
 
 
-def _command_payload(item: Mapping[str, object]) -> dict[str, object]:
+def _command_payload(
+    item: Mapping[str, object], envelope: Mapping[str, object]
+) -> dict[str, object]:
     command = item.get("command")
     output = item.get("aggregated_output")
     exit_code = item.get("exit_code")
@@ -182,12 +184,21 @@ def _command_payload(item: Mapping[str, object]) -> dict[str, object]:
         or not isinstance(status, str)
     ):
         raise CodexEventNormalizationError("provider command payload is invalid")
-    return {
+    payload: dict[str, object] = {
         "command": command,
         "exit_code": exit_code,
         "output": output or "",
         "status": status,
     }
+    identifiers = {
+        "item_id": item.get("id"),
+        "thread_id": envelope.get("thread_id", envelope.get("threadId")),
+        "turn_id": envelope.get("turn_id", envelope.get("turnId")),
+    }
+    payload.update(
+        {key: value for key, value in identifiers.items() if isinstance(value, str) and value}
+    )
+    return payload
 
 
 def _tool_payload(item: Mapping[str, object]) -> dict[str, object]:

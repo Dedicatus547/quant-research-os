@@ -29,12 +29,21 @@ Decision: **NO_GO**
 | D0.7 shadow provider preflight | PASS | credential-free loopback injection completed exactly one fixed request/response on both versions; bundles `dd4abe0f...4fed97d6` / `1dc124a5...76b88c0` verified |
 | D0.7 deterministic Code Mode chain B1+ | **CODE_MODE_CHAIN_AVAILABLE** | pinned 0.154.0 bundle `9c20e6c5...f4ecca64` binds the outer `exec` call to one executed-tool metadata entry for exact nested `exec_command` arguments, validates exact fixed-marker output/exit 0/nonempty chunk id, and observes one matched successful `commandExecution` lifecycle; post-terminal command-event count is 0 |
 | D0.7 live observation | **LIVE_EXEC_NOT_OBSERVED** | 0.154.0 live turn completed with zero command events; raw live HTTP was intentionally not retained, so model-visible exec remains unknown; bundle `7da8cf78...74fbc1ab` verified |
+| Code Mode-aware P10 v3 | **NO_GO (6/9)** | canonical report `c5f8f53f...7a1fc` replayed bottom-up; outer `exec` and nested attribution are `UNKNOWN`, required command lifecycle count is 0/4, and `SANDBOX`, `PERMISSION_DENIAL`, `FAILURE_RECOVERY` fail closed |
 | Exact dependency lock | PASS | `pyproject.toml` and `uv.lock` fix SDK and bundled runtime packages at 0.154.0 |
 
 Two live P10 runs were retained under temporary qualification roots rather than checked in. Their
 report hashes are `49653ba3e8d36d3a2cbdc69b2ddc9ad559091d08eb0069cbc5149d3a3a9f785b`
 and `d256e26245f637f97bc00ed034ce1031099a8e4e65f71347015bc84683cbcd9b`.
 Both were 6/9 and failed the same three capabilities.
+
+The Code Mode-aware v3 path was then implemented and run once with the frozen 0.154.0 identity.
+Its canonical local bundle is
+`artifacts/feasibility/codex-p10-code-mode-20260922/sha256-c5f8f53fccb844e5b87ea6888385bed63677c1d7403772845933c72d9787a1fc`.
+The turn succeeded and the retained MCP/proposal/usage evidence passed, but it again emitted zero
+command starts and zero command terminals. The report is therefore `6/9 / LIVE_EXEC_NOT_OBSERVED /
+NO_GO`; offline replay reproduced report `c5f8f53f...7a1fc`, manifest `dd4e37fb...7b40b5`, and
+normalized transcript `55506f91...156d`. P13 was not executed.
 
 ## Implemented offline surface
 
@@ -60,6 +69,8 @@ Both were 6/9 and failed the same three capabilities.
   metadata projection, bounded post-terminal drain, content-addressed publication, secret scanning and
   bottom-up offline replay verification;
 - offline contract, normalization, replay and regression coverage.
+- versioned Code Mode-aware P10 fixture, exact four-probe lifecycle/cardinality/order evaluation,
+  explicit unknown observations, v2 normalizer provenance, and bottom-up P10 artifact verification.
 
 New runs now use v3 provenance, bind the bundled runtime binary hash, retain a separate capability
 observation, and leave effective policy unattested unless runtime evidence supports it. Historical

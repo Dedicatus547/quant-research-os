@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -10,12 +11,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from pydantic import ValidationError
+
+from quantos.application.agent_harness import (
+    capture_from_agent_events,
+    parse_agent_events,
+)
 from quantos.application.harness_spike import (
     CodexExecCapture,
-    build_harness_spike_report_v2,
-    build_p10_capability_observation,
+    build_harness_spike_report_v3,
+    build_p10_capability_observation_v2,
 )
-from quantos.artifacts.store import atomic_write_bytes, publish_directory
+from quantos.artifacts.store import atomic_write_bytes, publish_directory, regular_tree_files
 from quantos.contracts.agent import (
     AgentCapability,
     AgentCapabilityPolicy,
@@ -34,9 +41,11 @@ from quantos.contracts.harness import (
     CodexHarnessSpikeReport,
     CodexHarnessSpikeSpec,
     HarnessCapability,
-    HarnessCapabilityObservation,
+    HarnessCapabilityObservationV2,
     HarnessCapabilitySpikeReportV2,
-    HarnessCapabilitySpikeSpecV2,
+    HarnessCapabilitySpikeReportV3,
+    HarnessCapabilitySpikeSpecV3,
+    HarnessDecision,
     HarnessEnvironmentVariable,
     HarnessErrorKind,
     HarnessExecutionRequest,
@@ -46,6 +55,10 @@ from quantos.contracts.harness import (
     HarnessTerminalError,
 )
 from quantos.contracts.status import ReasonCode, RunStatus
+from quantos.integrations.codex.event_normalizer import (
+    NORMALIZER_IDENTIFIER,
+    normalize_provider_events,
+)
 from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
 from quantos.integrations.codex.versioning import (
     CODEX_PROTOCOL_IDENTIFIER,
@@ -68,6 +81,10 @@ _SHELL_ENVIRONMENT = {"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin", "TZ": "UTC"}
 
 class HarnessRunnerError(RuntimeError):
     """Raised when the frozen harness invocation itself cannot be executed safely."""
+
+
+class P10ArtifactVerificationError(HarnessRunnerError):
+    """Raised when a retained Code Mode-aware P10 artifact cannot be replayed exactly."""
 
 
 @dataclass(frozen=True)
@@ -110,7 +127,9 @@ class FrozenSpikeInputs:
 
 @dataclass(frozen=True)
 class HarnessRunResult:
-    report: CodexHarnessSpikeReport | HarnessCapabilitySpikeReportV2
+    report: (
+        CodexHarnessSpikeReport | HarnessCapabilitySpikeReportV2 | HarnessCapabilitySpikeReportV3
+    )
     manifest: AgentRunManifest | AgentRunManifestV2 | AgentRunManifestV3
     report_path: Path
     manifest_path: Path
@@ -407,21 +426,18 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
 
     inputs = load_frozen_spike_inputs(fixture_root)
     request = _sdk_request(inputs)
-    spec = HarnessCapabilitySpikeSpecV2(
-        spike_id="p10-codex-sdk-20260915",
-        execution_request_hash=request.content_hash,
-        dataset_hash="a" * 64,
-        mcp_server_name="quantosP10",
-        mcp_tool_name="dataset_describe",
-        max_transcript_bytes=request.max_transcript_bytes,
-        max_input_tokens=request.max_input_tokens,
-        max_output_tokens=request.max_output_tokens,
-        required_capabilities=tuple(sorted(HarnessCapability, key=str)),
-        input_hashes=inputs.all_input_hashes,
-    )
+    spec = _sdk_spike_spec(inputs, request)
     run_spec = _sdk_run_spec(inputs, request, spec)
     started_at = datetime.now(UTC)
-    execution = CodexSdkAdapter().execute(request)
+    previous_secret = os.environ.get("P10_FORBIDDEN_SECRET")
+    os.environ["P10_FORBIDDEN_SECRET"] = SYNTHETIC_SECRET_MARKER
+    try:
+        execution = CodexSdkAdapter().execute(request)
+    finally:
+        if previous_secret is None:
+            os.environ.pop("P10_FORBIDDEN_SECRET", None)
+        else:
+            os.environ["P10_FORBIDDEN_SECRET"] = previous_secret
     completed_at = datetime.now(UTC)
     capture = execution.capture
     proposal_hash = (
@@ -467,7 +483,7 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         if execution.provider_transcript is not None
         else None
     )
-    observation = build_p10_capability_observation(
+    observation = build_p10_capability_observation_v2(
         capture,
         normalized_transcript_hash=execution.normalized_transcript_hash,
         provider_transcript_hash=provider_transcript_hash,
@@ -491,6 +507,7 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
             runtime.runtime_binary_hash if isinstance(runtime, HarnessRuntimeIdentityV2) else None
         ),
         protocol_identifier=CODEX_PROTOCOL_IDENTIFIER,
+        normalizer_identifier=NORMALIZER_IDENTIFIER,
         normalizer_hash=_normalizer_hash(),
         requested_policy_hash=request.runtime_policy.content_hash,
         resolved_runtime_config_hash=None,
@@ -555,7 +572,7 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         started_at=started_at,
         completed_at=completed_at,
     )
-    report = build_harness_spike_report_v2(
+    report = build_harness_spike_report_v3(
         spec,
         manifest,
         capture,
@@ -573,14 +590,27 @@ def execute_codex_spike(fixture_root: Path, output_root: Path) -> HarnessRunResu
         transcript=execution.normalized_transcript,
         run_spec=run_spec,
     )
-    return HarnessRunResult(
-        report=report,
-        manifest=manifest,
-        report_path=report_path,
-        manifest_path=manifest_path,
-        spec_path=spec_path,
-        transcript_path=transcript_path,
-        process_return_code=0 if terminal is None else 1,
+    del report_path, manifest_path, spec_path, transcript_path
+    return verify_codex_spike_artifact(
+        output_root / f"sha256-{report.content_hash}", inputs.fixture_root
+    )
+
+
+def _sdk_spike_spec(
+    inputs: FrozenSpikeInputs, request: HarnessExecutionRequest
+) -> HarnessCapabilitySpikeSpecV3:
+    return HarnessCapabilitySpikeSpecV3(
+        spike_id="p10-codex-sdk-code-mode-20260922",
+        execution_request_hash=request.content_hash,
+        parent_secret_marker_hash=sha256_bytes(SYNTHETIC_SECRET_MARKER.encode("utf-8")),
+        dataset_hash="a" * 64,
+        mcp_server_name="quantosP10",
+        mcp_tool_name="dataset_describe",
+        max_transcript_bytes=request.max_transcript_bytes,
+        max_input_tokens=request.max_input_tokens,
+        max_output_tokens=request.max_output_tokens,
+        required_capabilities=tuple(sorted(HarnessCapability, key=str)),
+        input_hashes=inputs.all_input_hashes,
     )
 
 
@@ -590,7 +620,7 @@ def _sdk_request(inputs: FrozenSpikeInputs) -> HarnessExecutionRequest:
         for name, value in sorted(_SHELL_ENVIRONMENT.items())
     )
     return HarnessExecutionRequest(
-        run_id="p10-codex-sdk-20260915",
+        run_id="p10-codex-sdk-code-mode-20260922",
         cwd=str(inputs.fixture_root),
         prompt=inputs.task_text,
         model=MODEL_IDENTIFIER,
@@ -623,11 +653,11 @@ def _sdk_request(inputs: FrozenSpikeInputs) -> HarnessExecutionRequest:
 def _sdk_run_spec(
     inputs: FrozenSpikeInputs,
     request: HarnessExecutionRequest,
-    spike: HarnessCapabilitySpikeSpecV2,
+    spike: HarnessCapabilitySpikeSpecV3,
 ) -> AgentRunSpecV3:
     configuration_hash = sha256_bytes(canonical_json_bytes(sdk_model_configuration_payload(inputs)))
     return AgentRunSpecV3(
-        run_id="p10-codex-sdk-20260915",
+        run_id="p10-codex-sdk-code-mode-20260922",
         role=AgentRole.RESEARCHER,
         capability_policy_hash=capability_policy().content_hash,
         campaign_hash=sha256_bytes(canonical_json_bytes({"spike_spec": spike.content_hash})),
@@ -684,11 +714,11 @@ def _publish_sdk_run_artifacts(
     *,
     request: HarnessExecutionRequest,
     provider_transcript: bytes | None,
-    spec: HarnessCapabilitySpikeSpecV2,
+    spec: HarnessCapabilitySpikeSpecV3,
     run_spec: AgentRunSpecV3,
     manifest: AgentRunManifestV3,
-    observation: HarnessCapabilityObservation,
-    report: HarnessCapabilitySpikeReportV2,
+    observation: HarnessCapabilityObservationV2,
+    report: HarnessCapabilitySpikeReportV3,
     transcript: bytes,
 ) -> tuple[Path, Path, Path, Path]:
     output_root.mkdir(parents=True, exist_ok=True)
@@ -723,8 +753,185 @@ def _publish_sdk_run_artifacts(
     )
 
 
+def verify_codex_spike_artifact(run_path: Path, fixture_root: Path) -> HarnessRunResult:
+    """Replay a Code Mode-aware P10 bundle without SDK auth, network, or a model call."""
+
+    required = {
+        "agent-events.jsonl",
+        "agent-run-manifest.json",
+        "agent-run-spec.json",
+        "harness-capability-observation.json",
+        "harness-request.json",
+        "harness-spike-report.json",
+        "harness-spike-spec.json",
+    }
+    try:
+        files = regular_tree_files(run_path)
+        names = {path.relative_to(run_path).as_posix() for path in files}
+        if names not in (required, required | {"provider-events.jsonl"}):
+            raise P10ArtifactVerificationError("retained P10 file set is not exact")
+        payloads = {path.name: path.read_bytes() for path in files}
+        inputs = load_frozen_spike_inputs(fixture_root)
+        request = HarnessExecutionRequest.model_validate_json(payloads["harness-request.json"])
+        expected_request = _sdk_request(inputs)
+        if payloads["harness-request.json"] != expected_request.canonical_bytes():
+            raise P10ArtifactVerificationError("retained P10 request does not match frozen inputs")
+        spec = HarnessCapabilitySpikeSpecV3.model_validate_json(payloads["harness-spike-spec.json"])
+        expected_spec = _sdk_spike_spec(inputs, request)
+        if payloads["harness-spike-spec.json"] != expected_spec.canonical_bytes():
+            raise P10ArtifactVerificationError("retained P10 spec does not match frozen inputs")
+        run_spec = AgentRunSpecV3.model_validate_json(payloads["agent-run-spec.json"])
+        expected_run_spec = _sdk_run_spec(inputs, request, spec)
+        if payloads["agent-run-spec.json"] != expected_run_spec.canonical_bytes():
+            raise P10ArtifactVerificationError("retained P10 run spec is invalid")
+        manifest = AgentRunManifestV3.model_validate_json(payloads["agent-run-manifest.json"])
+        observation = HarnessCapabilityObservationV2.model_validate_json(
+            payloads["harness-capability-observation.json"]
+        )
+        report = HarnessCapabilitySpikeReportV3.model_validate_json(
+            payloads["harness-spike-report.json"]
+        )
+        events = parse_agent_events(
+            payloads["agent-events.jsonl"], max_bytes=request.max_transcript_bytes
+        )
+        capture = capture_from_agent_events(events, max_bytes=request.max_transcript_bytes)
+    except P10ArtifactVerificationError:
+        raise
+    except (OSError, ValueError, ValidationError) as error:
+        raise P10ArtifactVerificationError("retained P10 artifact is malformed") from error
+
+    _verify_p10_secret_absence(payloads)
+    provider_payload = payloads.get("provider-events.jsonl")
+    provider_hash = sha256_bytes(provider_payload) if provider_payload is not None else None
+    if provider_hash != manifest.provider_transcript_hash:
+        raise P10ArtifactVerificationError("provider transcript binding is invalid")
+    if provider_payload is None:
+        if manifest.provider_transcript_retention_reason is None:
+            raise P10ArtifactVerificationError("provider transcript retention reason is missing")
+    elif manifest.run_status is RunStatus.SUCCEEDED:
+        provider_events = _parse_provider_event_jsonl(provider_payload)
+        if len(manifest.attempts) != 1 or not capture.thread_ids:
+            raise P10ArtifactVerificationError(
+                "P10 provider replay requires one identified attempt"
+            )
+        replay = capture_from_agent_events(
+            normalize_provider_events(provider_events, thread_id=capture.thread_ids[-1]),
+            max_bytes=request.max_transcript_bytes,
+        )
+        if replay.transcript != payloads["agent-events.jsonl"]:
+            raise P10ArtifactVerificationError("provider and normalized transcripts disagree")
+
+    proposal_hash = (
+        sha256_bytes(capture.agent_messages[-1].encode("utf-8")) if capture.agent_messages else None
+    )
+    interactions = tuple(
+        ToolInteractionDigest(
+            sequence=index,
+            capability=AgentCapability.DATASET_DESCRIBE,
+            request_hash=sha256_bytes(canonical_json_bytes(call.arguments)),
+            response_hash=(
+                sha256_bytes(canonical_json_bytes(call.result))
+                if call.status == "completed" and call.error is None and call.result is not None
+                else None
+            ),
+            succeeded=call.status == "completed" and call.error is None and call.result is not None,
+        )
+        for index, call in enumerate(capture.tool_calls, start=1)
+    )
+    usage = AgentUsage(
+        input_tokens=capture.usage.get("input_tokens", 0),
+        output_tokens=capture.usage.get("output_tokens", 0),
+        cached_input_tokens=capture.usage.get("cached_input_tokens", 0),
+        tool_calls=len(interactions),
+        retry_count=0,
+    )
+    expected_observation = build_p10_capability_observation_v2(
+        capture,
+        normalized_transcript_hash=sha256_bytes(payloads["agent-events.jsonl"]),
+        provider_transcript_hash=provider_hash,
+    )
+    expected_report = build_harness_spike_report_v3(
+        spec,
+        manifest,
+        capture,
+        inputs.manual_baseline,
+        created_at=report.created_at,
+    )
+    attempt = manifest.attempts[0] if len(manifest.attempts) == 1 else None
+    if (
+        run_path.name != f"sha256-{report.content_hash}"
+        or manifest.run_spec_hash != run_spec.content_hash
+        or manifest.provider_model_identifier != MODEL_IDENTIFIER
+        or manifest.sdk_version not in (None, CODEX_SDK_VERSION)
+        or manifest.runtime_package_version not in (None, CODEX_RUNTIME_PACKAGE_VERSION)
+        or (
+            manifest.runtime_version is not None
+            and manifest.runtime_version.partition(" ")[0] != CODEX_RUNTIME_PACKAGE_VERSION
+        )
+        or manifest.requested_policy_hash != request.runtime_policy.content_hash
+        or manifest.normalizer_identifier != NORMALIZER_IDENTIFIER
+        or manifest.normalizer_hash != _normalizer_hash()
+        or manifest.instruction_hashes != inputs.instruction_hashes
+        or manifest.skill_hash != inputs.skill_hash
+        or manifest.tool_schema_hash != inputs.mcp_tool_schema_hash
+        or manifest.input_hashes != inputs.all_input_hashes
+        or manifest.normalized_transcript_hash != sha256_bytes(payloads["agent-events.jsonl"])
+        or manifest.capability_observation_hash != observation.content_hash
+        or payloads["harness-capability-observation.json"] != expected_observation.canonical_bytes()
+        or manifest.interactions != interactions
+        or manifest.aggregate_usage != usage
+        or attempt is None
+        or attempt.event_stream_hash != capture.transcript_hash
+        or attempt.usage != usage
+        or attempt.provider_thread_id != (capture.thread_ids[-1] if capture.thread_ids else None)
+        or attempt.produced_proposal_hash != proposal_hash
+        or report.agent_run_manifest_hash != manifest.content_hash
+        or payloads["harness-spike-report.json"] != canonical_json_bytes(expected_report)
+    ):
+        raise P10ArtifactVerificationError("retained P10 evidence does not replay exactly")
+    return HarnessRunResult(
+        report=report,
+        manifest=manifest,
+        report_path=run_path / "harness-spike-report.json",
+        manifest_path=run_path / "agent-run-manifest.json",
+        spec_path=run_path / "harness-spike-spec.json",
+        transcript_path=run_path / "agent-events.jsonl",
+        process_return_code=0 if report.decision is HarnessDecision.GO else 1,
+    )
+
+
+def _parse_provider_event_jsonl(payload: bytes) -> tuple[Mapping[str, object], ...]:
+    events: list[Mapping[str, object]] = []
+    try:
+        lines = payload.splitlines()
+        for line in lines:
+            item = cast(object, json.loads(line))
+            if not isinstance(item, dict):
+                raise ValueError("provider event is not an object")
+            mapping = cast(Mapping[object, object], item)
+            if not all(isinstance(key, str) for key in mapping):
+                raise ValueError("provider event key is invalid")
+            events.append(cast(Mapping[str, object], mapping))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise P10ArtifactVerificationError("provider transcript is invalid JSONL") from error
+    if not events:
+        raise P10ArtifactVerificationError("provider transcript is empty")
+    return tuple(events)
+
+
+def _verify_p10_secret_absence(payloads: Mapping[str, bytes]) -> None:
+    markers = [SYNTHETIC_SECRET_MARKER.encode("utf-8")]
+    markers.extend(
+        value.encode("utf-8")
+        for name, value in os.environ.items()
+        if value and (name == "P10_FORBIDDEN_SECRET" or name.startswith("TUSHARE_"))
+    )
+    if any(marker in payload for marker in markers for payload in payloads.values()):
+        raise P10ArtifactVerificationError("retained P10 artifact contains a prohibited secret")
+
+
 def safe_result_summary(result: HarnessRunResult) -> dict[str, object]:
-    return {
+    summary: dict[str, object] = {
         "agent_run_manifest_hash": result.manifest.content_hash,
         "decision": result.report.decision,
         "failed_capabilities": [
@@ -736,3 +943,37 @@ def safe_result_summary(result: HarnessRunResult) -> dict[str, object]:
         "spike_spec_hash": result.report.spike_spec_hash,
         "transcript_hash": result.report.transcript_hash,
     }
+    observation_path = result.report_path.parent / "harness-capability-observation.json"
+    if observation_path.is_file() and not observation_path.is_symlink():
+        try:
+            observation = HarnessCapabilityObservationV2.model_validate_json(
+                observation_path.read_bytes()
+            )
+        except (OSError, ValidationError):
+            pass
+        else:
+            failed = {check.capability for check in result.report.checks if not check.passed}
+            if result.manifest.run_status is RunStatus.FAILED:
+                classification = "QUALIFICATION_NOT_EVALUATED"
+            elif result.report.decision is HarnessDecision.GO:
+                classification = "P10_SDK_QUALIFIED"
+            elif observation.matched_command_count == 0:
+                classification = "LIVE_EXEC_NOT_OBSERVED"
+            elif (
+                not observation.command_lifecycle_integrity or observation.matched_command_count < 4
+            ):
+                classification = "LIVE_CODE_MODE_PARTIAL"
+            elif HarnessCapability.SANDBOX in failed:
+                classification = "POLICY_NOT_ATTESTED"
+            else:
+                classification = "P10_CAPABILITY_FAILED"
+            summary.update(
+                {
+                    "classification": classification,
+                    "code_mode_exec_initiated": observation.code_mode_exec_initiated,
+                    "command_lifecycle_integrity": observation.command_lifecycle_integrity,
+                    "matched_command_count": observation.matched_command_count,
+                    "nested_exec_command_dispatched": (observation.nested_exec_command_dispatched),
+                }
+            )
+    return summary

@@ -108,13 +108,14 @@ EventFeature, EventStudy, or backtest qualification. Failed Codex transcripts re
 events and hashes, never stderr text or secrets.
 
 The new official Python SDK execution path is implemented but is not yet qualified for canonical
-use: two SDK 0.154.0 P10 runs were `NO_GO` at 6/9, and the same four-variant D0 matrix on both
+use: the Code Mode-aware SDK 0.154.0 P10 remains `NO_GO` at 6/9, and the same four-variant D0 matrix on both
 0.154.0 and candidate 0.155.1 emitted no shell events. A direct D0.5 app-server `command/exec`
 control succeeds on both binaries, isolating the gap to the thread/model tool path. New runs bind
-v3 provenance and the bundled runtime binary without
+v3 provenance, normalizer v2 and the bundled runtime binary without
 claiming that requested policy is effective. SDK/runtime 0.154.0 is now the explicit frozen FR-03
-target; the candidate run did not update the canonical lock. The D0 runner publishes a mechanical
-four-variant matrix before P10 can resume. See
+target; the candidate run did not update the canonical lock. The latest frozen live turn produced
+zero matched command lifecycles, was classified `LIVE_EXEC_NOT_OBSERVED`, and passed bottom-up
+offline artifact replay; P13 therefore remains blocked. See
 [ADR-0002](docs/adr/0002-official-codex-python-sdk.md) and the
 [FR-03 matrix](docs/fr03-codex-sdk-qualification.md). Historical CLI artifacts remain evidence,
 not a fallback execution backend.

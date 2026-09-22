@@ -67,6 +67,7 @@ def test_v3_separates_requested_policy_from_unattested_runtime_policy() -> None:
     assert manifest.attested_policy_hash is None
     assert manifest.runtime_package_version == "0.154.0"
     assert manifest.runtime_binary_hash == HASH
+    assert manifest.normalizer_identifier == "quantos-codex-normalizer/v2"
 
 
 def test_v3_requires_attestation_limitation_when_policy_is_unknown() -> None:

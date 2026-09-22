@@ -1,0 +1,16 @@
+{
+  "authority": "AGENT_PROPOSAL",
+  "dataset_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "fields": [
+    "adjusted_close",
+    "membership",
+    "tradable"
+  ],
+  "limitations": [
+    "SYNTHETIC_CAPABILITY_SPIKE"
+  ],
+  "proposal_id": "p10-synthetic-observation",
+  "proposal_kind": "observation",
+  "statement": "The synthetic dataset exposes three registered fields.",
+  "verdict": null
+}

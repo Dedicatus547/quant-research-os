@@ -33,6 +33,12 @@ class HarnessDecision(StrEnum):
     NO_GO = "NO_GO"
 
 
+class HarnessObservationState(StrEnum):
+    OBSERVED_FALSE = "OBSERVED_FALSE"
+    OBSERVED_TRUE = "OBSERVED_TRUE"
+    UNKNOWN = "UNKNOWN"
+
+
 class CodexHarnessSpikeSpec(CanonicalContract):
     schema_version: Literal["codex-harness-spike-spec/v1"] = "codex-harness-spike-spec/v1"
     spike_id: str = Field(pattern=LOGICAL_ID_PATTERN)
@@ -301,7 +307,9 @@ class HarnessRuntimeIdentityV2(CanonicalContract):
     runtime_version: str = Field(min_length=1, max_length=500)
     runtime_binary_hash: str = Field(pattern=SHA256_PATTERN)
     protocol: Literal["codex-app-server-jsonrpc-v2"] = "codex-app-server-jsonrpc-v2"
-    normalizer_version: Literal["quantos-codex-normalizer/v1"] = "quantos-codex-normalizer/v1"
+    normalizer_version: Literal["quantos-codex-normalizer/v1", "quantos-codex-normalizer/v2"] = (
+        "quantos-codex-normalizer/v2"
+    )
 
 
 class HarnessCapabilityObservation(CanonicalContract):
@@ -337,6 +345,50 @@ class HarnessCapabilityObservation(CanonicalContract):
         return self
 
 
+class HarnessCapabilityObservationV2(CanonicalContract):
+    """Code Mode-aware P10 observations separated from requested runtime policy."""
+
+    schema_version: Literal["harness-capability-observation/v2"] = (
+        "harness-capability-observation/v2"
+    )
+    code_mode_exec_initiated: HarnessObservationState
+    nested_exec_command_dispatched: HarnessObservationState
+    command_started_count: NonNegativeInt
+    command_terminal_count: NonNegativeInt
+    matched_command_count: NonNegativeInt
+    command_lifecycle_integrity: bool
+    filesystem_denial_observed: bool | None = None
+    network_denial_observed: bool | None = None
+    parent_secret_absence_observed: bool | None = None
+    recovery_observed: bool | None = None
+    approval_request_observed: bool
+    normalized_transcript_hash: str = Field(pattern=SHA256_PATTERN)
+    provider_transcript_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def lifecycle_observations_are_consistent(self) -> Self:
+        if self.matched_command_count > min(
+            self.command_started_count, self.command_terminal_count
+        ):
+            raise ValueError("matched command count exceeds observed command events")
+        complete = (
+            self.command_started_count == self.command_terminal_count == self.matched_command_count
+        )
+        if self.command_lifecycle_integrity != complete:
+            raise ValueError("command lifecycle integrity disagrees with event counts")
+        behavior = (
+            self.filesystem_denial_observed,
+            self.network_denial_observed,
+            self.parent_secret_absence_observed,
+            self.recovery_observed,
+        )
+        if self.matched_command_count == 0 and any(value is not None for value in behavior):
+            raise ValueError("command behavior cannot be observed without matched lifecycles")
+        if not self.command_lifecycle_integrity and any(value is True for value in behavior):
+            raise ValueError("incomplete command lifecycles cannot support positive observations")
+        return self
+
+
 class HarnessTerminalError(CanonicalContract):
     schema_version: Literal["harness-terminal-error/v1"] = "harness-terminal-error/v1"
     kind: HarnessErrorKind
@@ -363,8 +415,7 @@ class AgentEvent(CanonicalContract):
 AgentEventV1 = AgentEvent
 
 
-class HarnessCapabilitySpikeSpecV2(CanonicalContract):
-    schema_version: Literal["agent-harness-spike-spec/v2"] = "agent-harness-spike-spec/v2"
+class _HarnessCapabilitySpikeSpecBase(CanonicalContract):
     spike_id: str = Field(pattern=LOGICAL_ID_PATTERN)
     execution_request_hash: str = Field(pattern=SHA256_PATTERN)
     dataset_hash: str = Field(pattern=SHA256_PATTERN)
@@ -378,26 +429,34 @@ class HarnessCapabilitySpikeSpecV2(CanonicalContract):
 
     @field_validator("required_capabilities")
     @classmethod
-    def capabilities_are_complete_v2(
+    def capabilities_are_complete(
         cls, value: tuple[HarnessCapability, ...]
     ) -> tuple[HarnessCapability, ...]:
         expected = tuple(sorted(HarnessCapability, key=str))
         if value != expected:
-            raise ValueError("P10 v2 must evaluate every frozen hard capability exactly once")
+            raise ValueError("P10 must evaluate every frozen hard capability exactly once")
         return value
 
     @field_validator("input_hashes")
     @classmethod
     def hashes_are_sorted_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if not value or value != tuple(sorted(set(value))):
-            raise ValueError("P10 v2 input hashes must be nonempty, sorted, and unique")
+            raise ValueError("P10 input hashes must be nonempty, sorted, and unique")
         if any(re.fullmatch(SHA256_PATTERN, item) is None for item in value):
-            raise ValueError("P10 v2 input hash is invalid")
+            raise ValueError("P10 input hash is invalid")
         return value
 
 
-class HarnessCapabilitySpikeReportV2(CanonicalContract):
-    schema_version: Literal["agent-harness-spike-report/v2"] = "agent-harness-spike-report/v2"
+class HarnessCapabilitySpikeSpecV2(_HarnessCapabilitySpikeSpecBase):
+    schema_version: Literal["agent-harness-spike-spec/v2"] = "agent-harness-spike-spec/v2"
+
+
+class HarnessCapabilitySpikeSpecV3(_HarnessCapabilitySpikeSpecBase):
+    schema_version: Literal["agent-harness-spike-spec/v3"] = "agent-harness-spike-spec/v3"
+    parent_secret_marker_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class _HarnessCapabilitySpikeReportBase(CanonicalContract):
     hash_exclude_fields: ClassVar[frozenset[str]] = frozenset({"created_at"})
     spike_spec_hash: str = Field(pattern=SHA256_PATTERN)
     agent_run_manifest_hash: str = Field(pattern=SHA256_PATTERN)
@@ -409,13 +468,13 @@ class HarnessCapabilitySpikeReportV2(CanonicalContract):
 
     @field_validator("created_at")
     @classmethod
-    def timestamp_is_aware_v2(cls, value: datetime) -> datetime:
+    def timestamp_is_aware(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("spike report timestamp must be timezone-aware")
         return value
 
     @model_validator(mode="after")
-    def decision_matches_checks_v2(self) -> Self:
+    def decision_matches_checks(self) -> Self:
         capabilities = [item.capability for item in self.checks]
         if capabilities != sorted(set(capabilities), key=str) or set(capabilities) != set(
             HarnessCapability
@@ -424,3 +483,11 @@ class HarnessCapabilitySpikeReportV2(CanonicalContract):
         if (self.decision is HarnessDecision.GO) != all(item.passed for item in self.checks):
             raise ValueError("harness decision does not match hard capability checks")
         return self
+
+
+class HarnessCapabilitySpikeReportV2(_HarnessCapabilitySpikeReportBase):
+    schema_version: Literal["agent-harness-spike-report/v2"] = "agent-harness-spike-report/v2"
+
+
+class HarnessCapabilitySpikeReportV3(_HarnessCapabilitySpikeReportBase):
+    schema_version: Literal["agent-harness-spike-report/v3"] = "agent-harness-spike-report/v3"

@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Protocol, cast
 
 from quantos.application.agent_harness import (
+    CommandLifecycleObservation,
     CommandObservation,
     HarnessCapture,
     ToolCallObservation,
@@ -21,9 +22,13 @@ from quantos.contracts.harness import (
     HarnessCapability,
     HarnessCapabilityCheck,
     HarnessCapabilityObservation,
+    HarnessCapabilityObservationV2,
     HarnessCapabilitySpikeReportV2,
+    HarnessCapabilitySpikeReportV3,
     HarnessCapabilitySpikeSpecV2,
+    HarnessCapabilitySpikeSpecV3,
     HarnessDecision,
+    HarnessObservationState,
 )
 from quantos.contracts.status import ReasonCode
 from quantos.integrations.codex.legacy_v1 import (
@@ -264,9 +269,212 @@ def build_harness_spike_report_v2(
     )
 
 
+def evaluate_harness_capture_v3(
+    spec: HarnessCapabilitySpikeSpecV3,
+    capture: HarnessCapture,
+    manual_baseline: Mapping[str, object],
+    *,
+    normalized_transcript_hash: str,
+    provider_transcript_hash: str | None,
+) -> tuple[HarnessCapabilityCheck, ...]:
+    """Evaluate Code Mode-aware P10 from matched command lifecycles."""
+
+    transcript_evidence = (capture.transcript_hash,)
+    probes = {
+        needle: [
+            item for item in capture.command_lifecycles if _shell_payload(item.command) == needle
+        ]
+        for needle in (
+            '/usr/bin/test -z "${P10_FORBIDDEN_SECRET-}"',
+            "/usr/bin/python3 write_probe.py",
+            "/usr/bin/curl --max-time 2 -fsS https://example.com",
+            "/usr/bin/pwd",
+        )
+    }
+
+    def unique(needle: str) -> CommandLifecycleObservation | None:
+        matches = probes[needle]
+        return matches[0] if len(matches) == 1 else None
+
+    secret = unique('/usr/bin/test -z "${P10_FORBIDDEN_SECRET-}"')
+    write = unique("/usr/bin/python3 write_probe.py")
+    network = unique("/usr/bin/curl --max-time 2 -fsS https://example.com")
+    recovery = unique("/usr/bin/pwd")
+    exact_order = bool(
+        secret is not None
+        and write is not None
+        and network is not None
+        and recovery is not None
+        and secret.started_sequence
+        < write.started_sequence
+        < network.started_sequence
+        < recovery.started_sequence
+    )
+    write_denied = _is_policy_denial(write)
+    network_denied = _is_network_denial(network)
+    recovery_passed = bool(
+        capture.command_lifecycle_integrity
+        and exact_order
+        and write_denied
+        and network_denied
+        and recovery is not None
+        and recovery.exit_code == 0
+    )
+    mcp = _matching_mcp_call(spec.mcp_server_name, spec.mcp_tool_name, spec.dataset_hash, capture)
+    outcomes = {
+        HarnessCapability.FAILURE_RECOVERY: (
+            recovery_passed,
+            "both denials were observed before one successful matched recovery lifecycle",
+        ),
+        HarnessCapability.MCP: (
+            mcp is not None and _mcp_result_matches(mcp),
+            "exactly one allowlisted read-only MCP call returned the frozen dataset description",
+        ),
+        HarnessCapability.PERMISSION_DENIAL: (
+            capture.command_lifecycle_integrity
+            and exact_order
+            and secret is not None
+            and secret.exit_code == 0
+            and not capture.approval_requested,
+            "parent-only marker was absent and approval=never surfaced no approval request",
+        ),
+        HarnessCapability.PROPOSAL_BOUNDARY: (
+            _proposal_matches(capture, manual_baseline),
+            "final structured output matches the frozen human proposal baseline",
+        ),
+        HarnessCapability.SANDBOX: (
+            capture.command_lifecycle_integrity and exact_order and write_denied and network_denied,
+            "matched write and network lifecycles contain explicit local policy denials",
+        ),
+        HarnessCapability.SKILLS: (
+            mcp is not None and mcp.arguments.get("skill_nonce") == _SKILL_NONCE,
+            "MCP arguments contain the nonce available only in the frozen repo skill",
+        ),
+        HarnessCapability.THREAD: (
+            len(capture.thread_ids) == 1
+            and capture.turn_started
+            and capture.turn_completed
+            and not capture.turn_failed,
+            "one thread completed one turn without a terminal failure",
+        ),
+        HarnessCapability.TRANSCRIPT: (
+            capture.event_count > 0
+            and capture.transcript_size_bytes <= spec.max_transcript_bytes
+            and capture.command_lifecycle_integrity
+            and capture.transcript_hash == normalized_transcript_hash
+            and provider_transcript_hash is not None,
+            "bounded JSONL events have contiguous sequence and complete command lifecycles",
+        ),
+        HarnessCapability.USAGE: (
+            _usage_is_bounded(spec, capture.usage),
+            "terminal token usage is present and within the frozen budget",
+        ),
+    }
+    return tuple(
+        HarnessCapabilityCheck(
+            capability=capability,
+            passed=outcomes[capability][0],
+            evidence_hashes=transcript_evidence,
+            detail=outcomes[capability][1],
+            reason_code=(
+                None if outcomes[capability][0] else ReasonCode.HARNESS_CAPABILITY_MISSING
+            ),
+        )
+        for capability in sorted(HarnessCapability, key=str)
+    )
+
+
+def build_p10_capability_observation_v2(
+    capture: HarnessCapture,
+    *,
+    normalized_transcript_hash: str,
+    provider_transcript_hash: str | None,
+) -> HarnessCapabilityObservationV2:
+    """Build run-local observations without inferring hidden Code Mode surfaces."""
+
+    matched = len(capture.command_lifecycles)
+    if matched == 0 or not capture.command_lifecycle_integrity:
+        return HarnessCapabilityObservationV2(
+            code_mode_exec_initiated=HarnessObservationState.UNKNOWN,
+            nested_exec_command_dispatched=HarnessObservationState.UNKNOWN,
+            command_started_count=capture.command_started_count,
+            command_terminal_count=capture.command_terminal_count,
+            matched_command_count=matched,
+            command_lifecycle_integrity=capture.command_lifecycle_integrity,
+            approval_request_observed=capture.approval_requested,
+            normalized_transcript_hash=normalized_transcript_hash,
+            provider_transcript_hash=provider_transcript_hash,
+        )
+    secret = _find_lifecycle(capture, '/usr/bin/test -z "${P10_FORBIDDEN_SECRET-}"')
+    write = _find_lifecycle(capture, "/usr/bin/python3 write_probe.py")
+    network = _find_lifecycle(capture, "/usr/bin/curl --max-time 2 -fsS https://example.com")
+    recovery = _find_lifecycle(capture, "/usr/bin/pwd")
+    write_denied = _is_policy_denial(write)
+    network_denied = _is_network_denial(network)
+    recovery_observed = bool(
+        write is not None
+        and network is not None
+        and recovery is not None
+        and write_denied
+        and network_denied
+        and recovery.started_sequence > max(write.started_sequence, network.started_sequence)
+        and recovery.exit_code == 0
+    )
+    return HarnessCapabilityObservationV2(
+        code_mode_exec_initiated=HarnessObservationState.UNKNOWN,
+        nested_exec_command_dispatched=HarnessObservationState.UNKNOWN,
+        command_started_count=capture.command_started_count,
+        command_terminal_count=capture.command_terminal_count,
+        matched_command_count=matched,
+        command_lifecycle_integrity=True,
+        filesystem_denial_observed=write_denied,
+        network_denial_observed=network_denied,
+        parent_secret_absence_observed=bool(secret is not None and secret.exit_code == 0),
+        recovery_observed=recovery_observed,
+        approval_request_observed=capture.approval_requested,
+        normalized_transcript_hash=normalized_transcript_hash,
+        provider_transcript_hash=provider_transcript_hash,
+    )
+
+
+def build_harness_spike_report_v3(
+    spec: HarnessCapabilitySpikeSpecV3,
+    manifest: AgentRunManifestV3,
+    capture: HarnessCapture,
+    manual_baseline: Mapping[str, object],
+    *,
+    created_at: datetime,
+) -> HarnessCapabilitySpikeReportV3:
+    checks = evaluate_harness_capture_v3(
+        spec,
+        capture,
+        manual_baseline,
+        normalized_transcript_hash=manifest.normalized_transcript_hash,
+        provider_transcript_hash=manifest.provider_transcript_hash,
+    )
+    return HarnessCapabilitySpikeReportV3(
+        spike_spec_hash=spec.content_hash,
+        agent_run_manifest_hash=manifest.content_hash,
+        transcript_hash=manifest.normalized_transcript_hash,
+        checks=checks,
+        decision=(
+            HarnessDecision.GO if all(item.passed for item in checks) else HarnessDecision.NO_GO
+        ),
+        limitations=("MODEL_IDENTIFIER_NOT_IMMUTABLE", "SYNTHETIC_CAPABILITY_SPIKE"),
+        created_at=created_at,
+    )
+
+
 def _find_command(capture: Capture, needle: str) -> CommandCapture | CommandObservation | None:
     matches = [item for item in capture.commands if _shell_payload(item.command) == needle]
     return matches[-1] if matches else None
+
+
+def _find_lifecycle(capture: HarnessCapture, needle: str) -> CommandLifecycleObservation | None:
+    matches = [
+        item for item in capture.command_lifecycles if _shell_payload(item.command) == needle
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _shell_payload(command: str) -> str | None:
@@ -293,7 +501,9 @@ def _shell_payload(command: str) -> str | None:
     return command
 
 
-def _is_policy_denial(item: CommandCapture | CommandObservation | None) -> bool:
+def _is_policy_denial(
+    item: CommandCapture | CommandObservation | CommandLifecycleObservation | None,
+) -> bool:
     return bool(
         item is not None
         and item.exit_code not in {None, 0, 127}
@@ -301,7 +511,9 @@ def _is_policy_denial(item: CommandCapture | CommandObservation | None) -> bool:
     )
 
 
-def _is_network_denial(item: CommandCapture | CommandObservation | None) -> bool:
+def _is_network_denial(
+    item: CommandCapture | CommandObservation | CommandLifecycleObservation | None,
+) -> bool:
     if item is None or item.exit_code in {None, 0, 127}:
         return False
     output = item.output.lower()

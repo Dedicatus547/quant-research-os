@@ -30,7 +30,26 @@ class CommandObservation:
     command: str
     output: str
     exit_code: int | None
+    provider_status: str
+    item_id: str | None
+    thread_id: str | None
+    turn_id: str | None
     event_hash: str
+
+
+@dataclass(frozen=True)
+class CommandLifecycleObservation:
+    item_id: str
+    thread_id: str
+    turn_id: str
+    command: str
+    started_sequence: int
+    terminal_sequence: int
+    provider_status: str
+    output: str
+    exit_code: int | None
+    started_event_hash: str
+    terminal_event_hash: str
 
 
 @dataclass(frozen=True)
@@ -58,6 +77,10 @@ class HarnessCapture:
     turn_completed: bool
     turn_failed: bool
     commands: tuple[CommandObservation, ...]
+    command_started_count: int
+    command_terminal_count: int
+    command_lifecycles: tuple[CommandLifecycleObservation, ...]
+    command_lifecycle_integrity: bool
     tool_calls: tuple[ToolCallObservation, ...]
     agent_messages: tuple[str, ...]
     usage: Mapping[str, int]
@@ -168,8 +191,10 @@ def capture_from_agent_events(events: tuple[AgentEvent, ...], *, max_bytes: int)
         raise HarnessCaptureError("normalized transcript exceeds its bound")
 
     commands: list[CommandObservation] = []
+    command_starts: list[tuple[int, str, str | None, str | None, str | None, str]] = []
     tools: list[ToolCallObservation] = []
     thread_ids: list[str] = []
+    turn_contexts: list[tuple[str, str]] = []
     messages: list[str] = []
     usage: dict[str, int] = {}
     turn_started = False
@@ -189,24 +214,60 @@ def capture_from_agent_events(events: tuple[AgentEvent, ...], *, max_bytes: int)
             thread_ids.append(thread_id)
         elif event.kind is AgentEventKind.TURN_STARTED:
             turn_started = True
+            context = _turn_context(payload)
+            if context is not None:
+                turn_contexts.append(context)
         elif event.kind is AgentEventKind.TURN_COMPLETED:
             turn_completed = True
+            context = _turn_context(payload)
+            if context is not None:
+                turn_contexts.append(context)
         elif event.kind is AgentEventKind.TURN_FAILED:
             turn_failed = True
+            context = _turn_context(payload)
+            if context is not None:
+                turn_contexts.append(context)
         elif event.kind is AgentEventKind.APPROVAL_REQUESTED:
             approval_requested = True
+        elif event.kind is AgentEventKind.COMMAND_STARTED:
+            command = payload.get("command")
+            status = payload.get("status")
+            if not isinstance(command, str) or not isinstance(status, str):
+                raise HarnessCaptureError("command start event is invalid")
+            command_starts.append(
+                (
+                    event.sequence,
+                    command,
+                    _optional_string(payload.get("item_id")),
+                    _optional_string(payload.get("thread_id")),
+                    _optional_string(payload.get("turn_id")),
+                    event_hash,
+                )
+            )
         elif event.kind in {AgentEventKind.COMMAND_COMPLETED, AgentEventKind.COMMAND_FAILED}:
             command = payload.get("command")
             output = payload.get("output", "")
             exit_code = payload.get("exit_code")
+            status = payload.get("status")
             if (
                 not isinstance(command, str)
                 or not isinstance(output, str)
                 or (exit_code is not None and not isinstance(exit_code, int))
+                or not isinstance(status, str)
             ):
                 raise HarnessCaptureError("command event is invalid")
             commands.append(
-                CommandObservation(event.sequence, command, output, exit_code, event_hash)
+                CommandObservation(
+                    sequence=event.sequence,
+                    command=command,
+                    output=output,
+                    exit_code=exit_code,
+                    provider_status=status,
+                    item_id=_optional_string(payload.get("item_id")),
+                    thread_id=_optional_string(payload.get("thread_id")),
+                    turn_id=_optional_string(payload.get("turn_id")),
+                    event_hash=event_hash,
+                )
             )
         elif event.kind in {AgentEventKind.TOOL_COMPLETED, AgentEventKind.TOOL_FAILED}:
             server = payload.get("server")
@@ -259,6 +320,12 @@ def capture_from_agent_events(events: tuple[AgentEvent, ...], *, max_bytes: int)
                 raise HarnessCaptureError("usage event is invalid")
             usage = cast(dict[str, int], candidate)
 
+    lifecycles, lifecycle_integrity = _command_lifecycles(
+        command_starts,
+        commands,
+        thread_ids=thread_ids,
+        turn_contexts=turn_contexts,
+    )
     return HarnessCapture(
         attempt_index=attempt_index,
         transcript=transcript,
@@ -271,6 +338,10 @@ def capture_from_agent_events(events: tuple[AgentEvent, ...], *, max_bytes: int)
         turn_completed=turn_completed,
         turn_failed=turn_failed,
         commands=tuple(commands),
+        command_started_count=len(command_starts),
+        command_terminal_count=len(commands),
+        command_lifecycles=lifecycles,
+        command_lifecycle_integrity=lifecycle_integrity,
         tool_calls=tuple(tools),
         agent_messages=tuple(messages),
         usage=usage,
@@ -301,3 +372,77 @@ def _string_mapping(value: dict[object, object], *, label: str) -> Mapping[str, 
     if not all(isinstance(key, str) for key in mapping):
         raise HarnessCaptureError(f"{label} is invalid")
     return cast(Mapping[str, object], mapping)
+
+
+def _optional_string(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _turn_context(payload: Mapping[str, object]) -> tuple[str, str] | None:
+    thread_id = _optional_string(payload.get("thread_id"))
+    turn_id = _optional_string(payload.get("turn_id"))
+    return (thread_id, turn_id) if thread_id is not None and turn_id is not None else None
+
+
+def _command_lifecycles(
+    starts: list[tuple[int, str, str | None, str | None, str | None, str]],
+    terminals: list[CommandObservation],
+    *,
+    thread_ids: list[str],
+    turn_contexts: list[tuple[str, str]],
+) -> tuple[tuple[CommandLifecycleObservation, ...], bool]:
+    if not starts and not terminals:
+        return (), True
+    if any(item[2] is None or item[3] is None or item[4] is None for item in starts) or any(
+        item.item_id is None or item.thread_id is None or item.turn_id is None for item in terminals
+    ):
+        return (), False
+    starts_by_id: dict[str, tuple[int, str, str, str, str, str]] = {}
+    terminals_by_id: dict[str, CommandObservation] = {}
+    for sequence, command, item_id, thread_id, turn_id, event_hash in starts:
+        assert item_id is not None and thread_id is not None and turn_id is not None
+        if item_id in starts_by_id:
+            return (), False
+        starts_by_id[item_id] = (sequence, command, item_id, thread_id, turn_id, event_hash)
+    for terminal in terminals:
+        assert terminal.item_id is not None
+        if terminal.item_id in terminals_by_id:
+            return (), False
+        terminals_by_id[terminal.item_id] = terminal
+    if starts_by_id.keys() != terminals_by_id.keys():
+        return (), False
+    expected_threads = set(thread_ids)
+    expected_turns = set(turn_contexts)
+    if len(expected_threads) != 1 or len(expected_turns) != 1:
+        return (), False
+    expected_thread = next(iter(expected_threads))
+    expected_turn = next(iter(expected_turns))
+    lifecycles: list[CommandLifecycleObservation] = []
+    for item_id, start in starts_by_id.items():
+        sequence, command, _, thread_id, turn_id, started_hash = start
+        terminal = terminals_by_id[item_id]
+        if (
+            terminal.sequence <= sequence
+            or terminal.command != command
+            or terminal.thread_id != thread_id
+            or terminal.turn_id != turn_id
+            or thread_id != expected_thread
+            or (thread_id, turn_id) != expected_turn
+        ):
+            return (), False
+        lifecycles.append(
+            CommandLifecycleObservation(
+                item_id=item_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                command=command,
+                started_sequence=sequence,
+                terminal_sequence=terminal.sequence,
+                provider_status=terminal.provider_status,
+                output=terminal.output,
+                exit_code=terminal.exit_code,
+                started_event_hash=started_hash,
+                terminal_event_hash=terminal.event_hash,
+            )
+        )
+    return tuple(sorted(lifecycles, key=lambda item: item.started_sequence)), True

@@ -16,7 +16,8 @@ does not read, copy, print, or persist credentials. User config, plugins and glo
 are absent from that home.
 
 Provider notifications are retained separately and normalized fail-closed into
-`quantos-agent-event/v1`. New runs use v3 provenance. It binds the SDK distribution/version,
+`quantos-agent-event/v1`; the normalizer implementation identity is now
+`quantos-codex-normalizer/v2` because command correlation is retained. New runs use v3 provenance. It binds the SDK distribution/version,
 bundled runtime distribution/reported version/binary hash, normalizer identity/hash, every attempt,
 aggregate usage, stable terminal errors, capability observation, normalized transcript, and either
 a provider-transcript hash or a non-retention reason. Failed attempts cannot carry a proposal hash.
@@ -122,3 +123,17 @@ This narrows the earlier issue: there is no general failure of the pinned Code M
 historical natural-language P10 execution contract or attest sandbox, denial, and recovery behavior.
 FR-03 therefore remains `NO_GO`; P10 remains 9/9, P10/P13 were not rerun, and the 0.154.0 lock is
 unchanged.
+
+## 2026-09-22 Code Mode-aware P10 qualification
+
+The P10 fixture and evaluator now require model-visible Code Mode `exec`, nested awaited
+`tools.exec_command`, exact probe cardinality/order, and matched command start/terminal identities.
+The v3 artifact path retains provider and normalized transcripts and verifies the full bundle
+bottom-up without authentication, network, or a model call.
+
+The corrected canonical live run completed the turn but emitted zero command starts and terminals.
+Outer Code Mode initiation and nested dispatch therefore remain `UNKNOWN`; `SANDBOX`,
+`PERMISSION_DENIAL`, and `FAILURE_RECOVERY` fail for missing run-local evidence. Report
+`c5f8f53fccb844e5b87ea6888385bed63677c1d7403772845933c72d9787a1fc` is `6/9`,
+`LIVE_EXEC_NOT_OBSERVED`, and `NO_GO`, and passed offline replay. P13 was not run and the hard 9/9
+gate was not relaxed.

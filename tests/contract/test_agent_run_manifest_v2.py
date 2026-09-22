@@ -69,6 +69,7 @@ def test_v2_manifest_binds_runtime_attempt_and_transcript_identity() -> None:
     assert manifest.attempts[0].produced_proposal_hash == HASH
     assert manifest.usage == manifest.aggregate_usage
     assert manifest.provider_transcript_retention_reason is None
+    assert manifest.normalizer_identifier == "quantos-codex-normalizer/v1"
 
 
 def test_v2_manifest_rejects_fabricated_success_and_usage() -> None:
