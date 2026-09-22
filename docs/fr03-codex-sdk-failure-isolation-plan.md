@@ -1,6 +1,6 @@
 # QuantOS FR-03 Codex SDK 失败隔离与实施计划
 
-> 更新日期：2026-09-21
+> 更新日期：2026-09-22
 > 范围：P10/P13 Codex SDK harness
 > FR-03 状态：`NO_GO`
 > 冻结 SDK/runtime：`openai-codex==0.154.0` / bundled app-server `0.154.0`
@@ -31,14 +31,21 @@ policy。当前证据只支持以下结论：
     `CodeModeOnly + Responses Lite + unified_exec`；旧 D0 的 direct-shell surface 假设不完整。
 11. 无凭据 loopback preflight 在两版均通过；B1 首个 request 的顶层 `tools` absent，而
     `additional_tools` namespace 子工具明确包含 model-visible `exec` / `wait`。
-12. 两版 scripted `exec` 都回传了相同 call id 的第二次 tool-output request，但 public event
-    stream 没有 `commandExecution`，且不暴露 host invocation/nested dispatch，所以 B1 均为
-    `INCONCLUSIVE`，不能宣称 nested command 已执行或 lifecycle 缺失。
+12. 历史 B1 的 scripted `exec` 只证明了相同 call id 的第二次 tool-output request，因此当时的
+    `INCONCLUSIVE` 判定仍是正确的；它没有使用 upstream exact-tag marker/result 断言，也没有
+    启用 executed-tool metadata。
 13. 0.154.0 live D0.7C turn completed、command count 为 0；因 raw live HTTP 不保留，分类仅为
     `LIVE_EXEC_NOT_OBSERVED`，不能归因于 provider defect。
+14. 0.154.0 D0.7B1+ 使用 upstream 同型固定 marker，第二次 request 的安全投影机械证明 nested
+    result 存在、输出精确匹配、exit 0、chunk id 非空，并以 executed-tool metadata 将一个精确
+    `exec_command` 调用绑定到 outer `exec` call。
+15. 同一次 B1+ 捕获到一组引用完整、成功完成的 `commandExecution` lifecycle；事件在
+    `turn/completed` 前到达，bounded post-terminal drain 中没有新增 command event。最终分类为
+    `CODE_MODE_CHAIN_AVAILABLE`。
 
-FR-03 保持 `NO_GO`。D0.7 结果作为非权威诊断证据保留；在 public/structured surface 能证明
-nested dispatch 和 command lifecycle 前，不重跑完整 P10，也不降低任何 hard gate。
+FR-03 保持 `NO_GO`。D0.7 结果作为非权威诊断证据保留；B1+ 已关闭 nested dispatch 和 command
+lifecycle 的机械证据缺口，但本次范围明确不重跑完整 P10。后续 CodeMode-aware P10 仍必须满足
+原 9/9 hard gate，才能继续 P13 或改变 FR-03 决策。
 
 ## 2. 已落地的工程修正
 
@@ -224,8 +231,8 @@ D0.6 实施与完整边界见
 
 | version | source | loopback preflight | deterministic chain | live |
 |---|---|---|---|---|
-| 0.154.0 | `ARCHITECTURE_CHARACTERIZED` (`0b21e05e...f047f46c`) | `SHADOW_PROVIDER_PREFLIGHT_AVAILABLE` (`dd4abe0f...4fed97d6`) | `INCONCLUSIVE` (`df0c69c4...a7d99c79`) | `LIVE_EXEC_NOT_OBSERVED` (`7da8cf78...74fbc1ab`) |
-| 0.155.1 candidate | `ARCHITECTURE_CHARACTERIZED` (`41e76a96...fdf14a96`) | `SHADOW_PROVIDER_PREFLIGHT_AVAILABLE` (`1dc124a5...76b88c0`) | `INCONCLUSIVE` (`5378e069...45ea34b`) | not run |
+| 0.154.0 | `ARCHITECTURE_CHARACTERIZED` (`19dd2bc8...a60c5d8`) | `SHADOW_PROVIDER_PREFLIGHT_AVAILABLE` (`dd4abe0f...4fed97d6`) | `CODE_MODE_CHAIN_AVAILABLE` B1+ (`9c20e6c5...f4ecca64`) | `LIVE_EXEC_NOT_OBSERVED` (`7da8cf78...74fbc1ab`) |
+| 0.155.1 candidate | `ARCHITECTURE_CHARACTERIZED` (`121e7fc0...c3cb7655`) | historical `SHADOW_PROVIDER_PREFLIGHT_AVAILABLE` (`1dc124a5...76b88c0`) | historical `INCONCLUSIVE` (`5378e069...45ea34b`); B1+ not rerun | not run |
 
 所有 bundle 都通过 `--verify-d07-bundle` 离线重算。source 绑定 tag object、peeled commit、
 archive/file hash 与 parser identity；runtime 绑定 SDK/runtime/app-server version、binary hash，
@@ -233,9 +240,11 @@ archive/file hash 与 parser identity；runtime 绑定 SDK/runtime/app-server ve
 `auth.json` 的临时 `CODEX_HOME` 和拒绝认证头的 loopback-only server；raw request 仅在内存中
 生成白名单投影后丢弃。
 
-B1 已证明 model-visible `exec` 和 scripted call 的 protocol roundtrip，但没有证明
-`tools.exec_command` dispatch。没有 command event 时 L4/L5 为 `UNKNOWN`，不能借 assistant/tool
-output 文本推断执行。完整设计、实现命令、artifact contract 与限制见
+B1+ 已证明 model-visible `exec`、scripted call roundtrip、固定 marker 的结构化 result 和
+executed-tool metadata 绑定；L4/L5 均为 `OBSERVED_TRUE`，并有完整 `commandExecution` lifecycle。
+第二次 Responses request 只保留 allowlisted 结构化投影，不保留未经审查的 raw output。raw runner
+在 terminal 后继续进行 250 ms quiet window、最多 1 s 的 bounded drain，并允许合法的 late item
+events。完整设计、实现命令、artifact contract 与限制见
 [`fr03-d07-codex-sdk-test.md`](fr03-d07-codex-sdk-test.md)。
 
 ## 4. 0.154.0 冻结与执行门

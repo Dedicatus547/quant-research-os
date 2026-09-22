@@ -1,6 +1,6 @@
 # ADR-0002: Official Codex Python SDK execution boundary
 
-Status: implemented, qualification **NO_GO**; amended 2026-09-18.
+Status: implemented, qualification **NO_GO**; amended 2026-09-22.
 
 ## Decision
 
@@ -99,3 +99,26 @@ The gap therefore reproduces without the Python SDK high-level thread/turn wrapp
 not required for this observation. This does not fully exclude independent SDK-path defects and
 does not attest or falsify the effective sandbox policy. FR-03 remains `NO_GO`, and the canonical
 dependency lock remains at 0.154.0.
+
+## 2026-09-22 D0.7B1+ Code Mode chain qualification
+
+The pinned 0.154.0 exact-tag test shape was replayed through a credential-free loopback Responses
+provider using the fixed command `printf QUANTOS_D07_NESTED_EXEC_OK`. The controlled shadow variant
+explicitly enabled `executed_tool_call_metadata`. Exact source shows that internal executed-tool
+metadata is cleared for non-OpenAI provider names, so this variant used the recognized provider name
+`OpenAI` while retaining a loopback-only endpoint, `requires_openai_auth=false`, and rejection of all
+authentication headers.
+
+The retained second-request projection contains no unreviewed raw output. It mechanically validates
+the nested result, exact marker, exit 0, nonempty chunk id, and one exact-argument `exec_command`
+metadata entry bound to the outer `exec` call. The app-server stream also contained one matched
+successful `commandExecution` start/completion before `turn/completed`; a 250 ms quiet-window / 1 s
+deadline post-terminal drain observed no later events. Offline replay of bundle
+`9c20e6c572d8610a340e68b1ee92911f745a1214f4b97c0eb07d96f2f4ecca64` recomputes
+`CODE_MODE_CHAIN_AVAILABLE`.
+
+This narrows the earlier issue: there is no general failure of the pinned Code Mode host, nested
+`exec_command`, or app-server command lifecycle on this deterministic path. It does not qualify the
+historical natural-language P10 execution contract or attest sandbox, denial, and recovery behavior.
+FR-03 therefore remains `NO_GO`; P10 remains 9/9, P10/P13 were not rerun, and the 0.154.0 lock is
+unchanged.

@@ -1,6 +1,6 @@
 # FR-03 Codex SDK qualification
 
-Date: 2026-09-21
+Date: 2026-09-22
 
 Frozen SDK/runtime: `openai-codex==0.154.0` / bundled app-server `0.154.0`
 
@@ -25,9 +25,9 @@ Decision: **NO_GO**
 | Candidate 0.155.1 D0 shell matrix | **OBSERVABILITY_GAP** | aggregate matrix `87ad91ae...f577` passed offline verification; the same four completed variants all had zero raw `commandExecution` events |
 | D0.6 raw app-server thread matrix | **RAW_THREAD_OBSERVABILITY_GAP** | 0.154.0 matrix `80715924...947d7` bypassed the SDK high-level thread/turn wrapper; all four turns completed with zero command invocations and passed offline verification |
 | Candidate 0.155.1 D0.6 raw matrix | **RAW_THREAD_OBSERVABILITY_GAP** | temporary-overlay matrix `af78f1e7...0b438` produced the same four completed zero-command observations and passed offline verification |
-| D0.7 exact-source architecture | PASS | exact 0.154.0/0.155.1 tags establish `gpt-5.6-sol = CodeModeOnly + Responses Lite + unified_exec`; source bundles `0b21e05e...f047f46c` / `41e76a96...fdf14a96` passed offline replay |
+| D0.7 exact-source architecture | PASS | exact 0.154.0/0.155.1 tags establish `gpt-5.6-sol = CodeModeOnly + Responses Lite + unified_exec`; refreshed source bundles `19dd2bc8...a60c5d8` / `121e7fc0...c3cb7655` also bind the provider-name metadata stripping gate |
 | D0.7 shadow provider preflight | PASS | credential-free loopback injection completed exactly one fixed request/response on both versions; bundles `dd4abe0f...4fed97d6` / `1dc124a5...76b88c0` verified |
-| D0.7 deterministic Code Mode chain | **INCONCLUSIVE** | both versions exposed `exec`/`wait` under Responses Lite `additional_tools` and round-tripped the scripted call id, but retained public events contained no `commandExecution` and do not expose host/nested dispatch; bundles `df0c69c4...a7d99c79` / `5378e069...45ea34b` verified |
+| D0.7 deterministic Code Mode chain B1+ | **CODE_MODE_CHAIN_AVAILABLE** | pinned 0.154.0 bundle `9c20e6c5...f4ecca64` binds the outer `exec` call to one executed-tool metadata entry for exact nested `exec_command` arguments, validates exact fixed-marker output/exit 0/nonempty chunk id, and observes one matched successful `commandExecution` lifecycle; post-terminal command-event count is 0 |
 | D0.7 live observation | **LIVE_EXEC_NOT_OBSERVED** | 0.154.0 live turn completed with zero command events; raw live HTTP was intentionally not retained, so model-visible exec remains unknown; bundle `7da8cf78...74fbc1ab` verified |
 | Exact dependency lock | PASS | `pyproject.toml` and `uv.lock` fix SDK and bundled runtime packages at 0.154.0 |
 
@@ -56,8 +56,9 @@ Both were 6/9 and failed the same three capabilities.
   content-addressed bundles, and model-free matrix replay verification;
 - D0.7 exact-release parser, credential-free loopback Responses server, Responses Lite namespace-aware
   request projection, packaged Code Mode host ownership/architecture binding, four-valued pipeline
-  observations, deterministic scripted SSE chain, live safe projection, content-addressed publication,
-  secret scanning and bottom-up offline replay verification;
+  observations, upstream-shaped deterministic scripted SSE chain, safe nested-result and executed-tool
+  metadata projection, bounded post-terminal drain, content-addressed publication, secret scanning and
+  bottom-up offline replay verification;
 - offline contract, normalization, replay and regression coverage.
 
 New runs now use v3 provenance, bind the bundled runtime binary hash, retain a separate capability
@@ -65,11 +66,11 @@ observation, and leave effective policy unattested unless runtime evidence suppo
 v2 artifacts remain replayable. No rubric was weakened and no SDK result is represented as the
 historical v1 CLI format. D0.7 invalidates the old assumption that direct shell exposure is the
 relevant model surface: exact source and shadow request evidence show Responses Lite
-`additional_tools` contains model-visible Code Mode `exec`. However, the retained surface cannot
-mechanically prove nested `tools.exec_command` dispatch or a command lifecycle, and the live run again
-observed zero command events. A CodeMode-aware P10 must not run until that evidence boundary is closed;
-P10 still requires 9/9 before P13 live qualification or FR-03 Go. No sandbox policy is attested by
-the D0.7 result.
+`additional_tools` contains model-visible Code Mode `exec`. D0.7B1+ now mechanically proves nested
+`tools.exec_command` dispatch and its successful command lifecycle on the controlled 0.154.0 path.
+This invalidates a general Code Mode/app-server lifecycle defect interpretation, but it does not
+qualify the historical live P10 sandbox, denial or recovery checks. P10 still requires 9/9 before
+P13 live qualification or FR-03 Go. No sandbox policy is attested by the D0.7 result.
 See the
 [failure-isolation plan](fr03-codex-sdk-failure-isolation-plan.md).
 The provider-facing reproduction is

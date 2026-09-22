@@ -166,6 +166,59 @@ def test_raw_event_summary_requires_scoped_complete_lifecycle() -> None:
     assert invalid["integrity_error"] == "CROSS_TURN_EVENT"
 
 
+def test_raw_event_summary_accepts_post_terminal_command_lifecycle() -> None:
+    events = _raw_provider_events(command=False)
+    command_events = _raw_provider_events(command=True)[1:3]
+    events.extend(command_events)
+
+    summary = MODULE._raw_event_summary(events, thread_id="thread-1", turn_id="turn-1")
+
+    assert summary["reference_integrity"] is True
+    assert summary["lifecycle_integrity"] is True
+    assert summary["command_started_count"] == 1
+    assert summary["command_completed_count"] == 1
+    assert summary["post_terminal_event_count"] == 2
+    assert summary["post_terminal_item_event_count"] == 2
+    assert summary["post_terminal_command_event_count"] == 2
+
+
+def test_raw_turn_drains_notifications_after_terminal() -> None:
+    class FakeRawClient:
+        def __init__(self) -> None:
+            self.messages = iter(
+                [
+                    {"id": 3, "result": {"turn": {"id": "turn-1"}}},
+                    _raw_provider_events(command=False)[-1],
+                    *_raw_provider_events(command=True)[1:3],
+                ]
+            )
+
+        def send(self, _message: dict[str, object]) -> None:
+            pass
+
+        def next_message(self, *, deadline: float) -> dict[str, object]:
+            del deadline
+            try:
+                return next(self.messages)
+            except StopIteration as error:
+                raise TimeoutError("quiet window elapsed") from error
+
+    client = FakeRawClient()
+    _response, events, turn_id = MODULE._RawAppServer.turn(
+        client,
+        {"id": 3},
+        expected_thread_id="thread-1",
+        deadline=MODULE.time.monotonic() + 1,
+    )
+
+    assert turn_id == "turn-1"
+    assert [event["method"] for event in events] == [
+        "turn/completed",
+        "item/started",
+        "item/completed",
+    ]
+
+
 def test_raw_artifact_guard_rejects_secret_markers() -> None:
     with pytest.raises(RuntimeError, match="prohibited secret marker"):
         MODULE._safe_artifact_payload("provider event", b'{"access_token":"must-not-be-persisted"}')
@@ -176,6 +229,7 @@ def _d07_source_fixture() -> dict[str, bytes]:
         f"FeatureSpec {{ id: Feature::{name}, default_enabled: {enabled}, }}"
         for name, enabled in (
             ("CodeModeHost", "true"),
+            ("ExecutedToolCallMetadata", "false"),
             ("ShellTool", "true"),
             ("UnifiedExec", "true"),
         )
@@ -192,6 +246,13 @@ def _d07_source_fixture() -> dict[str, bytes]:
                     }
                 ]
             }
+        ),
+        "codex-rs/model-provider-info/src/lib.rs": " ".join(
+            (
+                'const OPENAI_PROVIDER_NAME: &str = "OpenAI";',
+                "pub fn is_openai(&self) -> bool",
+                "self.name == OPENAI_PROVIDER_NAME",
+            )
         ),
         "codex-rs/core/src/tools/mod.rs": " ".join(
             (
@@ -219,6 +280,9 @@ def _d07_source_fixture() -> dict[str, bytes]:
                 "ResponseItem::AdditionalTools",
                 "(String::new(), None)",
                 "tools,",
+                "let is_openai = self.state.provider.info().is_openai();",
+                "if !is_openai",
+                "item.clear_internal_chat_message_metadata_passthrough();",
             )
         ),
         "codex-rs/core/src/tools/code_mode/mod.rs": (
@@ -227,7 +291,10 @@ def _d07_source_fixture() -> dict[str, bytes]:
         "codex-rs/features/src/lib.rs": feature_specs,
         "codex-rs/core/tests/suite/code_mode.rs": (
             "code-mode-only must retain code-mode tools "
-            "code-mode-only must never expose direct shell tools ev_custom_tool_call("
+            "code-mode-only must never expose direct shell tools ev_custom_tool_call( "
+            'text(JSON.stringify(await tools.exec_command({ cmd: "printf '
+            'code_mode_exec_marker" }))) metadata["executed_tool_calls"] '
+            'metadata.get("tool_calls_complete") metadata.get("cell_id")'
         ),
         "codex-rs/app-server/tests/suite/v2/code_mode_host.rs": "code_mode host",
     }
@@ -243,6 +310,9 @@ def test_d07_source_characterization_is_mechanical_and_fail_closed() -> None:
 
     assert architecture["tool_mode"] == "code_mode_only"
     assert architecture["use_responses_lite"] is True
+    assert architecture["executed_tool_call_metadata_enabled_by_default"] is False
+    assert architecture["executed_tool_call_metadata_requires_openai_provider_name"] is True
+    assert architecture["non_openai_provider_strips_executed_tool_call_metadata"] is True
     assert architecture["responses_lite"] == {
         "request_tools_expected": "ABSENT_OR_NULL",
         "additional_tools_expected": True,
@@ -285,9 +355,7 @@ def test_d07_request_projection_preserves_tools_state(
     }
     if request.node.callspec.id != "absent":
         payload["tools"] = tools_value
-    projection = MODULE._project_d07_request(
-        MODULE.canonical_json_bytes(payload), ordinal=1
-    )
+    projection = MODULE._project_d07_request(MODULE.canonical_json_bytes(payload), ordinal=1)
 
     assert projection["request_tools_state"] == expected
     assert projection["model_visible_tool_names"] == ["exec", "wait"]
@@ -330,23 +398,101 @@ def test_d07_request_projection_flattens_responses_lite_namespaces() -> None:
             }
         ],
     }
-    projection = MODULE._project_d07_request(
-        MODULE.canonical_json_bytes(payload), ordinal=1
-    )
+    projection = MODULE._project_d07_request(MODULE.canonical_json_bytes(payload), ordinal=1)
 
     assert projection["additional_tools_count"] == 2
     assert projection["model_visible_tool_names"] == ["exec", "spawn_agent", "wait"]
     assert projection["exec_visibility"] == "OBSERVED_TRUE"
 
 
+def test_d07_request_projection_keeps_only_safe_nested_execution_evidence() -> None:
+    nested_result = {
+        "chunk_id": "chunk-safe",
+        "exit_code": 0,
+        "output": MODULE.D07_NESTED_EXEC_MARKER,
+        "wall_time_seconds": 0.01,
+    }
+    payload = {
+        "model": MODULE.MODEL_IDENTIFIER,
+        "input": [
+            {
+                "type": "custom_tool_call_output",
+                "call_id": "d07-exec-call-1",
+                "output": [
+                    {"type": "input_text", "text": "Script completed"},
+                    {"type": "input_text", "text": json.dumps(nested_result)},
+                ],
+                "internal_chat_message_metadata_passthrough": {
+                    "cell_id": "d07-exec-call-1",
+                    "executed_tool_calls": [
+                        {
+                            "name": "exec_command",
+                            "arguments": {"cmd": MODULE.D07_NESTED_EXEC_COMMAND},
+                        }
+                    ],
+                    "tool_calls_complete": True,
+                },
+            }
+        ],
+    }
+
+    projection = MODULE._project_d07_request(MODULE.canonical_json_bytes(payload), ordinal=2)
+    observation = projection["tool_output_observations"][0]
+
+    assert observation["nested_result_present"] is True
+    assert observation["nested_output_marker_match"] is True
+    assert observation["nested_exit_code_zero"] is True
+    assert observation["nested_chunk_id_nonempty"] is True
+    assert observation["nested_exec_command_dispatched"] is True
+    assert "output_sha256" not in observation
+    assert MODULE.D07_NESTED_EXEC_MARKER not in json.dumps(projection)
+
+
+def test_d07_metadata_variant_is_explicit_in_config() -> None:
+    default = MODULE._d07_provider_config(
+        "http://127.0.0.1:1234/v1",
+        execution_path="/usr/bin:/bin",
+        executed_tool_call_metadata=False,
+    )
+    metadata = MODULE._d07_provider_config(
+        "http://127.0.0.1:1234/v1",
+        execution_path="/usr/bin:/bin",
+        executed_tool_call_metadata=True,
+    )
+
+    assert b"executed_tool_call_metadata" not in default
+    assert b'name = "QuantOS deterministic loopback"' in default
+    assert b"[features]\nexecuted_tool_call_metadata = true\n" in metadata
+    assert b'name = "OpenAI"' in metadata
+
+
 def _d07_surface(
-    ordinal: int, *, exec_visible: bool, call_output: bool = False
+    ordinal: int,
+    *,
+    exec_visible: bool,
+    call_output: bool = False,
+    metadata_confirmed: bool = True,
 ) -> dict[str, object]:
     names = ["exec", "wait"] if exec_visible else ["wait"]
     return {
         "request_ordinal": ordinal,
         "exec_visibility": "OBSERVED_TRUE" if exec_visible else "OBSERVED_FALSE",
         "tool_output_call_ids": ["d07-exec-call-1"] if call_output else [],
+        "tool_output_observations": (
+            [
+                {
+                    "call_id": "d07-exec-call-1",
+                    "output_classification": "SUCCESS_OR_UNCLASSIFIED",
+                    "nested_result_present": True,
+                    "nested_output_marker_match": True,
+                    "nested_exit_code_zero": True,
+                    "nested_chunk_id_nonempty": True,
+                    "nested_exec_command_dispatched": metadata_confirmed,
+                }
+            ]
+            if call_output
+            else []
+        ),
         "model_visible_tool_names": names,
     }
 
@@ -362,39 +508,91 @@ def test_d07_shadow_classification_boundaries() -> None:
         "completed_count": 1,
         "successful_probe_count": 1,
     }
-    assert MODULE._d07_classify_shadow(
-        phase="D0.7B1",
-        request_surfaces=[
-            _d07_surface(1, exec_visible=True),
-            _d07_surface(2, exec_visible=True, call_output=True),
-        ],
-        event_summary=summary,
-        command_probe=successful_probe,
-        final_message="DONE",
-        shadow_error_kind=None,
-        terminal_error=None,
-    ) == "CODE_MODE_CHAIN_AVAILABLE"
-    assert MODULE._d07_classify_shadow(
-        phase="D0.7B1",
-        request_surfaces=[_d07_surface(1, exec_visible=False), _d07_surface(2, exec_visible=False)],
-        event_summary=summary,
-        command_probe=successful_probe,
-        final_message="DONE",
-        shadow_error_kind=None,
-        terminal_error=None,
-    ) == "MODEL_VISIBLE_CODE_MODE_MISSING"
-    assert MODULE._d07_classify_shadow(
-        phase="D0.7B1",
-        request_surfaces=[
-            _d07_surface(1, exec_visible=True),
-            _d07_surface(2, exec_visible=True, call_output=True),
-        ],
-        event_summary=summary,
-        command_probe={**successful_probe, "completed_count": 0},
-        final_message="DONE",
-        shadow_error_kind=None,
-        terminal_error=None,
-    ) == "COMMAND_LIFECYCLE_GAP"
+    assert (
+        MODULE._d07_classify_shadow(
+            phase="D0.7B1",
+            shadow_variant="executed-tool-metadata-on",
+            request_surfaces=[
+                _d07_surface(1, exec_visible=True),
+                _d07_surface(2, exec_visible=True, call_output=True),
+            ],
+            event_summary=summary,
+            command_probe=successful_probe,
+            final_message="DONE",
+            shadow_error_kind=None,
+            terminal_error=None,
+        )
+        == "CODE_MODE_CHAIN_AVAILABLE"
+    )
+    assert (
+        MODULE._d07_classify_shadow(
+            phase="D0.7B1",
+            shadow_variant="executed-tool-metadata-on",
+            request_surfaces=[
+                _d07_surface(1, exec_visible=False),
+                _d07_surface(2, exec_visible=False),
+            ],
+            event_summary=summary,
+            command_probe=successful_probe,
+            final_message="DONE",
+            shadow_error_kind=None,
+            terminal_error=None,
+        )
+        == "MODEL_VISIBLE_CODE_MODE_MISSING"
+    )
+    assert (
+        MODULE._d07_classify_shadow(
+            phase="D0.7B1",
+            shadow_variant="executed-tool-metadata-on",
+            request_surfaces=[
+                _d07_surface(1, exec_visible=True),
+                _d07_surface(2, exec_visible=True, call_output=True),
+            ],
+            event_summary=summary,
+            command_probe={**successful_probe, "completed_count": 0},
+            final_message="DONE",
+            shadow_error_kind=None,
+            terminal_error=None,
+        )
+        == "COMMAND_LIFECYCLE_GAP"
+    )
+    assert (
+        MODULE._d07_classify_shadow(
+            phase="D0.7B1",
+            shadow_variant="executed-tool-metadata-on",
+            request_surfaces=[
+                _d07_surface(1, exec_visible=True),
+                _d07_surface(2, exec_visible=True, call_output=True),
+            ],
+            event_summary=summary,
+            command_probe={**successful_probe, "started_count": 0, "completed_count": 0},
+            final_message="DONE",
+            shadow_error_kind=None,
+            terminal_error=None,
+        )
+        == "NESTED_COMMAND_EXECUTED_COMMAND_EVENT_NOT_OBSERVED"
+    )
+    assert (
+        MODULE._d07_classify_shadow(
+            phase="D0.7B1",
+            shadow_variant="executed-tool-metadata-on",
+            request_surfaces=[
+                _d07_surface(1, exec_visible=True),
+                _d07_surface(
+                    2,
+                    exec_visible=True,
+                    call_output=True,
+                    metadata_confirmed=False,
+                ),
+            ],
+            event_summary=summary,
+            command_probe=successful_probe,
+            final_message="DONE",
+            shadow_error_kind=None,
+            terminal_error=None,
+        )
+        == "NESTED_EXEC_COMMAND_METADATA_NOT_OBSERVED"
+    )
 
 
 def test_d07_artifact_guard_rejects_broader_secret_markers() -> None:

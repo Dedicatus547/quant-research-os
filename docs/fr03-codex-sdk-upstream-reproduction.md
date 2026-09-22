@@ -1,6 +1,6 @@
 # Codex Python SDK 0.154.0 / 0.155.1 commandExecution observability gap
 
-Date: 2026-09-21
+Date: 2026-09-22
 
 ## Summary
 
@@ -18,8 +18,11 @@ with zero `commandExecution` items on both versions. The wrapper is therefore no
 reproduce this observation, although this comparison does not exclude independent defects in both
 paths or attest the effective runtime policy.
 
-This report does not claim that a sandbox or network policy failed. It reports that the command
-surface cannot be observed or qualified through the current SDK event stream.
+This report does not claim that a sandbox or network policy failed. A later D0.7B1+ exact-tag-shaped
+control proves that the pinned Code Mode chain and public `commandExecution` lifecycle are available
+when nested execution is deterministically scripted. The original zero-command reproduction remains
+valid, but it must now be read as a natural-language/model execution-contract observation rather than
+a general app-server or Code Mode lifecycle defect.
 
 ## Frozen identity
 
@@ -181,6 +184,22 @@ should contain no command item. If the runtime intentionally withholds shell fro
 thread-start response should expose a resolved tool/config surface that permits a deterministic
 `CONFIG_NOT_APPLIED` conclusion.
 
+## 2026-09-22 D0.7B1+ narrowing result
+
+The controlled 0.154.0 shadow run used the upstream exact-tag Code Mode script shape with fixed
+marker command `printf QUANTOS_D07_NESTED_EXEC_OK`. With `executed_tool_call_metadata=true` and the
+exact-source-required recognized provider name, its second request mechanically bound one nested
+`exec_command` to the outer `exec` call and validated the exact marker, exit 0, and nonempty chunk id.
+The public stream contained one successful `commandExecution` lifecycle; both events arrived before
+`turn/completed`, and the bounded post-terminal drain observed no additional command event. Bundle
+`9c20e6c5...f4ecca64` verifies as `CODE_MODE_CHAIN_AVAILABLE`.
+
+Accordingly, [openai/codex#46947](https://github.com/openai/codex/issues/46947) should be updated or
+narrowed: its captured zero-command result is not evidence that nested Code Mode execution or the
+public command lifecycle is generally unavailable. It remains useful evidence that the original
+natural-language SDK/raw-thread probes did not cause a command. No external issue update was made by
+this repository change.
+
 ## Evidence handling
 
 The D0 and D0.6 diagnostic bundles are explicitly `NON_CANONICAL_DIAGNOSTIC`. They contain requested
@@ -190,4 +209,4 @@ and a hash-only bounded stderr summary. They contain no credential bytes. Agent 
 evidence that a command executed.
 
 Submitted upstream as [openai/codex#46947](https://github.com/openai/codex/issues/46947).
-The D0.6 addendum is prepared locally and has not been posted to that issue.
+The D0.6 and D0.7B1+ narrowing addenda are prepared locally and have not been posted to that issue.

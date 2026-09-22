@@ -86,6 +86,7 @@ NEGATIVE_VARIANT = "shell-off"
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 D07_SOURCE_PATHS = (
     "codex-rs/models-manager/models.json",
+    "codex-rs/model-provider-info/src/lib.rs",
     "codex-rs/core/src/tools/mod.rs",
     "codex-rs/core/src/tools/spec_plan.rs",
     "codex-rs/core/src/client.rs",
@@ -112,10 +113,21 @@ D07_SOURCE_MAX_FILE_BYTES = 2_000_000
 D07_SOURCE_MAX_TOTAL_BYTES = 5_000_000
 D07_SHADOW_MAX_REQUEST_BYTES = 2_000_000
 D07_SHADOW_MAX_TOTAL_BYTES = 4_000_000
+D07_NESTED_EXEC_MARKER = "QUANTOS_D07_NESTED_EXEC_OK"
+D07_NESTED_EXEC_COMMAND = f"printf {D07_NESTED_EXEC_MARKER}"
 D07_SCRIPT = (
-    'const result = await tools.exec_command({cmd: "/usr/bin/pwd"});\n'
-    "text(result.output);"
+    "text(JSON.stringify(\n"
+    "  await tools.exec_command({\n"
+    f'    cmd: "{D07_NESTED_EXEC_COMMAND}"\n'
+    "  })\n"
+    "));"
 )
+D07_SHADOW_VARIANTS = {
+    "default": False,
+    "executed-tool-metadata-on": True,
+}
+POST_TERMINAL_DRAIN_QUIET_SECONDS = 0.25
+POST_TERMINAL_DRAIN_DEADLINE_SECONDS = 1.0
 D07_OBSERVATION_STATUSES = {
     "OBSERVED_TRUE",
     "OBSERVED_FALSE",
@@ -368,9 +380,7 @@ def _characterize_d07_source_files(
         raise RuntimeError("D0.7 parser identity is invalid")
 
     try:
-        model_catalog = json.loads(
-            _d07_source_text(files, "codex-rs/models-manager/models.json")
-        )
+        model_catalog = json.loads(_d07_source_text(files, "codex-rs/models-manager/models.json"))
     except json.JSONDecodeError as error:
         raise RuntimeError("D0.7 model catalog is invalid JSON") from error
     models = model_catalog.get("models") if isinstance(model_catalog, dict) else None
@@ -397,12 +407,11 @@ def _characterize_d07_source_files(
     tools_mod = _d07_source_text(files, "codex-rs/core/src/tools/mod.rs")
     spec_plan = _d07_source_text(files, "codex-rs/core/src/tools/spec_plan.rs")
     client = _d07_source_text(files, "codex-rs/core/src/client.rs")
+    model_provider_info = _d07_source_text(files, "codex-rs/model-provider-info/src/lib.rs")
     code_mode = _d07_source_text(files, "codex-rs/core/src/tools/code_mode/mod.rs")
     features = _d07_source_text(files, "codex-rs/features/src/lib.rs")
     code_mode_tests = _d07_source_text(files, "codex-rs/core/tests/suite/code_mode.rs")
-    host_tests = _d07_source_text(
-        files, "codex-rs/app-server/tests/suite/v2/code_mode_host.rs"
-    )
+    host_tests = _d07_source_text(files, "codex-rs/app-server/tests/suite/v2/code_mode_host.rs")
 
     _d07_require_source_shape(
         tools_mod,
@@ -435,8 +444,20 @@ def _characterize_d07_source_files(
             "ResponseItem::AdditionalTools",
             "(String::new(), None)",
             "tools,",
+            "let is_openai = self.state.provider.info().is_openai();",
+            "if !is_openai",
+            "item.clear_internal_chat_message_metadata_passthrough();",
         ),
         label="Responses Lite request construction",
+    )
+    _d07_require_source_shape(
+        model_provider_info,
+        (
+            'const OPENAI_PROVIDER_NAME: &str = "OpenAI";',
+            "pub fn is_openai(&self) -> bool",
+            "self.name == OPENAI_PROVIDER_NAME",
+        ),
+        label="executed-tool metadata provider gate",
     )
     _d07_require_source_shape(
         code_mode,
@@ -452,7 +473,12 @@ def _characterize_d07_source_files(
         (
             "code-mode-only must retain code-mode tools",
             "code-mode-only must never expose direct shell tools",
-            'ev_custom_tool_call(',
+            "ev_custom_tool_call(",
+            "text(JSON.stringify(await tools.exec_command("
+            '{ cmd: "printf code_mode_exec_marker" })))',
+            'metadata["executed_tool_calls"]',
+            'metadata.get("tool_calls_complete")',
+            'metadata.get("cell_id")',
         ),
         label="Code Mode exact-release tests",
     )
@@ -483,9 +509,12 @@ def _characterize_d07_source_files(
         "tool_mode": tool_mode,
         "use_responses_lite": use_responses_lite,
         "shell_type": shell_type,
-        "code_mode_host_enabled_by_default": _d07_feature_default(
-            features, "CodeModeHost"
+        "code_mode_host_enabled_by_default": _d07_feature_default(features, "CodeModeHost"),
+        "executed_tool_call_metadata_enabled_by_default": _d07_feature_default(
+            features, "ExecutedToolCallMetadata"
         ),
+        "executed_tool_call_metadata_requires_openai_provider_name": True,
+        "non_openai_provider_strips_executed_tool_call_metadata": True,
         "shell_tool_enabled_by_default": _d07_feature_default(features, "ShellTool"),
         "unified_exec_enabled_by_default": _d07_feature_default(features, "UnifiedExec"),
         "model_metadata_overrides_feature_default": True,
@@ -628,9 +657,7 @@ def _read_d07_bundle_files(bundle_path: Path) -> tuple[dict[str, object], dict[s
     ):
         raise RuntimeError("D0.7 diagnostic manifest is invalid")
     files = cast(dict[str, object], files_value)
-    actual_names = {
-        str(path.relative_to(bundle_path)) for path in regular_tree_files(bundle_path)
-    }
+    actual_names = {str(path.relative_to(bundle_path)) for path in regular_tree_files(bundle_path)}
     if actual_names != {*files, "diagnostic-manifest.json"}:
         raise RuntimeError("D0.7 bundle file set is invalid")
     payloads: dict[str, bytes] = {}
@@ -652,9 +679,7 @@ def _read_d07_bundle_files(bundle_path: Path) -> tuple[dict[str, object], dict[s
     return manifest, payloads
 
 
-def _verify_d07a_bundle(
-    bundle_path: Path, *, expected_sdk_version: str
-) -> dict[str, object]:
+def _verify_d07a_bundle(bundle_path: Path, *, expected_sdk_version: str) -> dict[str, object]:
     manifest, payloads = _read_d07_bundle_files(bundle_path)
     if manifest.get("phase") != "D0.7A":
         raise RuntimeError("D0.7 architecture bundle phase is invalid")
@@ -674,9 +699,7 @@ def _verify_d07a_bundle(
     parser_sha256 = _d07_parser_sha256()
     if source_manifest.get("parser_sha256") != parser_sha256:
         raise RuntimeError("D0.7 architecture parser identity is invalid")
-    source_files = {
-        path: payloads[f"source-fixtures/{path}"] for path in D07_SOURCE_PATHS
-    }
+    source_files = {path: payloads[f"source-fixtures/{path}"] for path in D07_SOURCE_PATHS}
     recomputed_architecture, recomputed_manifest = _characterize_d07_source_files(
         source_files,
         expected_sdk_version=expected_sdk_version,
@@ -690,9 +713,7 @@ def _verify_d07a_bundle(
     return architecture
 
 
-def _distribution_record_entry(
-    distribution_name: str, target: Path
-) -> tuple[str, str]:
+def _distribution_record_entry(distribution_name: str, target: Path) -> tuple[str, str]:
     package = distribution(distribution_name)
     target_resolved = target.resolve(strict=True)
     matches = [
@@ -1002,6 +1023,150 @@ def _d07_request_tools_state(request: dict[str, object]) -> str:
     raise RuntimeError("D0.7 request tools field has an invalid shape")
 
 
+def _d07_output_texts(output: object) -> list[str]:
+    if isinstance(output, str):
+        return [output]
+    if not isinstance(output, list):
+        return []
+    return [
+        cast(str, item["text"])
+        for item in output
+        if isinstance(item, dict) and isinstance(item.get("text"), str)
+    ]
+
+
+def _d07_tool_output_projection(item: dict[str, object]) -> dict[str, object]:
+    call_id = item.get("call_id")
+    item_type = item.get("type")
+    if not isinstance(call_id, str) or not isinstance(item_type, str):
+        raise RuntimeError("D0.7 tool output has no identity")
+    output = item.get("output")
+    output_kind = (
+        "string"
+        if isinstance(output, str)
+        else "array"
+        if isinstance(output, list)
+        else "object"
+        if isinstance(output, dict)
+        else "null"
+        if output is None
+        else type(output).__name__
+    )
+    texts = _d07_output_texts(output)
+    searchable = "\n".join(texts).lower()
+    if "code mode is unavailable" in searchable:
+        output_classification = "CODE_MODE_HOST_UNAVAILABLE"
+    elif "exec_command" in searchable and "not defined" in searchable:
+        output_classification = "NESTED_TOOL_UNAVAILABLE"
+    elif "error" in searchable or "failed" in searchable:
+        output_classification = "SCRIPT_EXECUTION_ERROR"
+    else:
+        output_classification = "SUCCESS_OR_UNCLASSIFIED"
+
+    nested_result: dict[str, object] | None = None
+    for text_value in reversed(texts):
+        try:
+            parsed = json.loads(text_value)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            nested_result = cast(dict[str, object], parsed)
+            break
+
+    metadata = item.get("internal_chat_message_metadata_passthrough")
+    metadata_object = cast(dict[str, object], metadata) if isinstance(metadata, dict) else None
+    executed_calls = metadata_object.get("executed_tool_calls") if metadata_object else None
+    calls = cast(list[object], executed_calls) if isinstance(executed_calls, list) else []
+    exec_command_calls = [
+        call for call in calls if isinstance(call, dict) and call.get("name") == "exec_command"
+    ]
+    matching_exec_calls = [
+        call
+        for call in exec_command_calls
+        if cast(dict[str, object], call).get("arguments") == {"cmd": D07_NESTED_EXEC_COMMAND}
+    ]
+    outer_call_id_bound = bool(metadata_object) and metadata_object.get("cell_id") == call_id
+    tool_calls_complete = (
+        bool(metadata_object) and metadata_object.get("tool_calls_complete") is True
+    )
+    nested_exec_command_dispatched = (
+        outer_call_id_bound
+        and tool_calls_complete
+        and len(calls) == 1
+        and len(exec_command_calls) == 1
+        and len(matching_exec_calls) == 1
+    )
+    nested_output = nested_result.get("output") if nested_result is not None else None
+    nested_output_state = (
+        "EXACT_MARKER"
+        if nested_output == D07_NESTED_EXEC_MARKER
+        else "EXACT_MARKER_WITH_NEWLINE"
+        if nested_output == f"{D07_NESTED_EXEC_MARKER}\n"
+        else "EMPTY"
+        if nested_output == ""
+        else "OTHER"
+        if isinstance(nested_output, str)
+        else "MISSING_OR_NON_STRING"
+    )
+    nested_exit_code = nested_result.get("exit_code") if nested_result is not None else None
+    lowered_nested_output = nested_output.lower() if isinstance(nested_output, str) else ""
+    nested_failure_category = (
+        "NONE"
+        if nested_output_state == "EXACT_MARKER" and nested_exit_code == 0
+        else "SANDBOX_DENIED"
+        if any(term in lowered_nested_output for term in ("landlock", "sandbox", "seccomp"))
+        else "PERMISSION_DENIED"
+        if any(
+            term in lowered_nested_output
+            for term in ("operation not permitted", "permission denied")
+        )
+        else "COMMAND_NOT_FOUND"
+        if any(term in lowered_nested_output for term in ("not found", "no such file"))
+        else "APPROVAL_REJECTED"
+        if "approval" in lowered_nested_output
+        else "POLICY_REJECTED"
+        if "policy" in lowered_nested_output
+        else "OTHER"
+    )
+    return {
+        "call_id": call_id,
+        "item_type": item_type,
+        "output_kind": output_kind,
+        "output_classification": output_classification,
+        "nested_result_present": nested_result is not None,
+        "nested_output_state": nested_output_state,
+        "nested_output_marker_match": (
+            nested_result is not None and nested_output_state == "EXACT_MARKER"
+        ),
+        "nested_exit_code": (
+            nested_exit_code
+            if isinstance(nested_exit_code, int) and not isinstance(nested_exit_code, bool)
+            else None
+        ),
+        "nested_exit_code_zero": (
+            nested_result is not None
+            and nested_exit_code == 0
+            and not isinstance(nested_exit_code, bool)
+        ),
+        "nested_failure_category": nested_failure_category,
+        "nested_chunk_id_nonempty": (
+            nested_result is not None
+            and isinstance(nested_result.get("chunk_id"), str)
+            and bool(nested_result.get("chunk_id"))
+        ),
+        "nested_session_id_present": (
+            nested_result is not None and isinstance(nested_result.get("session_id"), int)
+        ),
+        "executed_tool_metadata_present": metadata_object is not None,
+        "executed_tool_call_count": len(calls),
+        "exec_command_call_count": len(exec_command_calls),
+        "exec_command_argument_match_count": len(matching_exec_calls),
+        "metadata_outer_call_id_bound": outer_call_id_bound,
+        "metadata_tool_calls_complete": tool_calls_complete,
+        "nested_exec_command_dispatched": nested_exec_command_dispatched,
+    }
+
+
 def _project_d07_request(raw: bytes, *, ordinal: int) -> dict[str, object]:
     try:
         request = json.loads(raw)
@@ -1038,36 +1203,7 @@ def _project_d07_request(raw: bytes, *, ordinal: int) -> dict[str, object]:
             if not isinstance(call_id, str):
                 raise RuntimeError("D0.7 tool output has no call id")
             tool_output_call_ids.append(call_id)
-            output = item.get("output")
-            if isinstance(output, str):
-                output_bytes = output.encode("utf-8", errors="strict")
-                output_kind = "string"
-                searchable = output.lower()
-            elif isinstance(output, (dict, list)):
-                output_bytes = canonical_json_bytes(output)
-                output_kind = "object" if isinstance(output, dict) else "array"
-                searchable = output_bytes.decode("utf-8", errors="strict").lower()
-            else:
-                output_bytes = canonical_json_bytes(output)
-                output_kind = "null" if output is None else type(output).__name__
-                searchable = ""
-            if "code mode is unavailable" in searchable:
-                output_classification = "CODE_MODE_HOST_UNAVAILABLE"
-            elif "exec_command" in searchable and "not defined" in searchable:
-                output_classification = "NESTED_TOOL_UNAVAILABLE"
-            elif "error" in searchable or "failed" in searchable:
-                output_classification = "SCRIPT_EXECUTION_ERROR"
-            else:
-                output_classification = "SUCCESS_OR_UNCLASSIFIED"
-            tool_output_observations.append(
-                {
-                    "call_id": call_id,
-                    "item_type": item_type,
-                    "output_kind": output_kind,
-                    "output_sha256": sha256_bytes(output_bytes),
-                    "output_classification": output_classification,
-                }
-            )
+            tool_output_observations.append(_d07_tool_output_projection(item))
     tool_names: list[str] = []
 
     def collect_model_visible_names(tool: dict[str, object]) -> None:
@@ -1091,7 +1227,7 @@ def _project_d07_request(raw: bytes, *, ordinal: int) -> dict[str, object]:
         raise RuntimeError("D0.7 model-visible tool names are duplicated")
     sorted_names = sorted(tool_names)
     return {
-        "schema_version": "codex-d07-request-surface/v1",
+        "schema_version": "codex-d07-request-surface/v2",
         "request_ordinal": ordinal,
         "model": model,
         "request_tools_state": _d07_request_tools_state(cast(dict[str, object], request)),
@@ -1123,9 +1259,7 @@ def _d07_final_message(events: Sequence[dict[str, object]]) -> str | None:
     return messages[-1] if messages else None
 
 
-def _d07_command_probe(
-    events: Sequence[dict[str, object]], *, workspace: str
-) -> dict[str, object]:
+def _d07_command_probe(events: Sequence[dict[str, object]]) -> dict[str, object]:
     started: dict[str, dict[str, object]] = {}
     completed: dict[str, dict[str, object]] = {}
     for event in events:
@@ -1155,7 +1289,7 @@ def _d07_command_probe(
         for item_id in matching_ids
         if completed[item_id].get("status") == "completed"
         and completed[item_id].get("exitCode") == 0
-        and completed[item_id].get("aggregatedOutput") == f"{workspace}\n"
+        and completed[item_id].get("aggregatedOutput") == D07_NESTED_EXEC_MARKER
     ]
     return {
         "started_count": len(started),
@@ -1992,33 +2126,42 @@ class _RawAppServer:
         terminal_seen = False
         events: list[dict[str, object]] = []
         transcript_bytes = 0
+
+        def record_notification(incoming: dict[str, object]) -> None:
+            nonlocal terminal_seen, transcript_bytes, turn_id
+            method = incoming.get("method")
+            if not isinstance(method, str) or "id" in incoming:
+                raise RuntimeError("unexpected app-server request")
+            encoded = canonical_json_bytes(incoming) + b"\n"
+            transcript_bytes += len(encoded)
+            if transcript_bytes > MAX_PROVIDER_TRANSCRIPT_BYTES:
+                raise RuntimeError("raw provider transcript exceeded its bound")
+            events.append(incoming)
+            if method != "turn/completed":
+                return
+            params = incoming.get("params")
+            if not isinstance(params, dict):
+                raise RuntimeError("turn/completed params are invalid")
+            event_thread = params.get("threadId")
+            turn = params.get("turn")
+            if event_thread != expected_thread_id or not isinstance(turn, dict):
+                raise RuntimeError("turn/completed reference mismatch")
+            event_turn = turn.get("id")
+            if not isinstance(event_turn, str):
+                raise RuntimeError("turn/completed turn id is missing")
+            if terminal_seen:
+                raise RuntimeError("duplicate turn/completed notification")
+            if turn_id is not None and event_turn != turn_id:
+                raise RuntimeError("turn/completed turn id mismatch")
+            turn_id = event_turn
+            terminal_seen = True
+
         self.send(message)
         while response is None or not terminal_seen:
             incoming = self.next_message(deadline=deadline)
             method = incoming.get("method")
             if isinstance(method, str):
-                if "id" in incoming:
-                    raise RuntimeError("unexpected app-server request")
-                encoded = canonical_json_bytes(incoming) + b"\n"
-                transcript_bytes += len(encoded)
-                if transcript_bytes > MAX_PROVIDER_TRANSCRIPT_BYTES:
-                    raise RuntimeError("raw provider transcript exceeded its bound")
-                events.append(incoming)
-                if method == "turn/completed":
-                    params = incoming.get("params")
-                    if not isinstance(params, dict):
-                        raise RuntimeError("turn/completed params are invalid")
-                    event_thread = params.get("threadId")
-                    turn = params.get("turn")
-                    if event_thread != expected_thread_id or not isinstance(turn, dict):
-                        raise RuntimeError("turn/completed reference mismatch")
-                    event_turn = turn.get("id")
-                    if not isinstance(event_turn, str):
-                        raise RuntimeError("turn/completed turn id is missing")
-                    if turn_id is not None and event_turn != turn_id:
-                        raise RuntimeError("turn/completed turn id mismatch")
-                    turn_id = event_turn
-                    terminal_seen = True
+                record_notification(incoming)
                 continue
             if incoming.get("id") != request_id or response is not None:
                 raise RuntimeError("unexpected app-server response id")
@@ -2036,6 +2179,23 @@ class _RawAppServer:
             response = incoming
         if response is None or turn_id is None:
             raise RuntimeError("turn did not produce a complete response")
+        drain_deadline = time.monotonic() + POST_TERMINAL_DRAIN_DEADLINE_SECONDS
+        quiet_deadline = min(
+            drain_deadline,
+            time.monotonic() + POST_TERMINAL_DRAIN_QUIET_SECONDS,
+        )
+        while time.monotonic() < drain_deadline:
+            try:
+                incoming = self.next_message(deadline=quiet_deadline)
+            except TimeoutError:
+                break
+            if not isinstance(incoming.get("method"), str):
+                raise RuntimeError("unexpected app-server response after turn completion")
+            record_notification(incoming)
+            quiet_deadline = min(
+                drain_deadline,
+                time.monotonic() + POST_TERMINAL_DRAIN_QUIET_SECONDS,
+            )
         return response, events, turn_id
 
     def stderr_summary(self) -> dict[str, object]:
@@ -2077,6 +2237,9 @@ def _raw_event_summary(
     command_succeeded = 0
     turn_status: str | None = None
     terminal_seen = False
+    post_terminal_event_count = 0
+    post_terminal_item_event_count = 0
+    post_terminal_command_event_count = 0
     integrity_error: str | None = None
     for event in events:
         method = event.get("method")
@@ -2094,9 +2257,15 @@ def _raw_event_summary(
             if scoped_turn is not None and scoped_turn != turn_id:
                 integrity_error = "CROSS_TURN_EVENT"
                 break
-        if terminal_seen and method.startswith(("item/", "turn/")):
-            integrity_error = "EVENT_AFTER_TERMINAL"
-            break
+        if terminal_seen:
+            post_terminal_event_count += 1
+            if method.startswith("item/"):
+                post_terminal_item_event_count += 1
+            if method.startswith("item/commandExecution/"):
+                post_terminal_command_event_count += 1
+            if method.startswith("turn/"):
+                integrity_error = "TURN_EVENT_AFTER_TERMINAL"
+                break
         if method in {"item/started", "item/completed"}:
             item = params.get("item")
             if not isinstance(item, dict):
@@ -2108,6 +2277,8 @@ def _raw_event_summary(
                 integrity_error = "INVALID_ITEM_IDENTITY"
                 break
             item_types.append(item_type)
+            if terminal_seen and item_type == "commandExecution":
+                post_terminal_command_event_count += 1
             if method == "item/started":
                 if item_id in started:
                     integrity_error = "DUPLICATE_ITEM_START"
@@ -2137,6 +2308,9 @@ def _raw_event_summary(
                         integrity_error = "INVALID_COMMAND_TERMINAL_STATUS"
                         break
         if method == "turn/completed":
+            if terminal_seen:
+                integrity_error = "DUPLICATE_TURN_TERMINAL"
+                break
             turn = params.get("turn")
             if not isinstance(turn, dict) or turn.get("id") != turn_id:
                 integrity_error = "TURN_COMPLETED_REFERENCE_MISMATCH"
@@ -2161,6 +2335,9 @@ def _raw_event_summary(
         "command_declined_count": command_declined,
         "command_succeeded_count": command_succeeded,
         "turn_status": turn_status,
+        "post_terminal_event_count": post_terminal_event_count,
+        "post_terminal_item_event_count": post_terminal_item_event_count,
+        "post_terminal_command_event_count": post_terminal_command_event_count,
         "reference_integrity": integrity_error is None,
         "lifecycle_integrity": integrity_error is None,
         "integrity_error": integrity_error,
@@ -2209,11 +2386,17 @@ def _d07_architecture_reference(
     }
 
 
-def _d07_provider_config(base_url: str, *, execution_path: str) -> bytes:
+def _d07_provider_config(
+    base_url: str, *, execution_path: str, executed_tool_call_metadata: bool
+) -> bytes:
     if not base_url.startswith("http://127.0.0.1:") or not base_url.endswith("/v1"):
         raise RuntimeError("D0.7 provider URL is not loopback-only")
     if '"' in execution_path or "\n" in execution_path:
         raise RuntimeError("D0.7 execution PATH is invalid")
+    features = (
+        "\n[features]\nexecuted_tool_call_metadata = true\n" if executed_tool_call_metadata else ""
+    )
+    provider_name = "OpenAI" if executed_tool_call_metadata else "QuantOS deterministic loopback"
     return (
         f'model = "{MODEL_IDENTIFIER}"\n'
         'model_provider = "quantos_shadow"\n'
@@ -2232,19 +2415,51 @@ def _d07_provider_config(base_url: str, *, execution_path: str) -> bytes:
         'TZ = "UTC"\n'
         "\n"
         "[model_providers.quantos_shadow]\n"
-        'name = "QuantOS deterministic loopback"\n'
+        f'name = "{provider_name}"\n'
         f'base_url = "{base_url}"\n'
         'wire_api = "responses"\n'
         "requires_openai_auth = false\n"
         "request_max_retries = 0\n"
         "stream_max_retries = 0\n"
         "stream_idle_timeout_ms = 10000\n"
+        f"{features}"
     ).encode()
+
+
+def _d07_exec_output_observation(
+    request_surfaces: Sequence[dict[str, object]],
+) -> dict[str, object] | None:
+    if len(request_surfaces) < 2:
+        return None
+    observations = request_surfaces[1].get("tool_output_observations")
+    if not isinstance(observations, list):
+        return None
+    matches = [
+        observation
+        for observation in observations
+        if isinstance(observation, dict) and observation.get("call_id") == "d07-exec-call-1"
+    ]
+    if len(matches) != 1:
+        return None
+    return cast(dict[str, object], matches[0])
+
+
+def _d07_nested_result_passed(observation: dict[str, object] | None) -> bool:
+    return observation is not None and all(
+        observation.get(key) is True
+        for key in (
+            "nested_result_present",
+            "nested_output_marker_match",
+            "nested_exit_code_zero",
+            "nested_chunk_id_nonempty",
+        )
+    )
 
 
 def _d07_classify_shadow(
     *,
     phase: str,
+    shadow_variant: str,
     request_surfaces: Sequence[dict[str, object]],
     event_summary: dict[str, object],
     command_probe: dict[str, object],
@@ -2254,6 +2469,8 @@ def _d07_classify_shadow(
 ) -> str:
     if phase not in {"D0.7B0", "D0.7B1"}:
         raise ValueError("invalid D0.7 shadow phase")
+    if shadow_variant not in D07_SHADOW_VARIANTS:
+        raise ValueError("invalid D0.7 shadow variant")
     expected_requests = 1 if phase == "D0.7B0" else 2
     if terminal_error is not None or shadow_error_kind is not None:
         return (
@@ -2290,27 +2507,43 @@ def _d07_classify_shadow(
         return "NESTED_SHELL_MISSING"
     if "SCRIPT_EXECUTION_ERROR" in output_classes:
         return "SCRIPTED_EXEC_REJECTED"
+    output_observation = _d07_exec_output_observation(request_surfaces)
+    if not _d07_nested_result_passed(output_observation):
+        return "NESTED_RESULT_VALIDATION_FAILED"
+    metadata_confirmed = (
+        output_observation is not None
+        and output_observation.get("nested_exec_command_dispatched") is True
+    )
+    if not metadata_confirmed:
+        return (
+            "NESTED_EXEC_COMMAND_METADATA_NOT_OBSERVED"
+            if D07_SHADOW_VARIANTS[shadow_variant]
+            else "INCONCLUSIVE"
+        )
+    if event_summary.get("turn_status") != "completed" or final_message != "DONE":
+        return "EVIDENCE_INVALID"
+    if event_summary.get("integrity_error") not in {None, "INCOMPLETE_ITEM_LIFECYCLE"}:
+        return "EVIDENCE_INVALID"
     started = command_probe.get("started_count")
     completed = command_probe.get("completed_count")
     if (
-        (isinstance(started, int) and started > 0)
-        or (isinstance(completed, int) and completed > 0)
+        (isinstance(started, int) and started > 0) or (isinstance(completed, int) and completed > 0)
     ) and (started != completed or started != 1):
         return "COMMAND_LIFECYCLE_GAP"
     if started == completed == 1 and command_probe.get("successful_probe_count") != 1:
         return "COMMAND_PROBE_FAILED"
+    if started == completed == 0:
+        return "NESTED_COMMAND_EXECUTED_COMMAND_EVENT_NOT_OBSERVED"
     if started != 1 or completed != 1:
-        return "INCONCLUSIVE"
+        return "COMMAND_LIFECYCLE_GAP"
     if command_probe.get("successful_probe_count") != 1:
         return "COMMAND_PROBE_FAILED"
     if (
-        event_summary.get("turn_status") == "completed"
-        and event_summary.get("reference_integrity") is True
+        event_summary.get("reference_integrity") is True
         and event_summary.get("lifecycle_integrity") is True
-        and final_message == "DONE"
     ):
         return "CODE_MODE_CHAIN_AVAILABLE"
-    return "INCONCLUSIVE"
+    return "EVIDENCE_INVALID"
 
 
 def _d07_pipeline_observation(
@@ -2325,6 +2558,12 @@ def _d07_pipeline_observation(
     started = cast(int, command_probe["started_count"])
     completed = cast(int, command_probe["completed_count"])
     second_seen = len(request_surfaces) >= 2
+    output_observation = _d07_exec_output_observation(request_surfaces)
+    nested_result_passed = _d07_nested_result_passed(output_observation)
+    nested_dispatch_confirmed = (
+        output_observation is not None
+        and output_observation.get("nested_exec_command_dispatched") is True
+    )
     turn_completed = event_summary.get("turn_status") == "completed"
     observations = {
         "L0_turn_started": _d07_observation(
@@ -2374,18 +2613,44 @@ def _d07_pipeline_observation(
             rule="D07-EXEC-CALL-OUTPUT-ROUNDTRIP",
         ),
         "L4_code_mode_host_invoked": _d07_observation(
-            "UNKNOWN" if is_chain else "NOT_APPLICABLE",
-            count=None,
-            artifact="provider-events.jsonl" if is_chain else "result.json",
-            pointer="" if is_chain else "/phase",
-            rule="D07-PUBLIC-SURFACE-NOT-OBSERVABLE",
+            (
+                "OBSERVED_TRUE"
+                if is_chain and nested_result_passed
+                else "OBSERVED_FALSE"
+                if is_chain and second_seen
+                else "NOT_APPLICABLE"
+            ),
+            count=1
+            if is_chain and nested_result_passed
+            else 0
+            if is_chain and second_seen
+            else None,
+            artifact="request-2-surface.json" if is_chain else "result.json",
+            pointer=("/tool_output_observations/0/nested_result_present" if is_chain else "/phase"),
+            rule="D07-NESTED-RESULT-STRUCTURAL-VALIDATION",
         ),
         "L5_nested_exec_command_dispatched": _d07_observation(
-            "UNKNOWN" if is_chain else "NOT_APPLICABLE",
-            count=None,
-            artifact="provider-events.jsonl" if is_chain else "result.json",
-            pointer="" if is_chain else "/phase",
-            rule="D07-PUBLIC-SURFACE-NOT-OBSERVABLE",
+            (
+                "OBSERVED_TRUE"
+                if is_chain and nested_dispatch_confirmed
+                else "OBSERVED_FALSE"
+                if is_chain and second_seen
+                else "NOT_APPLICABLE"
+            ),
+            count=(
+                1
+                if is_chain and nested_dispatch_confirmed
+                else 0
+                if is_chain and second_seen
+                else None
+            ),
+            artifact="request-2-surface.json" if is_chain else "result.json",
+            pointer=(
+                "/tool_output_observations/0/nested_exec_command_dispatched"
+                if is_chain
+                else "/phase"
+            ),
+            rule="D07-EXECUTED-TOOL-METADATA-OUTER-CALL-BINDING",
         ),
         "L6_command_execution_started": _d07_observation(
             "OBSERVED_TRUE" if started else "OBSERVED_FALSE" if is_chain else "NOT_APPLICABLE",
@@ -2426,6 +2691,7 @@ def _d07_pipeline_observation(
 def _run_d07_shadow(
     *,
     phase: str,
+    shadow_variant: str,
     output_root: Path,
     architecture_bundle: Path,
     expected_sdk_version: str,
@@ -2433,6 +2699,11 @@ def _run_d07_shadow(
 ) -> tuple[Path, dict[str, object]]:
     from codex_cli_bin import bundled_codex_path, bundled_path_dir
 
+    if shadow_variant not in D07_SHADOW_VARIANTS:
+        raise ValueError("invalid D0.7 shadow variant")
+    if phase == "D0.7B0" and shadow_variant != "default":
+        raise ValueError("D0.7B0 only supports the default shadow variant")
+    metadata_enabled = D07_SHADOW_VARIANTS[shadow_variant]
     architecture_ref = _d07_architecture_reference(
         architecture_bundle, expected_sdk_version=expected_sdk_version
     )
@@ -2463,12 +2734,14 @@ def _run_d07_shadow(
     ):
         if (Path(codex_home) / "auth.json").exists():
             raise RuntimeError("D0.7 shadow CODEX_HOME unexpectedly contains auth.json")
-        execution_path = (
-            f"{Path(cast(str, host_identity['path'])).parent}:{path_dir}:/usr/bin:/bin"
-        )
+        execution_path = f"{Path(cast(str, host_identity['path'])).parent}:{path_dir}:/usr/bin:/bin"
         atomic_write_bytes(
             Path(codex_home) / "config.toml",
-            _d07_provider_config(base_url, execution_path=execution_path),
+            _d07_provider_config(
+                base_url,
+                execution_path=execution_path,
+                executed_tool_call_metadata=metadata_enabled,
+            ),
         )
         environment = {
             "CODEX_HOME": codex_home,
@@ -2518,23 +2791,36 @@ def _run_d07_shadow(
             runtime_version = _runtime_version_from_initialize(initialize_result)
             if not runtime_version or runtime_version.partition(" ")[0] != expected_sdk_version:
                 raise RuntimeError("reported Codex runtime version does not match expectation")
-            initialized = _substitute_sentinels(
-                fixture_requests["initialized"], replacements
-            )
+            initialized = _substitute_sentinels(fixture_requests["initialized"], replacements)
             if not isinstance(initialized, dict):
                 raise RuntimeError("D0.7 initialized notification is invalid")
             client.send(cast(dict[str, object], initialized))
-            _, thread_result = client.request(request("thread_start", 1), deadline=deadline)
+            thread_request = request("thread_start", 1)
+            if metadata_enabled:
+                thread_params = thread_request.get("params")
+                thread_config = (
+                    thread_params.get("config") if isinstance(thread_params, dict) else None
+                )
+                if not isinstance(thread_config, dict):
+                    raise RuntimeError("D0.7 thread/start request has no config override")
+                thread_config["features"] = {"executed_tool_call_metadata": True}
+            _, thread_result = client.request(thread_request, deadline=deadline)
             thread = thread_result.get("thread")
             if not isinstance(thread, dict) or not isinstance(thread.get("id"), str):
                 raise RuntimeError("D0.7 thread/start response has no thread id")
             thread_id = cast(str, thread["id"])
+            turn_request = request(
+                "turn_start",
+                2,
+                **{RAW_SENTINELS["thread_id"]: thread_id},
+            )
+            if phase == "D0.7B1":
+                turn_params = turn_request.get("params")
+                if not isinstance(turn_params, dict):
+                    raise RuntimeError("D0.7 turn/start request has no params")
+                turn_params["sandboxPolicy"] = {"type": "dangerFullAccess"}
             _, events, turn_id = client.turn(
-                request(
-                    "turn_start",
-                    2,
-                    **{RAW_SENTINELS["thread_id"]: thread_id},
-                ),
+                turn_request,
                 expected_thread_id=thread_id,
                 deadline=deadline,
             )
@@ -2556,10 +2842,11 @@ def _run_d07_shadow(
             if terminal_error is None:
                 terminal_error = error
         event_summary = _raw_event_summary(events, thread_id=thread_id, turn_id=turn_id)
-        command_probe = _d07_command_probe(events, workspace=cwd)
+        command_probe = _d07_command_probe(events)
         final_message = _d07_final_message(events)
         classification = _d07_classify_shadow(
             phase=phase,
+            shadow_variant=shadow_variant,
             request_surfaces=request_surfaces,
             event_summary=event_summary,
             command_probe=command_probe,
@@ -2578,6 +2865,7 @@ def _run_d07_shadow(
             "schema_version": "codex-d07-shadow-result/v1",
             "authority": "NON_CANONICAL_DIAGNOSTIC",
             "phase": phase,
+            "shadow_variant": shadow_variant,
             "sdk_version": expected_sdk_version,
             "runtime_package_version": runtime_identity["runtime_package_version"],
             "runtime_version": runtime_version,
@@ -2594,8 +2882,6 @@ def _run_d07_shadow(
             "secondary_findings": [],
             "limitations": [
                 "RAW_REQUEST_DISCARDED_AFTER_ALLOWLISTED_EXTRACTION",
-                "CODE_MODE_HOST_INVOCATION_NOT_PUBLICLY_OBSERVABLE",
-                "NESTED_DISPATCH_NOT_PUBLICLY_OBSERVABLE",
                 "MODEL_IDENTIFIER_NOT_IMMUTABLE",
             ],
         }
@@ -2607,6 +2893,8 @@ def _run_d07_shadow(
         provider_config_projection = {
             "schema_version": "codex-d07-provider-config-projection/v1",
             "provider": "quantos_shadow",
+            "provider_name": "OpenAI" if metadata_enabled else "QuantOS deterministic loopback",
+            "provider_treated_as_openai": metadata_enabled,
             "wire_api": "responses",
             "requires_openai_auth": False,
             "loopback_only": True,
@@ -2614,6 +2902,16 @@ def _run_d07_shadow(
             "base_url_host": "127.0.0.1",
             "base_url_port": int(base_url.rsplit(":", 1)[1].removesuffix("/v1")),
             "auth_json_present": False,
+            "executed_tool_call_metadata_enabled": metadata_enabled,
+            "executed_tool_call_metadata_source": (
+                "EXPLICIT_TRUE" if metadata_enabled else "DEFAULT_FALSE"
+            ),
+            "thread_config_feature_override": metadata_enabled,
+            "post_terminal_drain_quiet_ms": int(POST_TERMINAL_DRAIN_QUIET_SECONDS * 1000),
+            "post_terminal_drain_deadline_ms": int(POST_TERMINAL_DRAIN_DEADLINE_SECONDS * 1000),
+            "nested_command_sandbox_policy": (
+                "dangerFullAccess" if phase == "D0.7B1" else "readOnly"
+            ),
         }
         files: dict[str, bytes] = {
             "runtime-identity.json": canonical_json_bytes(runtime_identity),
@@ -2647,7 +2945,13 @@ def _run_d07_shadow(
             files["scripted-response-2.json"] = files.pop("scripted-response-final.json")
             if len(request_surfaces) >= 2:
                 files["request-2-surface.json"] = canonical_json_bytes(request_surfaces[1])
-        prefix = "shadow-preflight" if phase == "D0.7B0" else "shadow-chain"
+        prefix = (
+            "shadow-preflight"
+            if phase == "D0.7B0"
+            else "shadow-chain-metadata"
+            if metadata_enabled
+            else "shadow-chain"
+        )
         destination = _publish_d07_bundle(
             output_root=output_root,
             prefix=prefix,
@@ -2666,6 +2970,7 @@ def run_d07_shadow_preflight(
 ) -> tuple[Path, dict[str, object]]:
     return _run_d07_shadow(
         phase="D0.7B0",
+        shadow_variant="default",
         output_root=output_root,
         architecture_bundle=architecture_bundle,
         expected_sdk_version=expected_sdk_version,
@@ -2682,6 +2987,7 @@ def run_d07_shadow_chain(
 ) -> tuple[Path, dict[str, object]]:
     return _run_d07_shadow(
         phase="D0.7B1",
+        shadow_variant="default",
         output_root=output_root,
         architecture_bundle=architecture_bundle,
         expected_sdk_version=expected_sdk_version,
@@ -2689,9 +2995,24 @@ def run_d07_shadow_chain(
     )
 
 
-def _verify_d07_request_surface(
-    value: dict[str, object], *, ordinal: int
-) -> None:
+def run_d07_shadow_chain_metadata(
+    *,
+    output_root: Path,
+    architecture_bundle: Path,
+    expected_sdk_version: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[Path, dict[str, object]]:
+    return _run_d07_shadow(
+        phase="D0.7B1",
+        shadow_variant="executed-tool-metadata-on",
+        output_root=output_root,
+        architecture_bundle=architecture_bundle,
+        expected_sdk_version=expected_sdk_version,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _verify_d07_request_surface(value: dict[str, object], *, ordinal: int) -> None:
     expected_keys = {
         "additional_tools_count",
         "exec_visibility",
@@ -2711,7 +3032,7 @@ def _verify_d07_request_surface(
     }
     if (
         set(value) != expected_keys
-        or value.get("schema_version") != "codex-d07-request-surface/v1"
+        or value.get("schema_version") != "codex-d07-request-surface/v2"
         or value.get("request_ordinal") != ordinal
         or value.get("model") != MODEL_IDENTIFIER
         or value.get("request_tools_state") not in {"ABSENT", "NULL", "EMPTY", "NONEMPTY"}
@@ -2745,10 +3066,24 @@ def _verify_d07_request_surface(
         or set(observation)
         != {
             "call_id",
+            "exec_command_argument_match_count",
+            "exec_command_call_count",
+            "executed_tool_call_count",
+            "executed_tool_metadata_present",
             "item_type",
+            "metadata_outer_call_id_bound",
+            "metadata_tool_calls_complete",
+            "nested_chunk_id_nonempty",
+            "nested_exec_command_dispatched",
+            "nested_exit_code",
+            "nested_exit_code_zero",
+            "nested_failure_category",
+            "nested_output_marker_match",
+            "nested_output_state",
+            "nested_result_present",
+            "nested_session_id_present",
             "output_classification",
             "output_kind",
-            "output_sha256",
         }
         or observation.get("output_classification")
         not in {
@@ -2757,14 +3092,78 @@ def _verify_d07_request_surface(
             "SCRIPT_EXECUTION_ERROR",
             "SUCCESS_OR_UNCLASSIFIED",
         }
-        or not isinstance(observation.get("output_sha256"), str)
-        or SHA256_PATTERN.fullmatch(cast(str, observation["output_sha256"])) is None
+        or any(
+            not isinstance(observation.get(key), bool)
+            for key in (
+                "executed_tool_metadata_present",
+                "metadata_outer_call_id_bound",
+                "metadata_tool_calls_complete",
+                "nested_chunk_id_nonempty",
+                "nested_exec_command_dispatched",
+                "nested_exit_code_zero",
+                "nested_output_marker_match",
+                "nested_result_present",
+                "nested_session_id_present",
+            )
+        )
+        or observation.get("nested_output_state")
+        not in {
+            "EMPTY",
+            "EXACT_MARKER",
+            "EXACT_MARKER_WITH_NEWLINE",
+            "MISSING_OR_NON_STRING",
+            "OTHER",
+        }
+        or observation.get("nested_failure_category")
+        not in {
+            "APPROVAL_REJECTED",
+            "COMMAND_NOT_FOUND",
+            "NONE",
+            "OTHER",
+            "PERMISSION_DENIED",
+            "POLICY_REJECTED",
+            "SANDBOX_DENIED",
+        }
+        or (
+            observation.get("nested_exit_code") is not None
+            and (
+                not isinstance(observation.get("nested_exit_code"), int)
+                or isinstance(observation.get("nested_exit_code"), bool)
+            )
+        )
+        or any(
+            not isinstance(observation.get(key), int)
+            or isinstance(observation.get(key), bool)
+            or cast(int, observation[key]) < 0
+            for key in (
+                "exec_command_argument_match_count",
+                "exec_command_call_count",
+                "executed_tool_call_count",
+            )
+        )
+        or any(
+            observation.get(key) is True and observation.get("nested_result_present") is not True
+            for key in (
+                "nested_chunk_id_nonempty",
+                "nested_exit_code_zero",
+                "nested_output_marker_match",
+            )
+        )
+        or (
+            observation.get("nested_exec_command_dispatched") is True
+            and (
+                observation.get("executed_tool_metadata_present") is not True
+                or observation.get("metadata_outer_call_id_bound") is not True
+                or observation.get("metadata_tool_calls_complete") is not True
+                or observation.get("executed_tool_call_count") != 1
+                or observation.get("exec_command_call_count") != 1
+                or observation.get("exec_command_argument_match_count") != 1
+            )
+        )
         for observation in output_observations
     ):
         raise RuntimeError("D0.7 tool output projection is invalid")
-    if value.get("model_visible_tool_names_sha256") != sha256_bytes(
-        canonical_json_bytes(names)
-    ):
+    if value.get("model_visible_tool_names_sha256") != sha256_bytes(canonical_json_bytes(names)):
         raise RuntimeError("D0.7 request tool-name hash is invalid")
     for key in ("raw_request_sha256", "tool_schemas_sha256"):
         candidate = value.get(key)
@@ -2772,9 +3171,10 @@ def _verify_d07_request_surface(
             raise RuntimeError("D0.7 request surface hash is invalid")
     expected_exec = "OBSERVED_TRUE" if "exec" in names else "OBSERVED_FALSE"
     expected_wait = "OBSERVED_TRUE" if "wait" in names else "OBSERVED_FALSE"
-    if value.get("exec_visibility") != expected_exec or value.get(
-        "wait_visibility"
-    ) != expected_wait:
+    if (
+        value.get("exec_visibility") != expected_exec
+        or value.get("wait_visibility") != expected_wait
+    ):
         raise RuntimeError("D0.7 request tool visibility is invalid")
 
 
@@ -2788,21 +3188,6 @@ def _verify_d07_scripted_response(
         or value.get("sse_sha256") != sha256_bytes(_d07_sse(expected_events))
     ):
         raise RuntimeError("D0.7 scripted response fixture is invalid")
-
-
-def _d07_workspace_from_events(events: Sequence[dict[str, object]]) -> str | None:
-    candidates: set[str] = set()
-    for event in events:
-        params = event.get("params")
-        item = params.get("item") if isinstance(params, dict) else None
-        if not isinstance(item, dict) or item.get("type") != "commandExecution":
-            continue
-        cwd = item.get("cwd")
-        if isinstance(cwd, str):
-            candidates.add(cwd)
-    if len(candidates) == 1:
-        return next(iter(candidates))
-    return None
 
 
 def _find_d07a_reference(
@@ -2839,9 +3224,7 @@ def verify_d07_bundle(
     manifest, payloads = _read_d07_bundle_files(bundle_path)
     phase = manifest.get("phase")
     if phase == "D0.7A":
-        return _verify_d07a_bundle(
-            bundle_path, expected_sdk_version=expected_sdk_version
-        )
+        return _verify_d07a_bundle(bundle_path, expected_sdk_version=expected_sdk_version)
     if phase not in {"D0.7B0", "D0.7B1", "D0.7C"}:
         raise RuntimeError("unsupported D0.7 bundle phase")
     if phase == "D0.7C":
@@ -2865,10 +3248,14 @@ def verify_d07_bundle(
             "upstream-architecture-ref.json",
         }
     )
-    allowed_names = common_names | phase_names | {
-        "request-1-surface.json",
-        "request-2-surface.json",
-    }
+    allowed_names = (
+        common_names
+        | phase_names
+        | {
+            "request-1-surface.json",
+            "request-2-surface.json",
+        }
+    )
     if not common_names | phase_names <= set(payloads) or not set(payloads) <= allowed_names:
         raise RuntimeError("D0.7 shadow bundle file set is invalid")
     if phase == "D0.7B0" and "request-2-surface.json" in payloads:
@@ -2881,11 +3268,13 @@ def verify_d07_bundle(
     provider_config = _canonical_object(
         payloads["provider-config-projection.json"], label="D0.7 provider config"
     )
-    stderr_summary = _canonical_object(
-        payloads["stderr-summary.json"], label="D0.7 stderr summary"
-    )
+    stderr_summary = _canonical_object(payloads["stderr-summary.json"], label="D0.7 stderr summary")
     events = _canonical_jsonl_objects(
         payloads["provider-events.jsonl"], label="D0.7 provider events"
+    )
+    shadow_variant = result.get("shadow_variant")
+    metadata_enabled = (
+        D07_SHADOW_VARIANTS.get(shadow_variant) if isinstance(shadow_variant, str) else None
     )
     if (
         runtime_identity.get("schema_version") != "codex-d07-runtime-identity/v1"
@@ -2895,13 +3284,29 @@ def verify_d07_bundle(
         or runtime_identity.get("runtime_binary_hash") != result.get("runtime_binary_hash")
         or result.get("phase") != phase
         or result.get("sdk_version") != expected_sdk_version
+        or metadata_enabled is None
         or provider_config.get("loopback_only") is not True
         or provider_config.get("requires_openai_auth") is not False
         or provider_config.get("auth_json_present") is not False
         or provider_config.get("base_url_host") != "127.0.0.1"
+        or provider_config.get("provider_name")
+        != ("OpenAI" if metadata_enabled else "QuantOS deterministic loopback")
+        or provider_config.get("provider_treated_as_openai") is not metadata_enabled
+        or provider_config.get("executed_tool_call_metadata_enabled") is not metadata_enabled
+        or provider_config.get("executed_tool_call_metadata_source")
+        != ("EXPLICIT_TRUE" if metadata_enabled else "DEFAULT_FALSE")
+        or provider_config.get("thread_config_feature_override") is not metadata_enabled
+        or provider_config.get("post_terminal_drain_quiet_ms")
+        != int(POST_TERMINAL_DRAIN_QUIET_SECONDS * 1000)
+        or provider_config.get("post_terminal_drain_deadline_ms")
+        != int(POST_TERMINAL_DRAIN_DEADLINE_SECONDS * 1000)
+        or provider_config.get("nested_command_sandbox_policy")
+        != ("dangerFullAccess" if phase == "D0.7B1" else "readOnly")
         or set(stderr_summary) != {"byte_count", "line_count", "sha256"}
     ):
         raise RuntimeError("D0.7 shadow identity or provider binding is invalid")
+    if phase == "D0.7B0" and shadow_variant != "default":
+        raise RuntimeError("D0.7 preflight shadow variant is invalid")
 
     request_surfaces: list[dict[str, object]] = []
     for ordinal in (1, 2):
@@ -2931,9 +3336,7 @@ def verify_d07_bundle(
         second_fixture = _canonical_object(
             payloads["scripted-response-2.json"], label="D0.7 second response"
         )
-        _verify_d07_scripted_response(
-            first_fixture, expected_events=_d07_exec_response_events()
-        )
+        _verify_d07_scripted_response(first_fixture, expected_events=_d07_exec_response_events())
         _verify_d07_scripted_response(
             second_fixture,
             expected_events=_d07_final_response_events("resp-d07-final", "msg-d07-final"),
@@ -2942,9 +3345,7 @@ def verify_d07_bundle(
             payloads["upstream-architecture-ref.json"],
             label="D0.7 architecture reference",
         )
-        _find_d07a_reference(
-            bundle_path, reference, expected_sdk_version=expected_sdk_version
-        )
+        _find_d07a_reference(bundle_path, reference, expected_sdk_version=expected_sdk_version)
         recorded_host = _canonical_object(
             payloads["code-mode-host-identity.json"], label="D0.7 Code Mode host identity"
         )
@@ -2959,22 +3360,22 @@ def verify_d07_bundle(
         thread_id=thread_id if isinstance(thread_id, str) else None,
         turn_id=turn_id if isinstance(turn_id, str) else None,
     )
-    workspace = _d07_workspace_from_events(events)
-    if workspace is None:
-        workspace = "<D07-NO-COMMAND-WORKSPACE>"
-    command_probe = _d07_command_probe(events, workspace=workspace)
+    command_probe = _d07_command_probe(events)
     for key, value in {**event_summary, **command_probe}.items():
         if result.get(key) != value:
             raise RuntimeError("D0.7 result does not match retained provider events")
     if result.get("request_count") != len(request_surfaces):
         raise RuntimeError("D0.7 result request count is invalid")
     terminal_error = (
-        RuntimeError("retained terminal error")
-        if "terminal_error_kind" in result
-        else None
+        RuntimeError("retained terminal error") if "terminal_error_kind" in result else None
     )
     classification = _d07_classify_shadow(
         phase=cast(str, phase),
+        shadow_variant=(
+            cast(str, result["shadow_variant"])
+            if isinstance(result.get("shadow_variant"), str)
+            else ""
+        ),
         request_surfaces=request_surfaces,
         event_summary=event_summary,
         command_probe=command_probe,
@@ -3112,13 +3513,14 @@ def run_d07_live_observation(
     expected_sdk_version: str,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> tuple[Path, dict[str, object]]:
-    qualified = verify_d07_bundle(
-        shadow_chain_bundle, expected_sdk_version=expected_sdk_version
-    )
+    qualified = verify_d07_bundle(shadow_chain_bundle, expected_sdk_version=expected_sdk_version)
     if qualified.get("primary_classification") not in {
         "CODE_MODE_CHAIN_AVAILABLE",
         "MODEL_VISIBLE_CODE_MODE_MISSING",
         "SCRIPTED_EXEC_REJECTED",
+        "NESTED_RESULT_VALIDATION_FAILED",
+        "NESTED_EXEC_COMMAND_METADATA_NOT_OBSERVED",
+        "NESTED_COMMAND_EXECUTED_COMMAND_EVENT_NOT_OBSERVED",
         "COMMAND_LIFECYCLE_GAP",
         "COMMAND_PROBE_FAILED",
         "INCONCLUSIVE",
@@ -3607,6 +4009,9 @@ RAW_RESULT_BASE_KEYS = {
     "limitations",
     "model",
     "observed_item_types",
+    "post_terminal_command_event_count",
+    "post_terminal_event_count",
+    "post_terminal_item_event_count",
     "probe",
     "prompt_hash",
     "provider_event_methods",
@@ -4045,6 +4450,7 @@ def main() -> None:
     mode.add_argument("--characterize-code-mode-source", action="store_true")
     mode.add_argument("--shadow-provider-preflight", action="store_true")
     mode.add_argument("--shadow-code-mode-chain", action="store_true")
+    mode.add_argument("--shadow-code-mode-chain-metadata", action="store_true")
     mode.add_argument("--live-code-mode-observation", action="store_true")
     mode.add_argument("--verify-d07-bundle", type=Path)
     parser.add_argument("--raw-thread", action="store_true")
@@ -4061,6 +4467,7 @@ def main() -> None:
             args.characterize_code_mode_source,
             args.shadow_provider_preflight,
             args.shadow_code_mode_chain,
+            args.shadow_code_mode_chain_metadata,
             args.live_code_mode_observation,
             args.verify_d07_bundle is not None,
         )
@@ -4107,12 +4514,18 @@ def main() -> None:
             )
         )
         return
-    if args.shadow_provider_preflight or args.shadow_code_mode_chain:
+    if (
+        args.shadow_provider_preflight
+        or args.shadow_code_mode_chain
+        or args.shadow_code_mode_chain_metadata
+    ):
         if args.architecture_bundle is None:
             raise RuntimeError("--architecture-bundle is required for a D0.7 shadow run")
         runner = (
             run_d07_shadow_preflight
             if args.shadow_provider_preflight
+            else run_d07_shadow_chain_metadata
+            if args.shadow_code_mode_chain_metadata
             else run_d07_shadow_chain
         )
         destination, result = runner(
@@ -4129,6 +4542,7 @@ def main() -> None:
                     "primary_classification": result["primary_classification"],
                     "request_count": result["request_count"],
                     "runtime_version": result["runtime_version"],
+                    "shadow_variant": result["shadow_variant"],
                 },
                 indent=2,
                 sort_keys=True,

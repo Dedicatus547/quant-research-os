@@ -1,6 +1,6 @@
 # QuantOS FR-03 D0.7：Code Mode / Responses Lite 工具链资格诊断
 
-> 状态：已实施；D0.7B1 为 `INCONCLUSIVE`，FR-03 保持 `NO_GO`
+> 状态：已实施；0.154.0 D0.7B1+ 为 `CODE_MODE_CHAIN_AVAILABLE`，FR-03 保持 `NO_GO`
 > 更新日期：2026-09-21
 > 范围：FR-03 / P10 Codex SDK qualification
 > canonical SDK/runtime：`openai-codex==0.154.0` / bundled runtime `0.154.0`
@@ -340,11 +340,14 @@ name = exec
 arguments = release-valid minimal JavaScript
 ```
 
-JavaScript 的语义固定为：
+JavaScript 与 upstream exact-tag test 同型，并使用唯一固定安全 marker：
 
 ```javascript
-const result = await tools.exec_command({cmd: "/usr/bin/pwd"});
-text(result.output);
+text(JSON.stringify(
+  await tools.exec_command({
+    cmd: "printf QUANTOS_D07_NESTED_EXEC_OK"
+  })
+));
 ```
 
 实际 event names、call id、argument envelope 和结束事件必须从 exact-tag upstream tests 或
@@ -363,8 +366,26 @@ server 必须拒绝第三个 model request。第二个 request 的 safe projecti
 
 - 引用了 response #1 的 call identity；
 - 包含对应 tool result item；
+- nested result 存在；
+- `output == "QUANTOS_D07_NESTED_EXEC_OK"`；
+- `exit_code == 0`；
+- `chunk_id` 非空；
 - item 顺序和 request ordinal 正确；
 - 不包含 credential material。
+
+projection 只保留上述布尔值、整数和枚举，不持久化第二次 request 中未经审查的 raw output。
+受控 `executed-tool-metadata-on` variant 同时显式设置：
+
+```toml
+[features]
+executed_tool_call_metadata = true
+```
+
+exact-tag source 证明 non-OpenAI provider name 会在第二次 request 构建时清除 internal metadata。
+因此该 variant 仅把 loopback provider 的 `name` 设置为 upstream 判定值 `OpenAI`；endpoint 仍固定
+为 `127.0.0.1`，`requires_openai_auth=false`，server 仍拒绝任何认证头。其 safe projection 还要求
+`cell_id` 绑定 outer `exec` call id、`tool_calls_complete=true`，且恰有一个 exact-argument
+`exec_command` entry，才把 L5 记为 `OBSERVED_TRUE`。
 
 ### 6.5 本地执行证据
 
@@ -378,17 +399,22 @@ commandExecution completed count == 1
 started/completed item identity matches
 command status == completed
 exit code == 0
-stdout bytes == UTF8(TEMP_WORKSPACE + "\n")
+stdout bytes == UTF8("QUANTOS_D07_NESTED_EXEC_OK")
 stderr bytes == empty
 turn completed
 final assistant message == "DONE"
 ```
 
-不要仅根据 `exec` 最终文本、assistant prose 或 `/usr/bin/pwd` 字符串出现来推断命令执行。
+不要仅根据 `exec` 最终文本、assistant prose 或 marker 字符串出现来推断命令执行。
+
+raw app-server runner 在 `turn/completed` 后不立即停止：它使用 250 ms quiet window 和 1 s 总
+deadline 做 bounded drain。terminal 后到达的合法 item/command lifecycle event 参与同一引用与
+lifecycle 校验，不再仅因到达顺序被判 integrity failure；terminal 后的重复/非法 turn event 仍
+fail closed。
 
 若 public event surface 不直接暴露 Code Mode host invocation 或 nested dispatch，这两层记录为
-`UNKNOWN`；不得伪造 `false`。只要 request、script fixture、`commandExecution` lifecycle 和输出
-的引用链完整，仍可证明本测试所需的端到端链路。
+`UNKNOWN`；不得伪造 `false`。B1+ 则通过 nested result structural proof 与 executed-tool metadata
+分别把 L4/L5 提升为 `OBSERVED_TRUE`，而不是根据 assistant prose 推断执行。
 
 ### 6.6 Code Mode host identity
 
@@ -492,10 +518,11 @@ first-match，避免同一 evidence 被不同实现分类成不同结果：
 | 7 | request 完整但 model-visible `exec` 不存在 | `MODEL_VISIBLE_CODE_MODE_MISSING` |
 | 8 | scripted `exec` 被 protocol/router 拒绝 | `SCRIPTED_EXEC_REJECTED` |
 | 9 | positive run 中 nested shell 被结构化证明不存在 | `NESTED_SHELL_MISSING` |
-| 10 | nested dispatch 已证明，但 lifecycle 缺失/断裂 | `COMMAND_LIFECYCLE_GAP` |
-| 11 | lifecycle 完整但 exit/output 不符合 probe | `COMMAND_PROBE_FAILED` |
-| 12 | 所有 positive assertions 满足 | `CODE_MODE_CHAIN_AVAILABLE` |
-| 13 | 以上均不能机械确定 | `INCONCLUSIVE` |
+| 10 | nested dispatch 已证明，bounded drain 后 command event 为 0 | `NESTED_COMMAND_EXECUTED_COMMAND_EVENT_NOT_OBSERVED` |
+| 11 | nested dispatch 已证明，但 lifecycle 部分出现后断裂 | `COMMAND_LIFECYCLE_GAP` |
+| 12 | lifecycle 完整但 exit/output 不符合 probe | `COMMAND_PROBE_FAILED` |
+| 13 | 所有 positive assertions 满足 | `CODE_MODE_CHAIN_AVAILABLE` |
+| 14 | 以上均不能机械确定 | `INCONCLUSIVE` |
 
 `CODE_MODE_HOST_UNAVAILABLE` 的判断可以来自 preflight，也可以来自 runtime structured error；不能
 只搜索一段可能变化的 stderr 文本。
@@ -811,9 +838,11 @@ D0.7 完成必须满足：
 - [x] first request safe projection 已捕获并 hash-bound；
 - [x] scripted response protocol 来自 exact-release evidence；
 - [x] positive `exec` 被接受并产生相同 call id 的 tool-output request；
-- [ ] `commandExecution` lifecycle、exit code 和 stdout 已独立验证；
+- [x] `commandExecution` lifecycle、exit code 和固定 marker stdout 已独立验证；
+- [x] nested result 与 executed-tool metadata 已在第二次 request 的安全投影中机械验证；
+- [x] post-terminal bounded drain 已实施且 late item event 不再被自动拒绝；
 - [x] 所有不可观察层使用 `UNKNOWN`，没有用 `false` 代替；
-- [x] positive case 未满足完整链路，因此没有扩张运行缺少解释力的 negative matrix；
+- [x] pinned 0.154.0 positive case 已满足完整链路；0.155.1 control 因不再影响判定而未重跑；
 - [x] offline verifier 从底层 artifacts 重算 result；
 - [x] inconclusive evidence 同样不可变保留；
 - [x] live observation 已完成，分类为 `LIVE_EXEC_NOT_OBSERVED`；
@@ -833,29 +862,30 @@ D0.7 完成必须满足：
 
 只能根据机械 evidence 选择分类，不得为了解除 P10 阻塞而降低资格标准。
 
-## 17. 2026-09-21 实施结果
+## 17. 2026-09-22 D0.7B1+ 实施结果
 
-所有下列 bundle 均为 `NON_CANONICAL_DIAGNOSTIC`，并已由 `--verify-d07-bundle` 从 retained
-artifacts 离线重算通过：
+本轮刷新后的 0.154.0/0.155.1 source bundle 与 0.154.0 B1+ bundle 均为
+`NON_CANONICAL_DIAGNOSTIC`，并已由当前 `--verify-d07-bundle` 从 retained artifacts 离线重算
+通过。旧 B0/B1/C 指针保留为历史证据，不伪装成用新 parser 重新发布的 bundle。
 
 | version / stage | classification | bundle manifest hash |
 |---|---|---|
-| 0.154.0 D0.7A | `ARCHITECTURE_CHARACTERIZED` | `0b21e05e...f047f46c` |
-| 0.154.0 D0.7B0 | `SHADOW_PROVIDER_PREFLIGHT_AVAILABLE` | `dd4abe0f...4fed97d6` |
-| 0.154.0 D0.7B1 | `INCONCLUSIVE` | `df0c69c4...a7d99c79` |
-| 0.154.0 D0.7C | `LIVE_EXEC_NOT_OBSERVED` | `7da8cf78...74fbc1ab` |
-| 0.155.1 D0.7A | `ARCHITECTURE_CHARACTERIZED` | `41e76a96...fdf14a96` |
-| 0.155.1 D0.7B0 | `SHADOW_PROVIDER_PREFLIGHT_AVAILABLE` | `1dc124a5...76b88c0` |
-| 0.155.1 D0.7B1 | `INCONCLUSIVE` | `5378e069...45ea34b` |
+| 0.154.0 D0.7A | `ARCHITECTURE_CHARACTERIZED` | `19dd2bc8...a60c5d8` |
+| 0.154.0 D0.7B1+ metadata-on | `CODE_MODE_CHAIN_AVAILABLE` | `9c20e6c5...f4ecca64` |
+| 0.155.1 D0.7A source-only refresh | `ARCHITECTURE_CHARACTERIZED` | `121e7fc0...c3cb7655` |
 
-两版 source 都确认 `CodeModeOnly + Responses Lite + unified_exec`。两版首个 shadow request 的
-顶层 `tools` 都是 absent，`additional_tools` 的 namespace 子工具均明确包含 `exec` 和 `wait`；
-scripted `exec` 均产生引用 `d07-exec-call-1` 的第二次 tool-output request，且 turn 最终为
-`completed / DONE`。但是 retained public event stream 在两版都没有 `commandExecution`，也不暴露
-Code Mode host invocation 或 nested dispatch。tool output 的白名单投影只能分类为
-`SUCCESS_OR_UNCLASSIFIED`，不足以证明 `tools.exec_command` 被实际调用，因此 B1 必须保持
-`INCONCLUSIVE`，不能提升为 `COMMAND_LIFECYCLE_GAP` 或 `CODE_MODE_CHAIN_AVAILABLE`。
+历史两版 source 结论仍为 `CodeModeOnly + Responses Lite + unified_exec`；更新后的 0.154.0 source
+bundle 还机械绑定了 non-OpenAI provider metadata stripping gate。B1+ 首个 request 顶层 `tools`
+absent，`additional_tools` 明确包含 model-visible `exec` / `wait`。第二次 request 的安全投影证明：
+outer call id 匹配；nested result 存在；输出精确为固定 marker；exit 为 0；chunk id 非空；executed-
+tool metadata 完整且只有一个 exact-argument `exec_command`。因此 L4/L5 都是 `OBSERVED_TRUE`。
 
-live 0.154.0 turn 完成但 command count 为 0；由于 live HTTP body 按安全边界未保留，model-visible
-`exec` 仍为 `UNKNOWN`，故结论仅为 `LIVE_EXEC_NOT_OBSERVED`，不能写成 provider defect。当前阻塞
-属于 evidence insufficient / public observability gap。P10 未重跑，FR-03 继续 `NO_GO`。
+public stream 同时包含同一 item id 的一个 `commandExecution` started 和 completed，状态成功且输出
+匹配 marker。它们在 `turn/completed` 前到达；bounded post-terminal drain 的 event、item 和 command
+计数均为 0。这不是 lifecycle 缺失，最终分类为 `CODE_MODE_CHAIN_AVAILABLE`。0.155.1 control 没有
+重跑，因为 pinned 0.154.0 已给出决定性 positive result。
+
+live 0.154.0 历史 turn 完成但 command count 为 0；由于 live HTTP body 按安全边界未保留，结论
+仍仅为 `LIVE_EXEC_NOT_OBSERVED`。B1+ 证明一般性的 Code Mode/app-server chain 可用，但没有验证
+P10 所需的 sandbox、permission denial 与 recovery。P10/P13 未重跑，9/9 hard gate 未降低，FR-03
+继续 `NO_GO`。
