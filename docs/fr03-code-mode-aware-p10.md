@@ -1,6 +1,6 @@
 # FR-03：Code Mode-aware P10 实施与验收方案
 
-> 状态：已实施；live qualification `NO_GO`
+> 状态：已实施；live qualification `NO_GO`；FR-03 薄维护中
 >
 > 日期：2026-09-22
 >
@@ -21,7 +21,8 @@ Responses Lite additional_tools.exec
 ```
 
 该结果关闭了“0.154.0 的 Code Mode host、nested dispatch 或 app-server command lifecycle
-普遍不可用”的假设，但不能替代真实 model/provider 下的 P10。历史两次 SDK P10 仍是 `6/9`，缺少：
+普遍不可用”的假设，但不能替代真实 model/provider 下的 P10。历史两次 SDK P10 与本次
+CodeMode-aware live P10 均为 `6/9`，缺少：
 
 ```text
 SANDBOX
@@ -450,6 +451,10 @@ no overwrite of historical fixtures or artifacts
 fail closed
 ```
 
+薄维护状态（2026-09-22 起）：在 upstream 有明确进展，或出现值得重新 qualification 的新 runtime
+candidate 之前，不再反复调 prompt 重试 live P10、不降低 `9/9` hard gate、不新增 D0.8/D0.9、
+不引入 fallback CLI 或 dual-stack、不用 prose 推断 execution。
+
 ## 15. Definition of Done
 
 实施完成状态：
@@ -487,7 +492,7 @@ fail closed
 | `FAILURE_RECOVERY` | FAIL：两个 denial 与后续 `/usr/bin/pwd` 均无 matched lifecycle |
 | P10 | `6/9`、`LIVE_EXEC_NOT_OBSERVED`、`NO_GO` |
 | Offline replay | PASS：report、manifest、spec、provider/normalized transcript bindings 全部重算一致 |
-| 下一步 | 不运行 P13；基于 canonical bundle 准备本地 upstream follow-up material |
+| 下一步 | 不运行 P13；本地 upstream follow-up draft 已就绪（`fr03-codex-46947-followup-draft.md`，未发布）；FR-03 进入薄维护；主线 `P14b -> P14c` |
 
 实现校正过程中生成过一个 pre-qualification bundle，其 manifest 将实际 v2 normalizer 错标为 v1。
 最终 verifier 已新增 identity 一致性检查并拒绝该 bundle；它被保留为失败证据，不参与上述资格结论，

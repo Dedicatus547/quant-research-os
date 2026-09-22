@@ -403,6 +403,8 @@ def test_data_qualified_release_cli_loads_locked_configs_and_reports_result(
 ) -> None:
     snapshot_path = tmp_path / f"sha256-{'a' * 64}"
     snapshot_path.mkdir()
+    qlib_source = tmp_path / "qlib-source"
+    qlib_source.mkdir()
     expected = {
         "schema_version": "data-qualified-release-report/v1",
         "status": "PASS",
@@ -421,7 +423,7 @@ def test_data_qualified_release_cli_loads_locked_configs_and_reports_result(
             "data-qualified",
             str(snapshot_path),
             "--qlib-source",
-            str(ROOT / ".tools" / "qlib-0.9.7"),
+            str(qlib_source),
             "--output-root",
             str(tmp_path / "release"),
         ],

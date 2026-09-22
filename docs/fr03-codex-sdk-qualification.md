@@ -6,6 +6,12 @@ Frozen SDK/runtime: `openai-codex==0.154.0` / bundled app-server `0.154.0`
 
 Decision: **NO_GO**
 
+Status: FR-03 is in thin maintenance. Canonical CodeMode-aware P10 is `6/9` /
+`LIVE_EXEC_NOT_OBSERVED` / report `c5f8f53f...7a1fc` / matched command lifecycle `0/4`.
+P13 SDK qualification remains `NOT_EVALUATED`. Local upstream follow-up draft for
+[openai/codex#46947](https://github.com/openai/codex/issues/46947) is prepared in
+[fr03-codex-46947-followup-draft.md](fr03-codex-46947-followup-draft.md) and has not been posted.
+
 ## Evidence matrix
 
 | Requirement | Result | Evidence |
@@ -86,4 +92,5 @@ See the
 [failure-isolation plan](fr03-codex-sdk-failure-isolation-plan.md).
 The provider-facing reproduction is
 [documented here](fr03-codex-sdk-upstream-reproduction.md) and was submitted as
-[openai/codex#46947](https://github.com/openai/codex/issues/46947).
+[openai/codex#46947](https://github.com/openai/codex/issues/46947). A CodeMode-aware P10 A/B
+follow-up comment is drafted locally and has not been posted.

@@ -210,3 +210,5 @@ evidence that a command executed.
 
 Submitted upstream as [openai/codex#46947](https://github.com/openai/codex/issues/46947).
 The D0.6 and D0.7B1+ narrowing addenda are prepared locally and have not been posted to that issue.
+The CodeMode-aware P10 A/B follow-up comment is drafted in
+[fr03-codex-46947-followup-draft.md](fr03-codex-46947-followup-draft.md) and has not been posted.

@@ -121,8 +121,9 @@ deadline post-terminal drain observed no later events. Offline replay of bundle
 This narrows the earlier issue: there is no general failure of the pinned Code Mode host, nested
 `exec_command`, or app-server command lifecycle on this deterministic path. It does not qualify the
 historical natural-language P10 execution contract or attest sandbox, denial, and recovery behavior.
-FR-03 therefore remains `NO_GO`; P10 remains 9/9, P10/P13 were not rerun, and the 0.154.0 lock is
-unchanged.
+FR-03 therefore remains `NO_GO`; the P10 hard gate remains 9/9, P13 was not run in that diagnostic
+step, and the 0.154.0 lock is unchanged. The subsequent CodeMode-aware P10 section records the live
+qualification rerun.
 
 ## 2026-09-22 Code Mode-aware P10 qualification
 

@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-22
+Status date: 2026-09-22 (FR-03 close-out)
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
@@ -28,7 +28,7 @@ workspace.
 | P13 | Approved v2 benchmark, read-only Agent extraction, deterministic admission, immutable event artifacts and native-Qlib execution qualified | `SUCCEEDED / PASS`: real Store and admitted Agent proposal replayed on clean commit `46904c2…`; two roots match all principal content hashes. Bundle `c6abe067…d883`. Single announcement with citation-location assistance; no general extraction or profitability claim. See [freeze record](p13-v2-freeze.md) |
 | FR-01 | Existing admitted DSL now passes proposal compiler, resolution, PIT, SignalArtifact, Qlib backtest, and Validation without a project expression runtime; a non-return `field → delta → abs` DAG and negative field/operator cases pass | No new live-data conclusion; existing snapshot/view qualification boundaries remain unchanged |
 | FR-02 | Immutable Qlib ResearchResult adapter binds prediction, label, split, expression, policy, source files, native IC/Rank IC series and summaries; exact-file verification, tamper rejection, independent-root hashes, and G3 integration pass | Only Qlib-native IC/Rank IC outputs are qualified; coverage/turnover/autocorrelation remain outside scope |
-| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0-D0.7 diagnostics, exact-source Code Mode characterization, credential-free loopback chain tests, safe nested-result/metadata projection, post-terminal event drain and offline replay implemented; offline regression PASS | **NO_GO**: canonical 0.154.0 D0.7B1+ is `CODE_MODE_CHAIN_AVAILABLE` and mechanically binds nested `exec_command`, exact marker result and a complete `commandExecution` lifecycle; historical live D0.7C remains `LIVE_EXEC_NOT_OBSERVED`; P10 was not rerun and its 9/9 hard gate is unchanged; P13 SDK qualification remains NOT_EVALUATED; upstream issue #46947 requires narrowing |
+| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0-D0.7 diagnostics, exact-source Code Mode characterization, credential-free loopback chain tests, safe nested-result/metadata projection, post-terminal event drain, Code Mode-aware P10 v3 fixture/evaluator and bottom-up offline replay implemented; offline regression PASS | **NO_GO**: CodeMode-aware P10 已执行；result `6/9`；classification `LIVE_EXEC_NOT_OBSERVED`；report `c5f8f53f...7a1fc`；matched command lifecycle `0/4`；D0.7B1+ remains `CODE_MODE_CHAIN_AVAILABLE` on the deterministic shadow chain; P13 SDK qualification = `NOT_EVALUATED`; FR-03 = `NO_GO` and is now in thin maintenance until upstream progress or a new runtime candidate warrants requalification |
 
 FR-03 update (2026-09-15): the core SDK integration and offline coverage are complete.
 The exact SDK and bundled runtime authenticated and supplied structured output, MCP, Skill, usage,
@@ -72,8 +72,9 @@ the scripted exec call id into a second model request. Neither public event stre
 dispatch or emitted `commandExecution`, so both B1 results are strictly `INCONCLUSIVE`, not a claimed
 runtime failure. The 0.154.0 live observation completed with zero commands and is
 `LIVE_EXEC_NOT_OBSERVED`; raw live HTTP was not retained. All seven source/shadow/live bundles passed
-offline replay verification. Canonical dependencies remain 0.154.0 and P10 was not rerun. See
-[the D0.7 qualification record](fr03-d07-codex-sdk-test.md).
+offline replay verification. Canonical dependencies remain 0.154.0. At that diagnostic stage P10
+had not yet been rerun; the later CodeMode-aware P10 result below supersedes that point-in-time
+statement. See [the D0.7 qualification record](fr03-d07-codex-sdk-test.md).
 
 FR-03 update (2026-09-22, D0.7B1+): the scripted Code Mode response now matches the upstream
 exact-tag test shape and executes only `printf QUANTOS_D07_NESTED_EXEC_OK`. A controlled shadow
@@ -85,7 +86,24 @@ chunk id, exact nested `exec_command` arguments and binding to the outer `exec` 
 `commandExecution` start/completion was observed before `turn/completed`; the bounded post-terminal
 drain observed no later events. Bundle `9c20e6c5...f4ecca64` replay-verifies as
 `CODE_MODE_CHAIN_AVAILABLE`. The 0.155.1 control was unnecessary after the pinned target became
-decisive. FR-03 remains `NO_GO`; no P10/P13 rerun or dependency change was made.
+decisive. FR-03 remains `NO_GO`; no P13 run or dependency change was made in that diagnostic step.
+
+FR-03 update (2026-09-22, CodeMode-aware P10): the versioned Code Mode-aware P10 fixture and
+evaluator were executed once against the same pinned `0.154.0` runtime with real `gpt-5.6-sol`,
+explicitly instructed to use Code Mode `exec` and await nested `tools.exec_command` for the four
+exact required commands. Result: `6/9`; classification `LIVE_EXEC_NOT_OBSERVED`; report
+`c5f8f53f...7a1fc`. The turn completed with `0` command starts, `0` command terminals and `0/4`
+matched command lifecycles; outer `exec` and nested attribution remain `UNKNOWN`; `SANDBOX`,
+`PERMISSION_DENIAL` and `FAILURE_RECOVERY` fail closed. Offline replay reproduced the same report,
+manifest `dd4e37fb...7b40b5` and normalized transcript `55506f91...156d`. P13 SDK qualification =
+`NOT_EVALUATED`. FR-03 = `NO_GO`. This A/B against deterministic shadow bundle
+`9c20e6c5...f4ecca64` (`exec -> tools.exec_command -> commandExecution`, PASS) does not prove a
+provider bug; it narrows the unresolved boundary to real Responses Lite / model-provider tool
+initiation. FR-03 now enters thin maintenance: no further prompt retries, no relaxation of the 9/9
+hard gate, no new D0.x, no CLI fallback and no dual-stack until upstream progress or a new runtime
+candidate warrants requalification. Mainline returns to `P14b -> P14c`. See
+[the Code Mode-aware P10 record](fr03-code-mode-aware-p10.md) and the
+[qualification matrix](fr03-codex-sdk-qualification.md).
 
 P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
 approved Store is materialized locally, and a real Agent proposal passed all six admission checks
