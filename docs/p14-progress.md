@@ -5,8 +5,41 @@ Status date: 2026-09-23
 P14a and P14b are complete. P14c implementation commit `618498a64b8e46ab5c38f66ea08a03a2afdaea32`
 passed its clean-commit, independent double-root qualification with report
 `d0412a30d27c4d793fe527a28432292f1616a4ad726830d3cb1ce24a5836913a`. P14c now has qualified
-engineering authority. P14d is eligible to start, but is not implemented and receives no authority
-from the P14c report.
+engineering authority. A P14d-A frozen contract and deterministic orchestration skeleton are now
+implemented in the working tree. P14d-A acceptance remains incomplete because the typed research
+execution port has not yet been connected to the existing PIT/Qlib/Validation services. The
+`SELECTED` and `NO_SELECTION` handoffs have been exercised offline through the existing
+`CampaignSelectionService` using synthetic ResearchResult artifacts. The current full regression
+passed 509 tests at 85.08% coverage; Ruff and Pyright also passed. No P14d-B runner has started.
+P14d-C remains blocked by FR-03 `NO_GO`. P14c grants no autonomous or sealed-confirmation authority.
+
+## P14d-A deterministic orchestration skeleton
+
+The v1 contract is frozen in `docs/p14d-autonomous-loop-contract.md`. The runtime-neutral
+`AutonomousAgentDriver` accepts one bounded, hash-bound ContextPack request and returns exact
+proposal bytes with an existing `AgentRunManifest`. `ScriptedAgentDriver` and `ReplayAgentDriver`
+run without a model or network. Exchanges, campaign events, and loop reports use immutable
+content-addressed publication; campaign budget and state remain projected from the existing
+governor event chain.
+
+The orchestrator verifies the P14b manifest, rebuilds ContextPack from the current Ledger snapshot
+on every iteration, accounts valid or schema-invalid in-manifest attempts as existing campaign
+trials, enforces the existing budgets and stopping policy, and delegates final selection to
+`CampaignSelectionService`. The execution boundary is a typed deterministic service port; the
+current tests use a deterministic fixture adapter. The `SELECTED -> SelectionFrozen` and
+`NO_SELECTION -> CampaignClosed` handoffs pass against the existing P14c service using synthetic,
+verified ResearchResult artifacts. The production adapter from the execution port to existing
+PIT/Qlib/Validation services remains unimplemented. No `OOSAccessed` or sealed confirmation
+execution is implemented.
+
+Current P14d-A status:
+
+- deterministic orchestration implementation: present;
+- full P14d-A Definition of Done: **not yet met**;
+- current full-suite gates: 509 passed, coverage 85.08%, Ruff PASS, Pyright 0 errors / 0 warnings;
+- remaining P14d-A blocker: connect the execution port to existing deterministic research services;
+- P14d-B clean-commit double-root autonomous E2E: pending;
+- P14d-C live Agent runtime: blocked by FR-03 `NO_GO`.
 
 ## P14c engineering implementation
 

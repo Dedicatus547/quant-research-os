@@ -22,7 +22,9 @@
 > Agent-to-Data-qualified 组合运行。P14a/P14b 已完成，P14c 在 clean implementation commit
 > `618498a64b8e46ab5c38f66ea08a03a2afdaea32` 上通过双根 qualification；报告
 > `d0412a30d27c4d793fe527a28432292f1616a4ad726830d3cb1ce24a5836913a` 仅授予 synthetic offline
-> engineering selection authority。P14d eligible to start，但尚未实现，且不获该报告自动授权。
+> engineering selection authority。P14d-A frozen contract 与 deterministic orchestration skeleton
+> 已在工作树实现，DoD acceptance 尚未满足；P14d-B pending，P14d-C blocked by FR-03 `NO_GO`。
+> P14c 报告不自动授予 autonomous 或 sealed-confirmation authority。
 
 ---
 
@@ -1974,7 +1976,8 @@ E2E             P6 validation pipeline / P7 release pipeline
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
 market-data evidence。截至 2026-09-23，M0、DQ-01 至 DQ-06 与 P8-P13 均已完成；
 FR-01/FR-02 已通过硬入口检查，P14a/P14b 已完成，P14c 已取得有限 synthetic engineering
-selection authority，P14d eligible to start。P13 已完成 synthetic
+selection authority；P14d-A 的 frozen contract 与 deterministic skeleton 已实现但 DoD 未完成，
+P14d-B pending、P14d-C blocked by FR-03 `NO_GO`。P13 已完成 synthetic
 EventFeature/EventStudy、窄只读 JSON-RPC、AgentRun failure retention、EventSignal/Qlib
 compatibility bridge 与 native-Qlib clean-commit double-root engineering freeze；严格
 `P13BenchmarkBinding`/`P13QualificationBundle` runner 已就位。用户已批准 v2 Store，真实 Agent
@@ -2345,7 +2348,9 @@ Offline Engineering E2E，但只有 DQ-01 至 DQ-06 完成后才能发布真实�
 | P14a | append-only Research Ledger persistence/rebuild、可重建检索索引与 deterministic ResearchContextPack | Ledger 区分来源/提案/人工判断/确定性 verdict；索引、tokenizer/model/config、tie-breaker、query/result/context-pack hashes 全部绑定 AgentRun |
 | P14b | 预冻结 family 内的 deterministic enumeration、canonical AST fingerprint、duplicate/redundancy evidence | 候选身份、顺序、失败处理、预算和 stopping rule 可重现；所有 schema-invalid/PIT reject/failure/duplicate 进入 trial accounting |
 | P14c | immutable CampaignSelectionReport 与冻结 selection-bias policy | 已由 clean-commit 双根 runner 完成完整重建、principal hash equality、canonical outcomes、negative cases 和 immutable report verification；不把单实验 PASS 写成 campaign selection PASS |
-| P14d | bounded autonomous campaign loop；结构 mutation/crossover 仅在已冻结有限 grammar 后可选启用 | eligible to start；实现前仍须证明 FR-01/FR-02/P14a-c、预算与停止规则、一次性 sealed confirmation 和污染传播 E2E；成功标准不含盈利 |
+| P14d-A | frozen autonomous-loop contract 与 runtime-neutral deterministic orchestrator skeleton；只允许 P14b frozen finite family | skeleton 已在工作树实现；DoD 尚未满足：execution port 未接通现有 PIT/Qlib/Validation services。既有 P14c 的 `SELECTED` / `NO_SELECTION` handoff 已由 synthetic ResearchResult artifact 测试覆盖；全仓 509 tests、coverage 85.08%、Ruff/Pyright PASS |
+| P14d-B | clean-commit、independent double-root autonomous E2E qualification runner | pending；不属于 P14d-A，本次尚未开始 |
+| P14d-C | live Agent runtime qualification | blocked by FR-03 `NO_GO`；不得使用 live Codex/OpenAI runtime、CLI fallback 或 dual stack |
 
 P8 已于 2026-09-07 完成。冻结实现包括 capability allowlist、有界且不记录正文的请求审计、
 最小 Agent 环境、只接受 domain + content hash 的 authority root resolver、规范 logical path、全权威

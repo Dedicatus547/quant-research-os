@@ -147,8 +147,12 @@ finding.
 - `Agent-assisted Research v0.2`：P8-P13 已完成批准范围内的验证，P13 v2 双根资格报告已
   冻结；FR-01/FR-02 已通过，P14a 已完成并通过双根资格验证，P14b 已实现；P14c 已通过
   clean-commit 双根资格化并取得有限的 engineering selection authority（报告
-  `d0412a30...5836913a`）。P14d eligible to start，尚未实现；Agent 仍只生成 proposal、请求
-  确定性执行和解释 ValidationReport。
+  `d0412a30...5836913a`）。P14d-A 冻结 contract 与 deterministic orchestration skeleton 已
+  在工作树实现，但 DoD 尚未满足：typed execution port 仍未连接现有 PIT/Qlib/Validation
+  services。`SELECTED` 与 `NO_SELECTION` handoff 已通过既有 P14c service 的 synthetic
+  ResearchResult artifacts 测试；全仓 509 tests、coverage 85.08%、Ruff PASS、Pyright 0 errors /
+  0 warnings。P14d-B pending；P14d-C blocked by FR-03 `NO_GO`。Agent 仍只生成 proposal、请求
+  确定性执行和解释结果。
 
 后续顺序固定为：
 
@@ -159,7 +163,9 @@ M0 基线冻结 → P8 Agent Boundary & Threat Hardening（完成）
 → P12 Real-world Evidence Acquisition（完成）→ P13 Qualified Event Feature E2E（完成）
 → FR-01/FR-02 P14 hard entry gates（完成）→ P14a（完成）→ P14b（已实现）
 → P14c（qualified engineering authority；双根报告 `d0412a30...5836913a`）
-→ P14d bounded autonomous loop（eligible to start；尚未实现）
+→ P14d-A（冻结 contract 与 deterministic skeleton 已实现；execution-service adapter pending）
+→ P14d-B（clean-commit double-root E2E pending）
+→ P14d-C（live Agent runtime blocked by FR-03 `NO_GO`）
 ```
 
 Completed factor-research prerequisites for P14:
