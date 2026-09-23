@@ -27,6 +27,13 @@ from quantos.application.admission import (
 from quantos.application.campaigns import CampaignGovernanceError, ResearchCampaignGovernor
 from quantos.application.capabilities import publish_capability_report
 from quantos.application.doctor import DoctorReport, build_doctor_report
+from quantos.application.enumeration import (
+    CandidateEnumerationError,
+    build_candidate_duplicate_evidence,
+    enumerate_research_family,
+    exact_expression_hash,
+    structural_expression_hash,
+)
 from quantos.application.event_features import (
     EventFeatureBuildResult,
     EventFeatureError,
@@ -119,6 +126,7 @@ __all__ = [
     "AuthorityRootResolver",
     "BoundaryAuditDecision",
     "CampaignGovernanceError",
+    "CandidateEnumerationError",
     "DatasetBinding",
     "DoctorReport",
     "EventFeatureAdmissionError",
@@ -145,6 +153,7 @@ __all__ = [
     "SecurityBoundaryError",
     "StdioJsonRpcAdapter",
     "bind_context_pack",
+    "build_candidate_duplicate_evidence",
     "build_codex_spike_report",
     "build_context_bound_agent_run_spec",
     "build_doctor_report",
@@ -153,8 +162,10 @@ __all__ = [
     "capture_code_provenance",
     "capture_runtime_fingerprint",
     "compile_experiment_proposal",
+    "enumerate_research_family",
     "evaluate_codex_capture",
     "evidence_mcp_policy",
+    "exact_expression_hash",
     "expression_field_names",
     "load_bounded_json_object",
     "load_canonical_pit_request_json",
@@ -169,6 +180,7 @@ __all__ = [
     "resolve_trading_sessions",
     "restricted_agent_environment",
     "serve_stdio",
+    "structural_expression_hash",
     "temporal_from_canonical_row",
     "verify_code_provenance",
     "verify_context_bound_agent_manifest",

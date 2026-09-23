@@ -1,9 +1,10 @@
 # P14 progress
 
-Status date: 2026-09-11
+Status date: 2026-09-22
 
-P14a is complete. P14b is the next implementation stage; P14c and P14d have not started, and this
-record grants no campaign-selection or autonomous-research authority.
+P14a is complete. P14b is implemented as frozen-family enumeration and duplicate evidence. P14c
+and P14d have not started, and this record grants no campaign-selection or autonomous-research
+authority.
 
 ## Completed P14a scope
 
@@ -61,8 +62,8 @@ Frozen policy inputs:
 
 - Ruff format/check: PASS
 - Pyright: 0 errors / 0 warnings
-- Pytest: 332 passed
-- Coverage: 85.17%, above the unchanged 85% gate
+- Pytest: 448 passed
+- Coverage: 85.02%, above the unchanged 85% gate
 - Tests cover independent-root hash equality, idempotence, chain/object tampering, stale snapshots,
   non-canonical input, query/response/context budgets, cross-campaign policy, sealed contamination,
   MCP dispatch, JSON-RPC schema exposure, and CLI reconstruction.
@@ -90,6 +91,20 @@ retained as historical engineering evidence and are no longer the current P14a q
 
 ## Next stage
 
-P14b starts with a frozen factor-template contract, explicit named parameter slots, deterministic
-finite-family enumeration, canonical expression fingerprints, duplicate evidence, and distinct
-candidate-versus-trial accounting. No mutation or crossover is in scope.
+P14b is implemented as frozen-family engineering evidence and remains unqualified research
+selection. It adds:
+
+- `ResearchFactorTemplateSpec` + `ResearchFactorTemplateNode` / `ResearchTemplateParameterSlot`
+  with one explicit named slot per free window parameter.
+- Deterministic finite Cartesian enumeration (`enumerate_research_family`), canonical parameter
+  ordering, strict template/dimension binding, and no mutation or crossover.
+- `exact_expression_hash` ignores only presentation-level `expression_id`; structural fingerprints
+  normalize node IDs while preserving topology, operator parameters, field names, and windows.
+- `CandidateDuplicateEvidence` exact/structural groups. Structural groups are evidence only, and
+  exact groups suppress redundant structural grouping.
+- Deterministic candidate identities over family/template/parameters/fingerprints; declared
+  candidate counts, template operator allowlists, positive window values, and candidate references
+  all fail closed.
+
+Split candidate-versus-trial accounting and campaign-level selection bias remain P14c scope.
+P14d stays blocked.
