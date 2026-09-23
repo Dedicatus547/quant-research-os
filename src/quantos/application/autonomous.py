@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn, Protocol, cast
@@ -11,6 +12,7 @@ from uuid import UUID, uuid5
 
 from pydantic import ValidationError
 
+from quantos.application.autonomous_errors import AutonomousOrchestrationError
 from quantos.application.campaign_selection import CampaignSelectionError, CampaignSelectionService
 from quantos.application.campaigns import (
     CampaignChainEvent,
@@ -38,6 +40,7 @@ from quantos.contracts.agent import (
     AgentRole,
     AgentRunManifest,
     AgentUsage,
+    CampaignSegment,
 )
 from quantos.contracts.autonomous import (
     AutonomousAgentExchangeArtifact,
@@ -47,11 +50,14 @@ from quantos.contracts.autonomous import (
     AutonomousBudgetView,
     AutonomousCampaignPolicy,
     AutonomousCandidateProposal,
+    AutonomousExecutionBindings,
+    AutonomousExecutionFailureEvidence,
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
     AutonomousLoopReport,
     AutonomousLoopState,
     AutonomousStoppingReason,
+    autonomous_execution_identity,
 )
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import (
@@ -88,7 +94,9 @@ from quantos.contracts.ledger import (
     ResearchLedgerSnapshot,
 )
 from quantos.contracts.refs import SHA256_PATTERN
+from quantos.contracts.research_result import ResearchResultManifest
 from quantos.contracts.status import ReasonCode, RunStatus
+from quantos.contracts.validation import ValidationReport
 
 _AUTONOMOUS_EVENT_NAMESPACE = UUID("c5b20640-d7c8-4c54-a2d0-7d8b28a17867")
 _SCRIPTED_EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
@@ -101,14 +109,6 @@ _RESEARCH_OUTCOMES = {
 }
 
 
-class AutonomousOrchestrationError(RuntimeError):
-    """Integrity or authority failure that stops the autonomous loop."""
-
-    def __init__(self, reason_code: ReasonCode, message: str) -> None:
-        super().__init__(message)
-        self.reason_code = reason_code
-
-
 class AutonomousAgentDriver(Protocol):
     """Runtime-neutral Agent port. Implementations return proposal bytes only."""
 
@@ -119,6 +119,14 @@ class DeterministicResearchExecutionPort(Protocol):
     """Adapter to existing PIT/Qlib/Validation services with request idempotency."""
 
     def execute(self, request: AutonomousExecutionRequest) -> AutonomousExecutionResult: ...
+
+    def verify_research_result(self, result_hash: str) -> ResearchResultManifest | None: ...
+
+    def verify_validation_report(self, report_hash: str) -> ValidationReport | None: ...
+
+    def verify_execution_failure(
+        self, failure_hash: str
+    ) -> AutonomousExecutionFailureEvidence | None: ...
 
 
 def _raise(reason_code: ReasonCode, message: str) -> NoReturn:
@@ -530,7 +538,7 @@ class AutonomousCampaignOrchestrator:
         selection_service: CampaignSelectionService,
         selection_artifact_root: Path,
         autonomous_report_root: Path,
-        execution_policy_hash: str,
+        execution_bindings: AutonomousExecutionBindings,
     ) -> None:
         try:
             self.campaign = ResearchCampaignSpec.model_validate(campaign.model_dump(mode="python"))
@@ -548,14 +556,13 @@ class AutonomousCampaignOrchestrator:
             self.agent_run_policy = AutonomousAgentRunPolicy.model_validate(
                 agent_run_policy.model_dump(mode="python")
             )
+            self.execution_bindings = AutonomousExecutionBindings.model_validate(
+                execution_bindings.model_dump(mode="python")
+            )
         except ValueError as error:
             raise AutonomousOrchestrationError(
                 ReasonCode.SCHEMA_INVALID, "autonomous campaign input contract is invalid"
             ) from error
-        if not re.fullmatch(SHA256_PATTERN, execution_policy_hash):
-            raise AutonomousOrchestrationError(
-                ReasonCode.SCHEMA_INVALID, "execution policy hash is invalid"
-            )
         try:
             verify_candidate_enumeration_manifest(self.family, self.template, self.manifest)
         except CandidateEnumerationError as error:
@@ -593,7 +600,7 @@ class AutonomousCampaignOrchestrator:
         self.selection_plan_hash = selection.plan.content_hash
         self.selection_artifact_root = selection_artifact_root
         self.report_store = AutonomousLoopReportStore(autonomous_report_root)
-        self.execution_policy_hash = execution_policy_hash
+        self.execution_policy_hash = self.execution_bindings.execution_policy_hash
         self.governor = ResearchCampaignGovernor(self.family, self.template, self.manifest)
         self._candidate_by_hash = {item.content_hash: item for item in self.manifest.candidates}
 
@@ -983,27 +990,54 @@ class AutonomousCampaignOrchestrator:
             evidence_hashes = ()
         else:
             run_hash = response.manifest.transcript_hash
-            idempotency_key = sha256_bytes(
-                canonical_json_bytes(
-                    {
-                        "agent_run_hash": run_hash,
-                        "campaign_hash": self.campaign.content_hash,
-                        "candidate_hash": candidate.content_hash,
-                        "segment": self.campaign_policy.trial_segment,
-                    }
-                )
-            )
             projection = self.governor.project(self.campaign, self.budget, events)
-            execution_request = AutonomousExecutionRequest(
-                idempotency_key=idempotency_key,
+            trial_ordinal = projection.trial_count + 1
+            segment = {
+                CampaignSegment.DEVELOPMENT: self.campaign.development,
+                CampaignSegment.VALIDATION: self.campaign.validation,
+            }[self.campaign_policy.trial_segment]
+            execution_identity = autonomous_execution_identity(
                 campaign_hash=self.campaign.content_hash,
                 family_hash=self.family.content_hash,
                 budget_hash=self.budget.content_hash,
                 candidate_manifest_hash=self.manifest.content_hash,
                 candidate=candidate,
+                snapshot_hash=self.campaign.snapshot_hash,
+                qlib_view_hash=self.campaign.qlib_view_hash,
                 segment=self.campaign_policy.trial_segment,
+                segment_start=segment.start,
+                segment_end=segment.end,
+                trial_ordinal=trial_ordinal,
+                bindings=self.execution_bindings,
+            )
+            execution_request = AutonomousExecutionRequest(
+                idempotency_key=execution_identity,
+                execution_identity=execution_identity,
+                trial_ordinal=trial_ordinal,
+                campaign_hash=self.campaign.content_hash,
+                family_hash=self.family.content_hash,
+                budget_hash=self.budget.content_hash,
+                candidate_manifest_hash=self.manifest.content_hash,
+                candidate=candidate,
+                candidate_exact_expression_hash=candidate.exact_expression_hash,
+                candidate_structural_expression_hash=candidate.structural_expression_hash,
+                snapshot_hash=self.campaign.snapshot_hash,
+                dataset_id=self.execution_bindings.dataset_id,
+                qlib_view_hash=self.campaign.qlib_view_hash,
+                segment=self.campaign_policy.trial_segment,
+                segment_start=segment.start,
+                segment_end=segment.end,
                 agent_run_hash=run_hash,
-                execution_policy_hash=self.execution_policy_hash,
+                execution_policy_hash=self.execution_bindings.execution_policy_hash,
+                pit_policy_hash=self.execution_bindings.pit_policy_hash,
+                authoring_hash=self.execution_bindings.authoring_hash,
+                research_policy_hash=self.execution_bindings.research_policy_hash,
+                validation_policy_hash=self.execution_bindings.validation_policy_hash,
+                cost_policy_hash=self.execution_bindings.cost_policy_hash,
+                backtest_policy_hash=self.execution_bindings.backtest_policy_hash,
+                code_commit_hash=self.execution_bindings.code_commit_hash,
+                lockfile_hash=self.execution_bindings.lockfile_hash,
+                qlib_version=self.execution_bindings.qlib_version,
                 remaining_executions=max(
                     0, self.budget.max_executions - projection.execution_count
                 ),
@@ -1026,6 +1060,61 @@ class AutonomousCampaignOrchestrator:
                 ) from error
             if execution_result.request_hash != execution_request.content_hash:
                 _raise(ReasonCode.ARTIFACT_CORRUPTED, "execution result binds a different request")
+            if execution_result.research_result_hash is not None:
+                try:
+                    result_manifest = self.execution_port.verify_research_result(
+                        execution_result.research_result_hash
+                    )
+                except (ValueError, AttributeError) as error:
+                    raise AutonomousOrchestrationError(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "execution adapter could not bottom-up verify its ResearchResult",
+                    ) from error
+                if (
+                    result_manifest is None
+                    or result_manifest.artifact_hash != execution_result.research_result_hash
+                    or result_manifest.snapshot_hash != execution_request.snapshot_hash
+                    or result_manifest.qlib_view_hash != execution_request.qlib_view_hash
+                    or result_manifest.expression_spec_hash != candidate.expression.content_hash
+                    or result_manifest.research_policy_hash
+                    != execution_request.research_policy_hash
+                ):
+                    _raise(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "ResearchResult differs from the frozen candidate execution request",
+                    )
+            if execution_result.validation_report_hash is not None:
+                try:
+                    validation_report = self.execution_port.verify_validation_report(
+                        execution_result.validation_report_hash
+                    )
+                except (ValueError, AttributeError) as error:
+                    raise AutonomousOrchestrationError(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "execution adapter could not bottom-up verify its ValidationReport",
+                    ) from error
+                if (
+                    validation_report is None
+                    or validation_report.report_hash != execution_result.validation_report_hash
+                    or validation_report.snapshot_hash != execution_request.snapshot_hash
+                    or validation_report.qlib_view_hash != execution_request.qlib_view_hash
+                    or validation_report.research_policy_hash
+                    != execution_request.research_policy_hash
+                    or validation_report.validation_policy_hash
+                    != execution_request.validation_policy_hash
+                ):
+                    _raise(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "ValidationReport differs from the frozen execution request",
+                    )
+                if (
+                    execution_result.research_result_hash is not None
+                    and validation_report.resolved_experiment_hash is None
+                ):
+                    _raise(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "ValidationReport lacks its resolved experiment binding",
+                    )
             if (
                 execution_result.compute_seconds + projection.compute_seconds
                 > self.budget.max_compute_seconds
@@ -1171,7 +1260,166 @@ class AutonomousCampaignOrchestrator:
                     parent_object_hashes=(),
                 )
                 snapshot = self._current_snapshot(max(at, event.occurred_at), events)
+            snapshot = self._reconcile_execution_evidence(
+                trial=trial,
+                candidate=self._candidate_by_hash.get(trial.candidate_hash),
+                trial_hash=trial_hash,
+                snapshot=snapshot,
+                occurred_at=event.occurred_at,
+            )
         return events, snapshot
+
+    def _reconcile_execution_evidence(
+        self,
+        *,
+        trial: CampaignTrial,
+        candidate: ResearchCandidateSpec | None,
+        trial_hash: str,
+        snapshot: ResearchLedgerSnapshot,
+        occurred_at: datetime,
+    ) -> ResearchLedgerSnapshot:
+        result_hashes: list[str] = []
+        validation_hashes: list[str] = []
+        verify_result = cast(
+            Callable[[str], ResearchResultManifest | None] | None,
+            getattr(self.execution_port, "verify_research_result", None),
+        )
+        verify_validation = cast(
+            Callable[[str], ValidationReport | None] | None,
+            getattr(self.execution_port, "verify_validation_report", None),
+        )
+        verify_failure = cast(
+            Callable[[str], AutonomousExecutionFailureEvidence | None] | None,
+            getattr(self.execution_port, "verify_execution_failure", None),
+        )
+        failure_hashes: list[str] = []
+        for evidence_hash in trial.evidence_hashes:
+            if verify_result is not None:
+                try:
+                    result = verify_result(evidence_hash)
+                except (ValueError, AttributeError) as error:
+                    raise AutonomousOrchestrationError(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "trial ResearchResult evidence failed bottom-up verification",
+                    ) from error
+                if result is not None:
+                    if (
+                        candidate is None
+                        or result.artifact_hash != evidence_hash
+                        or result.snapshot_hash != self.campaign.snapshot_hash
+                        or result.qlib_view_hash != self.campaign.qlib_view_hash
+                        or result.expression_spec_hash != candidate.expression.content_hash
+                    ):
+                        _raise(
+                            ReasonCode.ARTIFACT_CORRUPTED,
+                            "trial ResearchResult identity differs from its frozen candidate",
+                        )
+                    result_hashes.append(evidence_hash)
+            if verify_validation is not None:
+                try:
+                    report = verify_validation(evidence_hash)
+                except (ValueError, AttributeError) as error:
+                    raise AutonomousOrchestrationError(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "trial ValidationReport evidence failed bottom-up verification",
+                    ) from error
+                if report is not None:
+                    if (
+                        report.report_hash != evidence_hash
+                        or report.snapshot_hash != self.campaign.snapshot_hash
+                        or report.qlib_view_hash != self.campaign.qlib_view_hash
+                    ):
+                        _raise(
+                            ReasonCode.ARTIFACT_CORRUPTED,
+                            "trial ValidationReport differs from campaign snapshot bindings",
+                        )
+                    validation_hashes.append(evidence_hash)
+            if verify_failure is not None:
+                try:
+                    failure = verify_failure(evidence_hash)
+                except (ValueError, AttributeError) as error:
+                    raise AutonomousOrchestrationError(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "trial execution failure evidence failed bottom-up verification",
+                    ) from error
+                if failure is not None:
+                    if (
+                        failure.content_hash != evidence_hash
+                        or failure.campaign_hash != self.campaign.content_hash
+                        or failure.snapshot_hash != self.campaign.snapshot_hash
+                        or failure.candidate_hash != trial.candidate_hash
+                    ):
+                        _raise(
+                            ReasonCode.ARTIFACT_CORRUPTED,
+                            "trial execution failure evidence binding differs",
+                        )
+                    failure_hashes.append(evidence_hash)
+
+        if len(result_hashes) > 1 or len(validation_hashes) > 1 or len(failure_hashes) > 1:
+            _raise(
+                ReasonCode.ARTIFACT_CORRUPTED,
+                "trial binds multiple execution result, validation, or failure authorities",
+            )
+        result_hash = result_hashes[0] if result_hashes else None
+        validation_hash = validation_hashes[0] if validation_hashes else None
+        if result_hash is not None and result_hash not in snapshot.node_object_hashes:
+            if verify_result is None:
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "ResearchResult verifier is unavailable")
+            manifest = verify_result(result_hash)
+            if manifest is None:
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "ResearchResult evidence disappeared")
+            self._append_ledger_object(
+                contract=manifest,
+                object_hash=result_hash,
+                node_kind=ResearchLedgerNodeKind.RESEARCH_RESULT,
+                authority=LedgerAssertionAuthority.DETERMINISTIC_EVIDENCE,
+                node_id=f"research-result-{result_hash}",
+                occurred_at=occurred_at,
+                campaign_access=LedgerObjectAccess.CAMPAIGN_INTERNAL,
+                agent_run_hash=None,
+                parent_object_hashes=(trial_hash,),
+            )
+            snapshot = self._current_snapshot(occurred_at, ())
+        if validation_hash is not None and validation_hash not in snapshot.node_object_hashes:
+            if verify_validation is None:
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "ValidationReport verifier is unavailable")
+            report = verify_validation(validation_hash)
+            if report is None:
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "ValidationReport evidence disappeared")
+            parents = tuple(sorted({trial_hash, *result_hashes}))
+            self._append_ledger_object(
+                contract=report,
+                object_hash=validation_hash,
+                node_kind=ResearchLedgerNodeKind.VALIDATION_REPORT,
+                authority=LedgerAssertionAuthority.DETERMINISTIC_VERDICT,
+                node_id=f"validation-report-{validation_hash}",
+                occurred_at=occurred_at,
+                campaign_access=LedgerObjectAccess.CAMPAIGN_INTERNAL,
+                agent_run_hash=None,
+                parent_object_hashes=parents,
+                verdict_report_hash=validation_hash,
+            )
+            snapshot = self._current_snapshot(occurred_at, ())
+        failure_hash = failure_hashes[0] if failure_hashes else None
+        if failure_hash is not None and failure_hash not in snapshot.node_object_hashes:
+            if verify_failure is None:
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "execution failure verifier is unavailable")
+            failure = verify_failure(failure_hash)
+            if failure is None:
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "execution failure evidence disappeared")
+            self._append_ledger_object(
+                contract=failure,
+                object_hash=failure_hash,
+                node_kind=ResearchLedgerNodeKind.EXPERIMENT,
+                authority=LedgerAssertionAuthority.DETERMINISTIC_EVIDENCE,
+                node_id=f"execution-failure-{failure_hash}",
+                occurred_at=occurred_at,
+                campaign_access=LedgerObjectAccess.CAMPAIGN_INTERNAL,
+                agent_run_hash=None,
+                parent_object_hashes=(trial_hash,),
+            )
+            snapshot = self._current_snapshot(occurred_at, ())
+        return snapshot
 
     def _append_proposal_if_missing(
         self,

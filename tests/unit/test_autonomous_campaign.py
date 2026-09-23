@@ -40,6 +40,7 @@ from quantos.contracts.autonomous import (
     AutonomousBudgetView,
     AutonomousCampaignPolicy,
     AutonomousCandidateProposal,
+    AutonomousExecutionBindings,
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
     AutonomousLoopState,
@@ -211,6 +212,7 @@ class _Inputs:
     selection: CampaignSelectionService
     initial_events: tuple[CampaignChainEvent, ...]
     paths: dict[str, Path]
+    execution_bindings: AutonomousExecutionBindings
 
     def orchestrator(
         self,
@@ -238,7 +240,7 @@ class _Inputs:
             selection_service=self.selection,
             selection_artifact_root=self.paths["selection-reports"],
             autonomous_report_root=self.paths["loop-reports"],
-            execution_policy_hash="f" * 64,
+            execution_bindings=self.execution_bindings,
         )
 
 
@@ -405,6 +407,19 @@ def _inputs(
             "loop-reports": root / "loop-reports",
             "view": view_path,
         },
+        execution_bindings=AutonomousExecutionBindings(
+            dataset_id="synthetic-p14d-test",
+            authoring_hash="8" * 64,
+            execution_policy_hash="f" * 64,
+            pit_policy_hash="1" * 64,
+            research_policy_hash="2" * 64,
+            validation_policy_hash="3" * 64,
+            cost_policy_hash="4" * 64,
+            backtest_policy_hash="5" * 64,
+            code_commit_hash="6" * 40,
+            lockfile_hash="7" * 64,
+            qlib_version="0.9.7",
+        ),
     )
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from enum import StrEnum
 from typing import Literal, Self, cast
 
@@ -20,6 +21,7 @@ from quantos.contracts.enumeration import ResearchCandidateParameter, ResearchCa
 from quantos.contracts.ledger import ResearchContextAgentBinding, ResearchContextPack
 from quantos.contracts.pit import SafeQlibExpressionSpec
 from quantos.contracts.refs import SHA256_PATTERN
+from quantos.contracts.status import ReasonCode
 
 
 class AutonomousLoopState(StrEnum):
@@ -325,28 +327,137 @@ class AutonomousAgentExchangeArtifact(CanonicalContract):
         return self
 
 
+class AutonomousExecutionBindings(CanonicalContract):
+    """Frozen hashes and dataset identity shared by orchestration and its execution adapter."""
+
+    schema_version: Literal["autonomous-execution-bindings/v1"] = "autonomous-execution-bindings/v1"
+    dataset_id: str = Field(min_length=1, max_length=500)
+    authoring_hash: str = Field(pattern=SHA256_PATTERN)
+    execution_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    pit_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    research_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    validation_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    cost_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    backtest_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    code_commit_hash: str = Field(pattern=r"^[0-9a-f]{40}$")
+    lockfile_hash: str = Field(pattern=SHA256_PATTERN)
+    qlib_version: str = Field(min_length=1, max_length=100)
+
+
+def autonomous_execution_identity(
+    *,
+    campaign_hash: str,
+    family_hash: str,
+    budget_hash: str,
+    candidate_manifest_hash: str,
+    candidate: ResearchCandidateSpec,
+    snapshot_hash: str,
+    qlib_view_hash: str,
+    segment: CampaignSegment,
+    segment_start: date,
+    segment_end: date,
+    trial_ordinal: int,
+    bindings: AutonomousExecutionBindings,
+) -> str:
+    """Derive the stable identity for one frozen candidate execution."""
+
+    return sha256_bytes(
+        canonical_json_bytes(
+            {
+                "backtest_policy_hash": bindings.backtest_policy_hash,
+                "authoring_hash": bindings.authoring_hash,
+                "budget_hash": budget_hash,
+                "campaign_hash": campaign_hash,
+                "candidate_exact_expression_hash": candidate.exact_expression_hash,
+                "candidate_hash": candidate.content_hash,
+                "candidate_manifest_hash": candidate_manifest_hash,
+                "candidate_structural_expression_hash": candidate.structural_expression_hash,
+                "code_commit_hash": bindings.code_commit_hash,
+                "cost_policy_hash": bindings.cost_policy_hash,
+                "dataset_id": bindings.dataset_id,
+                "execution_policy_hash": bindings.execution_policy_hash,
+                "family_hash": family_hash,
+                "lockfile_hash": bindings.lockfile_hash,
+                "pit_policy_hash": bindings.pit_policy_hash,
+                "qlib_version": bindings.qlib_version,
+                "qlib_view_hash": qlib_view_hash,
+                "research_policy_hash": bindings.research_policy_hash,
+                "segment": segment,
+                "segment_end": segment_end,
+                "segment_start": segment_start,
+                "snapshot_hash": snapshot_hash,
+                "trial_ordinal": trial_ordinal,
+                "validation_policy_hash": bindings.validation_policy_hash,
+            }
+        )
+    )
+
+
 class AutonomousExecutionRequest(CanonicalContract):
     """Frozen candidate request passed only to a deterministic research-service adapter."""
 
-    schema_version: Literal["autonomous-execution-request/v1"] = "autonomous-execution-request/v1"
+    schema_version: Literal["autonomous-execution-request/v2"] = "autonomous-execution-request/v2"
     idempotency_key: str = Field(pattern=SHA256_PATTERN)
+    execution_identity: str = Field(pattern=SHA256_PATTERN)
+    trial_ordinal: PositiveInt
     campaign_hash: str = Field(pattern=SHA256_PATTERN)
     family_hash: str = Field(pattern=SHA256_PATTERN)
     budget_hash: str = Field(pattern=SHA256_PATTERN)
     candidate_manifest_hash: str = Field(pattern=SHA256_PATTERN)
     candidate: ResearchCandidateSpec
+    candidate_exact_expression_hash: str = Field(pattern=SHA256_PATTERN)
+    candidate_structural_expression_hash: str = Field(pattern=SHA256_PATTERN)
+    snapshot_hash: str = Field(pattern=SHA256_PATTERN)
+    dataset_id: str = Field(min_length=1, max_length=500)
+    qlib_view_hash: str = Field(pattern=SHA256_PATTERN)
     segment: Literal[CampaignSegment.DEVELOPMENT, CampaignSegment.VALIDATION]
+    segment_start: date
+    segment_end: date
     agent_run_hash: str = Field(pattern=SHA256_PATTERN)
     execution_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    pit_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    authoring_hash: str = Field(pattern=SHA256_PATTERN)
+    research_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    validation_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    cost_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    backtest_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    code_commit_hash: str = Field(pattern=r"^[0-9a-f]{40}$")
+    lockfile_hash: str = Field(pattern=SHA256_PATTERN)
+    qlib_version: str = Field(min_length=1, max_length=100)
     remaining_executions: NonNegativeInt
     remaining_validation_rounds: NonNegativeInt
     remaining_compute_seconds: NonNegativeInt
+
+    @model_validator(mode="after")
+    def execution_identity_and_candidate_bindings_match(self) -> Self:
+        if (
+            self.idempotency_key != self.execution_identity
+            or self.candidate_exact_expression_hash != self.candidate.exact_expression_hash
+            or self.candidate_structural_expression_hash
+            != self.candidate.structural_expression_hash
+            or self.segment_start > self.segment_end
+        ):
+            raise ValueError("autonomous execution identity or frozen bindings disagree")
+        return self
+
+
+class AutonomousExecutionFailureEvidence(CanonicalContract):
+    """Typed deterministic evidence for an expected PIT or execution-domain failure."""
+
+    schema_version: Literal["autonomous-execution-failure/v1"] = "autonomous-execution-failure/v1"
+    execution_identity: str = Field(pattern=SHA256_PATTERN)
+    request_hash: str = Field(pattern=SHA256_PATTERN)
+    campaign_hash: str = Field(pattern=SHA256_PATTERN)
+    candidate_hash: str = Field(pattern=SHA256_PATTERN)
+    snapshot_hash: str = Field(pattern=SHA256_PATTERN)
+    reason_code: ReasonCode
+    failure_kind: Literal["PIT_REJECTED", "EXECUTION_FAILED"]
 
 
 class AutonomousExecutionResult(CanonicalContract):
     """Typed output from existing PIT/Qlib/Validation services, never from an Agent."""
 
-    schema_version: Literal["autonomous-execution-result/v1"] = "autonomous-execution-result/v1"
+    schema_version: Literal["autonomous-execution-result/v2"] = "autonomous-execution-result/v2"
     request_hash: str = Field(pattern=SHA256_PATTERN)
     outcome: Literal[
         TrialOutcome.EXECUTION_FAILED,
@@ -358,6 +469,10 @@ class AutonomousExecutionResult(CanonicalContract):
     execution_requested: bool
     compute_seconds: NonNegativeInt
     evidence_hashes: tuple[str, ...] = ()
+    execution_artifact_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    research_result_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    validation_report_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    failure_reason_code: ReasonCode | None = None
 
     @field_validator("evidence_hashes")
     @classmethod
@@ -377,6 +492,18 @@ class AutonomousExecutionResult(CanonicalContract):
             raise ValueError("PIT rejection and execution accounting disagree")
         if self.outcome is TrialOutcome.PASS and not self.evidence_hashes:
             raise ValueError("passing deterministic execution requires immutable evidence")
+        if self.execution_artifact_hash is not None and (
+            self.execution_artifact_hash not in self.evidence_hashes
+        ):
+            raise ValueError("execution artifact hash must be included in evidence hashes")
+        if self.research_result_hash is not None and self.research_result_hash not in (
+            self.evidence_hashes
+        ):
+            raise ValueError("ResearchResult hash must be included in evidence hashes")
+        if self.validation_report_hash is not None and self.validation_report_hash not in (
+            self.evidence_hashes
+        ):
+            raise ValueError("ValidationReport hash must be included in evidence hashes")
         return self
 
 
@@ -470,6 +597,8 @@ __all__ = [
     "AutonomousBudgetView",
     "AutonomousCampaignPolicy",
     "AutonomousCandidateProposal",
+    "AutonomousExecutionBindings",
+    "AutonomousExecutionFailureEvidence",
     "AutonomousExecutionRequest",
     "AutonomousExecutionResult",
     "AutonomousLoopReport",

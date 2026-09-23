@@ -171,10 +171,17 @@ reason, projected budget usage, P14c report/event hashes when present, final der
 limitations. It is orchestration evidence only. It grants no independent selection authority,
 sealed-access authority, historical vendor-vintage PIT claim, or real-market conclusion.
 
-Implementation status: the deterministic execution protocol currently forms a typed seam exercised
-by fixture adapters. A concrete adapter that verifies and carries requests through the existing
-PIT/Qlib/Validation services is still required before P14d-A meets its Definition of Done. Offline
-P14c handoff tests use synthetic ResearchResult artifacts and do not qualify that execution seam.
+Implementation status: P14d-A's deterministic execution port is wired through
+`QuantosResearchExecutionAdapter` to the existing snapshot/PIT evidence builder, Qlib-backed
+signal and backtest services, Validation service, immutable ResearchResult builder/verifier, Ledger,
+and `CampaignSelectionService`. The adapter verifies the frozen manifest candidate, execution
+identity, snapshot/dataset/view, validation segment, policies, and result artifact chain. Offline
+integration evidence uses a frozen synthetic dataset but real PIT, native Qlib Workflow and
+Simulator, Validation, ResearchResult, campaign accounting, Ledger, and P14c services. It covers
+exact retry, duplicate suppression, replay reuse, result/event and event/Ledger crash recovery, and
+conflicting retries. P14d-A meets its Definition of Done.
 
-P14d-A is an implementation slice. P14d-B clean-commit double-root autonomous E2E qualification
-remains pending. P14d-C live runtime qualification remains blocked by FR-03 `NO_GO`.
+P14d-B clean-commit double-root autonomous E2E qualification is eligible to start and remains
+pending; it has not started here. P14d-C live runtime qualification remains blocked by FR-03
+`NO_GO`. This work does not call `OOSAccessed`, implement sealed confirmation, claim vendor-vintage
+PIT, or add a live model dependency.

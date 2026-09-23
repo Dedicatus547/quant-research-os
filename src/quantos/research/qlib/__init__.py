@@ -25,13 +25,20 @@ from quantos.research.qlib.signal import (
     SignalArtifactBuildResult,
     verify_signal_artifact,
 )
-from quantos.research.qlib.universe import QlibResearchError, resolve_historical_universe
+from quantos.research.qlib.universe import (
+    QlibResearchError,
+    resolve_historical_universe,
+    resolve_historical_universe_spans,
+)
+from quantos.research.qlib.workflow import QlibWorkflowResearchResult, QlibWorkflowResearchService
 
 __all__ = [
     "EventSignalArtifactBuildResult",
     "EventSignalArtifactBuilder",
     "FactorSignalArtifactBuilder",
     "QlibResearchError",
+    "QlibWorkflowResearchResult",
+    "QlibWorkflowResearchService",
     "ResearchResultArtifactBuilder",
     "ResearchResultBuildResult",
     "SignalArtifactBuildResult",
@@ -40,6 +47,7 @@ __all__ = [
     "build_pit_evidence_bundle",
     "build_pit_evidence_collection",
     "resolve_historical_universe",
+    "resolve_historical_universe_spans",
     "subset_compact_pit_evidence",
     "translate_safe_expression",
     "verify_compact_pit_evidence",

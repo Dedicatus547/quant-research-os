@@ -75,13 +75,16 @@ def _operator_delays(authoring: ExperimentAuthoringSpec) -> tuple[OperatorDelayP
     )
 
 
-def _parameter_window(authoring: ExperimentAuthoringSpec) -> int:
+def parameter_window(authoring: ExperimentAuthoringSpec) -> int:
     if isinstance(authoring.expression, ExpressionAuthoringSpec):
         return authoring.expression.window
     windows = [node.window for node in authoring.expression.nodes if node.window is not None]
     if len(windows) != 1:
         raise ValueError("parameter stability requires exactly one windowed DAG node")
     return windows[0]
+
+
+_parameter_window = parameter_window
 
 
 @dataclass(frozen=True)
@@ -120,7 +123,7 @@ class _RegisteredPipeline:
     strategy_status: StrategyStatus
 
 
-def _schedules_within_subperiod(
+def schedules_within_subperiod(
     schedules: tuple[DecisionSchedule, ...],
     *,
     start: date,
@@ -136,7 +139,10 @@ def _schedules_within_subperiod(
     )
 
 
-def _variant_authoring(
+_schedules_within_subperiod = schedules_within_subperiod
+
+
+def variant_authoring(
     baseline: ExperimentAuthoringSpec,
     *,
     window: int | None = None,
@@ -149,7 +155,7 @@ def _variant_authoring(
     payload["evaluation_end"] = evaluation_end or baseline.evaluation_end
     expression = dict(payload["expression"])
     strategy = dict(payload["strategy"])
-    selected_window = window or _parameter_window(baseline)
+    selected_window = window or parameter_window(baseline)
     if isinstance(baseline.expression, ExpressionAuthoringSpec):
         expression["window"] = selected_window
     else:
@@ -165,7 +171,10 @@ def _variant_authoring(
     return ExperimentAuthoringSpec.model_validate(payload)
 
 
-def _scaled_cost(baseline: CostPolicy, multiplier: float) -> CostPolicy:
+_variant_authoring = variant_authoring
+
+
+def scale_cost_policy(baseline: CostPolicy, multiplier: float) -> CostPolicy:
     return CostPolicy.model_validate(
         {
             **baseline.model_dump(mode="python"),
@@ -177,13 +186,16 @@ def _scaled_cost(baseline: CostPolicy, multiplier: float) -> CostPolicy:
     )
 
 
+_scaled_cost = scale_cost_policy
+
+
 def _schedule_hash(schedules: tuple[DecisionSchedule, ...]) -> str:
     return sha256_bytes(
         canonical_json_bytes([item.model_dump(mode="python") for item in schedules])
     )
 
 
-def _build_variant(
+def build_research_variant(
     *,
     authoring: ExperimentAuthoringSpec,
     research_policy: ResearchPolicy,
@@ -266,6 +278,9 @@ def _build_variant(
         backtest_path=backtest.path,
         backtest_hash=backtest.manifest.result_hash,
     )
+
+
+_build_variant = build_research_variant
 
 
 def _run_pipeline(

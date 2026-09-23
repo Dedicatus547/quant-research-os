@@ -4,6 +4,10 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from quantos.application.autonomous_execution import (
+        QuantosResearchExecutionAdapter,
+        build_autonomous_execution_bindings,
+    )
     from quantos.application.research_mcp import (
         DatasetBinding,
         LedgerSearchBinding,
@@ -111,6 +115,14 @@ from quantos.application.security import (
 from quantos.application.specs import resolve_experiment
 
 _LAZY_EXPORTS = {
+    "QuantosResearchExecutionAdapter": (
+        "quantos.application.autonomous_execution",
+        "QuantosResearchExecutionAdapter",
+    ),
+    "build_autonomous_execution_bindings": (
+        "quantos.application.autonomous_execution",
+        "build_autonomous_execution_bindings",
+    ),
     "DatasetBinding": ("quantos.application.research_mcp", "DatasetBinding"),
     "LedgerSearchBinding": ("quantos.application.research_mcp", "LedgerSearchBinding"),
     "ProposalChainBinding": ("quantos.application.research_mcp", "ProposalChainBinding"),
@@ -172,6 +184,7 @@ __all__ = [
     "ProposalMcpError",
     "ProposalMcpService",
     "ProvenanceError",
+    "QuantosResearchExecutionAdapter",
     "ReplayAgentDriver",
     "ResearchCampaignGovernor",
     "ResearchLedgerError",
@@ -183,6 +196,7 @@ __all__ = [
     "SecurityBoundaryError",
     "StdioJsonRpcAdapter",
     "bind_context_pack",
+    "build_autonomous_execution_bindings",
     "build_candidate_duplicate_evidence",
     "build_codex_spike_report",
     "build_context_bound_agent_run_spec",

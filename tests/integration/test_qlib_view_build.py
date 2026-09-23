@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from struct import pack, unpack
 from subprocess import CompletedProcess
@@ -13,7 +13,11 @@ from quantos.data import qlib_view
 from quantos.data.qlib_view import QlibViewBuilder, QlibViewBuildError, verify_qlib_view
 from quantos.data.snapshot import SyntheticSnapshotBuilder
 from quantos.integrations.qlib import QLIB_COMMIT, QLIB_VERSION, OfficialQlibTools
-from quantos.research.qlib import QlibResearchError, resolve_historical_universe
+from quantos.research.qlib import (
+    QlibResearchError,
+    resolve_historical_universe,
+    resolve_historical_universe_spans,
+)
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "synthetic_snapshot"
 
@@ -89,7 +93,9 @@ def test_view_builder_uses_verified_official_tool_boundary(
         if "dump_all" in command:
             qlib_root = Path(command[command.index("--qlib_dir") + 1])
             (qlib_root / "calendars").mkdir(parents=True)
-            (qlib_root / "calendars" / "day.txt").write_text("2024-01-02\n", encoding="utf-8")
+            (qlib_root / "calendars" / "day.txt").write_text(
+                "2024-01-02\n2024-01-03\n2024-01-04\n", encoding="utf-8"
+            )
             return CompletedProcess(command, 0, stdout="dumped")
         if "check_data" in command:
             return CompletedProcess(command, 0, stdout="healthy")
@@ -128,6 +134,35 @@ def test_view_builder_uses_verified_official_tool_boundary(
         "000001.SZ",
         "600000.SH",
     ]
+    membership_sessions = (date(2024, 1, 3), date(2024, 1, 4))
+    decision_times = tuple(
+        datetime.combine(session, time(16, 10), tzinfo=ZoneInfo("Asia/Shanghai"))
+        for session in membership_sessions
+    )
+    spans = resolve_historical_universe_spans(
+        first.path,
+        expected_view_hash=first.manifest.view_hash,
+        expected_snapshot_hash=snapshot.manifest.snapshot_hash,
+        index_id="000300.SH",
+        sessions=membership_sessions,
+        decision_times=decision_times,
+    )
+    for session, decision_time in zip(membership_sessions, decision_times, strict=True):
+        daily = resolve_historical_universe(
+            first.path,
+            expected_view_hash=first.manifest.view_hash,
+            expected_snapshot_hash=snapshot.manifest.snapshot_hash,
+            index_id="000300.SH",
+            as_of_date=session,
+            decision_time=decision_time,
+        )
+        daily_members = {member.qlib_id for member in daily.members}
+        span_members = {
+            instrument
+            for instrument, intervals in spans.items()
+            if any(start <= session <= end for start, end in intervals)
+        }
+        assert span_members == daily_members
 
     with pytest.raises(QlibResearchError) as unavailable:
         resolve_historical_universe(
