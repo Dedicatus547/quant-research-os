@@ -204,7 +204,10 @@ class QlibWorkflowResearchService:
                 previous_cwd = Path.cwd()
                 previous_setting = os.environ.get("MLFLOW_ALLOW_FILE_STORE")
                 os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
-                os.chdir(workspace)
+                # Qlib's file-store lock joins the tracking URI with the current working
+                # directory. Run from the runtime root so unrelated relative telemetry cannot
+                # dirty the clean source checkout or the repository workspace.
+                os.chdir(runtime_root)
                 try:
                     qlib_runtime.init(provider_uri=str(qlib_view_path), region=REG_CN)
                     with workflow.start(
