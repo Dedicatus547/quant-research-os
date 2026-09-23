@@ -1901,7 +1901,13 @@ def _publish_qualification(
         if stored.content_hash != report.content_hash:
             raise QualificationError("existing P14d qualification bundle conflicts")
         return stored
-    publish_directory(staging, destination)
+    copy_root = Path(tempfile.mkdtemp(prefix=".p14d-publish-", dir=output_root))
+    try:
+        shutil.copytree(staging, copy_root, dirs_exist_ok=True)
+        publish_directory(copy_root, destination)
+    finally:
+        if copy_root.exists():
+            shutil.rmtree(copy_root)
     return report
 
 
@@ -1913,7 +1919,7 @@ def _qualify_from_provenance(
     runtime: RuntimeFingerprint,
 ) -> dict[str, object]:
     output_root.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".p14d-roots-", dir=output_root) as temporary_name:
+    with tempfile.TemporaryDirectory(prefix=".p14d-roots-") as temporary_name:
         staging = Path(temporary_name) / "bundle"
         staging.mkdir()
         root_a = staging / "root-A"
