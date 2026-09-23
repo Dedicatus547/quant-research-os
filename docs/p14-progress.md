@@ -1,10 +1,24 @@
 # P14 progress
 
-Status date: 2026-09-22
+Status date: 2026-09-23
 
-P14a is complete. P14b is implemented as frozen-family enumeration and duplicate evidence. P14c
+P14a and P14b are complete. P14b covers frozen-family enumeration and duplicate evidence. P14c
 and P14d have not started, and this record grants no campaign-selection or autonomous-research
 authority.
+
+## Completed P14b scope
+
+- The factor template binds named parameter slots to window operators; field nodes cannot accept
+  parameter slots. Cartesian enumeration covers every declared multi-dimensional combination.
+- The authoritative manifest verifier rebuilds candidate identities, expressions, exact and
+  structural fingerprints, and duplicate evidence from the frozen family and template.
+- The governor accepts factor proposals only when their parameters identify one manifest candidate
+  and their expression fingerprints match it. Recorded and replayed trials must reference a
+  candidate hash in that manifest.
+- Structural fingerprint v2 is invariant to legal topological node listing while preserving input
+  order and DAG sharing. Negative tests cover self-reported field tampering and missing duplicate
+  evidence.
+- Verification: Ruff format/check passed, Pyright reported 0 errors, and Pytest passed 457 tests.
 
 ## Completed P14a scope
 

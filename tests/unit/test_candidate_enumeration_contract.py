@@ -8,9 +8,11 @@ from quantos.application import (
     enumerate_research_family,
     exact_expression_hash,
     structural_expression_hash,
+    verify_candidate_enumeration_manifest,
 )
 from quantos.contracts import (
     CandidateDuplicateKind,
+    CandidateEnumerationManifest,
     ParameterDimension,
     ReasonCode,
     ResearchCandidateParameter,
@@ -134,6 +136,164 @@ def test_expression_fingerprints_distinguish_exact_names_but_normalize_structure
     }
 
 
+def test_structural_fingerprint_ignores_topological_listing_but_preserves_input_order() -> None:
+    price = SafeExpressionNode(
+        node_id="price", operator=SafeQlibOperator.FIELD, field_name="adjusted_close"
+    )
+    volume = SafeExpressionNode(
+        node_id="volume", operator=SafeQlibOperator.FIELD, field_name="volume"
+    )
+    output = SafeExpressionNode(
+        node_id="result", operator=SafeQlibOperator.ADD, inputs=("price", "volume")
+    )
+    first = SafeQlibExpressionSpec(
+        expression_id="first", nodes=(price, volume, output), output_node_id="result"
+    )
+    reordered = first.model_copy(update={"nodes": (volume, price, output)})
+    swapped = first.model_copy(
+        update={
+            "nodes": (
+                price,
+                volume,
+                output.model_copy(update={"inputs": ("volume", "price")}),
+            )
+        }
+    )
+    assert structural_expression_hash(first) == structural_expression_hash(reordered)
+    assert structural_expression_hash(first) != structural_expression_hash(swapped)
+
+    unused = SafeExpressionNode(
+        node_id="unused", operator=SafeQlibOperator.FIELD, field_name="volume"
+    )
+    with_unused = SafeQlibExpressionSpec(
+        expression_id="with-unused",
+        nodes=(price, unused, volume, output),
+        output_node_id="result",
+    )
+    reordered_unused = SafeQlibExpressionSpec(
+        expression_id="reordered-unused",
+        nodes=(unused, volume, price, output),
+        output_node_id="result",
+    )
+    assert structural_expression_hash(with_unused) == structural_expression_hash(reordered_unused)
+
+    shared = SafeExpressionNode(
+        node_id="shared", operator=SafeQlibOperator.FIELD, field_name="adjusted_close"
+    )
+    copy = SafeExpressionNode(
+        node_id="copy", operator=SafeQlibOperator.FIELD, field_name="adjusted_close"
+    )
+    left = SafeExpressionNode(node_id="left", operator=SafeQlibOperator.ABS, inputs=("shared",))
+    right = SafeExpressionNode(node_id="right", operator=SafeQlibOperator.ABS, inputs=("copy",))
+    shared_first = SafeQlibExpressionSpec(
+        schema_version="safe-qlib-expression/v2",
+        expression_id="shared-first",
+        nodes=(shared, copy, left, right),
+        output_node_id="shared",
+    )
+    copy_first = SafeQlibExpressionSpec(
+        schema_version="safe-qlib-expression/v2",
+        expression_id="copy-first",
+        nodes=(copy, shared, right, left),
+        output_node_id="shared",
+    )
+    assert structural_expression_hash(shared_first) == structural_expression_hash(copy_first)
+
+
+def test_multi_dimensional_family_enumerates_entire_cartesian_product() -> None:
+    template = ResearchFactorTemplateSpec(
+        template_id="two-window-template",
+        expression_schema_version="safe-qlib-expression/v2",
+        nodes=(
+            ResearchFactorTemplateNode(
+                node_id="price", operator=SafeQlibOperator.FIELD, field_name="adjusted_close"
+            ),
+            ResearchFactorTemplateNode(
+                node_id="delta", operator=SafeQlibOperator.DELTA, inputs=("price",)
+            ),
+            ResearchFactorTemplateNode(
+                node_id="smooth", operator=SafeQlibOperator.ROLLING_MEAN, inputs=("delta",)
+            ),
+        ),
+        output_node_id="smooth",
+        parameter_slots=(
+            ResearchTemplateParameterSlot(name="lag", node_id="delta", field="window"),
+            ResearchTemplateParameterSlot(name="window", node_id="smooth", field="window"),
+        ),
+    )
+    family = ResearchFamilySpec(
+        family_id="two-window-family",
+        research_question="Does this two-window family generalize?",
+        hypothesis_hash="1" * 64,
+        factor_template_hash=template.content_hash,
+        allowed_operators=tuple(
+            sorted(
+                (
+                    SafeQlibOperator.DELTA,
+                    SafeQlibOperator.FIELD,
+                    SafeQlibOperator.ROLLING_MEAN,
+                ),
+                key=str,
+            )
+        ),
+        parameter_space=(
+            ParameterDimension(name="lag", values=(4, 2)),
+            ParameterDimension(name="window", values=(5, 3)),
+        ),
+        declared_candidate_count=4,
+    )
+    manifest = enumerate_research_family(family, template)
+    assert [
+        tuple(item.value for item in candidate.parameters) for candidate in manifest.candidates
+    ] == [
+        (2, 3),
+        (2, 5),
+        (4, 3),
+        (4, 5),
+    ]
+    assert len({candidate.content_hash for candidate in manifest.candidates}) == 4
+    verify_candidate_enumeration_manifest(family, template, manifest)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"candidate_id": "candidate-" + "f" * 64},
+        {"exact_expression_hash": "f" * 64},
+        {"structural_expression_hash": "f" * 64},
+        {"expression": _expression(renamed=True)},
+    ],
+)
+def test_manifest_verifier_rejects_candidate_self_reports(change: dict[str, object]) -> None:
+    template = _template()
+    family = _family(template)
+    manifest = enumerate_research_family(family, template)
+    candidates = (manifest.candidates[0].model_copy(update=change), *manifest.candidates[1:])
+    tampered = manifest.model_copy(update={"candidates": candidates})
+    with pytest.raises(CandidateEnumerationError) as rejected:
+        verify_candidate_enumeration_manifest(family, template, tampered)
+    assert rejected.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
+
+
+def test_manifest_verifier_rejects_missing_duplicate_evidence() -> None:
+    template = _template()
+    family = _family(template)
+    candidates = (
+        _candidate(2, _expression(renamed=False)),
+        _candidate(3, _expression(renamed=True)),
+    )
+    manifest = CandidateEnumerationManifest(
+        family_hash=candidates[0].family_hash,
+        factor_template_hash=candidates[0].factor_template_hash,
+        declared_candidate_count=2,
+        candidates=candidates,
+        duplicate_evidence=(),
+    )
+    with pytest.raises(CandidateEnumerationError, match="duplicate evidence") as rejected:
+        verify_candidate_enumeration_manifest(family, template, manifest)
+    assert rejected.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED
+
+
 def test_enumeration_rejects_unbound_template_slots_and_invalid_window_values() -> None:
     template = _template()
     family = _family(template)
@@ -155,6 +315,21 @@ def test_enumeration_rejects_unbound_template_slots_and_invalid_window_values() 
 
 
 def test_template_contract_rejects_implicit_or_dangling_parameter_targets() -> None:
+    with pytest.raises(ValueError, match="shape or parameter target"):
+        ResearchFactorTemplateSpec(
+            template_id="field-with-window-slot",
+            expression_schema_version="safe-qlib-expression/v2",
+            nodes=(
+                ResearchFactorTemplateNode(
+                    node_id="price", operator=SafeQlibOperator.FIELD, field_name="adjusted_close"
+                ),
+            ),
+            output_node_id="price",
+            parameter_slots=(
+                ResearchTemplateParameterSlot(name="window", node_id="price", field="window"),
+            ),
+        )
+
     with pytest.raises(ValueError, match="shape or parameter target"):
         ResearchFactorTemplateSpec(
             template_id="fixed-and-slotted-window",

@@ -33,6 +33,7 @@ from quantos.application.enumeration import (
     enumerate_research_family,
     exact_expression_hash,
     structural_expression_hash,
+    verify_candidate_enumeration_manifest,
 )
 from quantos.application.event_features import (
     EventFeatureBuildResult,
@@ -182,6 +183,7 @@ __all__ = [
     "serve_stdio",
     "structural_expression_hash",
     "temporal_from_canonical_row",
+    "verify_candidate_enumeration_manifest",
     "verify_code_provenance",
     "verify_context_bound_agent_manifest",
     "verify_context_bound_agent_run_spec",

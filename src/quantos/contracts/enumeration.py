@@ -85,7 +85,12 @@ class ResearchFactorTemplateSpec(CanonicalContract):
             known.add(node.node_id)
             slot = slot_by_node.get(node.node_id)
             if node.operator is SafeQlibOperator.FIELD:
-                valid = node.field_name is not None and not node.inputs and node.window is None
+                valid = (
+                    node.field_name is not None
+                    and not node.inputs
+                    and node.window is None
+                    and slot is None
+                )
             elif node.operator is SafeQlibOperator.ABS:
                 valid = (
                     len(node.inputs) == 1

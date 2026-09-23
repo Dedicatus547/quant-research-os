@@ -47,26 +47,51 @@ def exact_expression_hash(expression: SafeQlibExpressionSpec) -> str:
 
 
 def structural_expression_hash(expression: SafeQlibExpressionSpec) -> str:
-    """Hash topology and operator parameters after deterministic node-ID normalization."""
+    """Hash the ordered-input DAG independently of node names and topological listing."""
 
-    normalized_ids = {node.node_id: f"n{index:04d}" for index, node in enumerate(expression.nodes)}
-    nodes = tuple(
-        {
-            "field_name": node.field_name,
-            "inputs": tuple(normalized_ids[item] for item in node.inputs),
-            "node_id": normalized_ids[node.node_id],
-            "operator": node.operator,
-            "window": node.window,
-        }
+    parents: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    local = {
+        node.node_id: (
+            node.operator,
+            node.field_name,
+            node.window,
+            node.node_id == expression.output_node_id,
+        )
         for node in expression.nodes
-    )
+    }
+    for node in expression.nodes:
+        for position, input_id in enumerate(node.inputs):
+            parents[input_id].append((node.node_id, position))
+
+    colors = {
+        node_id: sha256_bytes(canonical_json_bytes(label)) for node_id, label in local.items()
+    }
+    # Refinement includes ordered input edges and every use of a node, preserving DAG sharing.
+    for _ in expression.nodes:
+        colors = {
+            node.node_id: sha256_bytes(
+                canonical_json_bytes(
+                    (
+                        local[node.node_id],
+                        tuple(colors[item] for item in node.inputs),
+                        tuple(
+                            sorted(
+                                (colors[parent], position)
+                                for parent, position in parents[node.node_id]
+                            )
+                        ),
+                    )
+                )
+            )
+            for node in expression.nodes
+        }
     return sha256_bytes(
         canonical_json_bytes(
             {
                 "input_lag_trading_days": expression.input_lag_trading_days,
-                "nodes": nodes,
-                "output_node_id": normalized_ids[expression.output_node_id],
-                "schema_version": "structural-expression-fingerprint/v1",
+                "node_colors": tuple(sorted(colors.values())),
+                "output_color": colors[expression.output_node_id],
+                "schema_version": "structural-expression-fingerprint/v2",
                 "source_schema_version": expression.schema_version,
             }
         )
@@ -229,3 +254,20 @@ def enumerate_research_family(
         candidates=ordered_candidates,
         duplicate_evidence=build_candidate_duplicate_evidence(ordered_candidates),
     )
+
+
+def verify_candidate_enumeration_manifest(
+    family: ResearchFamilySpec,
+    template: ResearchFactorTemplateSpec,
+    manifest: CandidateEnumerationManifest,
+) -> None:
+    """Rebuild every candidate and duplicate group from the frozen family and template."""
+
+    if manifest.duplicate_evidence != build_candidate_duplicate_evidence(manifest.candidates):
+        _raise(ReasonCode.ARTIFACT_CORRUPTED, "candidate duplicate evidence is incomplete")
+    expected = enumerate_research_family(family, template)
+    if manifest != expected:
+        _raise(
+            ReasonCode.ARTIFACT_CORRUPTED,
+            "candidate manifest differs from authoritative frozen enumeration",
+        )

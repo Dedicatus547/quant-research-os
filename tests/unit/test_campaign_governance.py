@@ -3,7 +3,11 @@ from uuid import UUID
 
 import pytest
 
-from quantos.application import CampaignGovernanceError, ResearchCampaignGovernor
+from quantos.application import (
+    CampaignGovernanceError,
+    ResearchCampaignGovernor,
+    enumerate_research_family,
+)
 from quantos.contracts import (
     CampaignLifecycleStatus,
     CampaignSegment,
@@ -19,10 +23,11 @@ from quantos.contracts import (
     RegisteredFeatureRef,
     ResearchBudgetSpec,
     ResearchCampaignSpec,
+    ResearchFactorTemplateNode,
+    ResearchFactorTemplateSpec,
     ResearchFamilySpec,
     ResearchSegment,
-    SafeExpressionNode,
-    SafeQlibExpressionSpec,
+    ResearchTemplateParameterSlot,
     SafeQlibOperator,
     StrategyAuthoringSpec,
     TrialOutcome,
@@ -31,28 +36,41 @@ from quantos.contracts import (
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _expression() -> SafeQlibExpressionSpec:
-    return SafeQlibExpressionSpec(
-        schema_version="safe-qlib-expression/v2",
-        expression_id="delta_2d",
-        nodes=(
-            SafeExpressionNode(node_id="price", operator="field", field_name="adjusted_close"),
-            SafeExpressionNode(node_id="factor", operator="delta", inputs=("price",), window=2),
-        ),
-        output_node_id="factor",
-    )
-
-
 def _family() -> ResearchFamilySpec:
     return ResearchFamilySpec(
         family_id="family-001",
         research_question="Does a bounded delta family generalize?",
         hypothesis_hash="1" * 64,
-        factor_template_hash="2" * 64,
+        factor_template_hash=_template().content_hash,
         allowed_operators=tuple(sorted((SafeQlibOperator.DELTA, SafeQlibOperator.FIELD), key=str)),
         parameter_space=(ParameterDimension(name="window", values=(2, 3)),),
         declared_candidate_count=2,
     )
+
+
+def _template() -> ResearchFactorTemplateSpec:
+    return ResearchFactorTemplateSpec(
+        template_id="campaign-delta-template",
+        expression_schema_version="safe-qlib-expression/v2",
+        nodes=(
+            ResearchFactorTemplateNode(
+                node_id="price", operator=SafeQlibOperator.FIELD, field_name="adjusted_close"
+            ),
+            ResearchFactorTemplateNode(
+                node_id="factor", operator=SafeQlibOperator.DELTA, inputs=("price",)
+            ),
+        ),
+        output_node_id="factor",
+        parameter_slots=(
+            ResearchTemplateParameterSlot(name="window", node_id="factor", field="window"),
+        ),
+    )
+
+
+def _governor() -> ResearchCampaignGovernor:
+    family = _family()
+    template = _template()
+    return ResearchCampaignGovernor(family, template, enumerate_research_family(family, template))
 
 
 def _budget(*, max_trials: int = 3) -> ResearchBudgetSpec:
@@ -105,7 +123,9 @@ def _trial(
         trial_id=trial_id,
         idempotency_key=(trial_id[-1] * 64),
         proposal_hash=(trial_id[-1] * 64),
-        candidate_hash=(candidate * 64),
+        candidate_hash=enumerate_research_family(_family(), _template())
+        .candidates[int(candidate) - 1]
+        .content_hash,
         segment=segment,
         outcome=outcome,
         agent_run_hash="a" * 64,
@@ -115,7 +135,7 @@ def _trial(
 
 
 def test_campaign_accounts_every_trial_and_seals_confirmation_once() -> None:
-    governor = ResearchCampaignGovernor()
+    governor = _governor()
     family = _family()
     budget = _budget()
     campaign = _campaign(family, budget)
@@ -209,7 +229,7 @@ def test_campaign_accounts_every_trial_and_seals_confirmation_once() -> None:
 
 
 def test_budget_and_event_chain_fail_closed() -> None:
-    governor = ResearchCampaignGovernor()
+    governor = _governor()
     family = _family()
     budget = _budget(max_trials=1)
     campaign = _campaign(family, budget)
@@ -261,7 +281,7 @@ def test_budget_and_event_chain_fail_closed() -> None:
 
 
 def test_campaign_authorizes_only_frozen_inputs_and_nonsealed_segments() -> None:
-    governor = ResearchCampaignGovernor()
+    governor = _governor()
     family = _family()
     budget = _budget()
     campaign = _campaign(family, budget)
@@ -316,7 +336,7 @@ def test_campaign_authorizes_only_frozen_inputs_and_nonsealed_segments() -> None
 
 
 def test_factor_family_and_contamination_propagation_are_mandatory() -> None:
-    governor = ResearchCampaignGovernor()
+    governor = _governor()
     family = _family()
     budget = _budget()
     campaign = _campaign(family, budget)
@@ -327,7 +347,7 @@ def test_factor_family_and_contamination_propagation_are_mandatory() -> None:
         family_hash=family.content_hash,
         factor_template_hash=family.factor_template_hash,
         parameters=(ProposedAttribute(name="window", value=2),),
-        expression=_expression(),
+        expression=enumerate_research_family(family, _template()).candidates[0].expression,
         registered_features=(
             RegisteredFeatureRef(
                 field_name="adjusted_close",
@@ -344,6 +364,19 @@ def test_factor_family_and_contamination_propagation_are_mandatory() -> None:
             factor.model_copy(update={"parameters": (ProposedAttribute(name="window", value=99),)}),
         )
     assert escaped_family.value.reason_code is ReasonCode.SCHEMA_INVALID
+    different_expression = factor.expression.model_copy(
+        update={
+            "nodes": (
+                factor.expression.nodes[0],
+                factor.expression.nodes[1].model_copy(update={"window": 3}),
+            )
+        }
+    )
+    with pytest.raises(CampaignGovernanceError) as mismatched_expression:
+        governor.authorize_factor(
+            family, factor.model_copy(update={"expression": different_expression})
+        )
+    assert mismatched_expression.value.reason_code is ReasonCode.SCHEMA_INVALID
 
     active = governor.activate(
         campaign,
@@ -403,3 +436,64 @@ def test_factor_family_and_contamination_propagation_are_mandatory() -> None:
             update={"inherited_contamination": snapshot.contamination_hashes}
         ),
     )
+
+
+def test_trial_candidate_must_belong_to_frozen_manifest_even_on_event_replay() -> None:
+    governor = _governor()
+    family = _family()
+    budget = _budget()
+    campaign = _campaign(family, budget)
+    active = governor.activate(
+        campaign,
+        family,
+        budget,
+        (),
+        event_id=UUID("50000000-0000-0000-0000-000000000001"),
+        occurred_at=NOW,
+    )
+    valid = _trial(
+        "trial-1",
+        segment=CampaignSegment.DEVELOPMENT,
+        outcome=TrialOutcome.SCHEMA_INVALID,
+        candidate="1",
+        executed=False,
+    )
+    invalid = valid.model_copy(update={"candidate_hash": "f" * 64})
+    with pytest.raises(CampaignGovernanceError) as rejected:
+        governor.record_trial(
+            campaign,
+            budget,
+            (active,),
+            invalid,
+            event_id=UUID("50000000-0000-0000-0000-000000000002"),
+            occurred_at=NOW,
+        )
+    assert rejected.value.reason_code is ReasonCode.SCHEMA_INVALID
+
+    recorded = governor.record_trial(
+        campaign,
+        budget,
+        (active,),
+        valid,
+        event_id=UUID("50000000-0000-0000-0000-000000000003"),
+        occurred_at=NOW,
+    )
+    tampered = recorded.model_copy(update={"trial": invalid})
+    with pytest.raises(CampaignGovernanceError) as replayed:
+        governor.project(campaign, budget, (active, tampered))
+    assert replayed.value.reason_code is ReasonCode.SCHEMA_INVALID
+
+
+def test_governor_rejects_forged_candidate_manifest() -> None:
+    family = _family()
+    template = _template()
+    manifest = enumerate_research_family(family, template)
+    forged_candidate = manifest.candidates[0].model_copy(
+        update={"candidate_id": "candidate-" + "f" * 64}
+    )
+    forged_manifest = manifest.model_copy(
+        update={"candidates": (forged_candidate, *manifest.candidates[1:])}
+    )
+    with pytest.raises(CampaignGovernanceError) as rejected:
+        ResearchCampaignGovernor(family, template, forged_manifest)
+    assert rejected.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED

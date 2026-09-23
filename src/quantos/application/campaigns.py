@@ -6,6 +6,12 @@ from datetime import datetime
 from typing import NoReturn
 from uuid import UUID
 
+from quantos.application.enumeration import (
+    CandidateEnumerationError,
+    exact_expression_hash,
+    structural_expression_hash,
+    verify_candidate_enumeration_manifest,
+)
 from quantos.contracts.agent import CampaignSegment, ExperimentProposalSpec, InterpretationProposal
 from quantos.contracts.base import canonical_json_bytes
 from quantos.contracts.campaign import (
@@ -18,6 +24,7 @@ from quantos.contracts.campaign import (
     ResearchCampaignSpec,
     ResearchFamilySpec,
 )
+from quantos.contracts.enumeration import CandidateEnumerationManifest, ResearchFactorTemplateSpec
 from quantos.contracts.status import ReasonCode
 
 
@@ -34,12 +41,28 @@ def _raise(reason_code: ReasonCode, message: str) -> NoReturn:
 class ResearchCampaignGovernor:
     """Validate and extend an immutable campaign event chain."""
 
+    def __init__(
+        self,
+        family: ResearchFamilySpec,
+        template: ResearchFactorTemplateSpec,
+        manifest: CandidateEnumerationManifest,
+    ) -> None:
+        try:
+            verify_candidate_enumeration_manifest(family, template, manifest)
+        except CandidateEnumerationError as error:
+            raise CampaignGovernanceError(error.reason_code, str(error)) from error
+        self.family = family
+        self.manifest = manifest
+        self.candidate_hashes = frozenset(item.content_hash for item in manifest.candidates)
+
     def project(
         self,
         campaign: ResearchCampaignSpec,
         budget: ResearchBudgetSpec,
         events: tuple[ResearchCampaignEvent, ...],
     ) -> ResearchCampaignSnapshot:
+        if campaign.family_hash != self.family.content_hash:
+            _raise(ReasonCode.ARTIFACT_CORRUPTED, "campaign does not bind the frozen family")
         if campaign.budget_hash != budget.content_hash:
             _raise(ReasonCode.ARTIFACT_CORRUPTED, "campaign does not bind the supplied budget")
         status = CampaignLifecycleStatus.DRAFT
@@ -73,6 +96,7 @@ class ResearchCampaignGovernor:
                 trial = event.trial
                 if trial is None:  # contract validation already enforces this
                     _raise(ReasonCode.SCHEMA_INVALID, "campaign trial payload is missing")
+                self._require_candidate(trial)
                 existing = idempotency.get(trial.idempotency_key)
                 if existing is not None and existing != trial.content_hash:
                     _raise(ReasonCode.DUPLICATE_ID_CONFLICT, "idempotency key binds two trials")
@@ -126,7 +150,7 @@ class ResearchCampaignGovernor:
         event_id: UUID,
         occurred_at: datetime,
     ) -> ResearchCampaignEvent:
-        if campaign.family_hash != family.content_hash:
+        if campaign.family_hash != family.content_hash or family != self.family:
             _raise(ReasonCode.ARTIFACT_CORRUPTED, "campaign does not bind the supplied family")
         if budget.max_distinct_candidates > family.declared_candidate_count:
             _raise(
@@ -155,6 +179,7 @@ class ResearchCampaignGovernor:
         event_id: UUID,
         occurred_at: datetime,
     ) -> ResearchCampaignEvent:
+        self._require_candidate(trial)
         snapshot = self.project(campaign, budget, events)
         if snapshot.status is not CampaignLifecycleStatus.ACTIVE:
             _raise(ReasonCode.CAMPAIGN_CLOSED, "campaign does not accept another trial")
@@ -184,6 +209,7 @@ class ResearchCampaignGovernor:
         event_id: UUID,
         occurred_at: datetime,
     ) -> ResearchCampaignEvent:
+        self._require_candidate(trial)
         snapshot = self.project(campaign, budget, events)
         if snapshot.sealed_confirmation_accessed:
             _raise(ReasonCode.OOS_ALREADY_ACCESSED, "sealed confirmation is one-time")
@@ -250,15 +276,17 @@ class ResearchCampaignGovernor:
         if proposal.segment is CampaignSegment.SEALED_CONFIRMATION:
             _raise(ReasonCode.OOS_POLICY_VIOLATION, "sealed proposal requires one-time access")
 
-    @staticmethod
-    def authorize_factor(family: ResearchFamilySpec, proposal: object) -> None:
+    def authorize_factor(self, family: ResearchFamilySpec, proposal: object) -> None:
         from quantos.contracts.agent import FactorProposalSpec
 
         if not isinstance(proposal, FactorProposalSpec):
             _raise(ReasonCode.SCHEMA_INVALID, "factor proposal contract is invalid")
         operators = {node.operator for node in proposal.expression.nodes}
         if (
-            proposal.hypothesis_hash != family.hypothesis_hash
+            family != self.family
+            or self.manifest.family_hash != family.content_hash
+            or self.manifest.factor_template_hash != family.factor_template_hash
+            or proposal.hypothesis_hash != family.hypothesis_hash
             or proposal.family_hash != family.content_hash
             or proposal.factor_template_hash != family.factor_template_hash
             or not operators.issubset(family.allowed_operators)
@@ -267,18 +295,31 @@ class ResearchCampaignGovernor:
                 ReasonCode.SCHEMA_INVALID,
                 "factor proposal escapes its frozen research family",
             )
-        proposed = {item.name: canonical_json_bytes(item.value) for item in proposal.parameters}
-        allowed = {
-            item.name: {canonical_json_bytes(value) for value in item.values}
-            for item in family.parameter_space
-        }
-        if proposed.keys() != allowed.keys() or any(
-            proposed[name] not in allowed[name] for name in proposed
-        ):
+        proposed = canonical_json_bytes(
+            tuple((item.name, item.value) for item in proposal.parameters)
+        )
+        matches = [
+            candidate
+            for candidate in self.manifest.candidates
+            if canonical_json_bytes(tuple((item.name, item.value) for item in candidate.parameters))
+            == proposed
+        ]
+        if len(matches) != 1:
             _raise(
                 ReasonCode.SCHEMA_INVALID,
-                "factor proposal parameters escape the frozen finite search space",
+                "factor proposal does not identify one frozen candidate",
             )
+        candidate = matches[0]
+        if (
+            exact_expression_hash(proposal.expression) != candidate.exact_expression_hash
+            or structural_expression_hash(proposal.expression)
+            != candidate.structural_expression_hash
+        ):
+            _raise(ReasonCode.SCHEMA_INVALID, "factor proposal expression differs from candidate")
+
+    def _require_candidate(self, trial: CampaignTrial) -> None:
+        if trial.candidate_hash not in self.candidate_hashes:
+            _raise(ReasonCode.SCHEMA_INVALID, "trial candidate is outside the frozen manifest")
 
     @staticmethod
     def require_interpretation_contamination(
