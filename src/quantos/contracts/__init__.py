@@ -188,6 +188,16 @@ from quantos.contracts.ledger import (
     ResearchLedgerSnapshot,
     ResearchLedgerTermFrequency,
 )
+from quantos.contracts.p14c_qualification import (
+    P14cCanonicalCaseResult,
+    P14cNamedHash,
+    P14cNegativeCaseEvidence,
+    P14cQualificationFile,
+    P14cQualificationReport,
+    P14cRootCaseEvidence,
+    P14cRootEvidence,
+    p14c_principal_hash_summary,
+)
 from quantos.contracts.pit import (
     CanonicalPITAuditRequest,
     LineageSource,
@@ -497,6 +507,13 @@ __all__ = [
     "P13QualificationBundle",
     "P13QualificationReport",
     "P14aQualificationReport",
+    "P14cCanonicalCaseResult",
+    "P14cNamedHash",
+    "P14cNegativeCaseEvidence",
+    "P14cQualificationFile",
+    "P14cQualificationReport",
+    "P14cRootCaseEvidence",
+    "P14cRootEvidence",
     "PITAuditEvidenceBundle",
     "PITAuditEvidenceCollection",
     "PITAuditEvidenceItem",
@@ -615,5 +632,6 @@ __all__ = [
     "ValidationSubperiod",
     "ValidationVerdict",
     "canonical_json_bytes",
+    "p14c_principal_hash_summary",
     "sha256_bytes",
 ]
