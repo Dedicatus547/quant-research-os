@@ -5,13 +5,17 @@ Status date: 2026-09-23
 P14a and P14b are complete. P14c implementation commit `618498a64b8e46ab5c38f66ea08a03a2afdaea32`
 passed its clean-commit, independent double-root qualification with report
 `d0412a30d27c4d793fe527a28432292f1616a4ad726830d3cb1ce24a5836913a`. P14c now has qualified
-engineering authority. P14d-A's frozen contract, deterministic orchestration, and production
-execution wiring meet its Definition of Done. Offline Scripted/Replay E2E passes frozen candidates
-through PIT, native Qlib Workflow and Simulator services, Validation, verified immutable
-ResearchResult publication, campaign trial accounting, Ledger refresh, and the real P14c
-CampaignSelectionService. The full suite passed 510 tests at 85.05% coverage; Ruff and Pyright also
-passed. P14d-B is eligible to start but has not started. P14d-C remains blocked by FR-03 `NO_GO`.
-P14c grants no autonomous or sealed-confirmation authority.
+engineering authority. P14d-A's frozen contract, deterministic orchestration, deterministic
+compute accounting, fail-closed execution taxonomy, and production execution wiring meet its
+Definition of Done. Offline Scripted/Replay E2E passes frozen candidates through PIT, native Qlib
+Workflow and Simulator services, Validation, verified immutable ResearchResult publication, campaign
+trial accounting, Ledger refresh, and the real P14c CampaignSelectionService. P14d-B implementation
+commit `13d2b7acc44fe33c4f0c45d240fd5fd26e993845` passed its clean-commit, independent double-root
+autonomous campaign qualification with immutable report
+`13355dcb0c623c604ff5d0e4a5cd92d9aba59673d62bd76ffa9c839ee0754825`. P14d-B now holds bounded
+synthetic offline autonomous engineering authority only; it is not live Agent, FR-03, market-alpha,
+or sealed-confirmation qualification. Final implementation gates: 514 tests passed at 85.01%
+coverage; Ruff PASS; Pyright 0 errors / 0 warnings. P14d-C remains blocked by FR-03 `NO_GO`.
 
 ## P14d-A deterministic orchestration and production execution
 
@@ -35,9 +39,52 @@ Current P14d-A status:
 
 - deterministic orchestration and production execution adapter: present;
 - full P14d-A Definition of Done: **satisfied**;
-- current full-suite gates: 510 passed, coverage 85.05%, Ruff PASS, Pyright 0 errors / 0 warnings;
-- P14d-B clean-commit double-root autonomous E2E: eligible to start, not started;
+- current full-suite gates: 514 passed, coverage 85.01%, Ruff PASS, Pyright 0 errors / 0 warnings;
+- deterministic compute authority: adapter/policy-derived workload charge; wall-clock runtime is
+  not part of any authority hash, budget projection, trial, or stopping decision;
+- unknown execution exceptions fail closed through `AutonomousOrchestrationError`;
+- P14d-B clean-commit double-root autonomous E2E: **QUALIFIED**;
 - P14d-C live Agent runtime: blocked by FR-03 `NO_GO`.
+
+## P14d-B qualified double-root autonomous campaign
+
+The formal runner is `scripts/p14d_qualification.py`. It requires the exact clean Git root,
+binds the implementation commit, `uv.lock`, runtime fingerprint, frozen
+`docs/p14d-qualification-contract.md`, Qlib 0.9.7 source/version binding, committed synthetic
+snapshot/view fixtures, autonomous policy hashes, execution bindings, and P14c selection plan
+hashes. It runs `root-A` and `root-B` as independent output trees sharing only frozen fixtures,
+source tree, and lockfile.
+
+- implementation commit: `13d2b7acc44fe33c4f0c45d240fd5fd26e993845`
+- qualification report: `13355dcb0c623c604ff5d0e4a5cd92d9aba59673d62bd76ffa9c839ee0754825`
+- bundle path: `artifacts/qualification/p14d/sha256-13355dcb0c623c604ff5d0e4a5cd92d9aba59673d62bd76ffa9c839ee0754825`
+- principal-hash summary: `baf7eedbb154d49ffba5f7a0d178f0eefe3379e89f5b0f50cafce27a2760a500`
+- root principal summary: `0adf3fb227ff8b8eb4607d4c5442903ae868757e669eb1c32d7e70223ad204be`
+- lockfile SHA-256: `0f5cd349fb32eed64a0cb907242f0ddd333f69efdc77461bdff90602e5bed7ca`
+- runtime fingerprint: `66d954a1ff034d6ecb555885e12926e585543a4d71c92ea35bb5720465730321`
+- frozen qualification contract: `7d57a7cc6ec78332956c7ea307772917ef20fb85d4d827c7280e1834c66c45f1`
+- Qlib binding hash: `64097ae9c8404ccc79d43a40519e7177ff0ae226faf591a0a263a137d3ea67d3`
+- fixture-set hash: `6f3f53d6d9586d52c529900f44231160c6d1400c57e8bb755a93af33af9991eb`
+- negative cases: 27 per root, 54 total; restart cases: 3 per root, 6 total; Replay qualification:
+  one per root with zero second Qlib executions and no authority promotion.
+
+Both roots executed the real PIT/Qlib/Validation/ResearchResult path. The canonical cases were
+`SELECTED` (P14c report `ee6caee9700bf764dd34bb8a397faf130b827ad28c7619256318832b18b98de5`,
+`SelectionFrozen` hash `1e1e0bd4091feb5e0f68e90be9e550378685659eac484bb89b9a853ce4d920b9`,
+AutonomousLoopReport `f04bbe053a44b775dbe3b1c79c7f7b050ea1b8645c9a73f4cf95a45295556687`),
+`NO_SELECTION` (P14c report `fab2f859ae24075be9aa0041eff184061bcdddc25238e9ed365bf26cc55e4b46`),
+and `FAILED_NOT_EVALUATED` (P14c report
+`48a6bfe12e383798996cbf0763c8ece12a47089c9dc43ed2170658f29064254e`). Both roots produced
+byte-identical principal hashes for candidate manifest, initial ContextPack, Agent requests and
+proposals, execution identities, ResearchResult, ValidationReport, CampaignTrial, campaign event
+chains, final Ledger snapshots, P14c reports, `SelectionFrozen` where present, and AutonomousLoop
+reports. No `OOSAccessed` or sealed-confirmation research was executed.
+
+The qualified bundle was independently re-verified with the runner's `--verify` command on the
+same clean implementation commit. The qualification is `SYNTHETIC_OFFLINE_ENGINEERING_EVIDENCE`:
+it establishes bounded deterministic autonomous control-plane reconstruction, not real market
+alpha, profitability, live Agent qualification, vendor-vintage PIT, or sealed confirmation. P14d-C
+remains unimplemented and blocked by FR-03.
 
 ## P14c engineering implementation
 
@@ -207,5 +254,7 @@ selection. It adds:
   all fail closed.
 
 Candidate-versus-trial accounting and the frozen selection method are implemented and qualified in
-P14c. The immutable report grants engineering selection authority within its stated limits. P14d is
-eligible to start, but no autonomous loop or mutation/crossover implementation has begun.
+P14c. The immutable report grants engineering selection authority within its stated limits. P14d's
+bounded deterministic autonomous loop and its clean-commit double-root qualification are implemented
+and qualified; P14d-C remains blocked by FR-03 `NO_GO`. No mutation, crossover, dynamic grammar or
+family expansion has been implemented.

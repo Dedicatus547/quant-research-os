@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-23 (P14d-A2 wiring; FR-03 remains NO_GO)
+Status date: 2026-09-23 (P14d-B qualified; P14d-C blocked by FR-03 NO_GO)
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
@@ -26,6 +26,11 @@ workspace.
 | P11 | Three validated repo Skills; typed proposal/compiler plus dataset/resolve/execution/job/validation/registry mappings; immutable receipts/audit events; bounded durable queue with duplicate/cancel/timeout/restart/failure gates; clean-commit frozen structured-Evidence proposal E2E through two native-Qlib release pipelines PASS with exact authority hashes | Synthetic-only `data_qualified=false`; the E2E uses a code-defined proposal and direct typed facades, not a production stdio/JSON-RPC transport or Agent-generated chain; Agent and reviewer outputs remain proposals and never mutate ValidationReport or Registry verdicts |
 | P12 | Isolated SSE/SZSE collector, count-backed completeness witnesses, raw staging, network-free Evidence publisher, deterministic PDF/text/HTML extraction, availability/license policy, exact-file verification, and full P0-P11 regression PASS. Clean commit `60b8c811...d6f7` reproduced Evidence Store `c55e9ba4...66a7f` byte-for-byte in two independent roots | Bounded official-source acquisition returned SSE 0/0 and SZSE 3/3; all three PDFs extracted successfully. SZSE permission remains `UNKNOWN`, so no announcement has become an admitted EventFeature or market conclusion |
 | P13 | Approved v2 benchmark, read-only Agent extraction, deterministic admission, immutable event artifacts and native-Qlib execution qualified | `SUCCEEDED / PASS`: real Store and admitted Agent proposal replayed on clean commit `46904c2…`; two roots match all principal content hashes. Bundle `c6abe067…d883`. Single announcement with citation-location assistance; no general extraction or profitability claim. See [freeze record](p13-v2-freeze.md) |
+| P14a | Append-only Research Ledger v2, deterministic evidence node binding, derived lexical index, bounded deterministic ResearchContextPack, context-bound AgentRunSpec, and clean-commit double-root qualification report `9954649a...d8640` | No live-data or Agent-runtime dependency; P14a context/ledger authority is synthetic engineering evidence |
+| P14b | Frozen-family finite enumeration, canonical candidate identities, exact/structural AST fingerprints, duplicate/redundancy evidence, manifest verifier and campaign budget contracts | No autonomous execution authority by itself; P14c selection consumes the complete verified denominator |
+| P14c | Immutable `CampaignSelectionReport`, frozen Holm/circular-block-bootstrap policy, plan-before-trial governance, clean-commit double-root report `d0412a30...5836913a` | Synthetic offline engineering selection authority only; no autonomous, sealed-confirmation, or real-market claim |
+| P14d-A | Frozen autonomous-loop contract, runtime-neutral Scripted/Replay Agent port, deterministic compute accounting, fail-closed exception taxonomy, production PIT/Qlib/Validation/ResearchResult/Ledger/P14c wiring | DoD satisfied; implementation commit `1ecf019...` lineage; synthetic offline Scripted/Replay E2E PASS; no live Agent runtime |
+| P14d-B | Clean-commit independent double-root bounded autonomous campaign qualification, immutable report `13355dcb...754825`, 27 negative cases per root, 3 restart cases per root, replay reuse and exact principal equality | **QUALIFIED**: bounded synthetic offline deterministic autonomous engineering authority only; implementation commit `13d2b7acc44fe33c4f0c45d240fd5fd26e993845`; no real-market, live Agent, FR-03, or sealed-confirmation claim |
 | FR-01 | Existing admitted DSL now passes proposal compiler, resolution, PIT, SignalArtifact, Qlib backtest, and Validation without a project expression runtime; a non-return `field → delta → abs` DAG and negative field/operator cases pass | No new live-data conclusion; existing snapshot/view qualification boundaries remain unchanged |
 | FR-02 | Immutable Qlib ResearchResult adapter binds prediction, label, split, expression, policy, source files, native IC/Rank IC series and summaries; exact-file verification, tamper rejection, independent-root hashes, and G3 integration pass | Only Qlib-native IC/Rank IC outputs are qualified; coverage/turnover/autocorrelation remain outside scope |
 | FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0-D0.7 diagnostics, exact-source Code Mode characterization, credential-free loopback chain tests, safe nested-result/metadata projection, post-terminal event drain, Code Mode-aware P10 v3 fixture/evaluator and bottom-up offline replay implemented; offline regression PASS | **NO_GO**: CodeMode-aware P10 已执行；result `6/9`；classification `LIVE_EXEC_NOT_OBSERVED`；report `c5f8f53f...7a1fc`；matched command lifecycle `0/4`；D0.7B1+ remains `CODE_MODE_CHAIN_AVAILABLE` on the deterministic shadow chain; P13 SDK qualification = `NOT_EVALUATED`; FR-03 = `NO_GO` and is now in thin maintenance until upstream progress or a new runtime candidate warrants requalification |
@@ -147,13 +152,18 @@ finding.
 - `Agent-assisted Research v0.2`：P8-P13 已完成批准范围内的验证，P13 v2 双根资格报告已
   冻结；FR-01/FR-02 已通过，P14a 已完成并通过双根资格验证，P14b 已实现；P14c 已通过
   clean-commit 双根资格化并取得有限的 engineering selection authority（报告
-  `d0412a30...5836913a`）。P14d-A frozen contract、deterministic orchestration 与 production
-  execution wiring 已满足 DoD。`QuantosResearchExecutionAdapter` 把 P14b 候选接入现有 PIT、
-  Qlib signal/backtest、native Workflow/Record Templates、Validation、ResearchResult、Ledger 和
-  P14c service。离线 synthetic-data E2E 真实执行成功，覆盖 trial/Ledger round-trip、两处
-  crash recovery、exact retry、Replay 复用与真实 P14c handoff。全仓 510 tests、coverage
-  85.05%、Ruff PASS、Pyright 0 errors / 0 warnings。P14d-B eligible to start but not started；
-  P14d-C blocked by FR-03 `NO_GO`。Agent 仍只生成 proposal、请求确定性执行和解释结果。
+  `d0412a30...5836913a`）。P14d-A frozen contract、deterministic compute accounting、fail-closed
+  execution taxonomy 与 production execution wiring 已满足 DoD。P14d-B 已在 clean implementation
+  commit `13d2b7acc44fe33c4f0c45d240fd5fd26e993845` 上通过 independent double-root autonomous
+  campaign qualification（报告 `13355dcb...754825`；principal summary `baf7eedb...2760a500`）。
+  `QuantosResearchExecutionAdapter` 把 P14b 候选接入现有 PIT、Qlib signal/backtest、native
+  Workflow/Record Templates、Validation、ResearchResult、Ledger 和 P14c service。离线
+  synthetic-data E2E 真实执行成功，覆盖 trial/Ledger round-trip、两处 crash recovery、exact
+  retry、Replay 复用与真实 P14c handoff。最终工程门禁：514 tests passed、coverage 85.01%、
+  Ruff PASS、Pyright 0 errors / 0 warnings。P14d-C blocked by FR-03 `NO_GO`，未实现 live Agent
+  runtime。P14d-B 只授予 bounded synthetic offline autonomous engineering authority，不授予
+  real-market、live Agent、FR-03 或 sealed-confirmation authority。Agent 仍只生成 proposal、
+  请求确定性执行和解释结果。
 
 后续顺序固定为：
 
@@ -165,8 +175,8 @@ M0 基线冻结 → P8 Agent Boundary & Threat Hardening（完成）
 → FR-01/FR-02 P14 hard entry gates（完成）→ P14a（完成）→ P14b（已实现）
 → P14c（qualified engineering authority；双根报告 `d0412a30...5836913a`）
 → P14d-A（frozen contract + deterministic orchestration + production execution wiring 完成）
-→ P14d-B（eligible to start；clean-commit double-root E2E pending）
-→ P14d-C（live Agent runtime blocked by FR-03 `NO_GO`）
+→ P14d-B（clean-commit double-root autonomous E2E QUALIFIED；报告 `13355dcb...754825`）
+→ P14d-C（live Agent runtime blocked by FR-03 `NO_GO`；未实现）
 ```
 
 Completed factor-research prerequisites for P14:

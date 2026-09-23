@@ -11,17 +11,19 @@ evidence.
 Documentation roles:
 
 - [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
-- [Implementation status](docs/implementation-status.md) tracks completed P0-P13 and FR-01/FR-02,
-  the current P14 boundary, and the evidence summary.
+- [Implementation status](docs/implementation-status.md) tracks completed P0-P13, FR-01/FR-02, and
+  the current P14a-P14d boundary, including P14d-B qualification, and the evidence summary.
 - [P12 progress](docs/p12-progress.md) records the exchange Evidence boundary, bounded official-source
   probe, and clean-commit reproducibility freeze.
 - [P13 progress](docs/p13-progress.md) records the qualified event-feature boundary, synthetic
   native-Qlib bridge freeze, qualification runner, and historical benchmark-gate progression.
 - [P14 entry review](docs/reviews/p14-entry-review.md) freezes the FR-01/FR-02 hard-gate evidence
-  and the boundary for starting P14a-P14c.
-- [P14 progress](docs/p14-progress.md) records the implemented P14a-P14c slices and open
-  qualification gates; [P14c selection contract](docs/p14c-selection-contract.md) freezes the
-  campaign-level statistical method and failure semantics.
+  and the boundary for starting P14a-P14d.
+- [P14 progress](docs/p14-progress.md) records the implemented P14a-P14d-B slices and their
+  qualification results; [P14c selection contract](docs/p14c-selection-contract.md) freezes the
+  campaign-level statistical method and failure semantics, and
+  [P14d qualification contract](docs/p14d-qualification-contract.md) freezes the clean-commit
+  double-root autonomous campaign qualification.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records

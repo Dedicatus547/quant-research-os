@@ -90,6 +90,16 @@ the full existing event chain and refuses any request after a relevant limit is 
 successful AgentRun returned for admission produces exactly one `CampaignTrial`; failed driver
 transport/integrity does not become research evidence and aborts the loop.
 
+`max_compute_seconds` consumes a **deterministic compute charge**, not observed wall-clock runtime.
+The charge is derived from the frozen execution policy, request, candidate authoring, and validation
+workload shape; the same frozen request always produces the same charge. Observed wall-clock
+runtime may be retained only as outer telemetry/diagnostics and must never enter a
+`CampaignTrial`, campaign event hash, budget projection, stopping decision, `AutonomousLoopReport`,
+or any principal deterministic hash domain. `AutonomousExecutionResult.compute_seconds` is therefore
+a policy workload unit, not a duration measurement. Unknown execution exceptions fail closed as
+`AutonomousOrchestrationError`; only typed known PIT/data/execution failures become deterministic
+trial outcomes.
+
 Each candidate trial outcome remains one of the existing `TrialOutcome` values. Schema-invalid
 candidate proposals, PIT rejection, execution failure, hard/soft rejection, and duplicate attempts
 remain explicit trials. Only deterministic execution outcomes and verified artifact bindings may
@@ -181,7 +191,13 @@ Simulator, Validation, ResearchResult, campaign accounting, Ledger, and P14c ser
 exact retry, duplicate suppression, replay reuse, result/event and event/Ledger crash recovery, and
 conflicting retries. P14d-A meets its Definition of Done.
 
-P14d-B clean-commit double-root autonomous E2E qualification is eligible to start and remains
-pending; it has not started here. P14d-C live runtime qualification remains blocked by FR-03
-`NO_GO`. This work does not call `OOSAccessed`, implement sealed confirmation, claim vendor-vintage
-PIT, or add a live model dependency.
+P14d-B is **QUALIFIED** at clean implementation commit
+`13d2b7acc44fe33c4f0c45d240fd5fd26e993845`. The immutable qualification report is
+`13355dcb0c623c604ff5d0e4a5cd92d9aba59673d62bd76ffa9c839ee0754825`; both independent roots
+executed the real PIT/Qlib/Validation/ResearchResult path, produced byte-identical principal
+hashes, and passed the canonical `SELECTED`, `NO_SELECTION`, and `FAILED_NOT_EVALUATED` cases,
+27 negative cases per root, three restart cases per root, and replay reuse. The bundle was
+independently re-verified with the runner's `--verify` command. This grants bounded synthetic
+offline autonomous engineering authority only. P14d-C live runtime qualification remains blocked
+by FR-03 `NO_GO` and is not implemented. This work does not call `OOSAccessed`, implement sealed
+confirmation, claim vendor-vintage PIT, or add a live model dependency.

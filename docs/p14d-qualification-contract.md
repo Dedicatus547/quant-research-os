@@ -1,6 +1,6 @@
 # P14d-B autonomous campaign qualification contract v1
 
-Status: **frozen qualification contract for the clean-commit double-root runner**
+Status: **frozen and QUALIFIED for the clean-commit double-root runner**
 Authority: bounded deterministic autonomous research engineering evidence only.
 
 ## Scope
@@ -16,6 +16,21 @@ The runner is `scripts/p14d_qualification.py`. It requires the exact clean Git r
 repository, binds the implementation commit, `uv.lock`, Python/runtime fingerprint, frozen
 qualification contract, Qlib source/version binding, fixture hashes, autonomous policy hashes,
 execution bindings, and P14c selection plan hashes, then executes two fully independent roots.
+
+## Qualification result
+
+The frozen contract was executed from clean implementation commit
+`13d2b7acc44fe33c4f0c45d240fd5fd26e993845`. The immutable report is
+`13355dcb0c623c604ff5d0e4a5cd92d9aba59673d62bd76ffa9c839ee0754825`, with principal-hash summary
+`baf7eedbb154d49ffba5f7a0d178f0eefe3379e89f5b0f50cafce27a2760a500` and identical root principal
+summary `0adf3fb227ff8b8eb4607d4c5442903ae868757e669eb1c32d7e70223ad204be`. Both roots passed
+the canonical `SELECTED`, `NO_SELECTION`, and `FAILED_NOT_EVALUATED` cases, all 27 negative cases,
+all three restart boundaries, replay reuse with zero second Qlib execution, and exact principal
+equality. The published bundle was independently re-verified with the runner's `--verify` command.
+Engineering gates: 514 tests passed, coverage 85.01%, Ruff PASS, Pyright 0 errors / 0 warnings.
+
+P14d-B therefore holds bounded synthetic offline autonomous engineering authority only. P14d-C
+remains blocked by FR-03 `NO_GO` and is not implemented.
 
 ## Frozen fixture inputs
 
