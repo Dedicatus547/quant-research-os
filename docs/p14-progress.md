@@ -2,9 +2,39 @@
 
 Status date: 2026-09-23
 
-P14a and P14b are complete. P14b covers frozen-family enumeration and duplicate evidence. P14c
-and P14d have not started, and this record grants no campaign-selection or autonomous-research
-authority.
+P14a and P14b are complete. The P14c selection method and contract were frozen in `27e4288`,
+and the P14c engineering implementation is in place. Statistical qualification and a clean-commit
+independent-root runner remain pending. P14d remains blocked; this record grants no autonomous
+research authority.
+
+## P14c engineering implementation
+
+- `docs/p14c-selection-contract.md` freezes one-sided mean daily Rank IC, centered circular
+  five-session block bootstrap with 9,999 replicates, SHA256 counter sampling, and Holm correction
+  over **all** enumerated family candidates at alpha 0.05. The method states its stationarity and
+  validation-reuse limits.
+- `CampaignSelectionPlan` freezes method, seed, manifest, and verified Qlib-view trading calendar
+  immediately after campaign activation. The service checks that plan before any P14c trial.
+- `CampaignSelectionReport` binds the event prefix, every actual trial, every candidate
+  disposition, ResearchResult evidence, raw and adjusted p-values, and one optional selected
+  candidate. Failed or incomplete inputs yield `FAILED / NOT_EVALUATED`; a complete evaluated run
+  without a significant candidate yields `SUCCEEDED / NO_SELECTION`.
+- Plan and report artifacts have exact-file, canonical-byte, content-addressed verification.
+  `CampaignSelectionService.verify_report` recomputes the verdict from the frozen input artifacts;
+  public governor calls cannot freeze a self-reported plan or selection result. A verified
+  `SelectionFrozen` event must precede one sealed trial for the selected candidate.
+- CLI commands `quantos campaign selection-report` and `selection-verify` accept explicit input
+  paths and verify immutable report output. Tests cover golden bootstrap values, independent
+  synthetic output roots, complete denominator and trial accounting, zero selection, malformed
+  calendar/Rank IC, repeated validation, forged scores, and OOS candidate mismatch.
+- Current gate: 474 tests passed, coverage 85.02% (minimum 85%), Ruff format/check passed, and
+  Pyright reported 0 errors and 0 warnings. These are engineering checks, not statistical
+  qualification.
+
+P14c still requires a clean-commit qualification runner that independently rebuilds the complete
+synthetic case, records code/runtime provenance and principal hashes, exercises golden and negative
+cases, and publishes immutable evidence. No market-data or historical vendor-vintage PIT claim is
+made from the synthetic case. P14d remains blocked.
 
 ## Completed P14b scope
 
@@ -103,7 +133,7 @@ This report supersedes the earlier P14a reports
 `b93521362f5d5bd426de0451a665c4a57674fe1cf164daa250920fde8653b47b`; those immutable artifacts are
 retained as historical engineering evidence and are no longer the current P14a qualification.
 
-## Next stage
+## P14b implementation detail
 
 P14b is implemented as frozen-family engineering evidence and remains unqualified research
 selection. It adds:
@@ -120,5 +150,5 @@ selection. It adds:
   candidate counts, template operator allowlists, positive window values, and candidate references
   all fail closed.
 
-Split candidate-versus-trial accounting and campaign-level selection bias remain P14c scope.
-P14d stays blocked.
+Candidate-versus-trial accounting and the frozen selection method are now implemented in P14c;
+statistical qualification remains open. P14d stays blocked.

@@ -24,6 +24,13 @@ from quantos.application.admission import (
     EventFeatureAdmissionPolicy,
     build_event_feature_artifact,
 )
+from quantos.application.campaign_selection import (
+    CampaignSelectionError,
+    CampaignSelectionService,
+    publish_selection_plan,
+    verify_selection_plan_artifact,
+    verify_selection_report_artifact,
+)
 from quantos.application.campaigns import CampaignGovernanceError, ResearchCampaignGovernor
 from quantos.application.capabilities import publish_capability_report
 from quantos.application.doctor import DoctorReport, build_doctor_report
@@ -127,6 +134,8 @@ __all__ = [
     "AuthorityRootResolver",
     "BoundaryAuditDecision",
     "CampaignGovernanceError",
+    "CampaignSelectionError",
+    "CampaignSelectionService",
     "CandidateEnumerationError",
     "DatasetBinding",
     "DoctorReport",
@@ -176,6 +185,7 @@ __all__ = [
     "proposal_mcp_policy",
     "publish_capability_report",
     "publish_event_feature_artifact",
+    "publish_selection_plan",
     "research_mcp_policy",
     "resolve_experiment",
     "resolve_trading_sessions",
@@ -188,4 +198,6 @@ __all__ = [
     "verify_context_bound_agent_manifest",
     "verify_context_bound_agent_run_spec",
     "verify_event_feature_artifact",
+    "verify_selection_plan_artifact",
+    "verify_selection_report_artifact",
 ]

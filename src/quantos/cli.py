@@ -10,12 +10,28 @@ from typing import Annotated, Any, TypeVar, cast
 
 import typer
 
+from quantos.application.campaign_selection import (
+    CampaignSelectionError,
+    CampaignSelectionService,
+)
 from quantos.application.capabilities import publish_capability_report
 from quantos.application.doctor import build_doctor_report
 from quantos.application.pit import PITAuditService, load_canonical_pit_request_json
 from quantos.config import load_yaml_contract, load_yaml_mapping
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
+from quantos.contracts.campaign import (
+    ResearchBudgetSpec,
+    ResearchCampaignEvent,
+    ResearchCampaignSpec,
+    ResearchFamilySpec,
+)
+from quantos.contracts.campaign_selection import (
+    CampaignSelectionEvent,
+    MultipleTestingPolicySpec,
+    SelectionPolicySpec,
+)
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
+from quantos.contracts.enumeration import CandidateEnumerationManifest, ResearchFactorTemplateSpec
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
     ResearchPolicy,
@@ -23,6 +39,7 @@ from quantos.contracts.research import (
     ValidationPolicy,
 )
 from quantos.contracts.snapshot import DataQualityPolicy, SnapshotBuildSpec
+from quantos.contracts.status import ReasonCode
 from quantos.data import (
     QlibViewBuilder,
     QlibViewBuildError,
@@ -51,6 +68,7 @@ experiment_app = typer.Typer(no_args_is_help=True)
 registry_app = typer.Typer(no_args_is_help=True)
 ledger_app = typer.Typer(no_args_is_help=True)
 release_app = typer.Typer(no_args_is_help=True)
+campaign_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tushare_app, name="tushare")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(qlib_app, name="qlib")
@@ -60,8 +78,97 @@ app.add_typer(experiment_app, name="experiment")
 app.add_typer(registry_app, name="registry")
 app.add_typer(ledger_app, name="ledger")
 app.add_typer(release_app, name="release")
+app.add_typer(campaign_app, name="campaign")
 
 C = TypeVar("C", bound=CanonicalContract)
+
+
+def _campaign_selection_inputs(
+    campaign_path: Path,
+    family_path: Path,
+    budget_path: Path,
+    template_path: Path,
+    manifest_path: Path,
+    multiple_testing_policy_path: Path,
+    selection_policy_path: Path,
+    event_chain_path: Path,
+    qlib_view_path: Path,
+    research_results_root: Path,
+) -> tuple[
+    CampaignSelectionService,
+    tuple[ResearchCampaignEvent | CampaignSelectionEvent, ...],
+]:
+    campaign = ResearchCampaignSpec.model_validate_json(campaign_path.read_bytes())
+    family = ResearchFamilySpec.model_validate_json(family_path.read_bytes())
+    budget = ResearchBudgetSpec.model_validate_json(budget_path.read_bytes())
+    template = ResearchFactorTemplateSpec.model_validate_json(template_path.read_bytes())
+    manifest = CandidateEnumerationManifest.model_validate_json(manifest_path.read_bytes())
+    multiple_testing_policy = MultipleTestingPolicySpec.model_validate_json(
+        multiple_testing_policy_path.read_bytes()
+    )
+    selection_policy = SelectionPolicySpec.model_validate_json(selection_policy_path.read_bytes())
+    raw_payload: object = json.loads(event_chain_path.read_bytes())
+    if not isinstance(raw_payload, list):
+        raise ValueError("campaign event chain must be a JSON array")
+    events: list[ResearchCampaignEvent | CampaignSelectionEvent] = []
+    for raw_item in cast(list[object], raw_payload):
+        if not isinstance(raw_item, dict):
+            raise ValueError("campaign event chain contains a non-object value")
+        item = cast(dict[str, object], raw_item)
+        schema_version = item.get("schema_version")
+        if schema_version == "research-campaign-event/v1":
+            events.append(ResearchCampaignEvent.model_validate(item))
+        elif schema_version == "campaign-selection-event/v1":
+            events.append(CampaignSelectionEvent.model_validate(item))
+        else:
+            raise ValueError("campaign event chain contains an unsupported event schema")
+    service = CampaignSelectionService(
+        campaign,
+        family,
+        budget,
+        template,
+        manifest,
+        multiple_testing_policy,
+        selection_policy,
+        qlib_view_path,
+        (research_results_root,),
+    )
+    return service, tuple(events)
+
+
+def _campaign_selection_command_inputs(
+    campaign_path: Path,
+    family_path: Path,
+    budget_path: Path,
+    template_path: Path,
+    manifest_path: Path,
+    multiple_testing_policy_path: Path,
+    selection_policy_path: Path,
+    event_chain_path: Path,
+    qlib_view_path: Path,
+    research_results_root: Path,
+) -> tuple[
+    CampaignSelectionService,
+    tuple[ResearchCampaignEvent | CampaignSelectionEvent, ...],
+]:
+    try:
+        return _campaign_selection_inputs(
+            campaign_path,
+            family_path,
+            budget_path,
+            template_path,
+            manifest_path,
+            multiple_testing_policy_path,
+            selection_policy_path,
+            event_chain_path,
+            qlib_view_path,
+            research_results_root,
+        )
+    except (OSError, ValueError) as error:
+        raise CampaignSelectionError(
+            ReasonCode.SCHEMA_INVALID,
+            "campaign selection inputs cannot be loaded",
+        ) from error
 
 
 @app.command()
@@ -72,6 +179,136 @@ def doctor() -> None:
     typer.echo(json.dumps(report.model_dump(mode="json"), sort_keys=True, ensure_ascii=False))
     if report.offline_status == "BLOCKED":
         raise typer.Exit(code=1)
+
+
+@campaign_app.command("selection-report")
+def campaign_selection_report(
+    campaign_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    family_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    budget_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    template_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    manifest_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    multiple_testing_policy_path: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, readable=True)
+    ],
+    selection_policy_path: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, readable=True)
+    ],
+    event_chain_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    qlib_view_path: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+    research_results_root: Annotated[
+        Path, typer.Argument(exists=True, file_okay=False, readable=True)
+    ],
+    output_root: Annotated[
+        Path,
+        typer.Option(
+            "--output-root",
+            file_okay=False,
+            help="Parent for the immutable hash-addressed selection report.",
+        ),
+    ] = Path("artifacts/reports/campaign-selection"),
+) -> None:
+    """Recompute and publish a deterministic campaign selection report."""
+
+    try:
+        service, events = _campaign_selection_command_inputs(
+            campaign_path,
+            family_path,
+            budget_path,
+            template_path,
+            manifest_path,
+            multiple_testing_policy_path,
+            selection_policy_path,
+            event_chain_path,
+            qlib_view_path,
+            research_results_root,
+        )
+        report, path = service.publish_report(events, output_root)
+    except CampaignSelectionError as error:
+        typer.echo(
+            json.dumps(
+                {
+                    "status": "FAILED",
+                    "reason_code": error.reason_code,
+                    "detail": str(error),
+                },
+                sort_keys=True,
+            )
+        )
+        raise typer.Exit(code=22) from error
+    typer.echo(
+        json.dumps(
+            {
+                "status": report.run_status.value,
+                "verdict": report.verdict.value,
+                "report_hash": report.report_hash,
+                "artifact_path": str(path),
+            },
+            sort_keys=True,
+        )
+    )
+    if report.verdict.value == "NOT_EVALUATED":
+        raise typer.Exit(code=23)
+
+
+@campaign_app.command("selection-verify")
+def campaign_selection_verify(
+    report_path: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+    campaign_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    family_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    budget_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    template_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    manifest_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    multiple_testing_policy_path: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, readable=True)
+    ],
+    selection_policy_path: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, readable=True)
+    ],
+    event_chain_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    qlib_view_path: Annotated[Path, typer.Argument(exists=True, file_okay=False, readable=True)],
+    research_results_root: Annotated[
+        Path, typer.Argument(exists=True, file_okay=False, readable=True)
+    ],
+) -> None:
+    """Verify report bytes and rebuild the verdict from all explicit frozen inputs."""
+
+    try:
+        service, events = _campaign_selection_command_inputs(
+            campaign_path,
+            family_path,
+            budget_path,
+            template_path,
+            manifest_path,
+            multiple_testing_policy_path,
+            selection_policy_path,
+            event_chain_path,
+            qlib_view_path,
+            research_results_root,
+        )
+        report = service.verify_report(report_path, events)
+    except CampaignSelectionError as error:
+        typer.echo(
+            json.dumps(
+                {
+                    "status": "FAILED",
+                    "reason_code": error.reason_code,
+                    "detail": str(error),
+                },
+                sort_keys=True,
+            )
+        )
+        raise typer.Exit(code=22) from error
+    typer.echo(
+        json.dumps(
+            {
+                "status": "PASS",
+                "verdict": report.verdict.value,
+                "report_hash": report.report_hash,
+            },
+            sort_keys=True,
+        )
+    )
 
 
 @tushare_app.command("probe")

@@ -24,6 +24,13 @@ from quantos.contracts.campaign import (
     ResearchCampaignSpec,
     ResearchFamilySpec,
 )
+from quantos.contracts.campaign_selection import (
+    CampaignSelectionEvent,
+    CampaignSelectionEventType,
+    CampaignSelectionPlan,
+    CampaignSelectionReport,
+    CampaignSelectionVerdict,
+)
 from quantos.contracts.enumeration import CandidateEnumerationManifest, ResearchFactorTemplateSpec
 from quantos.contracts.status import ReasonCode
 
@@ -32,6 +39,9 @@ class CampaignGovernanceError(RuntimeError):
     def __init__(self, reason_code: ReasonCode, message: str) -> None:
         super().__init__(message)
         self.reason_code = reason_code
+
+
+CampaignChainEvent = ResearchCampaignEvent | CampaignSelectionEvent
 
 
 def _raise(reason_code: ReasonCode, message: str) -> NoReturn:
@@ -59,7 +69,7 @@ class ResearchCampaignGovernor:
         self,
         campaign: ResearchCampaignSpec,
         budget: ResearchBudgetSpec,
-        events: tuple[ResearchCampaignEvent, ...],
+        events: tuple[CampaignChainEvent, ...],
     ) -> ResearchCampaignSnapshot:
         if campaign.family_hash != self.family.content_hash:
             _raise(ReasonCode.ARTIFACT_CORRUPTED, "campaign does not bind the frozen family")
@@ -72,6 +82,8 @@ class ResearchCampaignGovernor:
         event_hashes: list[str] = []
         idempotency: dict[str, str] = {}
         sealed_accessed = False
+        plan_event: CampaignSelectionEvent | None = None
+        selection_event: CampaignSelectionEvent | None = None
         for expected_sequence, event in enumerate(events, start=1):
             if (
                 event.campaign_hash != campaign.content_hash
@@ -83,6 +95,39 @@ class ResearchCampaignGovernor:
                 _raise(ReasonCode.EVENT_CHAIN_INVALID, "campaign event time moved backwards")
             if status is CampaignLifecycleStatus.CLOSED:
                 _raise(ReasonCode.CAMPAIGN_CLOSED, "closed campaign cannot accept events")
+            if isinstance(event, CampaignSelectionEvent):
+                if status is not CampaignLifecycleStatus.ACTIVE:
+                    _raise(ReasonCode.STATE_TRANSITION_INVALID, "campaign must be activated first")
+                if event.event_type is CampaignSelectionEventType.PLAN_FROZEN:
+                    if (
+                        plan_event is not None
+                        or selection_event is not None
+                        or expected_sequence != 2
+                        or not isinstance(events[0], ResearchCampaignEvent)
+                        or events[0].event_type is not CampaignEventType.ACTIVATED
+                    ):
+                        _raise(
+                            ReasonCode.STATE_TRANSITION_INVALID,
+                            "selection plan must be frozen immediately after activation",
+                        )
+                    plan_event = event
+                elif event.event_type is CampaignSelectionEventType.SELECTION_FROZEN:
+                    if plan_event is None or selection_event is not None or sealed_accessed:
+                        _raise(
+                            ReasonCode.STATE_TRANSITION_INVALID,
+                            "selection requires one prior plan and must precede sealed access",
+                        )
+                    if event.selection_plan_hash != plan_event.selection_plan_hash:
+                        _raise(
+                            ReasonCode.ARTIFACT_CORRUPTED,
+                            "selection freeze does not bind the frozen plan",
+                        )
+                    selection_event = event
+                previous_hash = event.content_hash
+                previous_time = event.occurred_at
+                event_hashes.append(event.content_hash)
+                continue
+
             if event.event_type is CampaignEventType.ACTIVATED:
                 if status is not CampaignLifecycleStatus.DRAFT:
                     _raise(ReasonCode.STATE_TRANSITION_INVALID, "campaign is already active")
@@ -93,6 +138,14 @@ class ResearchCampaignGovernor:
                 CampaignEventType.TRIAL_RECORDED,
                 CampaignEventType.OOS_ACCESSED,
             }:
+                if (
+                    selection_event is not None
+                    and event.event_type is CampaignEventType.TRIAL_RECORDED
+                ):
+                    _raise(
+                        ReasonCode.STATE_TRANSITION_INVALID,
+                        "no development or validation trial may follow campaign selection",
+                    )
                 trial = event.trial
                 if trial is None:  # contract validation already enforces this
                     _raise(ReasonCode.SCHEMA_INVALID, "campaign trial payload is missing")
@@ -105,6 +158,14 @@ class ResearchCampaignGovernor:
                 idempotency[trial.idempotency_key] = trial.content_hash
                 trials.append(trial)
                 if event.event_type is CampaignEventType.OOS_ACCESSED:
+                    if plan_event is not None and (
+                        selection_event is None
+                        or selection_event.selected_candidate_hash != trial.candidate_hash
+                    ):
+                        _raise(
+                            ReasonCode.OOS_POLICY_VIOLATION,
+                            "sealed trial must bind the frozen selected candidate",
+                        )
                     if sealed_accessed:
                         _raise(
                             ReasonCode.OOS_ALREADY_ACCESSED,
@@ -145,7 +206,7 @@ class ResearchCampaignGovernor:
         campaign: ResearchCampaignSpec,
         family: ResearchFamilySpec,
         budget: ResearchBudgetSpec,
-        events: tuple[ResearchCampaignEvent, ...],
+        events: tuple[CampaignChainEvent, ...],
         *,
         event_id: UUID,
         occurred_at: datetime,
@@ -173,7 +234,7 @@ class ResearchCampaignGovernor:
         self,
         campaign: ResearchCampaignSpec,
         budget: ResearchBudgetSpec,
-        events: tuple[ResearchCampaignEvent, ...],
+        events: tuple[CampaignChainEvent, ...],
         trial: CampaignTrial,
         *,
         event_id: UUID,
@@ -199,11 +260,116 @@ class ResearchCampaignGovernor:
         self.project(campaign, budget, (*events, event))
         return event
 
+    def record_selection_trial(
+        self,
+        campaign: ResearchCampaignSpec,
+        budget: ResearchBudgetSpec,
+        events: tuple[CampaignChainEvent, ...],
+        trial: CampaignTrial,
+        selection_plan: CampaignSelectionPlan,
+        *,
+        event_id: UUID,
+        occurred_at: datetime,
+    ) -> ResearchCampaignEvent:
+        """Record a trial on the P14c path only after the matching plan is frozen."""
+
+        plan_events = [
+            event
+            for event in events
+            if isinstance(event, CampaignSelectionEvent)
+            and event.event_type is CampaignSelectionEventType.PLAN_FROZEN
+        ]
+        if (
+            len(plan_events) != 1
+            or plan_events[0].selection_plan_hash != selection_plan.content_hash
+        ):
+            _raise(
+                ReasonCode.OOS_POLICY_VIOLATION,
+                "P14c trial requires the unique matching SelectionPlanFrozen event",
+            )
+        return self.record_trial(
+            campaign,
+            budget,
+            events,
+            trial,
+            event_id=event_id,
+            occurred_at=occurred_at,
+        )
+
     def access_sealed_confirmation(
         self,
         campaign: ResearchCampaignSpec,
         budget: ResearchBudgetSpec,
-        events: tuple[ResearchCampaignEvent, ...],
+        events: tuple[CampaignChainEvent, ...],
+        trial: CampaignTrial,
+        *,
+        event_id: UUID,
+        occurred_at: datetime,
+    ) -> ResearchCampaignEvent:
+        if any(
+            isinstance(event, CampaignSelectionEvent)
+            and event.event_type is CampaignSelectionEventType.PLAN_FROZEN
+            for event in events
+        ):
+            _raise(
+                ReasonCode.OOS_POLICY_VIOLATION,
+                "P14c sealed access must use the report-verifying CampaignSelectionService",
+            )
+        return self._access_sealed_confirmation(
+            campaign,
+            budget,
+            events,
+            trial,
+            event_id=event_id,
+            occurred_at=occurred_at,
+        )
+
+    def _access_verified_selection_confirmation(
+        self,
+        campaign: ResearchCampaignSpec,
+        budget: ResearchBudgetSpec,
+        events: tuple[CampaignChainEvent, ...],
+        trial: CampaignTrial,
+        *,
+        event_id: UUID,
+        occurred_at: datetime,
+    ) -> ResearchCampaignEvent:
+        plans = [
+            event
+            for event in events
+            if isinstance(event, CampaignSelectionEvent)
+            and event.event_type is CampaignSelectionEventType.PLAN_FROZEN
+        ]
+        selections = [
+            event
+            for event in events
+            if isinstance(event, CampaignSelectionEvent)
+            and event.event_type is CampaignSelectionEventType.SELECTION_FROZEN
+        ]
+        if (
+            len(plans) != 1
+            or len(selections) != 1
+            or selections[0].selection_plan_hash != plans[0].selection_plan_hash
+            or selections[0].selected_candidate_hash != trial.candidate_hash
+        ):
+            _raise(
+                ReasonCode.OOS_POLICY_VIOLATION,
+                "verified sealed access must bind the unique frozen selected candidate",
+            )
+        return self._access_sealed_confirmation(
+            campaign,
+            budget,
+            events,
+            trial,
+            event_id=event_id,
+            occurred_at=occurred_at,
+        )
+
+    def _access_sealed_confirmation(
+        self,
+        campaign: ResearchCampaignSpec,
+        budget: ResearchBudgetSpec,
+        events: tuple[CampaignChainEvent, ...],
         trial: CampaignTrial,
         *,
         event_id: UUID,
@@ -232,7 +398,7 @@ class ResearchCampaignGovernor:
         self,
         campaign: ResearchCampaignSpec,
         budget: ResearchBudgetSpec,
-        events: tuple[ResearchCampaignEvent, ...],
+        events: tuple[CampaignChainEvent, ...],
         *,
         event_id: UUID,
         occurred_at: datetime,
@@ -386,12 +552,14 @@ class ResearchCampaignGovernor:
 
     @staticmethod
     def _idempotent_trial(
-        events: tuple[ResearchCampaignEvent, ...], trial: CampaignTrial
+        events: tuple[CampaignChainEvent, ...], trial: CampaignTrial
     ) -> ResearchCampaignEvent | None:
         matches = [
             event
             for event in events
-            if event.trial is not None and event.trial.idempotency_key == trial.idempotency_key
+            if isinstance(event, ResearchCampaignEvent)
+            and event.trial is not None
+            and event.trial.idempotency_key == trial.idempotency_key
         ]
         if not matches:
             return None
@@ -402,7 +570,7 @@ class ResearchCampaignGovernor:
     @staticmethod
     def _event(
         campaign: ResearchCampaignSpec,
-        events: tuple[ResearchCampaignEvent, ...],
+        events: tuple[CampaignChainEvent, ...],
         *,
         event_id: UUID,
         occurred_at: datetime,
@@ -420,3 +588,148 @@ class ResearchCampaignGovernor:
             trial=trial,
             reason=reason,
         )
+
+    def freeze_selection_plan(
+        self,
+        campaign: ResearchCampaignSpec,
+        family: ResearchFamilySpec,
+        budget: ResearchBudgetSpec,
+        manifest: CandidateEnumerationManifest,
+        events: tuple[CampaignChainEvent, ...],
+        plan: CampaignSelectionPlan,
+        *,
+        event_id: UUID,
+        occurred_at: datetime,
+    ) -> CampaignSelectionEvent:
+        """Reject direct plan claims; use CampaignSelectionService.freeze_plan."""
+
+        del campaign, family, budget, manifest, events, plan, event_id, occurred_at
+        _raise(
+            ReasonCode.OOS_POLICY_VIOLATION,
+            "selection plan must be frozen through a verifying CampaignSelectionService",
+        )
+
+    def _freeze_verified_plan(
+        self,
+        campaign: ResearchCampaignSpec,
+        family: ResearchFamilySpec,
+        budget: ResearchBudgetSpec,
+        manifest: CandidateEnumerationManifest,
+        events: tuple[CampaignChainEvent, ...],
+        plan: CampaignSelectionPlan,
+        *,
+        event_id: UUID,
+        occurred_at: datetime,
+    ) -> CampaignSelectionEvent:
+        """Append a service-verified preregistration immediately after activation.
+
+        Legacy v1 chains remain projectable. A chain becomes selection-authoritative only
+        when this event is present before its first trial.
+        """
+
+        snapshot = self.project(campaign, budget, events)
+        if snapshot.status is not CampaignLifecycleStatus.ACTIVE or len(events) != 1:
+            _raise(
+                ReasonCode.STATE_TRANSITION_INVALID,
+                "selection plan must follow activation before any other campaign event",
+            )
+        activation = events[0]
+        if not isinstance(activation, ResearchCampaignEvent) or (
+            activation.event_type is not CampaignEventType.ACTIVATED
+        ):
+            _raise(ReasonCode.STATE_TRANSITION_INVALID, "campaign activation event is missing")
+        if campaign.multiple_testing_policy.value != "PREFROZEN_FINITE_FAMILY":
+            _raise(ReasonCode.SCHEMA_INVALID, "campaign policy is not a pre-frozen finite family")
+        if (
+            campaign.family_hash != family.content_hash
+            or family != self.family
+            or budget.content_hash != campaign.budget_hash
+            or manifest != self.manifest
+            or plan.campaign_hash != campaign.content_hash
+            or plan.family_hash != family.content_hash
+            or plan.budget_hash != budget.content_hash
+            or plan.candidate_manifest_hash != manifest.content_hash
+        ):
+            _raise(ReasonCode.ARTIFACT_CORRUPTED, "selection plan bindings do not match campaign")
+        event = CampaignSelectionEvent(
+            event_id=event_id,
+            campaign_hash=campaign.content_hash,
+            sequence=len(events) + 1,
+            event_type=CampaignSelectionEventType.PLAN_FROZEN,
+            occurred_at=occurred_at,
+            previous_event_hash=activation.content_hash,
+            selection_plan_hash=plan.content_hash,
+        )
+        self.project(campaign, budget, (*events, event))
+        return event
+
+    def freeze_selection(
+        self,
+        campaign: ResearchCampaignSpec,
+        budget: ResearchBudgetSpec,
+        events: tuple[CampaignChainEvent, ...],
+        report: CampaignSelectionReport,
+        *,
+        event_id: UUID,
+        occurred_at: datetime,
+    ) -> CampaignSelectionEvent:
+        """Reject direct report claims; use CampaignSelectionService.freeze_selection.
+
+        This governor does not have the artifact roots needed to recompute a report. Its
+        public entry point therefore cannot grant selection authority from a self-hashed
+        object alone. The selection service verifies the immutable artifact and calls the
+        private event constructor below.
+        """
+
+        del campaign, budget, events, report, event_id, occurred_at
+        _raise(
+            ReasonCode.OOS_POLICY_VIOLATION,
+            "selection must be frozen through a report-verifying CampaignSelectionService",
+        )
+
+    def _freeze_verified_selection(
+        self,
+        campaign: ResearchCampaignSpec,
+        budget: ResearchBudgetSpec,
+        events: tuple[CampaignChainEvent, ...],
+        report: CampaignSelectionReport,
+        *,
+        event_id: UUID,
+        occurred_at: datetime,
+    ) -> CampaignSelectionEvent:
+        """Create the event after the selection service has recomputed the artifact."""
+
+        snapshot = self.project(campaign, budget, events)
+        plans = [
+            event
+            for event in events
+            if isinstance(event, CampaignSelectionEvent)
+            and event.event_type is CampaignSelectionEventType.PLAN_FROZEN
+        ]
+        if (
+            snapshot.status is not CampaignLifecycleStatus.ACTIVE
+            or len(plans) != 1
+            or report.verdict is not CampaignSelectionVerdict.SELECTED
+            or report.run_status.value != "SUCCEEDED"
+            or report.selected_candidate_hash is None
+            or report.campaign_hash != campaign.content_hash
+            or report.selection_plan_hash != plans[0].selection_plan_hash
+            or report.source_event_hashes != tuple(event.content_hash for event in events)
+        ):
+            _raise(
+                ReasonCode.OOS_POLICY_VIOLATION,
+                "selection freeze requires one recomputed selected report for the event prefix",
+            )
+        event = CampaignSelectionEvent(
+            event_id=event_id,
+            campaign_hash=campaign.content_hash,
+            sequence=len(events) + 1,
+            event_type=CampaignSelectionEventType.SELECTION_FROZEN,
+            occurred_at=occurred_at,
+            previous_event_hash=events[-1].content_hash,
+            selection_plan_hash=plans[0].selection_plan_hash,
+            selection_report_hash=report.report_hash,
+            selected_candidate_hash=report.selected_candidate_hash,
+        )
+        self.project(campaign, budget, (*events, event))
+        return event

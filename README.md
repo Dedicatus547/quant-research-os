@@ -19,6 +19,9 @@ Documentation roles:
   native-Qlib bridge freeze, qualification runner, and historical benchmark-gate progression.
 - [P14 entry review](docs/reviews/p14-entry-review.md) freezes the FR-01/FR-02 hard-gate evidence
   and the boundary for starting P14a-P14c.
+- [P14 progress](docs/p14-progress.md) records the implemented P14a-P14c slices and open
+  qualification gates; [P14c selection contract](docs/p14c-selection-contract.md) freezes the
+  campaign-level statistical method and failure semantics.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records
