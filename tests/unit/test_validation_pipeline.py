@@ -34,7 +34,7 @@ from quantos.contracts.research import (
 from quantos.contracts.research_result import ResearchResultMetric
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
 from quantos.contracts.temporal import DecisionSchedule
-from quantos.contracts.validation import ValidationGateId, ValidationMetric
+from quantos.contracts.validation import ValidationMetric
 from quantos.validation import ValidationRunLocators, ValidationService
 from quantos.validation import service as validation_service
 
@@ -363,7 +363,7 @@ def test_soft_threshold_reject_continues_remaining_gates(
     assert result.report.metrics == (observed,)
 
 
-def test_unexpected_stage_error_is_sanitized_as_failed(
+def test_unexpected_stage_error_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_passes(monkeypatch)
@@ -372,20 +372,16 @@ def test_unexpected_stage_error_is_sanitized_as_failed(
         raise RuntimeError("private provider detail")
 
     monkeypatch.setattr(ValidationService, "_g3", explode)
-    result = ValidationService().run(
-        _authoring(),
-        _policy(),
-        _research(),
-        _locators(tmp_path),
-        tmp_path / "reports",
-        tmp_path / "events",
-        canonical=False,
-    )
-    gate = result.report.gates[3]
-    assert result.report.run_status is RunStatus.FAILED
-    assert gate.reason_code is ReasonCode.QLIB_EXECUTION_FAILED
-    assert "private" not in gate.reason
-    assert gate.gate_id is ValidationGateId.G3_FACTOR_RESEARCH
+    with pytest.raises(RuntimeError, match="private provider detail"):
+        ValidationService().run(
+            _authoring(),
+            _policy(),
+            _research(),
+            _locators(tmp_path),
+            tmp_path / "reports",
+            tmp_path / "events",
+            canonical=False,
+        )
 
 
 def test_oos_metric_extraction_reuses_qlib_risk_analysis(
@@ -493,7 +489,7 @@ def test_metric_extraction_fails_closed_on_schema_and_qlib_drift(
         ),
         backtest / "portfolio.parquet",
     )
-    with pytest.raises(validation_service._ExecutionFailed, match="risk analysis failed"):
+    with pytest.raises(RuntimeError, match="qlib failed"):
         validation_service._extract_metrics(
             backtest,
             _reference(),

@@ -86,8 +86,7 @@ from quantos.contracts.research import (
 )
 from quantos.contracts.snapshot import DataSnapshotManifest
 from quantos.contracts.status import ReasonCode
-from quantos.data import QlibViewBuilder, SyntheticSnapshotBuilder
-from quantos.integrations.qlib import verify_official_qlib_tools
+from quantos.data import SyntheticSnapshotBuilder, verify_qlib_view, verify_snapshot
 from quantos.research.qlib import (
     QlibResearchError,
     QlibWorkflowResearchService,
@@ -95,7 +94,23 @@ from quantos.research.qlib import (
 )
 
 ROOT = Path(__file__).parents[2]
+FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "p14d_e2e"
+E2E_SNAPSHOT_FIXTURE_ROOT = FIXTURE_ROOT / "snapshot"
+E2E_VIEW_FIXTURE_ROOT = FIXTURE_ROOT / "view"
 NOW = datetime(2024, 6, 1, tzinfo=UTC)
+
+
+def _fixture_hash_directory(root: Path) -> tuple[Path, ...]:
+    directories = tuple(
+        sorted(
+            item
+            for item in root.iterdir()
+            if item.is_dir() and item.name.startswith("sha256-") and len(item.name) == 71
+        )
+    )
+    if len(directories) != 1:
+        raise AssertionError(f"expected exactly one frozen fixture directory under {root}")
+    return directories
 
 
 def _sessions(count: int) -> tuple[date, ...]:
@@ -604,7 +619,10 @@ def test_scripted_autonomous_real_execution_restart_ledger_and_p14c(
 ) -> None:
     fixture_root = tmp_path / "fixture"
     dates = _synthetic_fixture(fixture_root)
-    snapshot_result = SyntheticSnapshotBuilder().build(fixture_root, tmp_path / "prebuilt-snapshot")
+    snapshot_fixture = _fixture_hash_directory(E2E_SNAPSHOT_FIXTURE_ROOT)[0]
+    snapshot_path = tmp_path / "prebuilt-snapshot" / snapshot_fixture.name
+    shutil.copytree(snapshot_fixture, snapshot_path)
+    snapshot_manifest = verify_snapshot(snapshot_path)
     stale_fixture_root = tmp_path / "stale-fixture"
     shutil.copytree(fixture_root, stale_fixture_root)
     instrument_master = stale_fixture_root / "stock_basic.csv"
@@ -617,20 +635,20 @@ def test_scripted_autonomous_real_execution_restart_ledger_and_p14c(
     stale_snapshot = SyntheticSnapshotBuilder().build(
         stale_fixture_root, tmp_path / "stale-snapshot"
     )
-    assert stale_snapshot.manifest.snapshot_hash != snapshot_result.manifest.snapshot_hash
-    tools = verify_official_qlib_tools(ROOT / ".tools" / "qlib-0.9.7")
-    view_result = QlibViewBuilder().build(
-        snapshot_result.path, tmp_path / "prebuilt-views", tools.source_root
-    )
+    assert stale_snapshot.manifest.snapshot_hash != snapshot_manifest.snapshot_hash
+    view_fixture = _fixture_hash_directory(E2E_VIEW_FIXTURE_ROOT)[0]
+    view_path = tmp_path / "prebuilt-views" / view_fixture.name
+    shutil.copytree(view_fixture, view_path)
+    view_manifest = verify_qlib_view(view_path)
     contracts = _contracts(
         tmp_path,
         dates,
-        snapshot_result.manifest,
-        snapshot_result.path,
-        snapshot_result.manifest.snapshot_hash,
-        view_result.manifest,
-        view_result.manifest.view_hash,
-        view_result.path,
+        snapshot_manifest,
+        snapshot_path,
+        snapshot_manifest.snapshot_hash,
+        view_manifest,
+        view_manifest.view_hash,
+        view_path,
     )
     (
         ledger_id,
@@ -920,3 +938,14 @@ def test_scripted_autonomous_real_execution_restart_ledger_and_p14c(
         )
         assert len(failure_evidence) == 1
         assert failure_evidence[0].reason_code is reason_code
+
+    unexpected_args = cast(dict[str, object], adapter_args).copy()
+    unexpected_args["output_root"] = tmp_path / "unexpected-internal-failure"
+    unexpected_adapter = QuantosResearchExecutionAdapter(**unexpected_args)
+
+    def raise_unexpected_bug(**_kwargs: object) -> object:
+        raise TypeError("unexpected internal implementation failure")
+
+    monkeypatch.setattr(release, "build_research_variant", raise_unexpected_bug)
+    with pytest.raises(TypeError, match="unexpected internal implementation failure"):
+        unexpected_adapter.execute(failure_request)

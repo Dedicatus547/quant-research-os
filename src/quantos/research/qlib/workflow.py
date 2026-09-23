@@ -80,6 +80,20 @@ def _native_objects(recorder: object) -> tuple[object, object, object, object, d
     return prediction, label, ic, rank_ic, metrics
 
 
+def _flush_recorder_logs(recorder: object) -> None:
+    """Wait for Qlib's asynchronous recorder queue before reading native records.
+
+    Qlib logs metrics through a background queue. Reading recorder artifacts while a metric file is
+    still being written can make MLflow report a malformed metric instead of returning the exact
+    artefact. Flushing here keeps the read deterministic and does not add authority.
+    """
+
+    async_log = getattr(recorder, "async_log", None)
+    wait = getattr(async_log, "wait", None)
+    if callable(wait):
+        wait()
+
+
 def _write_native_records(
     native_root: Path,
     *,
@@ -277,6 +291,7 @@ class QlibWorkflowResearchService:
                             model.fit(dataset, verbose_eval=0)
                             signal_record_type(model, dataset, recorder).generate()
                             sigana_record_type(recorder, ana_long_short=True).generate()
+                        _flush_recorder_logs(recorder)
                         prediction, target, ic, rank_ic, metrics = _native_objects(recorder)
                 finally:
                     os.chdir(previous_cwd)
@@ -304,7 +319,7 @@ class QlibWorkflowResearchService:
             return QlibWorkflowResearchResult(built, recorder_id, label)
         except QlibResearchError:
             raise
-        except Exception as error:
+        except (OSError, ValueError, KeyError) as error:
             raise QlibResearchError(
                 ReasonCode.QLIB_EXECUTION_FAILED,
                 "native Qlib Workflow execution or ResearchResult export failed",

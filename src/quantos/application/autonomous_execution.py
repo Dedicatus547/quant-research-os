@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime
 from datetime import time as day_time
 from pathlib import Path
@@ -95,6 +94,30 @@ _QLIB_WORKFLOW_POLICY = {
     "force_col_wise": True,
 }
 
+# Frozen workload units for deterministic compute authority. These are policy units, not
+# observed wall-clock seconds: the same request and frozen policy always produce the same charge.
+_COMPUTE_BASELINE_EXECUTION = 1
+_COMPUTE_COST_STRESS_VARIANT = 1
+_COMPUTE_PARAMETER_VARIANT = 1
+_COMPUTE_SUBPERIOD_VARIANT = 1
+_COMPUTE_REPRODUCTION_BACKTEST = 1
+_COMPUTE_VALIDATION_REPORT = 1
+_COMPUTE_ACCOUNTING_POLICY = {
+    "policy_id": "autonomous-deterministic-compute-accounting/v1",
+    "baseline_execution": _COMPUTE_BASELINE_EXECUTION,
+    "cost_stress_variant": _COMPUTE_COST_STRESS_VARIANT,
+    "parameter_variant": _COMPUTE_PARAMETER_VARIANT,
+    "subperiod_variant": _COMPUTE_SUBPERIOD_VARIANT,
+    "reproduction_backtest": _COMPUTE_REPRODUCTION_BACKTEST,
+    "validation_report": _COMPUTE_VALIDATION_REPORT,
+}
+
+
+def autonomous_compute_accounting_policy_hash() -> str:
+    """Return the frozen deterministic compute-accounting policy hash."""
+
+    return sha256_bytes(canonical_json_bytes(_COMPUTE_ACCOUNTING_POLICY))
+
 
 def build_autonomous_execution_bindings(
     *,
@@ -119,6 +142,7 @@ def build_autonomous_execution_bindings(
                 "validation_policy_hash": validation_policy.content_hash,
                 "cost_policy_hash": cost_policy.content_hash,
                 "backtest_policy_hash": backtest_policy.content_hash,
+                "compute_accounting": _COMPUTE_ACCOUNTING_POLICY,
             }
         )
     )
@@ -257,7 +281,7 @@ class QuantosResearchExecutionAdapter:
                 self._verify_receipt(prior)
                 return self._outcome_with_receipt(prior)
 
-            started = time.monotonic()
+            compute_charge = self._deterministic_compute_charge(request)
             try:
                 result, report, pit_hash, signal_hash, backtest_hash = self._execute_pipeline(
                     request
@@ -269,7 +293,7 @@ class QuantosResearchExecutionAdapter:
                     pit_hash=pit_hash,
                     signal_hash=signal_hash,
                     backtest_hash=backtest_hash,
-                    compute_seconds=max(1, int(time.monotonic() - started)),
+                    compute_seconds=compute_charge,
                 )
             except AutonomousOrchestrationError:
                 raise
@@ -284,27 +308,57 @@ class QuantosResearchExecutionAdapter:
                     self._integrity(
                         "existing research service reported an authority mismatch", error
                     )
-                failure_kind: Literal["PIT_REJECTED", "EXECUTION_FAILED"] = (
-                    "PIT_REJECTED"
-                    if error.reason_code in {ReasonCode.LOOK_AHEAD, ReasonCode.UNKNOWN_AVAILABILITY}
-                    else "EXECUTION_FAILED"
-                )
+                if error.reason_code in {
+                    ReasonCode.LOOK_AHEAD,
+                    ReasonCode.UNKNOWN_AVAILABILITY,
+                }:
+                    failure_kind: Literal["PIT_REJECTED", "EXECUTION_FAILED"] = "PIT_REJECTED"
+                elif error.reason_code in {
+                    ReasonCode.QLIB_EXECUTION_FAILED,
+                    ReasonCode.SOURCE_INCOMPLETE,
+                }:
+                    failure_kind = "EXECUTION_FAILED"
+                else:
+                    self._integrity(
+                        "existing research service reported an unclassified failure", error
+                    )
                 outcome = self._failure_outcome(
                     request,
                     error.reason_code,
                     failure_kind=failure_kind,
-                    compute_seconds=max(1, int(time.monotonic() - started)),
+                    compute_seconds=compute_charge,
                 )
             except (SnapshotBuildError, QlibViewBuildError, ValidationError) as error:
                 self._integrity("existing research artifact failed authority verification", error)
-            except Exception:
-                outcome = self._failure_outcome(
-                    request,
-                    ReasonCode.QLIB_EXECUTION_FAILED,
-                    failure_kind="EXECUTION_FAILED",
-                    compute_seconds=max(1, int(time.monotonic() - started)),
-                )
             return self._publish_receipt(request, outcome)
+
+    def _deterministic_compute_charge(self, request: AutonomousExecutionRequest) -> int:
+        """Derive the frozen workload charge for one execution-class request.
+
+        The charge is a policy unit derived from the exact candidate authoring, the frozen
+        validation workload shape, and the frozen compute-accounting policy. It is never an
+        observation of elapsed time.
+        """
+
+        authoring = self._authoring(request)
+        baseline_window = release.parameter_window(authoring)
+        parameter_variants = sum(
+            1
+            for window in self.validation_policy.parameter_windows
+            for top_k in self.validation_policy.parameter_top_k
+            if (window, top_k) != (baseline_window, authoring.strategy.top_k)
+        )
+        cost_variants = sum(
+            1 for multiplier in self.validation_policy.cost_stress_multipliers if multiplier != 1.0
+        )
+        return (
+            _COMPUTE_BASELINE_EXECUTION
+            + _COMPUTE_COST_STRESS_VARIANT * cost_variants
+            + _COMPUTE_PARAMETER_VARIANT * parameter_variants
+            + _COMPUTE_SUBPERIOD_VARIANT * len(self.validation_policy.subperiods)
+            + _COMPUTE_REPRODUCTION_BACKTEST
+            + _COMPUTE_VALIDATION_REPORT
+        )
 
     def _failure_outcome(
         self,

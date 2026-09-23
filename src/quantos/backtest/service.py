@@ -1098,7 +1098,7 @@ class QlibBacktestService:
             )
         except QlibResearchError:
             raise
-        except Exception:
+        except (OSError, ValueError, KeyError):
             raise QlibResearchError(
                 ReasonCode.QLIB_EXECUTION_FAILED, "Qlib reference backtest execution failed"
             ) from None

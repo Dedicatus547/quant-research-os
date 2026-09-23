@@ -1502,7 +1502,11 @@ class AutonomousCampaignOrchestrator:
             report = self.selection_service.verify_report(report_path, events)
         except CampaignSelectionError as error:
             raise AutonomousOrchestrationError(error.reason_code, str(error)) from error
-        event_time = self._next_event_time(started_at, events, self.initial_ledger_snapshot)
+        # Selection-handoff times are derived from the committed event chain rather than the
+        # caller's restart clock, so an exact restart reuses the same deterministic ledger
+        # event identities instead of rebinding the report node to a new timestamp.
+        handoff_anchor = min(event.occurred_at for event in events)
+        event_time = self._next_event_time(handoff_anchor, events, self.initial_ledger_snapshot)
         parent_hashes = tuple(
             sorted(
                 sha256_bytes(event.trial.canonical_bytes())

@@ -340,7 +340,7 @@ def _extract_metrics(
         risk = _risk_values(net_returns)
     except _ExecutionFailed:
         raise
-    except Exception as error:
+    except (OSError, ValueError, KeyError) as error:
         raise _ExecutionFailed(
             ReasonCode.QLIB_EXECUTION_FAILED,
             "Qlib risk analysis failed during offline validation",
@@ -616,16 +616,6 @@ class ValidationService:
                     verdict=ValidationVerdict.NOT_EVALUATED,
                     reason_code=error.reason_code,
                     reason=str(error),
-                )
-                run_status = RunStatus.FAILED
-                stopped = True
-            except Exception:
-                result = GateResult(
-                    gate_id=gate_id,
-                    severity=_GATE_SEVERITY[gate_id],
-                    verdict=ValidationVerdict.NOT_EVALUATED,
-                    reason_code=ReasonCode.QLIB_EXECUTION_FAILED,
-                    reason="unexpected deterministic validation execution failure",
                 )
                 run_status = RunStatus.FAILED
                 stopped = True

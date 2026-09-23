@@ -378,7 +378,7 @@ class FactorSignalArtifactBuilder:
                     translation.output_expression,
                     tuple(bundle.schedule.signal_time.date() for bundle in bundles),
                 )
-            except Exception:
+            except (OSError, ValueError, KeyError):
                 raise QlibResearchError(
                     ReasonCode.QLIB_EXECUTION_FAILED,
                     "Qlib expression grid execution failed",
@@ -399,7 +399,7 @@ class FactorSignalArtifactBuilder:
                     scores = _execute_expression(
                         view_path, qlib_ids, translation.output_expression, signal_date
                     )
-                except Exception:
+                except (OSError, ValueError, KeyError):
                     raise QlibResearchError(
                         ReasonCode.QLIB_EXECUTION_FAILED,
                         "Qlib expression execution failed",
