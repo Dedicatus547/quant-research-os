@@ -1,7 +1,7 @@
 # A 股量化研究 Agent 系统实施计划
 
 > 版本：v14（P14 入口冻结版）<br>
-> 更新日期：2026-09-11<br>
+> 更新日期：2026-09-23<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
 > Offline Engineering 基线为 `PASS / VALIDATED`；真实 Tushare Data-qualified 发布为工程
@@ -19,8 +19,10 @@
 > 冻结实现为 `46904c22d039bca2da008beec8cd7d183d288fd1`，详见 `docs/p13-v2-freeze.md`。
 > P11 资格证明对象是 typed Python application facades 与代码内构造的 structured-fixture
 > E2E，不包含 production stdio/JSON-RPC transport、Agent 真实生成的 proposal chain 或
-> Agent-to-Data-qualified 组合运行。既有 admitted DSL 的全链路通用化和 minimal immutable
-> Qlib ResearchResult 已完成，P14a-P14c 可以开始；它们不替代 P12/P13 主线。
+> Agent-to-Data-qualified 组合运行。P14a/P14b 已完成，P14c 在 clean implementation commit
+> `618498a64b8e46ab5c38f66ea08a03a2afdaea32` 上通过双根 qualification；报告
+> `d0412a30d27c4d793fe527a28432292f1616a4ad726830d3cb1ce24a5836913a` 仅授予 synthetic offline
+> engineering selection authority。P14d eligible to start，但尚未实现，且不获该报告自动授权。
 
 ---
 
@@ -1970,8 +1972,9 @@ E2E             P6 validation pipeline / P7 release pipeline
 第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
-market-data evidence。截至 2026-09-11，M0、DQ-01 至 DQ-06 与 P8-P13 均已完成；
-FR-01/FR-02 已通过硬入口检查，下一步是 P14a-P14c。P13 已完成 synthetic
+market-data evidence。截至 2026-09-23，M0、DQ-01 至 DQ-06 与 P8-P13 均已完成；
+FR-01/FR-02 已通过硬入口检查，P14a/P14b 已完成，P14c 已取得有限 synthetic engineering
+selection authority，P14d eligible to start。P13 已完成 synthetic
 EventFeature/EventStudy、窄只读 JSON-RPC、AgentRun failure retention、EventSignal/Qlib
 compatibility bridge 与 native-Qlib clean-commit double-root engineering freeze；严格
 `P13BenchmarkBinding`/`P13QualificationBundle` runner 已就位。用户已批准 v2 Store，真实 Agent
@@ -2341,8 +2344,8 @@ Offline Engineering E2E，但只有 DQ-01 至 DQ-06 完成后才能发布真实�
 | FR-02（P12/P13 并行） | Qlib SignalRecord/SigAnaRecord → immutable ResearchResult adapter | 冻结 prediction/label/split/expression 绑定、IC/Rank IC 序列与汇总、exact-file verification 和 independent-output reproducibility；coverage/turnover/autocorrelation 未单独资格化前不声称由 Qlib 原生提供 |
 | P14a | append-only Research Ledger persistence/rebuild、可重建检索索引与 deterministic ResearchContextPack | Ledger 区分来源/提案/人工判断/确定性 verdict；索引、tokenizer/model/config、tie-breaker、query/result/context-pack hashes 全部绑定 AgentRun |
 | P14b | 预冻结 family 内的 deterministic enumeration、canonical AST fingerprint、duplicate/redundancy evidence | 候选身份、顺序、失败处理、预算和 stopping rule 可重现；所有 schema-invalid/PIT reject/failure/duplicate 进入 trial accounting |
-| P14c | immutable CampaignSelectionReport 与冻结 selection-bias policy | 完整 trial set 可验证；所用 correction 的输入假设、方法、版本和失败语义通过 golden/E2E；不把单实验 PASS 写成 campaign selection PASS |
-| P14d | bounded autonomous campaign loop；结构 mutation/crossover 仅在已冻结有限 grammar 后可选启用 | FR-01/FR-02/P14a-c 均通过；预算和停止规则强制执行；sealed confirmation 一次性且污染传播通过 E2E；成功标准不含盈利 |
+| P14c | immutable CampaignSelectionReport 与冻结 selection-bias policy | 已由 clean-commit 双根 runner 完成完整重建、principal hash equality、canonical outcomes、negative cases 和 immutable report verification；不把单实验 PASS 写成 campaign selection PASS |
+| P14d | bounded autonomous campaign loop；结构 mutation/crossover 仅在已冻结有限 grammar 后可选启用 | eligible to start；实现前仍须证明 FR-01/FR-02/P14a-c、预算与停止规则、一次性 sealed confirmation 和污染传播 E2E；成功标准不含盈利 |
 
 P8 已于 2026-09-07 完成。冻结实现包括 capability allowlist、有界且不记录正文的请求审计、
 最小 Agent 环境、只接受 domain + content hash 的 authority root resolver、规范 logical path、全权威

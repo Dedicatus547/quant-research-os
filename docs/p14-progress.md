@@ -2,10 +2,11 @@
 
 Status date: 2026-09-23
 
-P14a and P14b are complete. The P14c selection method and contract were frozen in `27e4288`,
-and the P14c engineering implementation is in place. Statistical qualification and a clean-commit
-independent-root runner remain pending. P14d remains blocked; this record grants no autonomous
-research authority.
+P14a and P14b are complete. P14c implementation commit `618498a64b8e46ab5c38f66ea08a03a2afdaea32`
+passed its clean-commit, independent double-root qualification with report
+`d0412a30d27c4d793fe527a28432292f1616a4ad726830d3cb1ce24a5836913a`. P14c now has qualified
+engineering authority. P14d is eligible to start, but is not implemented and receives no authority
+from the P14c report.
 
 ## P14c engineering implementation
 
@@ -27,14 +28,38 @@ research authority.
   paths and verify immutable report output. Tests cover golden bootstrap values, independent
   synthetic output roots, complete denominator and trial accounting, zero selection, malformed
   calendar/Rank IC, repeated validation, forged scores, and OOS candidate mismatch.
-- Current gate: 474 tests passed, coverage 85.02% (minimum 85%), Ruff format/check passed, and
-  Pyright reported 0 errors and 0 warnings. These are engineering checks, not statistical
-  qualification.
+- Current regression gates: 476 tests passed; coverage 85.07% (minimum 85%, previous recorded
+  baseline 85.02%); Ruff format/check passed; Pyright reported 0 errors and 0 warnings.
 
-P14c still requires a clean-commit qualification runner that independently rebuilds the complete
-synthetic case, records code/runtime provenance and principal hashes, exercises golden and negative
-cases, and publishes immutable evidence. No market-data or historical vendor-vintage PIT claim is
-made from the synthetic case. P14d remains blocked.
+## Frozen P14c qualification
+
+The formal runner is `scripts/p14c_qualification.py`. It requires the exact clean Git root, binds the
+implementation commit, `uv.lock`, Python/runtime fingerprint, frozen P14c contract and policies,
+and synthetic fixture. It independently rebuilds root-A and root-B, verifies both roots, compares
+their principal hashes, and publishes a content-addressed bundle with exact-file-set verification.
+The published bundle was independently re-verified with the runner's `--verify` command.
+
+- implementation commit: `618498a64b8e46ab5c38f66ea08a03a2afdaea32`
+- qualification report: `d0412a30d27c4d793fe527a28432292f1616a4ad726830d3cb1ce24a5836913a`
+- bundle path: `artifacts/qualification/p14c/sha256-d0412a30d27c4d793fe527a28432292f1616a4ad726830d3cb1ce24a5836913a`
+- principal-hash summary: `4ded4d1767ac1a8bc830da5d9aae025af9442b2d24cf4d1a0a74ea1105f83160`
+- lockfile SHA-256: `0f5cd349fb32eed64a0cb907242f0ddd333f69efdc77461bdff90602e5bed7ca`
+- runtime fingerprint: `66d954a1ff034d6ecb555885e12926e585543a4d71c92ea35bb5720465730321`
+- frozen P14c contract: `07ae45cb45078b10a609ffffc8aa6c9f09150a01986e0894c9c062866819f1fa`
+- qualification status: `SUCCEEDED / PASS`; all six principal hashes per canonical case are byte
+  identical between root-A and root-B; 33 negative cases ran in each root and independently replayed.
+- `SELECTED`: `SUCCEEDED / SELECTED`, one candidate `1e90f3d9dd7ff6302b5e621ef3efdcfa9b9e0ffe30c9e8f0c3b316db34b386ba`, raw p-value `0.0001`, Holm-adjusted p-value `0.0002`; report hash `9ec53d3eae797c1eede8748c606c044b1ebaa6db52918e2f1d750160ea8d50fe`; `SelectionFrozen` hash `356d7c07ffd4cdcf7db3bb929368c3e3ac50ed44cbed8408b432037bdf2c0f77`.
+- `NO_SELECTION`: `SUCCEEDED / NO_SELECTION`; selection report hash
+  `fce90bb9409230016823bef6584292c70a6ff8a3d358e18d9213c45b0e9dd338`.
+- `FAILED_NOT_EVALUATED`: `FAILED / NOT_EVALUATED`, reason `ARTIFACT_CORRUPTED`; report hash
+  `5f1d3dee451b6ce5c7ca669552407d770d28e70cfd56030309bc39c0f03aed0a`.
+
+The bundle retains the full plan, candidate/trial accounting, ResearchResult, report, event-chain,
+and negative-case evidence for both roots. The qualification is `SYNTHETIC_OFFLINE_ENGINEERING_EVIDENCE`:
+it establishes no real-market return or profitability result, no vendor-vintage PIT qualification,
+and no empirical validation of bootstrap stationarity. It does not prevent undeclared adaptive
+validation reuse, authorize mutation/crossover, or authorize an autonomous P14d campaign. P14d may
+begin implementation only; its own gates still apply.
 
 ## Completed P14b scope
 
@@ -150,5 +175,6 @@ selection. It adds:
   candidate counts, template operator allowlists, positive window values, and candidate references
   all fail closed.
 
-Candidate-versus-trial accounting and the frozen selection method are now implemented in P14c;
-statistical qualification remains open. P14d stays blocked.
+Candidate-versus-trial accounting and the frozen selection method are implemented and qualified in
+P14c. The immutable report grants engineering selection authority within its stated limits. P14d is
+eligible to start, but no autonomous loop or mutation/crossover implementation has begun.

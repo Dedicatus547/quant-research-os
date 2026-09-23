@@ -145,10 +145,10 @@ finding.
   `PASS / data_qualified=true`；真实 HS300 Momentum 候选的研究 verdict 为
   `SUCCEEDED / REJECT`，Registry 状态为 `REJECTED`。
 - `Agent-assisted Research v0.2`：P8-P13 已完成批准范围内的验证，P13 v2 双根资格报告已
-  冻结；FR-01/FR-02 已通过，P14a 已完成并通过双根资格验证，P14b 已实现，P14c
-  统计方法与 contract 已冻结且主体已实现，资格化报告仍待完成；接下来基于已冻结的
-  第一阶段基线与 P12 Evidence Store 实施；
-  Agent 只生成 proposal、请求确定性执行和解释 ValidationReport。
+  冻结；FR-01/FR-02 已通过，P14a 已完成并通过双根资格验证，P14b 已实现；P14c 已通过
+  clean-commit 双根资格化并取得有限的 engineering selection authority（报告
+  `d0412a30...5836913a`）。P14d eligible to start，尚未实现；Agent 仍只生成 proposal、请求
+  确定性执行和解释 ValidationReport。
 
 后续顺序固定为：
 
@@ -158,8 +158,8 @@ M0 基线冻结 → P8 Agent Boundary & Threat Hardening（完成）
 → P10 GPT + Codex Capability Spike（完成）→ P11 Quant Research MCP + Offline Proposal E2E（完成）
 → P12 Real-world Evidence Acquisition（完成）→ P13 Qualified Event Feature E2E（完成）
 → FR-01/FR-02 P14 hard entry gates（完成）→ P14a（完成）→ P14b（已实现）
-→ P14c（主体已实现，统计资格化待完成）
-→ P14d bounded autonomous loop（待 P14a-P14c 通过）
+→ P14c（qualified engineering authority；双根报告 `d0412a30...5836913a`）
+→ P14d bounded autonomous loop（eligible to start；尚未实现）
 ```
 
 Completed factor-research prerequisites for P14:
@@ -174,8 +174,9 @@ Both gates passed on 2026-09-11; see [`p14-entry-review.md`](reviews/p14-entry-r
 P14 is decomposed into ledger/context persistence (P14a), frozen-family enumeration and duplicate
 evidence (P14b), campaign-level statistical selection (P14c), and only then the bounded autonomous
 loop (P14d). A single-experiment ValidationReport never substitutes for CampaignSelectionReport.
-The current P14 implementation boundary and open P14c qualification gates are recorded in
-[`p14-progress.md`](p14-progress.md).
+P14c passed a synthetic offline clean-commit double-root qualification; this does not establish
+market claims or authorize P14d execution. The P14d implementation remains subject to its own gates.
+See [`p14-progress.md`](p14-progress.md) for report hashes and limitations.
 
 P8-P14 不得引入自有回测/交易/组合/会计引擎，也不得让 Agent 读取 token、修改快照、覆盖
 artifact、修改 Gate verdict 或直接标记 `VALIDATED`。v0.2 将 GPT + Codex 作为单一目标栈，
