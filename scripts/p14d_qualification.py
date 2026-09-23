@@ -1781,6 +1781,17 @@ def _run_root_pipeline(
     )
 
 
+def _strip_runtime_telemetry(root: Path) -> None:
+    """Remove non-authority Qlib/MLflow runtime state before qualification publication."""
+
+    for path in sorted(root.rglob("mlflow-runtime"), reverse=True):
+        if path.is_dir():
+            shutil.rmtree(path)
+    for path in sorted(root.rglob("mlruns"), reverse=True):
+        if path.is_dir():
+            shutil.rmtree(path)
+
+
 def _all_file_digests(root: Path) -> tuple[P14dQualificationFile, ...]:
     entries = sorted(
         (entry for entry in root.rglob("*") if entry.is_file()),
@@ -1829,6 +1840,7 @@ def _publish_qualification(
     frozen.mkdir(exist_ok=True)
     shutil.copyfile(ROOT / "uv.lock", frozen / "uv.lock")
     shutil.copyfile(ROOT / QUALIFICATION_CONTRACT_PATH, frozen / QUALIFICATION_CONTRACT_PATH.name)
+    _strip_runtime_telemetry(staging)
     files = _all_file_digests(staging)
     roots = (
         P14dRootEvidence.model_validate_json(
