@@ -2,9 +2,11 @@
 
 Review date: 2026-09-24
 
-Prior independent Sol High result: **APPROVE_WITH_REQUIRED_FIXES**
+Initial independent Sol High result: **APPROVE_WITH_REQUIRED_FIXES**
 
-Status: **required contract fixes incorporated; ready for diff-only independent Sol High review**
+Frozen-baseline review at `37880e8`: **APPROVE**
+
+Status: **contract gate approved; semantics frozen; implementation may proceed**
 
 ## Finding
 
@@ -180,5 +182,5 @@ P14d-A/B-era limitation text.
 There is no remaining contract choice about the market-data window, family/manifest identity,
 external artifact references versus copying, Validation REJECT semantics, or P14-DQ finalization.
 The exact snapshot/view and P7 release were present and passed their existing verifiers during the
-entry audit. The next gate is an independent **Sol High diff-only contract review**. No runner,
-production orchestrator, execution adapter, schema, P14-RC or P15 work is part of this revision.
+entry audit. The frozen-baseline contract gate is approved. The next gate after implementation is
+the clean-commit independent double-root qualification; it is outside this implementation stage.

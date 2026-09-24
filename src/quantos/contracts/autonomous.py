@@ -34,6 +34,79 @@ class AutonomousLoopState(StrEnum):
     STOPPED = "STOPPED"
 
 
+P14DQ_LIMITATIONS = (
+    "DQ_EXACT_SNAPSHOT_VIEW_LINEAGE_ONLY",
+    "DQ_LIVE_AGENT_RUNTIME_NOT_QUALIFIED",
+    "DQ_NO_ALPHA_OR_PROFITABILITY_CLAIM",
+    "DQ_NO_OOS_ACCESSED",
+    "DQ_NO_UNRESTRICTED_AUTONOMOUS_RESEARCH",
+    "DQ_SCRIPTED_REPLAY_AGENT_ONLY",
+    "DQ_SEALED_CONFIRMATION_NOT_EXECUTED",
+    "FR_03_NO_GO",
+    "SINGLE_SOURCE_NON_VINTAGE",
+)
+
+_P14D_DEFAULT_LIMITATIONS = (
+    "FR03_NO_GO_LIVE_AGENT_RUNTIME_NOT_USED",
+    "P14D_A_OFFLINE_ORCHESTRATION_EVIDENCE_ONLY",
+    "P14D_B_DOUBLE_ROOT_QUALIFICATION_PENDING",
+    "REAL_MARKET_CONCLUSION_NOT_ESTABLISHED",
+)
+
+
+class AutonomousSelectionFinalizationProfile(CanonicalContract):
+    """Frozen selected-report handoff policy for the autonomous campaign runner."""
+
+    schema_version: Literal["autonomous-selection-finalization-profile/v1"] = (
+        "autonomous-selection-finalization-profile/v1"
+    )
+    profile_id: Literal["p14d-default/v1", "p14dq-report-only/v1"]
+    selected_action: Literal["FREEZE_SELECTION", "CLOSE_REPORT_ONLY"]
+    selected_state: Literal[
+        AutonomousLoopState.READY_FOR_SEALED_CONFIRMATION,
+        AutonomousLoopState.SELECTION_COMPLETE,
+    ]
+    no_selection_state: Literal[AutonomousLoopState.SELECTION_COMPLETE] = (
+        AutonomousLoopState.SELECTION_COMPLETE
+    )
+    limitations: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def profile_is_frozen(self) -> Self:
+        expected = {
+            "p14d-default/v1": (
+                "FREEZE_SELECTION",
+                AutonomousLoopState.READY_FOR_SEALED_CONFIRMATION,
+                _P14D_DEFAULT_LIMITATIONS,
+            ),
+            "p14dq-report-only/v1": (
+                "CLOSE_REPORT_ONLY",
+                AutonomousLoopState.SELECTION_COMPLETE,
+                P14DQ_LIMITATIONS,
+            ),
+        }[self.profile_id]
+        if (self.selected_action, self.selected_state, self.limitations) != expected:
+            raise ValueError("autonomous selection finalization profile is not frozen")
+        if self.no_selection_state is not AutonomousLoopState.SELECTION_COMPLETE:
+            raise ValueError("autonomous no-selection finalization must close the campaign")
+        return self
+
+
+AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE = AutonomousSelectionFinalizationProfile(
+    profile_id="p14d-default/v1",
+    selected_action="FREEZE_SELECTION",
+    selected_state=AutonomousLoopState.READY_FOR_SEALED_CONFIRMATION,
+    limitations=_P14D_DEFAULT_LIMITATIONS,
+)
+
+P14DQ_REPORT_ONLY_FINALIZATION_PROFILE = AutonomousSelectionFinalizationProfile(
+    profile_id="p14dq-report-only/v1",
+    selected_action="CLOSE_REPORT_ONLY",
+    selected_state=AutonomousLoopState.SELECTION_COMPLETE,
+    limitations=P14DQ_LIMITATIONS,
+)
+
+
 class AutonomousStoppingReason(StrEnum):
     ALL_CANDIDATES_TERMINAL = "ALL_CANDIDATES_TERMINAL"
     BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
@@ -590,6 +663,9 @@ class AutonomousLoopReport(CanonicalContract):
 
 
 __all__ = [
+    "AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE",
+    "P14DQ_LIMITATIONS",
+    "P14DQ_REPORT_ONLY_FINALIZATION_PROFILE",
     "AutonomousAgentExchangeArtifact",
     "AutonomousAgentRequest",
     "AutonomousAgentResponse",
@@ -603,5 +679,6 @@ __all__ = [
     "AutonomousExecutionResult",
     "AutonomousLoopReport",
     "AutonomousLoopState",
+    "AutonomousSelectionFinalizationProfile",
     "AutonomousStoppingReason",
 ]

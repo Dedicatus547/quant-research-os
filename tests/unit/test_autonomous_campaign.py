@@ -34,6 +34,9 @@ from quantos.application.specs import resolve_experiment
 from quantos.config import load_yaml_contract
 from quantos.contracts.agent import CampaignSegment
 from quantos.contracts.autonomous import (
+    AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE,
+    P14DQ_LIMITATIONS,
+    P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
     AutonomousAgentExchangeArtifact,
     AutonomousAgentRequest,
     AutonomousAgentRunPolicy,
@@ -44,10 +47,12 @@ from quantos.contracts.autonomous import (
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
     AutonomousLoopState,
+    AutonomousSelectionFinalizationProfile,
     AutonomousStoppingReason,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import (
+    CampaignEventType,
     CampaignStoppingRule,
     MultipleTestingPolicy,
     ParameterDimension,
@@ -219,6 +224,9 @@ class _Inputs:
         tmp_path: Path,
         script: tuple[AutonomousCandidateProposal | bytes, ...],
         execution: _ExecutionPort | None = None,
+        selection_finalization_profile: AutonomousSelectionFinalizationProfile = (
+            AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE
+        ),
     ) -> AutonomousCampaignOrchestrator:
         return AutonomousCampaignOrchestrator(
             campaign=self.campaign,
@@ -241,6 +249,7 @@ class _Inputs:
             selection_artifact_root=self.paths["selection-reports"],
             autonomous_report_root=self.paths["loop-reports"],
             execution_bindings=self.execution_bindings,
+            selection_finalization_profile=selection_finalization_profile,
         )
 
 
@@ -560,10 +569,12 @@ def test_unauthorized_sealed_ledger_object_never_enters_context_pack(tmp_path: P
 
 
 @pytest.mark.parametrize("force_no_selection", (False, True))
+@pytest.mark.parametrize("report_only", (False, True))
 def test_p14c_handoff_freezes_or_closes_without_sealed_access(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     force_no_selection: bool,
+    report_only: bool,
 ) -> None:
     inputs = _inputs(tmp_path)
     dates = _trading_dates()
@@ -662,17 +673,24 @@ def test_p14c_handoff_freezes_or_closes_without_sealed_access(
         tmp_path,
         (_proposal(inputs, 0), _proposal(inputs, 1)),
         _ResearchResultExecutionPort(),  # type: ignore[arg-type]
+        selection_finalization_profile=(
+            P14DQ_REPORT_ONLY_FINALIZATION_PROFILE
+            if report_only
+            else AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE
+        ),
     ).run(inputs.initial_events, started_at=NOW + timedelta(seconds=30))
 
+    closes_campaign = force_no_selection or report_only
     expected_state = (
         AutonomousLoopState.SELECTION_COMPLETE
-        if force_no_selection
+        if closes_campaign
         else AutonomousLoopState.READY_FOR_SEALED_CONFIRMATION
     )
     assert report.state is expected_state
     assert report.selection_report_hash is not None
-    assert (report.selection_event_hash is None) is force_no_selection
+    assert (report.selection_event_hash is None) is closes_campaign
     assert report.sealed_confirmation_authority is False
+    assert (report.limitations == P14DQ_LIMITATIONS) is report_only
     report_path = next(
         path for path in inputs.paths["selection-reports"].iterdir() if path.is_dir()
     )
@@ -687,7 +705,41 @@ def test_p14c_handoff_freezes_or_closes_without_sealed_access(
         for event in events
         if isinstance(event, CampaignSelectionEvent) and event.event_type.value == "SelectionFrozen"
     ]
-    assert len(selection_events) == (0 if force_no_selection else 1)
+    assert len(selection_events) == (0 if closes_campaign else 1)
+    close_events = [
+        event
+        for event in events
+        if isinstance(event, ResearchCampaignEvent)
+        and event.event_type is CampaignEventType.CLOSED
+    ]
+    assert len(close_events) == int(closes_campaign)
+    verdict_nodes = [
+        node
+        for node in inputs.ledger._load_and_verify()[inputs.ledger_id]
+        if node.node_kind is ResearchLedgerNodeKind.CAMPAIGN_SELECTION_REPORT
+        and node.authority is LedgerAssertionAuthority.DETERMINISTIC_VERDICT
+        and node.verdict_report_hash == report.selection_report_hash
+    ]
+    assert len(verdict_nodes) == 1
+    trial_events = [
+        event
+        for event in events
+        if isinstance(event, ResearchCampaignEvent)
+        and event.event_type is CampaignEventType.TRIAL_RECORDED
+        and event.trial is not None
+    ]
+    exchange_store = AutonomousAgentExchangeStore(inputs.paths["exchanges"], inputs.agent_policy)
+    exchanges = [exchange_store.for_run_hash(event.trial.agent_run_hash) for event in trial_events]
+    assert all(exchange is not None for exchange in exchanges)
+    assert all(
+        (
+            P14DQ_REPORT_ONLY_FINALIZATION_PROFILE.content_hash
+            in exchange.request.relevant_policy_hashes
+        )
+        is report_only
+        for exchange in exchanges
+        if exchange is not None
+    )
     assert not any(
         isinstance(event, ResearchCampaignEvent) and event.event_type.value == "OOSAccessed"
         for event in events

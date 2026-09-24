@@ -43,6 +43,8 @@ from quantos.contracts.agent import (
     CampaignSegment,
 )
 from quantos.contracts.autonomous import (
+    AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE,
+    P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
     AutonomousAgentExchangeArtifact,
     AutonomousAgentRequest,
     AutonomousAgentResponse,
@@ -55,7 +57,7 @@ from quantos.contracts.autonomous import (
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
     AutonomousLoopReport,
-    AutonomousLoopState,
+    AutonomousSelectionFinalizationProfile,
     AutonomousStoppingReason,
     autonomous_execution_identity,
 )
@@ -539,6 +541,9 @@ class AutonomousCampaignOrchestrator:
         selection_artifact_root: Path,
         autonomous_report_root: Path,
         execution_bindings: AutonomousExecutionBindings,
+        selection_finalization_profile: AutonomousSelectionFinalizationProfile = (
+            AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE
+        ),
     ) -> None:
         try:
             self.campaign = ResearchCampaignSpec.model_validate(campaign.model_dump(mode="python"))
@@ -563,6 +568,23 @@ class AutonomousCampaignOrchestrator:
             raise AutonomousOrchestrationError(
                 ReasonCode.SCHEMA_INVALID, "autonomous campaign input contract is invalid"
             ) from error
+        try:
+            selection_finalization_profile = AutonomousSelectionFinalizationProfile.model_validate(
+                selection_finalization_profile.model_dump(mode="python")
+            )
+        except (AttributeError, TypeError, ValueError) as error:
+            raise AutonomousOrchestrationError(
+                ReasonCode.SCHEMA_INVALID,
+                "autonomous selection finalization profile is invalid",
+            ) from error
+        if selection_finalization_profile not in (
+            AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE,
+            P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
+        ):
+            _raise(
+                ReasonCode.ARTIFACT_CORRUPTED,
+                "autonomous selection finalization profile is not recognized",
+            )
         try:
             verify_candidate_enumeration_manifest(self.family, self.template, self.manifest)
         except CandidateEnumerationError as error:
@@ -601,6 +623,7 @@ class AutonomousCampaignOrchestrator:
         self.selection_artifact_root = selection_artifact_root
         self.report_store = AutonomousLoopReportStore(autonomous_report_root)
         self.execution_policy_hash = self.execution_bindings.execution_policy_hash
+        self.selection_finalization_profile = selection_finalization_profile
         self.governor = ResearchCampaignGovernor(self.family, self.template, self.manifest)
         self._candidate_by_hash = {item.content_hash: item for item in self.manifest.candidates}
 
@@ -803,19 +826,18 @@ class AutonomousCampaignOrchestrator:
             AutonomousCandidateProposal.model_json_schema()
         )
         proposal_schema_hash = sha256_bytes(proposal_schema_bytes)
-        policy_hashes = tuple(
-            sorted(
-                {
-                    self.campaign_policy.content_hash,
-                    self.agent_run_policy.content_hash,
-                    self.search_policy.content_hash,
-                    self.context_budget.content_hash,
-                    self.selection_plan_hash,
-                    self.execution_policy_hash,
-                    proposal_schema_hash,
-                }
-            )
-        )
+        relevant_policy_hashes = {
+            self.campaign_policy.content_hash,
+            self.agent_run_policy.content_hash,
+            self.search_policy.content_hash,
+            self.context_budget.content_hash,
+            self.selection_plan_hash,
+            self.execution_policy_hash,
+            proposal_schema_hash,
+        }
+        if self.selection_finalization_profile != AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE:
+            relevant_policy_hashes.add(self.selection_finalization_profile.content_hash)
+        policy_hashes = tuple(sorted(relevant_policy_hashes))
         ordinal = campaign_snapshot.agent_run_count + 1
         run_identity_hash = sha256_bytes(
             canonical_json_bytes(
@@ -1530,7 +1552,10 @@ class AutonomousCampaignOrchestrator:
         )
         ledger_snapshot = self._current_snapshot(event_time, events)
         selection_event_hash: str | None = None
-        if report.verdict is CampaignSelectionVerdict.SELECTED:
+        if (
+            report.verdict is CampaignSelectionVerdict.SELECTED
+            and self.selection_finalization_profile.selected_action == "FREEZE_SELECTION"
+        ):
             try:
                 selection_event = self.selection_service.freeze_selection(
                     self.governor,
@@ -1545,7 +1570,7 @@ class AutonomousCampaignOrchestrator:
                 selection_event, self.governor, self.campaign, self.budget
             )
             selection_event_hash = selection_event.content_hash
-            state = AutonomousLoopState.READY_FOR_SEALED_CONFIRMATION
+            state = self.selection_finalization_profile.selected_state
         else:
             close = self.governor.close(
                 self.campaign,
@@ -1559,7 +1584,11 @@ class AutonomousCampaignOrchestrator:
                 reason=f"P14c {report.verdict.value}: no sealed confirmation authority",
             )
             events = self.event_store.append(close, self.governor, self.campaign, self.budget)
-            state = AutonomousLoopState.SELECTION_COMPLETE
+            state = (
+                self.selection_finalization_profile.selected_state
+                if report.verdict is CampaignSelectionVerdict.SELECTED
+                else self.selection_finalization_profile.no_selection_state
+            )
         events, ledger_snapshot = self._reconcile_ledger(events, ledger_snapshot, event_time)
         projection = self.governor.project(self.campaign, self.budget, events)
         exchanges = self._exchanges_for_events(events)
@@ -1602,12 +1631,7 @@ class AutonomousCampaignOrchestrator:
             selection_report_hash=report.report_hash,
             selection_event_hash=selection_event_hash,
             state=state,
-            limitations=(
-                "FR03_NO_GO_LIVE_AGENT_RUNTIME_NOT_USED",
-                "P14D_A_OFFLINE_ORCHESTRATION_EVIDENCE_ONLY",
-                "P14D_B_DOUBLE_ROOT_QUALIFICATION_PENDING",
-                "REAL_MARKET_CONCLUSION_NOT_ESTABLISHED",
-            ),
+            limitations=self.selection_finalization_profile.limitations,
         )
         report_path = self.report_store.publish(report_contract)
         verified_report = self.report_store.verify(report_contract.content_hash)
