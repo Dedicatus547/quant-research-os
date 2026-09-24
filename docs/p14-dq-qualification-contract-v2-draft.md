@@ -109,10 +109,13 @@ The sidecar binds `research_result_hash`, the five existing native source-file h
 prediction/label content hashes, and `omitted_keys_sha256`. For the last field, sort
 omitted keys by `(trade_date, qlib_instrument_id)` and hash canonical JSON bytes of
 objects with exactly those two fields. Its own hash is derived from canonical bytes;
-the successful execution receipt's evidence hashes, corresponding campaign-trial
-evidence, both root principal-hash sets and final report bind that hash and its
-exact file path. Every non-execution-failed candidate ResearchResult must have
-exactly one matching sidecar; no sidecar may be reused across distinct results. The
+the execution receipt's and corresponding campaign trial's `evidence_hashes`
+bind the sidecar **hash**. Its path is uniquely derived from a frozen directory
+layout and that hash; both root evidence trees and the final report explicitly
+bind and verify the resulting exact path and hash. Every receipt or trial carrying
+a ResearchResult hash, regardless of its `TrialOutcome` or Validation run status,
+must have exactly one matching sidecar; no sidecar may be reused across distinct
+results. The
 count equation `raw = exported + omitted` is mandatory. The verifier checks every
 listed native file and reconstructs every exported value row, rather than trusting
 the sidecar's asserted counts or hash.
@@ -120,11 +123,13 @@ Publish and verify the sidecar before the execution adapter emits a successful
 receipt or records a `TrialOutcome.PASS`. A DQ-specific verifier must repeat the
 check whenever the receipt/result is read or replayed, before returning a result
 to the orchestrator, and immediately before calling P14c selection over the full
-two-candidate trial/evidence set. This preselection check covers `PASS`,
-`SOFT_REJECT` and `HARD_REJECT` trials carrying a ResearchResult, not just the
-selected candidate. A missing, duplicate, swapped or invalid sidecar causes an
-execution/integrity failure and P14c `FAILED / NOT_EVALUATED`; it cannot become
-`NONPASS_VALIDATION` at `p=1` or `NO_SELECTION`. The independent qualification
+two-candidate trial/evidence set. This preselection check covers **every** trial
+carrying a ResearchResult, including `PASS`, `SOFT_REJECT`, `HARD_REJECT` and an
+`EXECUTION_FAILED` outcome that still carries a ResearchResult after a failed
+Validation run. A missing, duplicate, swapped or invalid sidecar causes DQ
+`FAILED / NOT_EVALUATED`; do not call P14c or accept any existing successful P14c
+report for that evidence. It cannot become `NONPASS_VALIDATION` at `p=1` or
+`NO_SELECTION`. The independent qualification
 verifier repeats all sidecar checks on every rebuilt root.
 
 Missing instrument-date labels do not become observations in any derived value-row

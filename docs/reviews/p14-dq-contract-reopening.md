@@ -7,7 +7,7 @@ It does not approve the revision, change that frozen v1 contract, or qualify P14
 implementation at `e9d1487` remains a faithful fail-closed attempt under v1.
 The proposed normative amendment is `docs/p14-dq-qualification-contract-v2-draft.md`;
 its review candidate SHA-256 is
-`ce2cd21e9b13e26d94b36841a579dbd78f3a37db8443919f547f30b262effb21`.
+`645794fd37108669d712e133bcbdf0305418098d53be10f18155d1321444b13f`.
 This review record provides its incident evidence and review questions.
 
 ## Evidence requiring reopening
@@ -81,7 +81,8 @@ the v1 calendar, or relabeling failed execution as `NO_SELECTION` would violate 
    export profile with the existing strict behavior as default, keep the existing
    ResearchResult v1 schema/verifier, and publish a content-addressed DQ audit sidecar
    in each qualification root. The DQ verifier requires and rederives that sidecar;
-   the execution adapter must verify it before a successful receipt or PASS trial;
+   the execution adapter must verify it before returning any result that carries a
+   ResearchResult, and the orchestrator must reverify before P14c;
    historical ResearchResult and P14d behavior remain unchanged.
 6. **Retain every other v1 gate.** The frozen family/manifest and two-candidate denominator,
    report-only finalization, immutable external verification, PIT/Validation/statistical
@@ -100,12 +101,20 @@ draft for a diff-only re-review:
    the 2023–2025 baseline. Observed full weekly schedule counts are 152, 153,
    151 and 103; the existing baseline slice yields 0, 0, 49 and 103.
 2. The DQ sidecar must be verified before successful receipt, on every receipt/result
-   read and replay, and before P14c sees either candidate. It must bind receipt,
-   trial, root and final report evidence, with fail-closed missing/duplicate/swapped
-   behavior.
+   read and replay, and before P14c sees any trial carrying ResearchResult, including
+   an `EXECUTION_FAILED` trial with a ResearchResult from failed Validation. Receipt
+   and trial evidence bind its hash; a frozen layout derives the path, which the root
+   and final report verify. Missing/duplicate/swapped sidecars make DQ
+   `FAILED / NOT_EVALUATED` and block P14c success.
 3. Native and exported IC/Rank IC dates must each equal the exact 726-session
    P14c calendar, with values and all four summary metrics checked against native
    output; native prediction/label keys must stay within the test calendar.
+
+The first diff-only re-review also returned **APPROVE_WITH_REQUIRED_FIXES**:
+Validation can fail after ResearchResult creation, so the sidecar gate must cover
+every trial with a ResearchResult regardless of trial outcome. It also required the
+hash-only receipt/trial binding and the pre-P14c DQ failure behavior now stated in
+the draft. This revised text awaits another independent diff-only verdict.
 
 The independent reviewer should decide whether the proposed label-pair export and its
 DQ sidecar preserve ResearchResult authority, and whether the DQ-specific policy-window
