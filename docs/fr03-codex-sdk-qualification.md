@@ -106,6 +106,20 @@ See the
 [failure-isolation plan](fr03-codex-sdk-failure-isolation-plan.md).
 The provider-facing reproduction is
 [documented here](fr03-codex-sdk-upstream-reproduction.md) and was submitted as
-[openai/codex#46947](https://github.com/openai/codex/issues/46947). A CodeMode-aware P10 A/B
-follow-up comment is drafted locally for the separately tracked commandExecution issue; its
-publication record is maintained with the FR-03 thin-maintenance status.
+[openai/codex#46947](https://github.com/openai/codex/issues/46947). The broader CodeMode-aware P10
+A/B follow-up remains an unpublished local draft. The separate 0.156.1 blocker status posted to
+#46947 is listed below.
+
+## Upstream communication record
+
+These comments report observations to upstream; they are communication records, not FR-03
+qualification authority evidence. The two issues remain separate:
+
+| Issue | State before posting | Published | Comment | Scope |
+|---|---|---|---|---|
+| [openai/codex#47145](https://github.com/openai/codex/issues/47145) | Open; 3 comments | 2026-09-24 UTC | [comment #5811577827](https://github.com/openai/codex/issues/47145#issuecomment-5811577827) | Independent WSL2/Linux Python-SDK A/B: 0.154.0 account/read passes; official 0.156.1 account/read fails before thread/turn/provider execution; official package and executable provenance included. |
+| [openai/codex#46947](https://github.com/openai/codex/issues/46947) | Open; 1 comment | 2026-09-24 UTC | [comment #5811583869](https://github.com/openai/codex/issues/46947#issuecomment-5811583869) | Brief status only: 0.156.1 commandExecution qualification is `NOT_EVALUATED` because the separate account/read blocker in #47145 occurs before thread creation; existing 0.154.0 findings are unchanged. |
+
+`#47145` tracks the account/workspace-routing preflight failure. `#46947` tracks the later Python
+SDK / Code Mode `commandExecution` qualification. The 0.156.1 failure does not supply a new
+commandExecution result for #46947.
