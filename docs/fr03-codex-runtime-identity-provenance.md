@@ -105,9 +105,11 @@ preflight and account-routing artifacts. Those references remain:
 - Candidate preflight: `d41f4009d2bb47a6cea58bc2eb868fb42ce6627fd5c8748425e3f2c4f2a67945`
 - Account-routing diagnostic v2: `1bc3433e953197df3d64bc4506dee3fd56c7613dc8998e65050a82b54377dfac`
 
-No Scenario D or live P10 qualification ran. No model, provider, or account endpoint was called.
-The canonical 0.154.0 pin remains unchanged. FR-03 remains **NO_GO**, and P14d-C remains
-**BLOCKED_UNIMPLEMENTED**.
+The provenance audit and offline verifier made no Scenario D, live P10, model, provider, or account
+endpoint call; they only re-evaluated the already retained A/B/C evidence. The historical A/B/C
+account/read outcomes remain unchanged. The canonical 0.154.0 pin remains unchanged. FR-03 remains
+**NO_GO**, and P14d-C remains **BLOCKED_UNIMPLEMENTED**. The frozen maintenance boundary and next
+candidate procedure are recorded in the [Code Mode-aware P10 policy](fr03-code-mode-aware-p10.md).
 
 ## Offline verification command
 

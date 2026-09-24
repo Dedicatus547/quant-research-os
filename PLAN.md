@@ -2382,11 +2382,20 @@ thread、sandbox、MCP、Skills、失败恢复、transcript、usage、permission
 详细配置、失败恢复过程、哈希和 AgentRunManifest 样例见
 [`docs/adr/0001-gpt-codex-harness.md`](docs/adr/0001-gpt-codex-harness.md)。
 
-FR-03 的官方 Python SDK 重构代码已于 2026-09-15 完成核心实现与离线回归，但尚未通过
-新 runtime 资格门。`openai-codex==0.154.0` 的两次冻结 P10 运行均为 6/9 `NO_GO`：SDK 事件流
-未出现 shell command，因而不能证明 sandbox、parent-secret permission denial 与 failure
-recovery。该结果不修改上段历史 CLI 证据，也不允许 CLI 作为 fallback execution backend；P13 SDK
-live qualification 保持 `NOT_EVALUATED`。详见
+FR-03 当前正式冻结为 **THIN_MAINTENANCE**，不是活动工程工作流。Canonical Codex SDK/runtime
+仍为 `0.154.0`；canonical CodeMode-aware P10 v3 为 `6/9` /
+`LIVE_EXEC_NOT_OBSERVED`，matched command lifecycle `0/4`，因此 FR-03 = `NO_GO`，P13 为
+`NOT_EVALUATED`，P14d-C 为 `BLOCKED_UNIMPLEMENTED`。官方 `0.156.1` executable identity 已验证；
+account/read preflight 失败，现有 A/B/C evidence 经 superseding provenance 离线重分类为
+`UPSTREAM_ACCOUNT_ROUTING_FAILURE`，但候选 P10 `NOT_EVALUATED`。初始 matrix 中的
+`INCONCLUSIVE` 保留为当时错误 runtime identity binding 下生成的原分类。
+
+只有更新的官方 Codex runtime candidate 发布，或 upstream 落地实质影响 account/workspace
+routing 或相关 SDK runtime boundary 的修复，才允许重新 qualification。下一 candidate 的固定
+流程是官方 package/executable provenance → 一次最小 account/read preflight → 若 PASS，运行一次
+不变的 Code Mode-aware P10 v3（`gpt-5.6-sol`，`max_attempts=1`，rubric 9/9）；若 account/read
+失败则记录证据并停止。P10 9/9 才允许进入 P13，不会自动解除 P14d-C。完整停机项与冻结流程见
+[`docs/fr03-code-mode-aware-p10.md`](docs/fr03-code-mode-aware-p10.md)，当前候选细节见
 [`docs/fr03-codex-sdk-qualification.md`](docs/fr03-codex-sdk-qualification.md)。
 
 P11 已于 2026-09-08 完成。三个 repo Skills 均通过结构校验；11 个 MCP capability 被拆分为

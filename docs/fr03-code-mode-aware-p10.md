@@ -451,9 +451,57 @@ no overwrite of historical fixtures or artifacts
 fail closed
 ```
 
-薄维护状态（2026-09-22 起）：在 upstream 有明确进展，或出现值得重新 qualification 的新 runtime
-candidate 之前，不再反复调 prompt 重试 live P10、不降低 `9/9` hard gate、不新增 D0.8/D0.9、
-不引入 fallback CLI 或 dual-stack、不用 prose 推断 execution。
+## FR-03 THIN MAINTENANCE POLICY
+
+当前冻结状态：FR-03 `NO_GO`；canonical runtime `0.154.0`；canonical P10 v3 `6/9` /
+`LIVE_EXEC_NOT_OBSERVED`，matched command lifecycle `0/4`；P13 `NOT_EVALUATED`；P14d-C
+`BLOCKED_UNIMPLEMENTED`。Codex `0.156.1` 的官方 runtime identity 已由 superseding provenance
+验证，但 account/read preflight 失败，离线重分类为 `UPSTREAM_ACCOUNT_ROUTING_FAILURE`；candidate
+P10 是 `NOT_EVALUATED`。原始 matrix 中保存的 `INCONCLUSIVE` 是当时错误 frozen identity binding
+下的分类，不能改写成该 artifact 初次生成时就有的新结论。见
+[`0.156.1 requalification`](fr03-codex-0.156.1-requalification.md)、
+[`account-routing diagnostic v2`](fr03-codex-account-routing-diagnostic-v2.md) 与
+[`runtime identity provenance`](fr03-codex-runtime-identity-provenance.md)。
+
+在下列唯一触发条件之一出现前，FR-03 保持 thin maintenance，不继续 qualification 工程。后续不得：
+
+- 添加 D0.x diagnostics；
+- 重试或调整 P10 prompts；
+- 修改冻结的 P10 rubric；
+- 构建 CLI fallback 或 dual-runtime stack；
+- 修改 host 以绕过 account/read；
+- 重跑 Codex `0.156.1`。
+
+重新进入 qualification 的唯一触发条件是：
+
+1. 发布了更新的官方 Codex runtime candidate；或
+2. upstream 落地了会实质影响 account/workspace routing 或相关 SDK runtime boundary 的修复。
+
+触发后只执行以下冻结流程：
+
+```text
+new official runtime candidate
+        ↓
+official package + executable provenance
+        ↓
+one minimal account/read preflight
+        ↓
+account/read FAIL
+        → NOT_EVALUATED
+        → publish evidence
+        → STOP
+
+account/read PASS
+        ↓
+ONE frozen Code Mode-aware P10 v3
+gpt-5.6-sol
+max_attempts=1
+        ↓
+evaluate unchanged 9/9 rubric
+```
+
+只有 P10 `9/9` 后才进入 P13 SDK qualification。P10 `9/9` 本身不自动解除 P14d-C；只有
+FR-03 完整 qualification 满足当前 frozen contract 后，P14d-C 才可继续。
 
 ## 15. Definition of Done
 
@@ -492,7 +540,7 @@ candidate 之前，不再反复调 prompt 重试 live P10、不降低 `9/9` hard
 | `FAILURE_RECOVERY` | FAIL：两个 denial 与后续 `/usr/bin/pwd` 均无 matched lifecycle |
 | P10 | `6/9`、`LIVE_EXEC_NOT_OBSERVED`、`NO_GO` |
 | Offline replay | PASS：report、manifest、spec、provider/normalized transcript bindings 全部重算一致 |
-| 下一步 | 不运行 P13；本地 upstream follow-up draft 已就绪（`fr03-codex-46947-followup-draft.md`，未发布）；FR-03 进入薄维护；主线 `P14b -> P14c` |
+| 当前状态 | canonical 0.154.0 P10 为 `6/9` / `LIVE_EXEC_NOT_OBSERVED`；0.156.1 identity 已验证，但 account/read preflight 为 `FAILED` / `UPSTREAM_ACCOUNT_ROUTING_FAILURE`，其 P10 `NOT_EVALUATED`；P13 不运行，P14d-C 保持 blocked；FR-03 依本节 policy 进入 THIN MAINTENANCE |
 
 实现校正过程中生成过一个 pre-qualification bundle，其 manifest 将实际 v2 normalizer 错标为 v1。
 最终 verifier 已新增 identity 一致性检查并拒绝该 bundle；它被保留为失败证据，不参与上述资格结论，

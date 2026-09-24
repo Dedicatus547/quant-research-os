@@ -33,7 +33,7 @@ workspace.
 | P14d-B | Clean-commit independent double-root bounded autonomous campaign qualification, immutable report `13355dcb...754825`, 27 negative cases per root, 3 restart cases per root, replay reuse and exact principal equality | **QUALIFIED**: bounded synthetic offline deterministic autonomous engineering authority only; implementation commit `13d2b7acc44fe33c4f0c45d240fd5fd26e993845`; no real-market, live Agent, FR-03, or sealed-confirmation claim |
 | FR-01 | Existing admitted DSL now passes proposal compiler, resolution, PIT, SignalArtifact, Qlib backtest, and Validation without a project expression runtime; a non-return `field → delta → abs` DAG and negative field/operator cases pass | No new live-data conclusion; existing snapshot/view qualification boundaries remain unchanged |
 | FR-02 | Immutable Qlib ResearchResult adapter binds prediction, label, split, expression, policy, source files, native IC/Rank IC series and summaries; exact-file verification, tamper rejection, independent-root hashes, and G3 integration pass | Only Qlib-native IC/Rank IC outputs are qualified; coverage/turnover/autocorrelation remain outside scope |
-| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0-D0.7 diagnostics, exact-source Code Mode characterization, credential-free loopback chain tests, safe nested-result/metadata projection, post-terminal event drain, Code Mode-aware P10 v3 fixture/evaluator and bottom-up offline replay implemented; offline regression PASS | **NO_GO**: canonical CodeMode-aware P10 remains `6/9`, `LIVE_EXEC_NOT_OBSERVED`, `0/4` matched command lifecycle (`c5f8f53f...7a1fc`). Codex 0.156.1 preflight is `NOT_EVALUATED` / CASE D; exact isolated SDK host failed before thread/turn, so no candidate P10 score exists. Upstream classification `ADDITIVE_COMPATIBLE`; no normalizer/evaluator/observation-contract change. See [0.156.1 requalification](fr03-codex-0.156.1-requalification.md). P13 SDK qualification remains `NOT_EVALUATED`; P14d-C remains blocked and unimplemented |
+| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0-D0.7 diagnostics, exact-source Code Mode characterization, credential-free loopback chain tests, safe nested-result/metadata projection, post-terminal event drain, Code Mode-aware P10 v3 fixture/evaluator and bottom-up offline replay implemented; offline regression PASS | **NO_GO / THIN_MAINTENANCE**: canonical runtime `0.154.0`; canonical CodeMode-aware P10 `6/9`, `LIVE_EXEC_NOT_OBSERVED`, `0/4` matched command lifecycle (`c5f8f53f...7a1fc`). Official `0.156.1` runtime identity is verified; its account/read preflight fails and the unchanged A/B/C observations reclassify as `UPSTREAM_ACCOUNT_ROUTING_FAILURE` (internal subtype `UNKNOWN`). Candidate P10 is `NOT_EVALUATED`. P13 remains `NOT_EVALUATED`; P14d-C is `BLOCKED_UNIMPLEMENTED`. See [0.156.1 requalification](fr03-codex-0.156.1-requalification.md), [account-routing diagnostic v2](fr03-codex-account-routing-diagnostic-v2.md), and the [frozen maintenance policy](fr03-code-mode-aware-p10.md) |
 
 FR-03 update (2026-09-15): the core SDK integration and offline coverage are complete.
 The exact SDK and bundled runtime authenticated and supplied structured output, MCP, Skill, usage,
@@ -120,15 +120,34 @@ v3 contract remain unchanged. Content-addressed preflight report
 remains `NO_GO`; P14d-C remains blocked and unimplemented. See the
 [0.156.1 requalification record](fr03-codex-0.156.1-requalification.md).
 
-FR-03 update (2026-09-24, account-routing diagnostic v2): v1 publication failed because its
-serialized-JSON substring scanner matched the safe `OPENAI_API_KEY` property name; no immutable v1
-matrix exists and A/B/C remain `UNKNOWN`. The structure-aware shared validator, v2 schema, synthetic
-round trip, tamper checks, and full offline gates pass. The one v2 matrix attempt reached publication
-but rejected the safe source-audit text `refreshToken=false`; no v2 artifact exists, and A/B/C plus
-whether conditional D ran remain `UNKNOWN`. No outcome was recovered and no matrix row was retried.
-P10 did not start or become eligible; canonical 0.154.0 and frozen P10 v3 remain unchanged. FR-03
-stays `NO_GO`; P14d-C stays blocked and unimplemented. See the
-[v2 instrumentation and outcome record](fr03-codex-account-routing-diagnostic-v2.md).
+FR-03 update (2026-09-24, account-routing diagnostic v2 first publication attempt): v1 publication
+failed because its serialized-JSON substring scanner matched the safe `OPENAI_API_KEY` property
+name; no immutable v1 matrix exists. The structure-aware shared validator, v2 schema, synthetic
+round trip, tamper checks, and full offline gates pass. The first v2 matrix publication attempt
+rejected the safe source-audit text `refreshToken=false`; no artifact was published from that
+attempt, so its A/B/C observations and whether conditional D ran remain `UNKNOWN`. No outcome was
+recovered from that attempt. See the [v2 instrumentation and outcome record](fr03-codex-account-routing-diagnostic-v2.md).
+
+FR-03 update (2026-09-24, superseding runtime identity provenance): the official
+`openai-codex-cli-bin==0.156.1` manylinux distribution and bundled executable are bound to the
+GitHub Actions Trusted Publishing provenance from `openai/codex` commit
+`8a3c4ea3b5a7c0e92cf24dae46ec87629a26bb7f`; provenance artifact
+`6768f0e935643c535e452a3fd311fbda3c552f0eb44c647d9d29588bb02565af` passes offline verification.
+The executable SHA-256 matches B/C's observed runtime hash and not the historical frozen identity.
+This is a **historical runtime identity binding mismatch**, not a transcription-error claim.
+
+The unchanged A/B/C observations in immutable account-routing matrix
+`1bc3433e953197df3d64bc4506dee3fd56c7613dc8998e65050a82b54377dfac` therefore reclassify offline
+from their stored original `INCONCLUSIVE` classification to
+`UPSTREAM_ACCOUNT_ROUTING_FAILURE`. A on 0.154.0 passes initialize and account/read; isolated B and
+safe-profile C on official 0.156.1 pass initialize and fail account/read with `InternalRpcError` /
+`-32603`, the same bounded error-message hash, and safe classification `UNKNOWN_INTERNAL`. All
+retained scenarios have zero thread starts, turn starts, and provider requests. Exact internal
+routing subtype remains `UNKNOWN`. Candidate P10 is `NOT_EVALUATED`; no live P10 rerun or
+model/provider call was made. Canonical runtime `0.154.0` and canonical P10 evidence remain
+unchanged. FR-03 is `NO_GO / THIN_MAINTENANCE`, P13 is `NOT_EVALUATED`, and P14d-C is
+`BLOCKED_UNIMPLEMENTED`. The only triggers and next-candidate procedure are frozen in the
+[thin-maintenance policy](fr03-code-mode-aware-p10.md).
 
 P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
 approved Store is materialized locally, and a real Agent proposal passed all six admission checks

@@ -4,6 +4,16 @@ Date: 2026-09-24
 
 Decision: **NOT_EVALUATED; FR-03 remains NO_GO**
 
+Current candidate interpretation after the superseding runtime provenance review: official
+`0.156.1` executable identity is **VERIFIED**. The account/read preflight is **FAILED** and the
+unchanged A/B/C observations classify offline as `UPSTREAM_ACCOUNT_ROUTING_FAILURE`; the exact
+internal subtype is `UNKNOWN`. Candidate P10 remains `NOT_EVALUATED` because P10 did not start.
+The original account-routing matrix retains its initial `INCONCLUSIVE` classification because its
+frozen identity assertion was incorrect. The superseding record changes only that identity
+assertion and its derived classification, not the historical artifact bytes or runtime outcomes.
+See [runtime identity provenance](fr03-codex-runtime-identity-provenance.md) and
+[account-routing diagnostic v2](fr03-codex-account-routing-diagnostic-v2.md).
+
 This run stopped during compatibility preflight before any model turn. It is not a new P10 score
 and does not revise the canonical 0.154.0 result (`6/9`, `LIVE_EXEC_NOT_OBSERVED`, `0/4` matched
 probe lifecycles).
@@ -68,7 +78,7 @@ QuantOS host profile then returned `UNKNOWN` with hash
 `c7562a96f966f7f0eaca94fae0e9237a6cad6fc80a11b7675edc7f0315efa94a` before a thread ID or provider
 event was available. No `turn()` call was made.
 
-There were two isolated host preflight invocations because the first summary formatter attempted
+The original candidate-preflight capture records two isolated host preflight invocations because the first summary formatter attempted
 to read a nonexistent result attribute after the host had returned. Each host request had
 `max_attempts=1`; neither invocation started a turn or provider request. The second result was
 captured in the artifact. This was preflight diagnostics only, not P10 best-of-N or sample
@@ -77,7 +87,35 @@ selection.
 Therefore the 0.156.1 live P10 score and command lifecycle counts are **NOT_EVALUATED**. They are
 not reported as `0/9` or `0/4`. The stop point is CASE D: no live qualification is possible until
 the isolated host can pass preflight. No prompt, probe, approval policy, rubric or historical
-artifact was changed or reinterpreted.
+artifact was changed. The later superseding provenance record corrects only the frozen runtime
+identity assertion and reclassifies the existing account/read observations; it does not revise
+those observations.
+
+## Superseding provenance and current candidate classification
+
+The official package audit verified `openai-codex-cli-bin==0.156.1`, the manylinux x86_64 wheel
+SHA-256 `84a12567ca54ba6ae4ed755911c04e7cdf658315f8719963c8daa8592d8fe068`, and its bundled
+executable SHA-256
+`0b2e9301d6100dddda3b9d5c80ebaeaa3a2f1962388f2f36f6b96a9f08b1f33f`. The PyPI Trusted
+Publishing provenance is GitHub Actions in `openai/codex` at commit
+`8a3c4ea3b5a7c0e92cf24dae46ec87629a26bb7f`. The provenance artifact
+`6768f0e935643c535e452a3fd311fbda3c552f0eb44c647d9d29588bb02565af` passes its offline verifier.
+
+After correcting the identity assertion in interpretation only, the existing observations are:
+
+| Scenario | Runtime identity | Initialize | `account/read` | Other retained outcome |
+|---|---|---|---|---|
+| A: isolated 0.154.0 | `VERIFIED` | `PASS` | `PASS` | `accounts/check` false; no thread, turn, or provider request |
+| B: official isolated 0.156.1 | `VERIFIED` after superseding provenance | `PASS` | `FAILED` | `InternalRpcError` / `-32603`; safe classification `UNKNOWN_INTERNAL`; no thread, turn, or provider request |
+| C: 0.156.1 safe normal-profile projection | `VERIFIED` after superseding provenance | `PASS` | `FAILED` | same error classification and bounded error-message hash as B; no thread, turn, or provider request |
+
+The immutable diagnostic's original classification was `INCONCLUSIVE` because the frozen runtime
+identity binding did not match the official executable. The superseding record mechanically
+recomputes the unchanged A/B/C observations as `UPSTREAM_ACCOUNT_ROUTING_FAILURE`. It does not
+identify a more specific subtype: retained evidence supports only `UNKNOWN_INTERNAL` and does not
+distinguish timeout, duplicate workspace, or origin mismatch. Candidate P10 is still
+`NOT_EVALUATED`; FR-03 remains `NO_GO`, P13 remains `NOT_EVALUATED`, and P14d-C remains
+`BLOCKED_UNIMPLEMENTED`.
 
 ## Immutable evidence
 

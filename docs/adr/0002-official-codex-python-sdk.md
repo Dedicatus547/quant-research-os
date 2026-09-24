@@ -138,3 +138,23 @@ Outer Code Mode initiation and nested dispatch therefore remain `UNKNOWN`; `SAND
 `c5f8f53fccb844e5b87ea6888385bed63677c1d7403772845933c72d9787a1fc` is `6/9`,
 `LIVE_EXEC_NOT_OBSERVED`, and `NO_GO`, and passed offline replay. P13 was not run and the hard 9/9
 gate was not relaxed.
+
+## 2026-09-24 account-routing candidate review
+
+Official `0.156.1` executable identity is verified by the superseding provenance record. Its
+isolated and safe-profile account/read observations fail with `InternalRpcError` / JSON-RPC
+`-32603`; the unchanged matrix reclassifies offline as `UPSTREAM_ACCOUNT_ROUTING_FAILURE`, with
+exact subtype `UNKNOWN`. Candidate P10 is `NOT_EVALUATED`: no thread, turn, or provider request
+started. The immutable matrix's original `INCONCLUSIVE` classification records the earlier
+incorrect frozen identity binding; the later provenance supersedes only that identity assertion.
+The canonical runtime and lock remain at `0.154.0`, P13 remains `NOT_EVALUATED`, and FR-03 remains
+`NO_GO`. P14d-C remains `BLOCKED_UNIMPLEMENTED`.
+
+FR-03 is frozen in thin maintenance. Requalification may reopen only for a newer official Codex
+runtime candidate or an upstream fix materially affecting account/workspace routing or the
+relevant SDK runtime boundary. The frozen process is official package/executable provenance, one
+minimal account/read preflight, then—only if account/read passes—one unchanged Code Mode-aware P10
+v3 run with `gpt-5.6-sol` and `max_attempts=1`. P10 `9/9` opens P13 qualification but does not by
+itself unblock P14d-C; the full frozen FR-03 contract still applies. See the [0.156.1
+requalification record](../fr03-codex-0.156.1-requalification.md) and the [thin-maintenance
+policy](../fr03-code-mode-aware-p10.md).

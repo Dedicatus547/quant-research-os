@@ -6,17 +6,24 @@ Frozen SDK/runtime: `openai-codex==0.154.0` / bundled app-server `0.154.0`
 
 Decision: **NO_GO**
 
-Status: FR-03 is in thin maintenance. Canonical CodeMode-aware P10 is `6/9` /
+Status: **FR-03 = NO_GO / THIN_MAINTENANCE**. Canonical runtime is
+`openai-codex==0.154.0`; canonical CodeMode-aware P10 is `6/9` /
 `LIVE_EXEC_NOT_OBSERVED` / report `c5f8f53f...7a1fc` / matched command lifecycle `0/4`.
-P13 SDK qualification remains `NOT_EVALUATED`. Local upstream follow-up draft for
-[openai/codex#46947](https://github.com/openai/codex/issues/46947) is prepared in
-[fr03-codex-46947-followup-draft.md](fr03-codex-46947-followup-draft.md) and has not been posted.
+P13 SDK qualification is `NOT_EVALUATED`; P14d-C is `BLOCKED_UNIMPLEMENTED`.
 
-2026-09-24 candidate review: `openai-codex==0.156.1` is `ADDITIVE_COMPATIBLE` with the frozen
-P10 v3 normalizer/observation contract, but the isolated candidate SDK host failed before thread
-and turn. Candidate P10 is therefore `NOT_EVALUATED`; FR-03 remains `NO_GO` on the canonical
-0.154.0 run. No canonical dependency, probe, evaluator or P10 rubric change was made. See the
-[0.156.1 requalification record](fr03-codex-0.156.1-requalification.md).
+Current candidate status (2026-09-24): official Codex `0.156.1` runtime identity is verified by
+the superseding provenance record. Its isolated account/read preflight fails with
+`InternalRpcError` / JSON-RPC `-32603`; the existing A/B/C observations reclassify offline to
+`UPSTREAM_ACCOUNT_ROUTING_FAILURE`, with exact internal subtype `UNKNOWN`. Candidate P10 is
+`NOT_EVALUATED` because it did not start. The original immutable matrix still stores its initial
+`INCONCLUSIVE` classification; the provenance record corrects only the runtime identity assertion
+and does not change observation bytes. See the [0.156.1 requalification record](fr03-codex-0.156.1-requalification.md),
+[account-routing diagnostic v2](fr03-codex-account-routing-diagnostic-v2.md), and
+[runtime identity provenance](fr03-codex-runtime-identity-provenance.md).
+
+The thin-maintenance policy and sole requalification triggers are frozen in the
+[Code Mode-aware P10 record](fr03-code-mode-aware-p10.md). No canonical dependency, probe,
+evaluator, or P10 rubric change was made.
 
 ## Evidence matrix
 
@@ -42,6 +49,7 @@ and turn. Candidate P10 is therefore `NOT_EVALUATED`; FR-03 remains `NO_GO` on t
 | D0.7 deterministic Code Mode chain B1+ | **CODE_MODE_CHAIN_AVAILABLE** | pinned 0.154.0 bundle `9c20e6c5...f4ecca64` binds the outer `exec` call to one executed-tool metadata entry for exact nested `exec_command` arguments, validates exact fixed-marker output/exit 0/nonempty chunk id, and observes one matched successful `commandExecution` lifecycle; post-terminal command-event count is 0 |
 | D0.7 live observation | **LIVE_EXEC_NOT_OBSERVED** | 0.154.0 live turn completed with zero command events; raw live HTTP was intentionally not retained, so model-visible exec remains unknown; bundle `7da8cf78...74fbc1ab` verified |
 | Code Mode-aware P10 v3 | **NO_GO (6/9)** | canonical report `c5f8f53f...7a1fc` replayed bottom-up; outer `exec` and nested attribution are `UNKNOWN`, required command lifecycle count is 0/4, and `SANDBOX`, `PERMISSION_DENIAL`, `FAILURE_RECOVERY` fail closed |
+| 0.156.1 account/read candidate preflight | **FAILED before P10** | Official runtime identity is verified by superseding provenance; `initialize` passes and `account/read` fails on isolated and safe-profile projections with `InternalRpcError` / `-32603`; offline classification is `UPSTREAM_ACCOUNT_ROUTING_FAILURE`, subtype `UNKNOWN`; candidate P10 `NOT_EVALUATED` |
 | Exact dependency lock | PASS | `pyproject.toml` and `uv.lock` fix SDK and bundled runtime packages at 0.154.0 |
 
 Two live P10 runs were retained under temporary qualification roots rather than checked in. Their
@@ -99,4 +107,5 @@ See the
 The provider-facing reproduction is
 [documented here](fr03-codex-sdk-upstream-reproduction.md) and was submitted as
 [openai/codex#46947](https://github.com/openai/codex/issues/46947). A CodeMode-aware P10 A/B
-follow-up comment is drafted locally and has not been posted.
+follow-up comment is drafted locally for the separately tracked commandExecution issue; its
+publication record is maintained with the FR-03 thin-maintenance status.

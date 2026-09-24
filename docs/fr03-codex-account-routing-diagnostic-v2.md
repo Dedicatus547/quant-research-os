@@ -166,7 +166,7 @@ the reviewed upstream source. P10 remains unstarted unless isolated candidate B 
 | Host adaptation / P10 eligibility / P10 run | no / no / no |
 | FR-03 / P14d-C | `NO_GO` / `BLOCKED_UNIMPLEMENTED` |
 
-## v2 publication instrumentation defect
+## First v2 publication attempt: instrumentation defect
 
 The single v2 matrix process reached publication after its predeclared scenario sequence, but the
 shared validator rejected a fixed source-audit sentence at
@@ -174,11 +174,38 @@ shared validator rejected a fixed source-audit sentence at
 `refreshToken=false`; the scanner treated the safe boolean `false` as credential material. This is
 another validator false positive, not a runtime failure.
 
-No v2 artifact was published. As required, no in-memory row, stdout, temp directory, or elapsed
-time is used to recover outcomes. A, B, and C are **UNKNOWN**. D's invocation is also **UNKNOWN**:
+No artifact was published from this attempt. As required, no in-memory row, stdout, temp directory,
+or elapsed time is used to recover its outcomes. A, B, and C are **UNKNOWN** for this attempt. D's
+invocation is also **UNKNOWN**:
 the runner can conditionally invoke D from the ephemeral A/B/C results, and that condition cannot
 be reconstructed now. `accounts/check` observability, diagnostic classification, and artifact hash
 are therefore unavailable. Offline verification is not possible without an artifact. P10 did not
 start and is ineligible; no score exists. The validator now treats explicit boolean/null assignment
 classifications as safe while continuing to reject credential-like values. The correction passed
 offline gates only; the v2 runtime matrix was not retried.
+
+## Published v2 evidence and superseding identity interpretation
+
+A separate immutable v2 diagnostic was subsequently published and verified. Its artifact hash is
+`1bc3433e953197df3d64bc4506dee3fd56c7613dc8998e65050a82b54377dfac`. This artifact's original
+classification is `INCONCLUSIVE`: its B/C `runtime_identity_verified=false` assertions were based
+on the historical frozen hash that did not match the official `0.156.1` executable.
+
+The superseding official provenance record
+[`6768f0e935643c535e452a3fd311fbda3c552f0eb44c647d9d29588bb02565af`](fr03-codex-runtime-identity-provenance.md)
+verifies the executable identity and recomputes the classification over the unchanged observations.
+It supersedes only the runtime identity assertion; it does not edit the diagnostic bytes, scenario
+sequence, runtime observations, or account/read results.
+
+| Scenario | Runtime identity after superseding provenance | Initialize | `account/read` | Bounded result |
+|---|---|---|---|---|
+| A — isolated 0.154.0 | `VERIFIED` | `PASS` | `PASS` | `accounts/check` false |
+| B — official isolated 0.156.1 | `VERIFIED` | `PASS` | `FAILED` | `InternalRpcError` / JSON-RPC `-32603` / `UNKNOWN_INTERNAL` |
+| C — 0.156.1 safe normal-profile projection | `VERIFIED` | `PASS` | `FAILED` | same error classification and bounded message hash as B |
+
+Each retained scenario has `thread_start_count=0`, `turn_start_count=0`, and
+`provider_request_count=0`. The offline reclassification is
+`UPSTREAM_ACCOUNT_ROUTING_FAILURE`. The exact internal failure subtype remains `UNKNOWN`; the
+retained evidence does not establish a routing timeout, duplicate workspace, or origin mismatch.
+No P10 run started: candidate P10 is `NOT_EVALUATED`, canonical FR-03 remains `NO_GO`, P13 remains
+`NOT_EVALUATED`, and P14d-C remains `BLOCKED_UNIMPLEMENTED`.
