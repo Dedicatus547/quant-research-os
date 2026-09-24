@@ -7,6 +7,10 @@ This is a proposed amendment to the v1 contract at `37880e8` (file SHA-256
 All v1 provisions remain binding except the exact clauses superseded below. The
 failure evidence and rationale are in `docs/reviews/p14-dq-contract-reopening.md`.
 This draft is not an authority input to the current P14-DQ runner and grants no PASS.
+Specifically, this draft replaces v1 §3's use of the P7 policy bytes for the new
+campaign, the `2025-12-31` campaign/test endpoint and P14c calendar bound; it adds
+the DQ-only native-label export rule to v1 §5; and it replaces v1 §11's statement
+that those choices are closed. V1's historical P7 release binding remains exact.
 
 ## 1. Replaced research and campaign dates
 

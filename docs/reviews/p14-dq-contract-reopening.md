@@ -7,7 +7,7 @@ It does not approve the revision, change that frozen v1 contract, or qualify P14
 implementation at `e9d1487` remains a faithful fail-closed attempt under v1.
 The proposed normative amendment is `docs/p14-dq-qualification-contract-v2-draft.md`;
 its review candidate SHA-256 is
-`2ba750b42cb9b6aee6dc2bc83db12032d43060978d3c7e0255788d2d29e54ec7`.
+`3590b8aefae3e8db7cced7fa331584f510e5e6d9756cc969d339c3b9426d7d73`.
 This review record provides its incident evidence and review questions.
 
 ## Evidence requiring reopening
