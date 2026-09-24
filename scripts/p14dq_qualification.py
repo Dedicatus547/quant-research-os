@@ -1218,8 +1218,9 @@ def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
         CampaignSelectionVerdict.SELECTED,
         CampaignSelectionVerdict.NO_SELECTION,
     }:
-        raise QualificationError(
-            "P14-DQ natural campaign failed P14c or has zero eligible candidates"
+        raise InputGateError(
+            selection_report.reason_code or ReasonCode.SOURCE_INCOMPLETE,
+            "P14-DQ natural campaign failed P14c or has zero eligible candidates",
         )
     if selection_report.report_hash != loop_report.selection_report_hash:
         raise QualificationError("P14-DQ loop report and P14c report hashes disagree")
