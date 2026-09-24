@@ -90,6 +90,10 @@ the qualification root and final report bind that hash and its exact file path. 
 count equation `raw = exported + omitted` is mandatory. The verifier checks every
 listed native file and reconstructs every exported value row, rather than trusting
 the sidecar's asserted counts or hash.
+Publish and verify the sidecar before the execution adapter emits a successful
+receipt or records a `TrialOutcome.PASS`; a missing or invalid sidecar is an execution
+failure and cannot yield a P14c-eligible candidate. The independent qualification
+verifier repeats the sidecar check on every rebuilt root.
 
 Missing instrument-date labels do not become observations in any derived value-row
 artifact. Any missing daily Rank IC, absence of a verified ResearchResult, or inability

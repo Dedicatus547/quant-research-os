@@ -7,7 +7,7 @@ It does not approve the revision, change that frozen v1 contract, or qualify P14
 implementation at `e9d1487` remains a faithful fail-closed attempt under v1.
 The proposed normative amendment is `docs/p14-dq-qualification-contract-v2-draft.md`;
 its review candidate SHA-256 is
-`44b8ea6483f6e12fbd132929da44236f95149321a91f12fe1709a85ed39f39e3`.
+`2ba750b42cb9b6aee6dc2bc83db12032d43060978d3c7e0255788d2d29e54ec7`.
 This review record provides its incident evidence and review questions.
 
 ## Evidence requiring reopening
@@ -81,6 +81,7 @@ the v1 calendar, or relabeling failed execution as `NO_SELECTION` would violate 
    export profile with the existing strict behavior as default, keep the existing
    ResearchResult v1 schema/verifier, and publish a content-addressed DQ audit sidecar
    in each qualification root. The DQ verifier requires and rederives that sidecar;
+   the execution adapter must verify it before a successful receipt or PASS trial;
    historical ResearchResult and P14d behavior remain unchanged.
 6. **Retain every other v1 gate.** The frozen family/manifest and two-candidate denominator,
    report-only finalization, immutable external verification, PIT/Validation/statistical
