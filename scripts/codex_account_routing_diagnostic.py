@@ -26,12 +26,13 @@ from quantos.integrations.codex.account_routing_diagnostic import (
     classify_rpc_error,
     derive_account_routing_classification,
 )
+from quantos.security import validate_secret_free
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "src"
-ARTIFACT_ROOT = ROOT / "artifacts/diagnostics/codex-account-routing-0.156.1"
-SCHEMA_VERSION = "fr03-codex-account-routing-diagnostic/v1"
-RUN_ID_PREFIX = "fr03-codex-0.156.1-account-routing"
+ARTIFACT_ROOT = ROOT / "artifacts/diagnostics/codex-account-routing-0.156.1-v2"
+SCHEMA_VERSION = "fr03-codex-account-routing-diagnostic/v2"
+RUN_ID_PREFIX = "fr03-codex-0.156.1-account-routing-v2"
 CANDIDATE_ID = "openai-codex-0.156.1-p10-v3"
 CANDIDATE_VERSION = "0.156.1"
 CANONICAL_VERSION = "0.154.0"
@@ -52,23 +53,6 @@ AUTH_AND_ROUTING_ENVIRONMENT_NAMES = (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     *MANAGED_ENVIRONMENT_NAMES,
-)
-SECRET_MARKERS = (
-    b"Authorization:",
-    b"Bearer ",
-    b"Cookie:",
-    b"access_token",
-    b"refresh_token",
-    b'"tokens"',
-    b'"OPENAI_API_KEY"',
-    b'"accessToken"',
-    b'"refreshToken"',
-    b'"Authorization"',
-    b'"Cookie"',
-    b"TUSHARE_TOKEN=",
-    b"sk-proj-",
-    b"ghp_",
-    b"gho_",
 )
 
 
@@ -230,7 +214,12 @@ def _normal_profile_audit(
 
 
 def _error_details(error: BaseException) -> tuple[str, int | None, str, str, int]:
-    error_type = type(error).__name__
+    raw_error_type = type(error).__name__
+    error_type = (
+        raw_error_type
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", raw_error_type)
+        else "UnknownError"
+    )
     code_value = getattr(error, "code", None)
     code = code_value if type(code_value) is int else None
     message_value = getattr(error, "message", None)
@@ -326,7 +315,13 @@ def _run_single_scenario(args: argparse.Namespace) -> int:
                 metadata, "server_info", None
             )
             version_text = getattr(server_info, "version", None)
-            result["app_server_version"] = version_text if isinstance(version_text, str) else None
+            result["app_server_version"] = (
+                version_text
+                if isinstance(version_text, str)
+                and len(version_text) <= 160
+                and re.fullmatch(r"[A-Za-z0-9._()+; /-]+", version_text)
+                else None
+            )
             result["reported_app_server_version_sha256"] = (
                 _sha256(version_text.encode()) if isinstance(version_text, str) else None
             )
@@ -403,7 +398,7 @@ def _run_single_scenario(args: argparse.Namespace) -> int:
 
 def _source_audit() -> dict[str, object]:
     return {
-        "schema_version": "fr03-codex-account-routing-source-audit/v1",
+        "schema_version": "fr03-codex-account-routing-source-audit/v2",
         "upstream_source_commits": UPSTREAM_COMMITS,
         "reviewed_source_paths": {
             "rust-v0.154.0": [
@@ -720,11 +715,6 @@ def _runtime_identity_verified(scenario: dict[str, object]) -> bool:
     return requested != CANDIDATE_VERSION or binary_hash == CANDIDATE_BINARY_SHA256
 
 
-def _secret_scan(contents: list[bytes]) -> None:
-    if any(marker in payload for payload in contents for marker in SECRET_MARKERS):
-        raise ValueError("diagnostic artifact secret scan failed")
-
-
 def _publish_artifact(
     report: dict[str, object], matrix: dict[str, object], source_audit: dict[str, object]
 ) -> tuple[str, Path]:
@@ -735,7 +725,9 @@ def _publish_artifact(
         "upstream-source-audit.json": sha256_bytes(source_bytes),
     }
     report_bytes = canonical_json_bytes(report)
-    _secret_scan([matrix_bytes, source_bytes, report_bytes])
+    validate_secret_free(matrix, file_name="account-routing-matrix.json")
+    validate_secret_free(source_audit, file_name="upstream-source-audit.json")
+    validate_secret_free(report, file_name="account-routing-report.json")
     report_hash = sha256_bytes(report_bytes)
     destination = ARTIFACT_ROOT / f"sha256-{report_hash}"
     ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -792,7 +784,7 @@ def _run_matrix(run_id: str) -> dict[str, object]:
         scenarios[1].get("account_read_status") == "FAILED"
         and scenarios[2].get("account_read_status") == "PASS"
         and profile_audit["config_projection_complete"] is True
-        and bool(profile_audit["config_projection_fields"])
+        and profile_audit["config_projection_fields"] == ["chatgpt_base_url"]
     ):
         scenarios.append(
             _run_scenario(
@@ -834,7 +826,7 @@ def _run_matrix(run_id: str) -> dict[str, object]:
                 scenario["accounts_check_observability"] = "INFERRED_FROM_BOUNDED_ROUTING_ERROR"
     classification = derive_account_routing_classification(scenarios)
     matrix: dict[str, object] = {
-        "schema_version": "fr03-codex-account-routing-matrix/v1",
+        "schema_version": "fr03-codex-account-routing-matrix/v2",
         "run_id": run_id,
         "scenarios": scenarios,
     }
@@ -918,7 +910,7 @@ def main() -> int:
     if not args.run_matrix:
         parser.error("choose --run-matrix or --single-scenario")
     run_id = args.run_id or f"{RUN_ID_PREFIX}-{datetime.now(UTC):%Y%m%d-%H%M%S}"
-    if not re.fullmatch(r"fr03-codex-0\.156\.1-account-routing-[0-9]{8}-[0-9]{6}", run_id):
+    if not re.fullmatch(r"fr03-codex-0\.156\.1-account-routing-v2-[0-9]{8}-[0-9]{6}", run_id):
         parser.error("run id does not match the immutable diagnostic format")
     print(json.dumps(_run_matrix(run_id), indent=2, sort_keys=True))
     return 0

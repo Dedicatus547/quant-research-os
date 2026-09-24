@@ -198,7 +198,11 @@ def derive_account_routing_classification(
         return "INCONCLUSIVE"
     if normal_projection.get("account_read_status") == "PASS":
         fields = normal_projection.get("config_projection_fields")
-        if isinstance(fields, list) and fields:
+        if (
+            isinstance(fields, list)
+            and fields == ["chatgpt_base_url"]
+            and normal_projection.get("config_projection_complete") is True
+        ):
             return "ISOLATION_PROFILE_INCOMPATIBLE"
         return "INCONCLUSIVE"
     if normal_projection.get("account_read_status") != "FAILED":

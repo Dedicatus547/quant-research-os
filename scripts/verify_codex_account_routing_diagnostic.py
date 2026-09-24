@@ -14,6 +14,7 @@ from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.integrations.codex.account_routing_diagnostic import (
     derive_account_routing_classification,
 )
+from quantos.security import SecretArtifactRejected, validate_secret_free
 
 REPORT_NAME = "account-routing-report.json"
 MATRIX_NAME = "account-routing-matrix.json"
@@ -23,23 +24,6 @@ CANDIDATE_ID = "openai-codex-0.156.1-p10-v3"
 CANDIDATE_VERSION = "0.156.1"
 CANONICAL_VERSION = "0.154.0"
 CANDIDATE_BINARY_SHA256 = "0b2e9301d6100dddda9b3d5c80ebaeaa3a2f1962388f2f36f6b96a9f08b1f33f"
-SECRET_MARKERS = (
-    b"Authorization:",
-    b"Bearer ",
-    b"Cookie:",
-    b"access_token",
-    b"refresh_token",
-    b'"tokens"',
-    b'"OPENAI_API_KEY"',
-    b'"accessToken"',
-    b'"refreshToken"',
-    b'"Authorization"',
-    b'"Cookie"',
-    b"TUSHARE_TOKEN=",
-    b"sk-proj-",
-    b"ghp_",
-    b"gho_",
-)
 
 
 class AccountRoutingArtifactError(ValueError):
@@ -91,8 +75,6 @@ def verify_account_routing_artifact(artifact_path: Path) -> dict[str, object]:
     if {path.name for path in files} != REQUIRED_FILES:
         raise AccountRoutingArtifactError("diagnostic artifact file set is not exact")
     payloads = {path.name: path.read_bytes() for path in files}
-    if any(marker in payload for payload in payloads.values() for marker in SECRET_MARKERS):
-        raise AccountRoutingArtifactError("diagnostic artifact contains a prohibited secret marker")
 
     report_payload = payloads[REPORT_NAME]
     matrix_payload = payloads[MATRIX_NAME]
@@ -100,6 +82,15 @@ def verify_account_routing_artifact(artifact_path: Path) -> dict[str, object]:
     report = _load_json(report_payload, "report")
     matrix = _load_json(matrix_payload, "matrix")
     source = _load_json(source_payload, "source audit")
+    for file_name, value in (
+        (REPORT_NAME, report),
+        (MATRIX_NAME, matrix),
+        (SOURCE_NAME, source),
+    ):
+        try:
+            validate_secret_free(value, file_name=file_name)
+        except SecretArtifactRejected as error:
+            raise AccountRoutingArtifactError(str(error)) from error
     report_hash = sha256_bytes(report_payload)
     matrix_hash = sha256_bytes(matrix_payload)
     source_hash = sha256_bytes(source_payload)
@@ -113,7 +104,7 @@ def verify_account_routing_artifact(artifact_path: Path) -> dict[str, object]:
             "artifact canonical encoding or content address is invalid"
         )
     if (
-        report.get("schema_version") != "fr03-codex-account-routing-diagnostic/v1"
+        report.get("schema_version") != "fr03-codex-account-routing-diagnostic/v2"
         or report.get("candidate_runtime_candidate_id") != CANDIDATE_ID
         or report.get("candidate_sdk_version") != CANDIDATE_VERSION
         or report.get("candidate_runtime_package_version") != CANDIDATE_VERSION
@@ -135,9 +126,9 @@ def verify_account_routing_artifact(artifact_path: Path) -> dict[str, object]:
     run_id = report.get("run_id")
     if (
         not isinstance(run_id, str)
-        or not re.fullmatch(r"fr03-codex-0\.156\.1-account-routing-[0-9]{8}-[0-9]{6}", run_id)
+        or not re.fullmatch(r"fr03-codex-0\.156\.1-account-routing-v2-[0-9]{8}-[0-9]{6}", run_id)
         or matrix.get("run_id") != run_id
-        or matrix.get("schema_version") != "fr03-codex-account-routing-matrix/v1"
+        or matrix.get("schema_version") != "fr03-codex-account-routing-matrix/v2"
     ):
         raise AccountRoutingArtifactError("diagnostic run identity is invalid")
     implementation_commit = report.get("implementation_commit")
@@ -234,8 +225,7 @@ def verify_account_routing_artifact(artifact_path: Path) -> dict[str, object]:
             b.get("account_read_status") != "FAILED"
             or c.get("account_read_status") != "PASS"
             or d.get("config_sha256") != c.get("config_sha256")
-            or not isinstance(c.get("config_projection_fields"), list)
-            or not c.get("config_projection_fields")
+            or c.get("config_projection_fields") != ["chatgpt_base_url"]
             or d.get("config_projection_fields") != c.get("config_projection_fields")
             or d.get("config_projection_complete") is not True
             or d.get("account_read_status") not in {"PASS", "FAILED"}
@@ -247,7 +237,7 @@ def verify_account_routing_artifact(artifact_path: Path) -> dict[str, object]:
         scenario_objects[1].get("account_read_status") == "FAILED"
         and scenario_objects[2].get("account_read_status") == "PASS"
         and scenario_objects[2].get("config_projection_complete") is True
-        and bool(scenario_objects[2].get("config_projection_fields"))
+        and scenario_objects[2].get("config_projection_fields") == ["chatgpt_base_url"]
     ):
         raise AccountRoutingArtifactError(
             "scenario D was required by the observed matrix difference"
@@ -266,6 +256,7 @@ def verify_account_routing_artifact(artifact_path: Path) -> dict[str, object]:
     if (
         report.get("diagnostic_classification") != classification
         or report.get("p10_eligible") is not p10_eligible
+        or source.get("schema_version") != "fr03-codex-account-routing-source-audit/v2"
         or source.get("upstream_source_commits")
         != {
             "rust-v0.154.0": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
@@ -277,7 +268,7 @@ def verify_account_routing_artifact(artifact_path: Path) -> dict[str, object]:
         raise AccountRoutingArtifactError("recomputed classification or source bindings disagree")
 
     return {
-        "schema_version": "fr03-codex-account-routing-verification/v1",
+        "schema_version": "fr03-codex-account-routing-verification/v2",
         "artifact_hash": report_hash,
         "diagnostic_classification": classification,
         "scenario_count": len(scenario_objects),

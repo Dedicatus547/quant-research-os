@@ -116,6 +116,22 @@ def test_diagnostic_matrix_does_not_infer_isolation_change_without_prerequisite_
     assert derive_account_routing_classification(scenarios) == "INCONCLUSIVE"
 
 
+@pytest.mark.parametrize(
+    "fields",
+    [["model_provider"], ["cli_auth_credentials_store"], ["chatgpt_base_url", "model_provider"]],
+)
+def test_diagnostic_matrix_requires_one_known_bootstrap_prerequisite(
+    fields: list[str],
+) -> None:
+    scenarios = [
+        _scenario("A"),
+        _scenario("B", account_read_status="FAILED", rpc_error_classification="UNKNOWN_INTERNAL"),
+        {**_scenario("C"), "config_projection_fields": fields},
+    ]
+
+    assert derive_account_routing_classification(scenarios) == "INCONCLUSIVE"
+
+
 def test_diagnostic_matrix_recomputes_upstream_routing_failure() -> None:
     error = {
         "account_read_status": "FAILED",
