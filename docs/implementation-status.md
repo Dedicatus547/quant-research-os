@@ -1,6 +1,6 @@
 # Implementation status
 
-Status date: 2026-09-23 (P14d-B qualified; P14d-C blocked by FR-03 NO_GO)
+Status date: 2026-09-24 (P14d-B qualified; P14d-C blocked by FR-03 NO_GO)
 
 Offline Engineering and Data-qualified evidence are deliberately reported separately. A synthetic
 or injected-client pass never qualifies a live-data release.
@@ -33,7 +33,7 @@ workspace.
 | P14d-B | Clean-commit independent double-root bounded autonomous campaign qualification, immutable report `13355dcb...754825`, 27 negative cases per root, 3 restart cases per root, replay reuse and exact principal equality | **QUALIFIED**: bounded synthetic offline deterministic autonomous engineering authority only; implementation commit `13d2b7acc44fe33c4f0c45d240fd5fd26e993845`; no real-market, live Agent, FR-03, or sealed-confirmation claim |
 | FR-01 | Existing admitted DSL now passes proposal compiler, resolution, PIT, SignalArtifact, Qlib backtest, and Validation without a project expression runtime; a non-return `field → delta → abs` DAG and negative field/operator cases pass | No new live-data conclusion; existing snapshot/view qualification boundaries remain unchanged |
 | FR-02 | Immutable Qlib ResearchResult adapter binds prediction, label, split, expression, policy, source files, native IC/Rank IC series and summaries; exact-file verification, tamper rejection, independent-root hashes, and G3 integration pass | Only Qlib-native IC/Rank IC outputs are qualified; coverage/turnover/autocorrelation remain outside scope |
-| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0-D0.7 diagnostics, exact-source Code Mode characterization, credential-free loopback chain tests, safe nested-result/metadata projection, post-terminal event drain, Code Mode-aware P10 v3 fixture/evaluator and bottom-up offline replay implemented; offline regression PASS | **NO_GO**: CodeMode-aware P10 已执行；result `6/9`；classification `LIVE_EXEC_NOT_OBSERVED`；report `c5f8f53f...7a1fc`；matched command lifecycle `0/4`；D0.7B1+ remains `CODE_MODE_CHAIN_AVAILABLE` on the deterministic shadow chain; P13 SDK qualification = `NOT_EVALUATED`; FR-03 = `NO_GO` and is now in thin maintenance until upstream progress or a new runtime candidate warrants requalification |
+| FR-03 | Exact-pinned Python SDK/runtime 0.154.0, isolated host, v3 runtime-binary/provenance/observation binding, transport-neutral P10/P13 paths, content-addressed D0-D0.7 diagnostics, exact-source Code Mode characterization, credential-free loopback chain tests, safe nested-result/metadata projection, post-terminal event drain, Code Mode-aware P10 v3 fixture/evaluator and bottom-up offline replay implemented; offline regression PASS | **NO_GO**: canonical CodeMode-aware P10 remains `6/9`, `LIVE_EXEC_NOT_OBSERVED`, `0/4` matched command lifecycle (`c5f8f53f...7a1fc`). Codex 0.156.1 preflight is `NOT_EVALUATED` / CASE D; exact isolated SDK host failed before thread/turn, so no candidate P10 score exists. Upstream classification `ADDITIVE_COMPATIBLE`; no normalizer/evaluator/observation-contract change. See [0.156.1 requalification](fr03-codex-0.156.1-requalification.md). P13 SDK qualification remains `NOT_EVALUATED`; P14d-C remains blocked and unimplemented |
 
 FR-03 update (2026-09-15): the core SDK integration and offline coverage are complete.
 The exact SDK and bundled runtime authenticated and supplied structured output, MCP, Skill, usage,
@@ -109,6 +109,16 @@ hard gate, no new D0.x, no CLI fallback and no dual-stack until upstream progres
 candidate warrants requalification. Mainline returns to `P14b -> P14c`. See
 [the Code Mode-aware P10 record](fr03-code-mode-aware-p10.md) and the
 [qualification matrix](fr03-codex-sdk-qualification.md).
+
+FR-03 update (2026-09-24, Codex 0.156.1): exact-tag source/schema comparison classified the
+candidate `ADDITIVE_COMPATIBLE`; existing v2 normalizer synthetic replay passed. A finite SDK
+runtime candidate profile preserved the canonical 0.154.0 default, but the isolated candidate
+host returned `UNKNOWN` before thread/turn and the public account preflight failed. The candidate
+P10 result is `NOT_EVALUATED`, not a 0/9 or a revised historical 6/9. Canonical pin and frozen P10
+v3 contract remain unchanged. Content-addressed preflight report
+`d41f4009...a67945` replays the historical P10 and candidate synthetic lifecycle offline. FR-03
+remains `NO_GO`; P14d-C remains blocked and unimplemented. See the
+[0.156.1 requalification record](fr03-codex-0.156.1-requalification.md).
 
 P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
 approved Store is materialized locally, and a real Agent proposal passed all six admission checks

@@ -16,6 +16,7 @@ from quantos.contracts import (
     canonical_json_bytes,
 )
 from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
+from quantos.integrations.codex.versioning import expected_codex_versions
 
 
 def _request(tmp_path: Path) -> HarnessExecutionRequest:
@@ -131,6 +132,47 @@ def test_adapter_starts_host_with_exact_environment_and_isolated_auth(
     assert result.runtime is not None and result.runtime.sdk_version == "0.154.0"
     assert result.runtime.runtime_package_version == "0.154.0"
     assert result.capture.agent_messages == ("{}",)
+
+
+def test_adapter_candidate_profile_is_explicit_and_allowlisted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: dict[str, object] = {}
+
+    class CandidateProcess:
+        returncode = 0
+        pid = 124
+
+        def __init__(self, *_args: object, **kwargs: object) -> None:
+            environment = cast(dict[str, str], kwargs["env"])
+            observed["environment"] = dict(environment)
+
+        def communicate(self, _payload: bytes, timeout: float) -> tuple[bytes, bytes]:
+            assert timeout > 0
+            response = cast(dict[str, object], json.loads(_response()))
+            response["sdk_version"] = "0.156.1"
+            response["runtime_package_version"] = "0.156.1"
+            response["runtime_version"] = "0.156.1 test"
+            return canonical_json_bytes(response), b""
+
+    monkeypatch.setattr(subprocess, "Popen", CandidateProcess)
+    adapter = CodexSdkAdapter(
+        authentication_home=tmp_path,
+        runtime_candidate_id="openai-codex-0.156.1-p10-v3",
+    )
+
+    result = adapter.execute(_request(tmp_path))
+
+    environment = cast(dict[str, str], observed["environment"])
+    assert environment["QUANTOS_CODEX_RUNTIME_CANDIDATE_ID"] == "openai-codex-0.156.1-p10-v3"
+    assert result.terminal_error is None
+    assert result.runtime is not None and result.runtime.sdk_version == "0.156.1"
+    assert result.runtime.runtime_package_version == "0.156.1"
+    with pytest.raises(ValueError, match="unsupported Codex runtime candidate"):
+        CodexSdkAdapter(runtime_candidate_id="openai-codex-latest")
+    assert expected_codex_versions(None) == ("0.154.0", "0.154.0")
+    assert expected_codex_versions("openai-codex-0.156.1-p10-v3") == ("0.156.1", "0.156.1")
+    assert expected_codex_versions("openai-codex-latest") is None
 
 
 def test_adapter_timeout_becomes_hashed_failure_without_proposal(

@@ -36,10 +36,14 @@ from quantos.integrations.codex.event_normalizer import (
     CodexEventNormalizationError,
     normalize_provider_events,
 )
+from quantos.integrations.codex.versioning import (
+    CODEX_CANDIDATE_RUNTIME_PROFILES,
+)
 
 _HOST_MODULE = "quantos.integrations.codex.sdk_host"
 _SENSITIVE_PARENT_NAMES = frozenset({"P10_FORBIDDEN_SECRET"})
 _SENSITIVE_PARENT_PREFIXES = ("TUSHARE_",)
+_RUNTIME_CANDIDATE_ENV = "QUANTOS_CODEX_RUNTIME_CANDIDATE_ID"
 
 
 class CodexSdkAdapter:
@@ -50,9 +54,16 @@ class CodexSdkAdapter:
         *,
         authentication_home: Path | None = None,
         host_argv: tuple[str, ...] | None = None,
+        runtime_candidate_id: str | None = None,
     ) -> None:
+        if (
+            runtime_candidate_id is not None
+            and runtime_candidate_id not in CODEX_CANDIDATE_RUNTIME_PROFILES
+        ):
+            raise ValueError("unsupported Codex runtime candidate profile")
         self._authentication_home = authentication_home
         self._host_argv = host_argv or (sys.executable, "-m", _HOST_MODULE)
+        self._runtime_candidate_id = runtime_candidate_id
 
     def execute(self, request: HarnessExecutionRequest) -> HarnessExecutionResult:
         attempts: list[HarnessAttemptResult] = []
@@ -98,6 +109,8 @@ class CodexSdkAdapter:
                 item.name: item.value for item in request.runtime_policy.host_environment
             }
             environment["CODEX_HOME"] = str(isolated_home)
+            if self._runtime_candidate_id is not None:
+                environment[_RUNTIME_CANDIDATE_ENV] = self._runtime_candidate_id
             try:
                 process = subprocess.Popen(
                     self._host_argv,

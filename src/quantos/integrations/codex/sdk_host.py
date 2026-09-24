@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -15,8 +16,7 @@ from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.harness import HarnessErrorKind, HarnessExecutionRequest
 from quantos.integrations.codex.versioning import (
     CODEX_RUNTIME_DISTRIBUTION,
-    CODEX_RUNTIME_PACKAGE_VERSION,
-    CODEX_SDK_VERSION,
+    expected_codex_versions,
 )
 
 MAX_HOST_REQUEST_BYTES = 1_000_000
@@ -104,13 +104,22 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
 
     provider_events: list[dict[str, object]] = []
     try:
+        profile_id = os.environ.get("QUANTOS_CODEX_RUNTIME_CANDIDATE_ID")
+        expected_versions = expected_codex_versions(profile_id)
+        if expected_versions is None:
+            return _failure(
+                HarnessErrorKind.RUNTIME_MISMATCH,
+                RuntimeError("unsupported Codex runtime candidate profile"),
+                retryable=False,
+            )
+        expected_sdk_version, expected_runtime_package_version = expected_versions
         try:
             runtime_package_version = version(CODEX_RUNTIME_DISTRIBUTION)
         except PackageNotFoundError as error:
             return _failure(HarnessErrorKind.RUNTIME_MISMATCH, error, retryable=False)
         if (
-            openai_codex.__version__ != CODEX_SDK_VERSION
-            or runtime_package_version != CODEX_RUNTIME_PACKAGE_VERSION
+            openai_codex.__version__ != expected_sdk_version
+            or runtime_package_version != expected_runtime_package_version
         ):
             return _failure(
                 HarnessErrorKind.RUNTIME_MISMATCH,
@@ -137,7 +146,7 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                     RuntimeError("Codex runtime version is unavailable"),
                     retryable=False,
                 )
-            if runtime_version.partition(" ")[0] != CODEX_RUNTIME_PACKAGE_VERSION:
+            if runtime_version.partition(" ")[0] != expected_runtime_package_version:
                 return _failure(
                     HarnessErrorKind.RUNTIME_MISMATCH,
                     RuntimeError("reported Codex runtime version does not match the pin"),

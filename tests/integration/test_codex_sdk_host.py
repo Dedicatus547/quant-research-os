@@ -34,6 +34,9 @@ from quantos.integrations.codex.sdk_host import (
     _provider_event,
     _sdk_config,
 )
+from quantos.integrations.codex.sdk_host import (
+    execute as sdk_host_execute,
+)
 
 
 def _request(tmp_path: Path) -> HarnessExecutionRequest:
@@ -97,6 +100,19 @@ def test_sdk_host_builds_explicit_runtime_configuration(tmp_path: Path) -> None:
             "set": {"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin", "TZ": "UTC"},
         },
     }
+
+
+def test_sdk_host_rejects_unallowlisted_runtime_candidate_before_starting_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("QUANTOS_CODEX_RUNTIME_CANDIDATE_ID", "openai-codex-latest")
+
+    response = sdk_host_execute(_request(tmp_path))
+
+    error = cast(dict[str, object], response["error"])
+    assert error["kind"] == HarnessErrorKind.RUNTIME_MISMATCH.value
+    assert response["provider_events"] == []
+    assert "message_hash" in error
 
 
 def test_sdk_host_normalizes_model_and_params_notifications() -> None:

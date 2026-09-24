@@ -12,6 +12,12 @@ P13 SDK qualification remains `NOT_EVALUATED`. Local upstream follow-up draft fo
 [openai/codex#46947](https://github.com/openai/codex/issues/46947) is prepared in
 [fr03-codex-46947-followup-draft.md](fr03-codex-46947-followup-draft.md) and has not been posted.
 
+2026-09-24 candidate review: `openai-codex==0.156.1` is `ADDITIVE_COMPATIBLE` with the frozen
+P10 v3 normalizer/observation contract, but the isolated candidate SDK host failed before thread
+and turn. Candidate P10 is therefore `NOT_EVALUATED`; FR-03 remains `NO_GO` on the canonical
+0.154.0 run. No canonical dependency, probe, evaluator or P10 rubric change was made. See the
+[0.156.1 requalification record](fr03-codex-0.156.1-requalification.md).
+
 ## Evidence matrix
 
 | Requirement | Result | Evidence |
