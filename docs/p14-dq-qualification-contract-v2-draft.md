@@ -47,6 +47,21 @@ Only its policy ID and last subperiod endpoint change from the v1 validation pol
 the last subperiod ends at `2025-12-30`. All gates, thresholds, minimum observations,
 stress/parameter grids, earlier subperiods and tolerances remain unchanged.
 
+For **each** of the four policy subperiods, derive its complete weekly schedules
+independently from the verified full Qlib-view calendar for that subperiod, retaining
+only schedules whose decision **and** execution dates are both inside its bounds.
+The frozen view yields 152 schedules for `2015-2017`, 153 for `2018-2020`, 151 for
+`2021-2023`, and 103 for `2024-2025` ending `2025-12-30`; reject a different count
+or a canonical schedule hash that differs from an independent derivation from the
+same verified view. Build and verify that subperiod's PIT cross-section evidence from
+the same immutable snapshot/view and candidate expression using the existing PIT
+service, then run the existing Qlib signal and backtest variant over its full period.
+The `2023-01-01..2025-12-30` campaign-validation schedules and PIT evidence may
+not be sliced or reused as substitutes for earlier subperiod evidence. Retain the
+existing minimum 20 observations per subperiod and every original Validation gate.
+These are robustness variants, not additional autonomous campaign trials. P14d-B's
+historical subperiod behavior and artifacts remain unchanged.
+
 ## 2. Replaced P14c calendar binding
 
 The P14c plan calendar is the complete ordered set of trading sessions from the
@@ -74,9 +89,13 @@ exporter's blanket rejection of any nonfinite native label row:
    and hashes of the unmodified native prediction/label files. Fail if count
    reconciliation or hashes disagree. The verifier must independently reproduce the
    exported pairs and omission audit from the retained unmodified native files.
-4. Require Qlib's native IC and Rank IC series to have exactly one finite observation
-   for every frozen P14c calendar date. Do not drop, fill, recalculate or change any
-   daily statistic or Qlib summary metric. Require finite summary metrics.
+4. Require the native prediction/label key dates to lie only in the frozen test
+   calendar. Require the **native and exported** IC and Rank IC date sets each to
+   equal exactly the 726 frozen P14c calendar dates, with no missing, duplicate or
+   extra date. Compare every exported IC and Rank IC numeric value exactly with its
+   finite native value. Compare all four exported Qlib summary metric names and
+   values exactly with the unmodified native `metrics.json`; reject nonfinite
+   values. Do not drop, fill or recompute any daily statistic or summary metric.
 5. Use an explicit DQ-only export profile with the strict existing behavior as the
    default for every other caller. Keep the ResearchResult v1 file schema and its
    existing verifier. Publish a content-addressed DQ export-audit sidecar in each
@@ -90,14 +109,23 @@ The sidecar binds `research_result_hash`, the five existing native source-file h
 prediction/label content hashes, and `omitted_keys_sha256`. For the last field, sort
 omitted keys by `(trade_date, qlib_instrument_id)` and hash canonical JSON bytes of
 objects with exactly those two fields. Its own hash is derived from canonical bytes;
-the qualification root and final report bind that hash and its exact file path. The
+the successful execution receipt's evidence hashes, corresponding campaign-trial
+evidence, both root principal-hash sets and final report bind that hash and its
+exact file path. Every non-execution-failed candidate ResearchResult must have
+exactly one matching sidecar; no sidecar may be reused across distinct results. The
 count equation `raw = exported + omitted` is mandatory. The verifier checks every
 listed native file and reconstructs every exported value row, rather than trusting
 the sidecar's asserted counts or hash.
 Publish and verify the sidecar before the execution adapter emits a successful
-receipt or records a `TrialOutcome.PASS`; a missing or invalid sidecar is an execution
-failure and cannot yield a P14c-eligible candidate. The independent qualification
-verifier repeats the sidecar check on every rebuilt root.
+receipt or records a `TrialOutcome.PASS`. A DQ-specific verifier must repeat the
+check whenever the receipt/result is read or replayed, before returning a result
+to the orchestrator, and immediately before calling P14c selection over the full
+two-candidate trial/evidence set. This preselection check covers `PASS`,
+`SOFT_REJECT` and `HARD_REJECT` trials carrying a ResearchResult, not just the
+selected candidate. A missing, duplicate, swapped or invalid sidecar causes an
+execution/integrity failure and P14c `FAILED / NOT_EVALUATED`; it cannot become
+`NONPASS_VALIDATION` at `p=1` or `NO_SELECTION`. The independent qualification
+verifier repeats all sidecar checks on every rebuilt root.
 
 Missing instrument-date labels do not become observations in any derived value-row
 artifact. Any missing daily Rank IC, absence of a verified ResearchResult, or inability

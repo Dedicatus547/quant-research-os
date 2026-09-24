@@ -7,7 +7,7 @@ It does not approve the revision, change that frozen v1 contract, or qualify P14
 implementation at `e9d1487` remains a faithful fail-closed attempt under v1.
 The proposed normative amendment is `docs/p14-dq-qualification-contract-v2-draft.md`;
 its review candidate SHA-256 is
-`3590b8aefae3e8db7cced7fa331584f510e5e6d9756cc969d339c3b9426d7d73`.
+`ce2cd21e9b13e26d94b36841a579dbd78f3a37db8443919f547f30b262effb21`.
 This review record provides its incident evidence and review questions.
 
 ## Evidence requiring reopening
@@ -90,6 +90,22 @@ the v1 calendar, or relabeling failed execution as `NO_SELECTION` would violate 
    `FAILED / NOT_EVALUATED`, not an engineering PASS.
 
 ## Review questions and qualification sequence
+
+The first independent GPT-6 Sol High review returned
+**APPROVE_WITH_REQUIRED_FIXES**. Its required fixes are incorporated in the current
+draft for a diff-only re-review:
+
+1. Four complete Validation subperiod schedules and independently verified PIT
+   collections must come from the full frozen view/snapshot, rather than slicing
+   the 2023–2025 baseline. Observed full weekly schedule counts are 152, 153,
+   151 and 103; the existing baseline slice yields 0, 0, 49 and 103.
+2. The DQ sidecar must be verified before successful receipt, on every receipt/result
+   read and replay, and before P14c sees either candidate. It must bind receipt,
+   trial, root and final report evidence, with fail-closed missing/duplicate/swapped
+   behavior.
+3. Native and exported IC/Rank IC dates must each equal the exact 726-session
+   P14c calendar, with values and all four summary metrics checked against native
+   output; native prediction/label keys must stay within the test calendar.
 
 The independent reviewer should decide whether the proposed label-pair export and its
 DQ sidecar preserve ResearchResult authority, and whether the DQ-specific policy-window
