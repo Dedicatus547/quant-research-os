@@ -137,11 +137,12 @@ artifact is present to verify or reinterpret.
 
 | Check | Result |
 |---|---|
-| Allowed classifications, field names, and hashes | `PENDING` |
-| Credential-value rejection matrix | `PENDING` |
-| Synthetic A PASS / B FAILED / C PASS artifact round trip | `PENDING` |
-| Matrix/report/source/secret/hash tampering | `PENDING` |
-| Full engineering gates and clean implementation commit | `PENDING` |
+| Allowed classifications, field names, and hashes | `PASS` |
+| Credential-value rejection matrix | `PASS` |
+| Synthetic A PASS / B FAILED / C PASS artifact round trip | `PASS` |
+| Matrix/report/source/secret/hash tampering | `PASS` |
+| Full engineering gates | `PASS`: 600 tests; 85.12% coverage; Ruff format/check and Pyright pass |
+| Corrected offline implementation commit | recorded in repository history after the live attempt |
 
 ## Fresh v2 runtime evidence
 
@@ -153,14 +154,31 @@ the reviewed upstream source. P10 remains unstarted unless isolated candidate B 
 
 | Evidence | Result |
 |---|---|
-| Implementation commit | `PENDING` |
-| A | `PENDING` |
-| B | `PENDING` |
-| C | `PENDING` |
-| D | `NOT_RUN` |
-| `accounts/check` observability | `PENDING` |
-| Diagnostic classification | `PENDING` |
-| Immutable artifact SHA-256 | `PENDING` |
-| Offline verification | `PENDING` |
-| Host adaptation / P10 eligibility / P10 run | `PENDING` |
+| Implementation commit used by the one matrix attempt | `ff0a9cb7ea52bfe1a9b84aeb8d450c25caf7f83d` |
+| A | `UNKNOWN` (not persisted) |
+| B | `UNKNOWN` (not persisted) |
+| C | `UNKNOWN` (not persisted) |
+| D | `UNKNOWN` whether invoked; no row evidence retained |
+| `accounts/check` observability | `UNKNOWN` |
+| Diagnostic classification | `UNKNOWN` / not derivable |
+| Immutable artifact SHA-256 | none; publication rejected before writing |
+| Offline verification | not possible; no artifact exists |
+| Host adaptation / P10 eligibility / P10 run | no / no / no |
 | FR-03 / P14d-C | `NO_GO` / `BLOCKED_UNIMPLEMENTED` |
+
+## v2 publication instrumentation defect
+
+The single v2 matrix process reached publication after its predeclared scenario sequence, but the
+shared validator rejected a fixed source-audit sentence at
+`$.findings[14]` with `RAW_TOKEN_ASSIGNMENT`. The sentence says the public SDK call sets
+`refreshToken=false`; the scanner treated the safe boolean `false` as credential material. This is
+another validator false positive, not a runtime failure.
+
+No v2 artifact was published. As required, no in-memory row, stdout, temp directory, or elapsed
+time is used to recover outcomes. A, B, and C are **UNKNOWN**. D's invocation is also **UNKNOWN**:
+the runner can conditionally invoke D from the ephemeral A/B/C results, and that condition cannot
+be reconstructed now. `accounts/check` observability, diagnostic classification, and artifact hash
+are therefore unavailable. Offline verification is not possible without an artifact. P10 did not
+start and is ineligible; no score exists. The validator now treats explicit boolean/null assignment
+classifications as safe while continuing to reject credential-like values. The correction passed
+offline gates only; the v2 runtime matrix was not retried.

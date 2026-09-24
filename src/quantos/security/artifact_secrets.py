@@ -12,6 +12,7 @@ _SHA256_PATTERN = re.compile(r"[0-9a-fA-F]{64}\Z")
 _KEY_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
 _FILE_LABEL_PATTERN = re.compile(r"[A-Za-z0-9_.-]{1,128}\Z")
 _SAFE_CLASSIFICATIONS = frozenset({"ABSENT", "PRESENT", "UNKNOWN"})
+_SAFE_ASSIGNMENT_VALUE_PATTERN = r"(?:ABSENT|PRESENT|UNKNOWN|FALSE|TRUE|NONE|NULL)\b"
 _SECRET_KEY_NAMES = frozenset(
     {
         "access_token",
@@ -59,21 +60,22 @@ _VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         "RAW_CREDENTIAL_ASSIGNMENT",
         re.compile(
             r"(?i)\b(?:OPENAI_API_KEY|CODEX_API_KEY|TUSHARE_TOKEN|(?:X[-_])?API[-_]?KEY)"
-            r"\s*[:=]\s*(?!ABSENT\b|PRESENT\b|UNKNOWN\b)[^\s,;]+"
+            rf"\s*[:=]\s*(?!{_SAFE_ASSIGNMENT_VALUE_PATTERN})[^\s,;]+"
         ),
     ),
     (
         "RAW_TOKEN_ASSIGNMENT",
         re.compile(
             r"(?i)\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token)"
-            r"\s*[:=]\s*(?!ABSENT\b|PRESENT\b|UNKNOWN\b)[^\s,;]+"
+            rf"\s*[:=]\s*(?!{_SAFE_ASSIGNMENT_VALUE_PATTERN})[^\s,;]+"
         ),
     ),
     (
         "RAW_EMBEDDED_CREDENTIAL_FIELD",
         re.compile(
-            r"(?is)[\"'](?:authorization|proxy-authorization|cookie|set-cookie|access_token|"
-            r"refresh_token|id_token|api_key|openai_api_key|codex_api_key|tushare_token)"
+            r"(?is)[\"'](?:authorization|proxy-authorization|cookie|set-cookie|"
+            r"access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|"
+            r"openai[_-]?api[_-]?key|codex[_-]?api[_-]?key|tushare[_-]?token)"
             r"[\"']\s*:\s*[\"'](?!(?:ABSENT|PRESENT|UNKNOWN)[\"'])[^\"']+[\"']"
         ),
     ),

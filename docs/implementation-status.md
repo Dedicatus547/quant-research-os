@@ -120,6 +120,16 @@ v3 contract remain unchanged. Content-addressed preflight report
 remains `NO_GO`; P14d-C remains blocked and unimplemented. See the
 [0.156.1 requalification record](fr03-codex-0.156.1-requalification.md).
 
+FR-03 update (2026-09-24, account-routing diagnostic v2): v1 publication failed because its
+serialized-JSON substring scanner matched the safe `OPENAI_API_KEY` property name; no immutable v1
+matrix exists and A/B/C remain `UNKNOWN`. The structure-aware shared validator, v2 schema, synthetic
+round trip, tamper checks, and full offline gates pass. The one v2 matrix attempt reached publication
+but rejected the safe source-audit text `refreshToken=false`; no v2 artifact exists, and A/B/C plus
+whether conditional D ran remain `UNKNOWN`. No outcome was recovered and no matrix row was retried.
+P10 did not start or become eligible; canonical 0.154.0 and frozen P10 v3 remain unchanged. FR-03
+stays `NO_GO`; P14d-C stays blocked and unimplemented. See the
+[v2 instrumentation and outcome record](fr03-codex-account-routing-diagnostic-v2.md).
+
 P13 update (2026-09-10): v2 has been explicitly human-approved and selected by the runner. The
 approved Store is materialized locally, and a real Agent proposal passed all six admission checks
 (manifest `4ecafb334fee9ab91baf1ca72fbcf7953153a820a2cd2229166e2b9aed7c31bf`). The first

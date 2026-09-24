@@ -209,6 +209,12 @@ def test_runner_publisher_round_trips_through_offline_verifier(
     assert result["diagnostic_classification"] == "INCONCLUSIVE"
 
 
+def test_real_source_audit_accepts_safe_refresh_token_boolean() -> None:
+    audit = runner._source_audit()
+
+    validate_secret_free(audit, file_name="upstream-source-audit.json")
+
+
 def _rewrite_artifact(
     path: Path,
     artifact: Path,

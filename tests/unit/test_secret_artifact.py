@@ -17,6 +17,7 @@ from quantos.security import SecretArtifactRejected, validate_secret_free
         {"rpc_error_message_sha256": "c" * 64},
         {"Authorization_header_present": True},
         {"diagnostic": 'config field "OPENAI_API_KEY": "PRESENT" is metadata'},
+        {"diagnostic": "That SDK call sets refreshToken=false."},
         {"parent_managed_environment_presence": {"CODEX_API_KEY": "PRESENT"}},
         {
             "credential_store_mode": "DEFAULT_OR_UNSET",
@@ -96,7 +97,17 @@ def test_safe_secret_metadata_is_allowed(payload: object) -> None:
             "RAW_TOKEN_ASSIGNMENT",
         ),
         (
+            {"diagnostic": "refreshToken=synthetic-refresh-secret"},
+            "$.diagnostic",
+            "RAW_TOKEN_ASSIGNMENT",
+        ),
+        (
             {"diagnostic": 'embedded config: {"Cookie":"session=synthetic-cookie"}'},
+            "$.diagnostic",
+            "RAW_EMBEDDED_CREDENTIAL_FIELD",
+        ),
+        (
+            {"diagnostic": 'embedded config: {"refreshToken":"synthetic-refresh-token"}'},
             "$.diagnostic",
             "RAW_EMBEDDED_CREDENTIAL_FIELD",
         ),
