@@ -132,6 +132,7 @@ from quantos.contracts.research import (
     ResearchPolicy,
     ValidationPolicy,
 )
+from quantos.contracts.research_result import P14dqNativeLabelExportAudit
 from quantos.contracts.snapshot import (
     DataQualityReport,
     DataSnapshotManifest,
@@ -150,8 +151,8 @@ p14d = importlib.import_module(
     "scripts.p14d_qualification" if __package__ else "p14d_qualification"
 )
 
-CONTRACT_PATH = Path("docs/p14-dq-qualification-contract.md")
-FROZEN_CONTRACT_SHA256 = "2e8dab7816f49c45e8728892288673d8565947a76d7202d14681f830f2957069"
+CONTRACT_PATH = Path("docs/p14-dq-qualification-contract-v2-draft.md")
+FROZEN_CONTRACT_SHA256 = "645794fd37108669d712e133bcbdf0305418098d53be10f18155d1321444b13f"
 SNAPSHOT_RELATIVE_PATH = Path(
     "artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
 )
@@ -178,15 +179,15 @@ EXPECTED_RELEASE_REPORT = {
     "limitations": ["SINGLE_SOURCE_NON_VINTAGE"],
 }
 POLICY_PATHS = {
-    "research_policy": Path("configs/research/policy_v1.yaml"),
-    "validation_policy": Path("configs/validation/research_candidate_v1.yaml"),
+    "research_policy": Path("docs/reviews/p14-dq-proposed-research-policy.yaml"),
+    "validation_policy": Path("docs/reviews/p14-dq-proposed-validation-policy.yaml"),
     "cost_policy": Path("configs/backtest/cost_v1.yaml"),
     "backtest_policy": Path("configs/backtest/policy_v1.yaml"),
     "execution_authoring": Path("configs/research/hs300_momentum_v1.yaml"),
 }
 FROZEN_POLICY_FILE_HASHES = {
-    "research_policy": "b9fc6224c3764b7a07109bfd5b7dc84e370039515151dbc6fad4da978b2e306e",
-    "validation_policy": "fc21b697071399a719e47782ecbc7380b802f4f142c3cd0149f33c3682e0114e",
+    "research_policy": "0858014140d42472eddf216caba32910354c6ad7c3cbe4d72ca004cd7fff1dc9",
+    "validation_policy": "4214f8ed1160f8b4134c0b1efbbdedbcbda32d0e42042cf26bf6c4059c07b3e6",
     "cost_policy": "0eb3288018095a026d6dea45b1a98b8963849a67639df14bf22ee8b940ab8bec",
     "backtest_policy": "07deceaaa75137e20b40c3f2072cc97aef44a5348f2d4721eb8da8bc8a0a21cb",
     "execution_authoring": "18854871e2b3f54a472d6366b8214130396b267aad68c7d4868ed2296c8bc679",
@@ -282,7 +283,7 @@ def _view_manifest_bindings_hash(view: QlibViewManifest) -> str:
 def _frozen_contract_hash(workspace: Path) -> str:
     actual = sha256_file(workspace / CONTRACT_PATH)
     if actual != FROZEN_CONTRACT_SHA256:
-        raise QualificationError("P14-DQ contract bytes differ from approved baseline 37880e8")
+        raise QualificationError("P14-DQ contract bytes differ from approved v2 review 46e5f1f")
     return actual
 
 
@@ -537,7 +538,7 @@ def _assert_frozen_policy_periods(
     expected = (
         (research.train.start, research.train.end, date(2015, 1, 1), date(2019, 12, 31)),
         (research.validation.start, research.validation.end, date(2020, 1, 1), date(2022, 12, 31)),
-        (research.test.start, research.test.end, date(2023, 1, 1), date(2025, 12, 31)),
+        (research.test.start, research.test.end, date(2023, 1, 1), date(2025, 12, 30)),
     )
     if any(
         (start, end) != (required_start, required_end)
@@ -637,6 +638,30 @@ def _p14dq_family_manifest() -> tuple[
     return template, family, manifest
 
 
+def _verify_evaluable_end(inputs: _ExternalInputs, research: ResearchPolicy) -> None:
+    """Bind the DQ endpoint to the verified view and its forward-label horizon."""
+
+    try:
+        dates = tuple(
+            date.fromisoformat(line)
+            for line in (inputs.view_path / "calendars" / "day.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if line
+        )
+    except (OSError, ValueError) as error:
+        raise QualificationError("verified Qlib calendar cannot derive the DQ endpoint") from error
+    horizon = research.label_horizon_trading_sessions
+    if (
+        dates != tuple(sorted(set(dates)))
+        or len(dates) <= horizon
+        or dates[-1] != date(2025, 12, 31)
+        or dates[-horizon - 1] != date(2025, 12, 30)
+        or research.test.end != dates[-horizon - 1]
+    ):
+        raise QualificationError("P14-DQ test end is not derived from the verified view")
+
+
 def _proposal(
     campaign: ResearchCampaignSpec,
     candidate: object,
@@ -665,6 +690,7 @@ def _build_case_context(
     """Build the existing P14d context around P14-DQ's frozen live inputs and family."""
 
     case_root.mkdir(parents=True, exist_ok=True)
+    _verify_evaluable_end(inputs, policies.research)
     template, family, manifest = _p14dq_family_manifest()
     fixture = p14d._Fixture(
         fixture_id="p14-dq-live-data-lineage",
@@ -730,7 +756,7 @@ def _build_case_context(
         snapshot_hash=inputs.snapshot.snapshot_hash,
         qlib_view_hash=inputs.view.view_hash,
         development=ResearchSegment(start=date(2020, 1, 1), end=date(2022, 12, 31)),
-        validation=ResearchSegment(start=date(2023, 1, 1), end=date(2025, 12, 31)),
+        validation=ResearchSegment(start=date(2023, 1, 1), end=date(2025, 12, 30)),
         sealed_confirmation=ResearchSegment(start=date(2026, 1, 1), end=date(2026, 1, 30)),
         multiple_testing_policy=MultipleTestingPolicy.PREFROZEN_FINITE_FAMILY,
         stopping_rule=CampaignStoppingRule.BUDGET_EXHAUSTED_OR_MANUAL_CLOSE,
@@ -775,6 +801,7 @@ def _build_case_context(
         "output_root": execution_root,
         "workspace": workspace,
         "canonical_validation": True,
+        "p14dq_v2_profile": True,
     }
     multiple_testing = MultipleTestingPolicySpec(seed="9" * 64)
     selection_policy = SelectionPolicySpec(
@@ -1239,12 +1266,12 @@ def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
         if line.strip()
     )
     derived_dates = tuple(
-        item for item in view_dates if date(2023, 1, 1) <= item <= date(2025, 12, 31)
+        item for item in view_dates if date(2023, 1, 1) <= item <= date(2025, 12, 30)
     )
     if (
         calendar.qlib_view_hash != context.fixture.view_manifest.view_hash
         or calendar.start != date(2023, 1, 1)
-        or calendar.end != date(2025, 12, 31)
+        or calendar.end != date(2025, 12, 30)
         or calendar.trading_dates != derived_dates
         or plan.validation_calendar_hash != calendar.content_hash
     ):
@@ -1301,12 +1328,21 @@ def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
         validation_report = verify_validation_report(validation_path)
         if result.content_hash != result_hash or validation_report.content_hash != validation_hash:
             raise QualificationError("P14-DQ ResearchResult or ValidationReport hash changed")
+        audit = run.adapter._verify_dq_audit_for_request(  # pyright: ignore[reportPrivateUsage]
+            receipt.request, result_hash
+        )
+        if (
+            audit.audit_hash not in receipt.outcome.evidence_hashes
+            or audit.audit_hash not in event.trial.evidence_hashes
+        ):
+            raise QualificationError("P14-DQ trial or receipt omitted its export audit hash")
         evaluations.append(
             P14dqCandidateEvaluation(
                 candidate_hash=candidate_hash,
                 trial_event_hash=event.content_hash,
                 trial_outcome=event.trial.outcome,
                 research_result_hash=result_hash,
+                export_audit_hash=audit.audit_hash,
                 validation_report_hash=validation_hash,
                 validation_status=validation_report.status,
                 validation_verdict=validation_report.verdict,
@@ -2537,6 +2573,22 @@ def _verify_p14dq_bundle_integrity(
             )
             if actual_tree_hash != evidence.artifact_tree_hash:
                 raise QualificationError("P14-DQ root artifact inventory hash differs")
+            for evaluation in evidence.campaign.evaluations:
+                audit_path = (
+                    root_path
+                    / "natural"
+                    / "execution"
+                    / "research-result-audits"
+                    / f"sha256-{evaluation.export_audit_hash}.json"
+                )
+                encoded = audit_path.read_bytes()
+                audit = P14dqNativeLabelExportAudit.model_validate_json(encoded)
+                if (
+                    encoded != canonical_json_bytes(audit.model_dump(mode="python"))
+                    or audit.audit_hash != evaluation.export_audit_hash
+                    or audit.research_result_hash != evaluation.research_result_hash
+                ):
+                    raise QualificationError("P14-DQ root audit path or result binding differs")
             roots.append(evidence)
         if tuple(roots) != report.roots:
             raise QualificationError(

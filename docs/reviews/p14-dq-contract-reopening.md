@@ -1,6 +1,6 @@
 # P14-DQ contract reopening: evaluable live-data window
 
-Status: **DRAFT AMENDMENT — independent Sol High contract review required**
+Status: **v2 amendment approved by independent Sol High contract review; qualification pending**
 
 This document proposes a bounded revision to the P14-DQ contract approved at `37880e8`.
 It does not approve the revision, change that frozen v1 contract, or qualify P14-DQ. The
@@ -114,7 +114,10 @@ The first diff-only re-review also returned **APPROVE_WITH_REQUIRED_FIXES**:
 Validation can fail after ResearchResult creation, so the sidecar gate must cover
 every trial with a ResearchResult regardless of trial outcome. It also required the
 hash-only receipt/trial binding and the pre-P14c DQ failure behavior now stated in
-the draft. This revised text awaits another independent diff-only verdict.
+the draft. The final independent GPT-6 Sol High diff-only review returned
+**APPROVE** for commit `46e5f1f` and the exact v2 draft SHA-256
+`645794fd37108669d712e133bcbdf0305418098d53be10f18155d1321444b13f`.
+This approval authorizes implementation of the amendment; it does not qualify P14-DQ.
 
 The independent reviewer should decide whether the proposed label-pair export and its
 DQ sidecar preserve ResearchResult authority, and whether the DQ-specific policy-window

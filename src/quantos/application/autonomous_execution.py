@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from datetime import time as day_time
 from pathlib import Path
 from typing import Any, Literal, NoReturn
@@ -34,7 +34,9 @@ from quantos.contracts.autonomous import (
 )
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import (
+    CampaignEventType,
     ResearchBudgetSpec,
+    ResearchCampaignEvent,
     ResearchCampaignSpec,
     ResearchFamilySpec,
     TrialOutcome,
@@ -48,7 +50,7 @@ from quantos.contracts.research import (
     ValidationPolicy,
 )
 from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
-from quantos.contracts.research_result import ResearchResultManifest
+from quantos.contracts.research_result import P14dqNativeLabelExportAudit, ResearchResultManifest
 from quantos.contracts.snapshot import DataSnapshotManifest
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
 from quantos.contracts.temporal import DecisionSchedule
@@ -57,6 +59,7 @@ from quantos.data import QlibViewBuildError, SnapshotBuildError, verify_qlib_vie
 from quantos.research.qlib import (
     QlibResearchError,
     QlibWorkflowResearchService,
+    verify_p14dq_native_label_audit,
     verify_research_result,
 )
 from quantos.validation import (
@@ -207,6 +210,7 @@ class QuantosResearchExecutionAdapter:
         output_root: Path,
         workspace: Path,
         canonical_validation: bool = True,
+        p14dq_v2_profile: bool = False,
     ) -> None:
         try:
             verify_candidate_enumeration_manifest(family, template, manifest)
@@ -244,6 +248,16 @@ class QuantosResearchExecutionAdapter:
             ).execution_policy_hash
         ):
             raise ValueError("autonomous execution bindings disagree with frozen inputs")
+        if p14dq_v2_profile and (
+            campaign.campaign_id != "p14-dq-live-data-campaign-v1"
+            or snapshot.snapshot_hash
+            != "6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
+            or view.view_hash
+            != "fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b"
+            or research_policy.policy_id != "p14dq_daily_research_v2"
+            or validation_policy.policy_id != "p14dq_research_candidate_v2"
+        ):
+            raise ValueError("P14-DQ v2 execution profile escaped its frozen campaign")
         self.campaign = campaign
         self.family = family
         self.budget = budget
@@ -262,6 +276,7 @@ class QuantosResearchExecutionAdapter:
         self.output_root = output_root
         self.workspace = workspace
         self.canonical_validation = canonical_validation
+        self.p14dq_v2_profile = p14dq_v2_profile
         self._candidate_by_hash = {item.content_hash: item for item in manifest.candidates}
 
     @property
@@ -283,8 +298,8 @@ class QuantosResearchExecutionAdapter:
 
             compute_charge = self._deterministic_compute_charge(request)
             try:
-                result, report, pit_hash, signal_hash, backtest_hash = self._execute_pipeline(
-                    request
+                result, report, pit_hash, signal_hash, backtest_hash, audit_hash = (
+                    self._execute_pipeline(request)
                 )
                 outcome = self._outcome_from_validation(
                     request,
@@ -293,6 +308,7 @@ class QuantosResearchExecutionAdapter:
                     pit_hash=pit_hash,
                     signal_hash=signal_hash,
                     backtest_hash=backtest_hash,
+                    audit_hash=audit_hash,
                     compute_seconds=compute_charge,
                 )
             except AutonomousOrchestrationError:
@@ -330,7 +346,52 @@ class QuantosResearchExecutionAdapter:
                 )
             except (SnapshotBuildError, QlibViewBuildError, ValidationError) as error:
                 self._integrity("existing research artifact failed authority verification", error)
+            if self.p14dq_v2_profile and outcome.research_result_hash is not None:
+                audit = self._verify_dq_audit_for_request(request, outcome.research_result_hash)
+                if audit.audit_hash not in outcome.evidence_hashes:
+                    self._integrity("DQ export audit is absent before receipt publication")
             return self._publish_receipt(request, outcome)
+
+    def verify_preselection_dq_trials(
+        self, events: tuple[ResearchCampaignEvent, ...]
+    ) -> None:
+        """Reverify every DQ trial and its native-label audit before P14c reads it."""
+
+        if not self.p14dq_v2_profile:
+            self._integrity("DQ preselection verification requires the frozen DQ profile")
+        trials = tuple(
+            event.trial
+            for event in events
+            if event.event_type is CampaignEventType.TRIAL_RECORDED and event.trial is not None
+        )
+        if (
+            len(trials) != len(self.manifest.candidates)
+            or {trial.candidate_hash for trial in trials} != set(self._candidate_by_hash)
+        ):
+            self._integrity("DQ preselection does not cover the full candidate denominator")
+        receipts = tuple(
+            receipt
+            for path in self._receipt_paths()
+            if (receipt := self._read_receipt(path.stem)) is not None
+        )
+        if len(receipts) != len(trials):
+            self._integrity("DQ preselection receipt count differs from campaign trials")
+        for trial in trials:
+            matches = tuple(
+                receipt
+                for receipt in receipts
+                if receipt.request.candidate.content_hash == trial.candidate_hash
+                and receipt.content_hash in trial.evidence_hashes
+            )
+            if len(matches) != 1:
+                self._integrity("DQ trial is not bound to exactly one execution receipt")
+            receipt = matches[0]
+            if (
+                receipt.outcome.outcome is not trial.outcome
+                or not set(receipt.outcome.evidence_hashes).issubset(trial.evidence_hashes)
+            ):
+                self._integrity("DQ trial evidence differs from its receipt")
+            self._verify_receipt(receipt)
 
     def _deterministic_compute_charge(self, request: AutonomousExecutionRequest) -> int:
         """Derive the frozen workload charge for one execution-class request.
@@ -519,7 +580,7 @@ class QuantosResearchExecutionAdapter:
 
     def _execute_pipeline(
         self, request: AutonomousExecutionRequest
-    ) -> tuple[ResearchResultManifest, ValidationReport, str, str, str]:
+    ) -> tuple[ResearchResultManifest, ValidationReport, str, str, str, str | None]:
         authoring = self._authoring(request)
         execution_root = self.output_root / "executions" / request.execution_identity
         schedules = resolve_weekly_decision_schedules(
@@ -577,6 +638,9 @@ class QuantosResearchExecutionAdapter:
             execution_identity=request.execution_identity,
             research_result_root=self.research_results_root,
             workspace=self.workspace,
+            dq_audit_root=(
+                self.output_root / "research-result-audits" if self.p14dq_v2_profile else None
+            ),
         )
         result_manifest = verify_research_result(workflow.build.path)
         if (
@@ -620,12 +684,33 @@ class QuantosResearchExecutionAdapter:
 
         subperiod_variants: dict[str, Any] = {}
         for period in self.validation_policy.subperiods:
-            period_schedules = release.schedules_within_subperiod(
-                schedules, start=period.start, end=period.end
-            )
-            period_evidence = release.subset_compact_pit_evidence(
-                baseline.evidence, period_schedules
-            )
+            if self.p14dq_v2_profile:
+                period_schedules = release.schedules_within_subperiod(
+                    resolve_weekly_decision_schedules(
+                        self.qlib_view_path,
+                        expected_view_hash=request.qlib_view_hash,
+                        evaluation_start=period.start,
+                        evaluation_end=period.end,
+                    ),
+                    start=period.start,
+                    end=period.end,
+                )
+                required = {
+                    "2015-2017": 152,
+                    "2018-2020": 153,
+                    "2021-2023": 151,
+                    "2024-2025": 103,
+                }
+                if len(period_schedules) != required.get(period.period_id):
+                    self._integrity("P14-DQ subperiod schedule differs from the verified view")
+                period_evidence = None
+            else:
+                period_schedules = release.schedules_within_subperiod(
+                    schedules, start=period.start, end=period.end
+                )
+                period_evidence = release.subset_compact_pit_evidence(
+                    baseline.evidence, period_schedules
+                )
             subperiod_authoring = release.variant_authoring(
                 authoring, evaluation_start=period.start, evaluation_end=period.end
             )
@@ -709,6 +794,7 @@ class QuantosResearchExecutionAdapter:
             baseline.evidence.content_hash,
             baseline.signal_hash,
             baseline.backtest_hash,
+            workflow.build.export_audit_hash,
         )
 
     def _outcome_from_validation(
@@ -720,6 +806,7 @@ class QuantosResearchExecutionAdapter:
         pit_hash: str,
         signal_hash: str,
         backtest_hash: str,
+        audit_hash: str | None,
         compute_seconds: int,
     ) -> AutonomousExecutionResult:
         if report.run_status is RunStatus.FAILED:
@@ -744,6 +831,7 @@ class QuantosResearchExecutionAdapter:
                     pit_hash,
                     signal_hash,
                     backtest_hash,
+                    *((audit_hash,) if audit_hash is not None else ()),
                 }
             )
         )
@@ -804,6 +892,12 @@ class QuantosResearchExecutionAdapter:
             self._integrity("execution receipt outcome binds a different request")
         if receipt.outcome.research_result_hash is not None:
             self._verify_result_for_request(request, receipt.outcome.research_result_hash)
+            if self.p14dq_v2_profile:
+                audit = self._verify_dq_audit_for_request(
+                    request, receipt.outcome.research_result_hash
+                )
+                if audit.audit_hash not in receipt.outcome.evidence_hashes:
+                    self._integrity("DQ export audit hash is absent from the execution receipt")
         if receipt.outcome.validation_report_hash is not None:
             report = self._load_validation_report(receipt.outcome.validation_report_hash)
             if (
@@ -838,6 +932,52 @@ class QuantosResearchExecutionAdapter:
         ):
             self._integrity("ResearchResult differs from the exact execution request")
         return result
+
+    def _verify_dq_audit_for_request(
+        self, request: AutonomousExecutionRequest, result_hash: str
+    ) -> P14dqNativeLabelExportAudit:
+        audit_root = self.output_root / "research-result-audits"
+        matches: list[tuple[Path, P14dqNativeLabelExportAudit]] = []
+        try:
+            for path in sorted(audit_root.glob("sha256-*.json")):
+                audit = P14dqNativeLabelExportAudit.model_validate_json(path.read_bytes())
+                if audit.research_result_hash == result_hash:
+                    matches.append((path, audit))
+            if len(matches) != 1:
+                self._integrity("DQ ResearchResult must have exactly one native-label audit")
+            path, expected = matches[0]
+            native_root = (
+                self.output_root
+                / "executions"
+                / request.execution_identity
+                / "qlib-workflow"
+                / "native-records"
+                / f"sha256-{request.execution_identity}"
+            )
+            calendar = tuple(
+                day
+                for day in (
+                    date.fromisoformat(line)
+                    for line in (self.qlib_view_path / "calendars" / "day.txt")
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                    if line
+                )
+                if request.segment_start <= day <= request.segment_end
+            )
+            verified = verify_p14dq_native_label_audit(
+                self.research_results_root / f"sha256-{result_hash}",
+                native_root,
+                path,
+                calendar,
+            )
+            if verified != expected:
+                self._integrity("DQ export audit changed during bottom-up verification")
+        except AutonomousOrchestrationError:
+            raise
+        except (QlibResearchError, OSError, ValueError, ValidationError) as error:
+            self._integrity("DQ native-label export audit failed verification", error)
+        return verified
 
     def _load_validation_report(self, report_hash: str) -> ValidationReport:
         try:

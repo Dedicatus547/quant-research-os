@@ -28,6 +28,7 @@ from quantos.artifacts.store import atomic_write_bytes
 from quantos.contracts.base import canonical_json_bytes
 from quantos.contracts.research import ResearchPolicy, ResolvedExperimentSpec
 from quantos.contracts.status import ReasonCode
+from quantos.data.qlib_view import verify_qlib_view
 from quantos.research.qlib.expression import translate_safe_expression
 from quantos.research.qlib.result import ResearchResultArtifactBuilder, ResearchResultBuildResult
 from quantos.research.qlib.universe import (
@@ -183,6 +184,7 @@ class QlibWorkflowResearchService:
         execution_identity: str,
         research_result_root: Path,
         workspace: Path,
+        dq_audit_root: Path | None = None,
     ) -> QlibWorkflowResearchResult:
         recorder_id = qlib_recorder_id(execution_identity)
         feature = translate_safe_expression(resolved.expression).output_expression
@@ -311,6 +313,25 @@ class QlibWorkflowResearchService:
                 rank_ic=rank_ic,
                 metrics=metrics,
             )
+            dq_calendar: tuple[date, ...] | None = None
+            if dq_audit_root is not None:
+                verified_view = verify_qlib_view(qlib_view_path)
+                if verified_view.view_hash != resolved.qlib_view_hash:
+                    raise QlibResearchError(
+                        ReasonCode.SNAPSHOT_HASH_MISMATCH,
+                        "DQ export view differs from the frozen ResearchResult input",
+                    )
+                dq_calendar = tuple(
+                    day
+                    for day in (
+                        date.fromisoformat(line)
+                        for line in (qlib_view_path / "calendars" / "day.txt")
+                        .read_text(encoding="utf-8")
+                        .splitlines()
+                        if line
+                    )
+                    if resolved.evaluation_start <= day <= resolved.evaluation_end
+                )
             built = ResearchResultArtifactBuilder().build(
                 resolved,
                 research_policy,
@@ -319,6 +340,8 @@ class QlibWorkflowResearchService:
                 research_result_root,
                 qlib_run_id=recorder_id,
                 label_expression=label,
+                dq_calendar=dq_calendar,
+                dq_audit_root=dq_audit_root,
             )
             return QlibWorkflowResearchResult(built, recorder_id, label)
         except QlibResearchError:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +19,7 @@ from quantos.contracts.status import ReasonCode
 from quantos.research.qlib import (
     QlibResearchError,
     ResearchResultArtifactBuilder,
+    verify_p14dq_native_label_audit,
     verify_research_result,
 )
 from quantos.research.qlib import result as result_module
@@ -146,3 +147,65 @@ def test_research_result_tamper_and_missing_native_output_fail_closed(
             label_expression="Ref($close,-1)/$close-1",
         )
     assert incomplete.value.reason_code is ReasonCode.QLIB_EXECUTION_FAILED
+
+
+def test_dq_native_nan_label_audit_rebuilds_export_and_rejects_tampering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resolved, policy, native = _inputs(tmp_path)
+    monkeypatch.setattr(
+        result_module,
+        "verify_signal_artifact",
+        lambda _path: SimpleNamespace(
+            resolved_experiment_hash=resolved.content_hash, artifact_hash="3" * 64
+        ),
+    )
+    labels = pd.read_pickle(native / "label.pkl")
+    labels.loc[("SZ000001", pd.Timestamp("2024-01-03")), "LABEL0"] = float("nan")
+    labels.to_pickle(native / "label.pkl")
+    calendar = (date(2024, 1, 2), date(2024, 1, 3))
+    builder = ResearchResultArtifactBuilder()
+
+    with pytest.raises(QlibResearchError) as strict_failure:
+        builder.build(
+            resolved,
+            policy,
+            tmp_path / "signal",
+            native,
+            tmp_path / "strict-results",
+            qlib_run_id="strict-run",
+            label_expression="Ref($close,-1)/$close-1",
+        )
+    assert strict_failure.value.reason_code is ReasonCode.QLIB_EXECUTION_FAILED
+
+    built = builder.build(
+        resolved,
+        policy,
+        tmp_path / "signal",
+        native,
+        tmp_path / "dq-results",
+        qlib_run_id="dq-run",
+        label_expression="Ref($close,-1)/$close-1",
+        dq_calendar=calendar,
+        dq_audit_root=tmp_path / "dq-audits",
+    )
+    assert built.export_audit_hash is not None
+    assert built.export_audit_path is not None
+    audit = verify_p14dq_native_label_audit(
+        built.path, native, built.export_audit_path, calendar
+    )
+    assert audit.audit_hash == built.export_audit_hash
+    assert (audit.raw_pair_count, audit.exported_pair_count, audit.omitted_nan_label_count) == (
+        4,
+        3,
+        1,
+    )
+    assert built.manifest.prediction_row_count == built.manifest.label_row_count == 3
+    assert built.manifest.ic_row_count == built.manifest.rank_ic_row_count == 2
+
+    (native / "metrics.json").write_bytes(
+        canonical_json_bytes({"IC": 0.15, "ICIR": 3.0, "Rank IC": 0.36, "Rank ICIR": 7.0})
+    )
+    with pytest.raises(QlibResearchError) as tampered:
+        verify_p14dq_native_label_audit(built.path, native, built.export_audit_path, calendar)
+    assert tampered.value.reason_code is ReasonCode.ARTIFACT_CORRUPTED

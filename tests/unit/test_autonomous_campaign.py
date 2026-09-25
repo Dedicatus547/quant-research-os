@@ -660,6 +660,9 @@ def test_p14c_handoff_freezes_or_closes_without_sealed_access(
     inputs.selection.research_results_roots = (result_root,)
 
     class _ResearchResultExecutionPort:
+        def verify_preselection_dq_trials(self, events: object) -> None:
+            assert events
+
         def execute(self, request: AutonomousExecutionRequest) -> AutonomousExecutionResult:
             return AutonomousExecutionResult(
                 request_hash=request.content_hash,

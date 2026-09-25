@@ -1517,6 +1517,11 @@ class AutonomousCampaignOrchestrator:
         started_at: datetime,
         stopping_reason: AutonomousStoppingReason,
     ) -> tuple[AutonomousLoopReport, tuple[CampaignChainEvent, ...]]:
+        if self.selection_finalization_profile == P14DQ_REPORT_ONLY_FINALIZATION_PROFILE:
+            verify_dq = getattr(self.execution_port, "verify_preselection_dq_trials", None)
+            if not callable(verify_dq):
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "DQ preselection verifier is unavailable")
+            verify_dq(tuple(event for event in events if isinstance(event, ResearchCampaignEvent)))
         try:
             report, report_path = self.selection_service.publish_report(
                 events, self.selection_artifact_root

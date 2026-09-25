@@ -51,7 +51,7 @@ def test_contract_bytes_are_pinned_to_the_approved_baseline(tmp_path: Path) -> N
     changed = tmp_path / runner.CONTRACT_PATH
     changed.parent.mkdir(parents=True)
     changed.write_bytes(b"changed contract")
-    with pytest.raises(runner.QualificationError, match="approved baseline"):
+    with pytest.raises(runner.QualificationError, match="approved v2 review"):
         runner._frozen_contract_hash(tmp_path)
 
 

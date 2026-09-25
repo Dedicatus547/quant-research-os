@@ -169,6 +169,7 @@ class P14dqCandidateEvaluation(CanonicalContract):
     trial_event_hash: str = Field(pattern=SHA256_PATTERN)
     trial_outcome: TrialOutcome
     research_result_hash: str = Field(pattern=SHA256_PATTERN)
+    export_audit_hash: str = Field(pattern=SHA256_PATTERN)
     validation_report_hash: str = Field(pattern=SHA256_PATTERN)
     validation_status: Literal[RunStatus.SUCCEEDED] = RunStatus.SUCCEEDED
     validation_verdict: Literal[ValidationVerdict.PASS, ValidationVerdict.REJECT]

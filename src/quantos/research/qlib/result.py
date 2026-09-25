@@ -24,6 +24,7 @@ from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha2
 from quantos.contracts.refs import ArtifactRef
 from quantos.contracts.research import ResearchPolicy, ResolvedExperimentSpec
 from quantos.contracts.research_result import (
+    P14dqNativeLabelExportAudit,
     ResearchResultArtifactFile,
     ResearchResultManifest,
     ResearchResultMetric,
@@ -55,6 +56,94 @@ class ResearchResultBuildResult:
     reference: ArtifactRef
     manifest: ResearchResultManifest
     path: Path
+    export_audit_hash: str | None = None
+    export_audit_path: Path | None = None
+
+
+def _dq_native_projection(
+    native_root: Path,
+    calendar: tuple[date, ...],
+) -> tuple[
+    tuple[ResearchResultValueRow, ...],
+    tuple[ResearchResultValueRow, ...],
+    tuple[ResearchResultSeriesRow, ...],
+    tuple[ResearchResultSeriesRow, ...],
+    int,
+    str,
+]:
+    """Omit only native NaN labels while retaining every finite daily Qlib statistic."""
+
+    if not calendar or calendar != tuple(sorted(set(calendar))):
+        raise ValueError("DQ export calendar is not unique and ordered")
+    calendar_set = set(calendar)
+    prediction = pd.read_pickle(native_root / "pred.pkl")
+    label = pd.read_pickle(native_root / "label.pkl")
+    if (
+        not isinstance(prediction, pd.DataFrame)
+        or not isinstance(label, pd.DataFrame)
+        or prediction.shape[1] != 1
+        or label.shape[1] != 1
+        or not prediction.index.equals(label.index)
+        or not prediction.index.is_unique
+        or len(prediction) == 0
+    ):
+        raise ValueError("DQ native prediction and label keys are incomplete")
+    keep: list[bool] = []
+    omitted: list[dict[str, str]] = []
+    for raw_key, predicted, target in zip(
+        prediction.index, prediction.iloc[:, 0], label.iloc[:, 0], strict=True
+    ):
+        if not isinstance(raw_key, tuple):
+            raise ValueError("DQ native key is not a two-level Qlib key")
+        key = cast("tuple[object, ...]", raw_key)
+        if len(key) != 2:
+            raise ValueError("DQ native key is not a two-level Qlib key")
+        instrument = next((value for value in key if isinstance(value, str)), None)
+        timestamp = next((value for value in key if not isinstance(value, str)), None)
+        if instrument is None or timestamp is None:
+            raise ValueError("DQ native key does not bind instrument and date")
+        trade_date = _trade_date(timestamp)
+        if trade_date not in calendar_set or not math.isfinite(float(predicted)):
+            raise ValueError("DQ prediction is nonfinite or outside the frozen calendar")
+        numeric_target = float(target)
+        if math.isnan(numeric_target):
+            normalized = ResearchResultValueRow(
+                trade_date=trade_date, qlib_instrument_id=instrument.upper(), value=0.0
+            )
+            keep.append(False)
+            omitted.append(
+                {
+                    "trade_date": normalized.trade_date.isoformat(),
+                    "qlib_instrument_id": normalized.qlib_instrument_id,
+                }
+            )
+        elif math.isfinite(numeric_target):
+            keep.append(True)
+        else:
+            raise ValueError("DQ native label is infinite")
+    filtered_prediction = prediction.loc[keep]
+    filtered_label = label.loc[keep]
+    predictions = _value_rows(filtered_prediction, name="prediction")
+    labels = _value_rows(filtered_label, name="label")
+    native_ic = pd.read_pickle(native_root / "sig_analysis/ic.pkl")
+    native_rank_ic = pd.read_pickle(native_root / "sig_analysis/ric.pkl")
+    ic = _series_rows(native_ic, name="IC")
+    rank_ic = _series_rows(native_rank_ic, name="Rank IC")
+    if (
+        tuple(item.trade_date for item in ic) != calendar
+        or tuple(item.trade_date for item in rank_ic) != calendar
+        or any(not math.isfinite(item.value) for item in (*ic, *rank_ic))
+    ):
+        raise ValueError("DQ native IC dates or values differ from the frozen calendar")
+    omitted.sort(key=lambda item: (item["trade_date"], item["qlib_instrument_id"]))
+    return (
+        predictions,
+        labels,
+        ic,
+        rank_ic,
+        len(prediction),
+        sha256_bytes(canonical_json_bytes(omitted)),
+    )
 
 
 def _value_rows(value: object, *, name: str) -> tuple[ResearchResultValueRow, ...]:
@@ -195,6 +284,71 @@ def verify_research_result(path: Path) -> ResearchResultManifest:
     return manifest
 
 
+def verify_p14dq_native_label_audit(
+    result_path: Path,
+    native_root: Path,
+    audit_path: Path,
+    calendar: tuple[date, ...],
+) -> P14dqNativeLabelExportAudit:
+    """Rebuild the DQ-only finite-pair projection from unmodified Qlib source files."""
+
+    try:
+        encoded = audit_path.read_bytes()
+        audit = P14dqNativeLabelExportAudit.model_validate_json(encoded)
+        if (
+            encoded != canonical_json_bytes(audit.model_dump(mode="python"))
+            or audit_path.name != f"sha256-{audit.audit_hash}.json"
+            or audit.calendar_sha256 != sha256_bytes(canonical_json_bytes(calendar))
+        ):
+            raise ValueError("DQ audit canonical bytes, path or calendar differs")
+        result = verify_research_result(result_path)
+        if audit.research_result_hash != result.artifact_hash:
+            raise ValueError("DQ audit is bound to a different ResearchResult")
+        source_files = tuple(
+            ResearchResultSourceFile(
+                logical_path=relative,
+                sha256=sha256_file(native_root / relative),
+                size_bytes=(native_root / relative).stat().st_size,
+            )
+            for relative in _SOURCE_PATHS
+        )
+        if audit.source_files != source_files or result.source_files != source_files:
+            raise ValueError("DQ audit native source files differ")
+        predictions, labels, ic, rank_ic, raw_count, omitted_hash = _dq_native_projection(
+            native_root, calendar
+        )
+        if (
+            audit.raw_pair_count != raw_count
+            or audit.exported_pair_count != len(predictions)
+            or audit.omitted_nan_label_count != raw_count - len(predictions)
+            or audit.omitted_keys_sha256 != omitted_hash
+            or audit.prediction_content_hash != result.prediction_content_hash
+            or audit.label_content_hash != result.label_content_hash
+            or (result_path / "predictions.json").read_bytes() != _row_bytes(predictions)
+            or (result_path / "labels.json").read_bytes() != _row_bytes(labels)
+            or (result_path / "ic-series.json").read_bytes() != _row_bytes(ic)
+            or (result_path / "rank-ic-series.json").read_bytes() != _row_bytes(rank_ic)
+        ):
+            raise ValueError("DQ audit does not reproduce the exported ResearchResult rows")
+        native_metrics = json.loads((native_root / "metrics.json").read_bytes())
+        exact_metrics = tuple(
+            ResearchResultMetric(name=name, value=float(native_metrics[name]))
+            for name in _METRIC_NAMES
+        )
+        if (
+            result.metrics != exact_metrics
+            or any(not math.isfinite(item.value) for item in exact_metrics)
+        ):
+            raise ValueError("DQ audit summary metrics differ from native Qlib output")
+    except QlibResearchError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, ArtifactIntegrityError) as error:
+        raise QlibResearchError(
+            ReasonCode.ARTIFACT_CORRUPTED, "DQ native-label export audit verification failed"
+        ) from error
+    return audit
+
+
 class ResearchResultArtifactBuilder:
     """Export Qlib-owned metrics; this adapter never calculates IC or Rank IC."""
 
@@ -209,7 +363,13 @@ class ResearchResultArtifactBuilder:
         qlib_run_id: str,
         label_expression: str,
         created_at: datetime | None = None,
+        dq_calendar: tuple[date, ...] | None = None,
+        dq_audit_root: Path | None = None,
     ) -> ResearchResultBuildResult:
+        if (dq_calendar is None) != (dq_audit_root is None):
+            raise ValueError("DQ export requires both verified calendar and audit root")
+        raw_count = 0
+        omitted_keys_hash = ""
         try:
             signal = verify_signal_artifact(signal_path)
             if signal.resolved_experiment_hash != resolved.content_hash:
@@ -222,18 +382,25 @@ class ResearchResultArtifactBuilder:
                 )
                 for relative in _SOURCE_PATHS
             )
-            predictions = _value_rows(
-                pd.read_pickle(native_record_root / "pred.pkl"), name="prediction"
-            )
-            labels = _value_rows(pd.read_pickle(native_record_root / "label.pkl"), name="label")
-            if {(row.trade_date, row.qlib_instrument_id) for row in predictions} != {
-                (row.trade_date, row.qlib_instrument_id) for row in labels
-            }:
-                raise ValueError("Qlib prediction and label keys disagree")
-            ic = _series_rows(pd.read_pickle(native_record_root / "sig_analysis/ic.pkl"), name="IC")
-            rank_ic = _series_rows(
-                pd.read_pickle(native_record_root / "sig_analysis/ric.pkl"), name="Rank IC"
-            )
+            if dq_calendar is not None:
+                predictions, labels, ic, rank_ic, raw_count, omitted_keys_hash = (
+                    _dq_native_projection(native_record_root, dq_calendar)
+                )
+            else:
+                predictions = _value_rows(
+                    pd.read_pickle(native_record_root / "pred.pkl"), name="prediction"
+                )
+                labels = _value_rows(pd.read_pickle(native_record_root / "label.pkl"), name="label")
+                if {(row.trade_date, row.qlib_instrument_id) for row in predictions} != {
+                    (row.trade_date, row.qlib_instrument_id) for row in labels
+                }:
+                    raise ValueError("Qlib prediction and label keys disagree")
+                ic = _series_rows(
+                    pd.read_pickle(native_record_root / "sig_analysis/ic.pkl"), name="IC"
+                )
+                rank_ic = _series_rows(
+                    pd.read_pickle(native_record_root / "sig_analysis/ric.pkl"), name="Rank IC"
+                )
             native_metrics = json.loads((native_record_root / "metrics.json").read_bytes())
             metrics = tuple(
                 ResearchResultMetric(name=name, value=float(native_metrics[name]))
@@ -300,6 +467,34 @@ class ResearchResultArtifactBuilder:
                 publish_directory(staging, destination)
                 published = verify_research_result(destination)
         size_bytes = sum(item.stat().st_size for item in destination.rglob("*") if item.is_file())
+        audit: P14dqNativeLabelExportAudit | None = None
+        audit_path: Path | None = None
+        if dq_calendar is not None and dq_audit_root is not None:
+            audit = P14dqNativeLabelExportAudit.create(
+                research_result_hash=published.artifact_hash,
+                source_files=source_files,
+                raw_pair_count=raw_count,
+                exported_pair_count=len(predictions),
+                omitted_nan_label_count=raw_count - len(predictions),
+                prediction_content_hash=published.prediction_content_hash,
+                label_content_hash=published.label_content_hash,
+                omitted_keys_sha256=omitted_keys_hash,
+                calendar_sha256=sha256_bytes(canonical_json_bytes(dq_calendar)),
+            )
+            dq_audit_root.mkdir(parents=True, exist_ok=True)
+            audit_path = dq_audit_root / f"sha256-{audit.audit_hash}.json"
+            encoded = canonical_json_bytes(audit.model_dump(mode="python"))
+            if audit_path.exists():
+                if audit_path.read_bytes() != encoded:
+                    raise QlibResearchError(
+                        ReasonCode.ARTIFACT_CORRUPTED,
+                        "DQ export audit conflicts with an existing immutable artifact",
+                    )
+            else:
+                atomic_write_bytes(audit_path, encoded)
+            verify_p14dq_native_label_audit(
+                destination, native_record_root, audit_path, dq_calendar
+            )
         return ResearchResultBuildResult(
             reference=ArtifactRef(
                 kind="research_result",
@@ -310,4 +505,6 @@ class ResearchResultArtifactBuilder:
             ),
             manifest=published,
             path=destination,
+            export_audit_hash=audit.audit_hash if audit is not None else None,
+            export_audit_path=audit_path,
         )

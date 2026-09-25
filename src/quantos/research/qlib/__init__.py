@@ -18,6 +18,7 @@ from quantos.research.qlib.pit_evidence import (
 from quantos.research.qlib.result import (
     ResearchResultArtifactBuilder,
     ResearchResultBuildResult,
+    verify_p14dq_native_label_audit,
     verify_research_result,
 )
 from quantos.research.qlib.signal import (
@@ -53,6 +54,7 @@ __all__ = [
     "verify_compact_pit_evidence",
     "verify_event_signal_artifact",
     "verify_event_signal_pit",
+    "verify_p14dq_native_label_audit",
     "verify_research_result",
     "verify_signal_artifact",
 ]

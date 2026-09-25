@@ -144,3 +144,47 @@ class ResearchResultManifest(CanonicalContract):
         payload.pop("created_at", None)
         digest = sha256_bytes(canonical_json_bytes(payload))
         return cls.model_validate({"artifact_hash": digest, **values})
+
+
+class P14dqNativeLabelExportAudit(CanonicalContract):
+    """DQ-only proof that finite ResearchResult pairs came from untouched Qlib records."""
+
+    schema_version: Literal["p14dq-native-label-export-audit/v1"] = (
+        "p14dq-native-label-export-audit/v1"
+    )
+    hash_exclude_fields: ClassVar[frozenset[str]] = frozenset({"audit_hash"})
+
+    audit_hash: str = Field(pattern=SHA256_PATTERN)
+    research_result_hash: str = Field(pattern=SHA256_PATTERN)
+    source_files: tuple[ResearchResultSourceFile, ...]
+    raw_pair_count: PositiveInt
+    exported_pair_count: PositiveInt
+    omitted_nan_label_count: NonNegativeInt
+    prediction_content_hash: str = Field(pattern=SHA256_PATTERN)
+    label_content_hash: str = Field(pattern=SHA256_PATTERN)
+    omitted_keys_sha256: str = Field(pattern=SHA256_PATTERN)
+    calendar_sha256: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def audit_is_consistent(self) -> Self:
+        if (
+            self.audit_hash != self.content_hash
+            or self.raw_pair_count != self.exported_pair_count + self.omitted_nan_label_count
+            or tuple(item.logical_path for item in self.source_files)
+            != (
+                "label.pkl",
+                "metrics.json",
+                "pred.pkl",
+                "sig_analysis/ic.pkl",
+                "sig_analysis/ric.pkl",
+            )
+        ):
+            raise ValueError("P14-DQ native-label audit is inconsistent")
+        return self
+
+    @classmethod
+    def create(cls, **values: object) -> Self:
+        payload = {"schema_version": "p14dq-native-label-export-audit/v1", **values}
+        payload.pop("audit_hash", None)
+        digest = sha256_bytes(canonical_json_bytes(payload))
+        return cls.model_validate({"audit_hash": digest, **values})
