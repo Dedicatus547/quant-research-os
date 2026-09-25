@@ -1,6 +1,6 @@
 # P14-DQ contract reopening: evaluable live-data window
 
-Status: **v2 amendment approved by independent Sol High contract review; qualification pending**
+Status: **v2 amendment approved; clean-commit natural qualification FAILED / NOT_EVALUATED**
 
 This document proposes a bounded revision to the P14-DQ contract approved at `37880e8`.
 It does not approve the revision, change that frozen v1 contract, or qualify P14-DQ. The
@@ -127,3 +127,25 @@ implementation. If approved, implement against a new pinned v2 contract hash, ru
 regression and a natural live-data preflight, then run the formal clean-commit independent
 double-root qualification and an independent Sol acceptance gate. A failed natural
 Validation or selection outcome must remain failed evidence.
+
+## Clean-commit implementation and natural outcome
+
+The v2 implementation is committed at `ab64cb1`, with the approved draft bytes still
+hashing to `645794fd37108669d712e133bcbdf0305418098d53be10f18155d1321444b13f`.
+Targeted ResearchResult, autonomous campaign/execution, P14-DQ and release tests passed
+(46 in the combined targeted run, plus 6 release tests). Ruff and Pyright passed;
+`git diff --check` found no whitespace errors. No contract policy bytes were changed
+after review approval.
+
+The formal run from that clean implementation commit used the exact frozen snapshot,
+Qlib view and P2–P7 release. It retained the failed attempt at
+`artifacts/qualification/p14-dq/attempts/sha256-c9db27763e6b39be70fe96fe1047cd3f39f593b891f035f999864b0567eeeed0`.
+The attempt's 508-file exact inventory, sizes and hashes verify; it contains no
+`qualification-report.json` or P14-DQ PASS report. Both natural execution receipts are
+`SOFT_REJECT`, with separate verified ResearchResult and ValidationReport hashes. The
+P14c report at `sha256-c79d18ca3decd7157084361325f3e04cfbfb7ea63e31bc36bba5a2168a18db6c`
+is `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`, with no selected candidate. There are
+zero eligible candidates, so the runner correctly failed closed before an independent
+double-root PASS could be produced. This natural result is binding under v2 §4 and
+does not qualify P14-DQ. No threshold, eligibility, statistical or policy-window
+change follows from this failed run.
