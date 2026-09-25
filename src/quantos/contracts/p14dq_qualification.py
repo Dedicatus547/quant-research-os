@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
+from types import MappingProxyType
 from typing import ClassVar, Literal, Self
 
 from pydantic import Field, NonNegativeInt, PositiveInt, field_validator, model_validator
@@ -22,6 +24,7 @@ from quantos.contracts.p14d_qualification import (
 )
 from quantos.contracts.refs import SHA256_PATTERN, validate_logical_path
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
+from quantos.contracts.validation import GateSeverity, ValidationGateId
 
 P14DQ_SNAPSHOT_HASH = "6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
 P14DQ_VIEW_HASH = "fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b"
@@ -55,6 +58,56 @@ P14DQ_RESTART_CASES = (
     "CAMPAIGN_TRIAL_COMMITTED_LEDGER_RECONCILIATION_INCOMPLETE",
     "P14C_REPORT_PUBLISHED_BEFORE_CAMPAIGN_CLOSE",
 )
+
+# Frozen Validation gate contract for the zero-eligible engineering exception. The gate
+# order, severity map and admissible-rejection allowlist are copied into the P14-DQ
+# contract on purpose: if the live Validation contract ever adds, removes or reseverities
+# a gate, the recorded gate set stops matching this frozen tuple and the evidence fails
+# closed instead of silently widening the exception.
+P14DQ_FROZEN_VALIDATION_GATE_ORDER: tuple[ValidationGateId, ...] = (
+    ValidationGateId.G0_SCHEMA_REFERENCE,
+    ValidationGateId.G1_SNAPSHOT_DATA_QUALITY,
+    ValidationGateId.G2_PIT_LINEAGE,
+    ValidationGateId.G3_FACTOR_RESEARCH,
+    ValidationGateId.G4_REFERENCE_BACKTEST,
+    ValidationGateId.G5_OUT_OF_SAMPLE,
+    ValidationGateId.G6_COST_STRESS,
+    ValidationGateId.G7_PARAMETER_STABILITY,
+    ValidationGateId.G8_SUBPERIOD_STABILITY,
+    ValidationGateId.G9_REPRODUCIBILITY,
+    ValidationGateId.G10_ARTIFACT_INTEGRITY,
+)
+P14DQ_FROZEN_VALIDATION_GATE_SEVERITY: Mapping[ValidationGateId, GateSeverity] = MappingProxyType(
+    {
+        ValidationGateId.G0_SCHEMA_REFERENCE: GateSeverity.HARD,
+        ValidationGateId.G1_SNAPSHOT_DATA_QUALITY: GateSeverity.HARD,
+        ValidationGateId.G2_PIT_LINEAGE: GateSeverity.HARD,
+        ValidationGateId.G3_FACTOR_RESEARCH: GateSeverity.SOFT,
+        ValidationGateId.G4_REFERENCE_BACKTEST: GateSeverity.SOFT,
+        ValidationGateId.G5_OUT_OF_SAMPLE: GateSeverity.SOFT,
+        ValidationGateId.G6_COST_STRESS: GateSeverity.SOFT,
+        ValidationGateId.G7_PARAMETER_STABILITY: GateSeverity.SOFT,
+        ValidationGateId.G8_SUBPERIOD_STABILITY: GateSeverity.SOFT,
+        ValidationGateId.G9_REPRODUCIBILITY: GateSeverity.HARD,
+        ValidationGateId.G10_ARTIFACT_INTEGRITY: GateSeverity.HARD,
+    }
+)
+P14DQ_REQUIRED_PASSING_GATES: tuple[ValidationGateId, ...] = (
+    ValidationGateId.G0_SCHEMA_REFERENCE,
+    ValidationGateId.G1_SNAPSHOT_DATA_QUALITY,
+    ValidationGateId.G2_PIT_LINEAGE,
+    ValidationGateId.G4_REFERENCE_BACKTEST,
+    ValidationGateId.G9_REPRODUCIBILITY,
+    ValidationGateId.G10_ARTIFACT_INTEGRITY,
+)
+P14DQ_ADMISSIBLE_SOFT_REJECTION_GATES: tuple[ValidationGateId, ...] = (
+    ValidationGateId.G3_FACTOR_RESEARCH,
+    ValidationGateId.G5_OUT_OF_SAMPLE,
+    ValidationGateId.G6_COST_STRESS,
+    ValidationGateId.G7_PARAMETER_STABILITY,
+    ValidationGateId.G8_SUBPERIOD_STABILITY,
+)
+P14DQ_ADMISSIBLE_SOFT_REJECTION_REASON = ReasonCode.SOFT_THRESHOLD_NOT_MET
 
 
 class P14dqNamedHash(CanonicalContract):
@@ -163,8 +216,30 @@ class P14dqExternalBindings(CanonicalContract):
         return self
 
 
+class P14dqValidationGateEvidence(CanonicalContract):
+    """One frozen Validation gate outcome, recorded only as a verified fact."""
+
+    schema_version: Literal["p14dq-validation-gate-evidence/v1"] = (
+        "p14dq-validation-gate-evidence/v1"
+    )
+    gate_id: ValidationGateId
+    severity: GateSeverity
+    verdict: ValidationVerdict
+    reason_code: ReasonCode | None = None
+
+    @model_validator(mode="after")
+    def outcome_is_consistent(self) -> Self:
+        if self.severity is not P14DQ_FROZEN_VALIDATION_GATE_SEVERITY[self.gate_id]:
+            raise ValueError("P14-DQ validation gate severity differs from the frozen contract")
+        if self.verdict is ValidationVerdict.PASS and self.reason_code is not None:
+            raise ValueError("passing P14-DQ validation gate cannot carry a reason code")
+        if self.verdict is ValidationVerdict.REJECT and self.reason_code is None:
+            raise ValueError("rejected P14-DQ validation gate requires a reason code")
+        return self
+
+
 class P14dqCandidateEvaluation(CanonicalContract):
-    schema_version: Literal["p14dq-candidate-evaluation/v1"] = "p14dq-candidate-evaluation/v1"
+    schema_version: Literal["p14dq-candidate-evaluation/v2"] = "p14dq-candidate-evaluation/v2"
     candidate_hash: str = Field(pattern=SHA256_PATTERN)
     trial_event_hash: str = Field(pattern=SHA256_PATTERN)
     trial_outcome: TrialOutcome
@@ -173,22 +248,84 @@ class P14dqCandidateEvaluation(CanonicalContract):
     validation_report_hash: str = Field(pattern=SHA256_PATTERN)
     validation_status: Literal[RunStatus.SUCCEEDED] = RunStatus.SUCCEEDED
     validation_verdict: Literal[ValidationVerdict.PASS, ValidationVerdict.REJECT]
+    validation_gates: tuple[P14dqValidationGateEvidence, ...]
 
     @model_validator(mode="after")
     def result_matches_verdict(self) -> Self:
+        if tuple(item.gate_id for item in self.validation_gates) != (
+            P14DQ_FROZEN_VALIDATION_GATE_ORDER
+        ):
+            raise ValueError(
+                "P14-DQ natural candidate must record the complete frozen Validation gate set"
+            )
+        rejected = tuple(
+            item for item in self.validation_gates if item.verdict is ValidationVerdict.REJECT
+        )
+        not_evaluated = tuple(
+            item
+            for item in self.validation_gates
+            if item.verdict is ValidationVerdict.NOT_EVALUATED
+        )
+        verdict = (
+            ValidationVerdict.REJECT
+            if rejected
+            else ValidationVerdict.PASS
+            if not not_evaluated
+            else ValidationVerdict.NOT_EVALUATED
+        )
+        if verdict is not self.validation_verdict:
+            raise ValueError("P14-DQ Validation verdict differs from its recorded gates")
+        hard_rejected = any(item.severity is GateSeverity.HARD for item in rejected)
         if self.trial_outcome is TrialOutcome.PASS:
             valid = self.validation_verdict is ValidationVerdict.PASS
-        elif self.trial_outcome in {TrialOutcome.SOFT_REJECT, TrialOutcome.HARD_REJECT}:
-            valid = self.validation_verdict is ValidationVerdict.REJECT
+        elif self.trial_outcome is TrialOutcome.SOFT_REJECT:
+            valid = self.validation_verdict is ValidationVerdict.REJECT and not hard_rejected
+        elif self.trial_outcome is TrialOutcome.HARD_REJECT:
+            valid = self.validation_verdict is ValidationVerdict.REJECT and hard_rejected
         else:
             valid = False
         if not valid:
             raise ValueError("P14-DQ natural candidate outcome is not a Validation disposition")
         return self
 
+    def admissible_research_rejection(self) -> bool:
+        """Rebuild the only zero-eligible rejection the v3 exception may accept.
+
+        Positive allowlist: a genuine executed research-threshold rejection must leave
+        every HARD gate and the reference-backtest gate PASS, must not contain any
+        NOT_EVALUATED gate, and every REJECT gate must be one of the frozen soft
+        research gates rejected solely for `SOFT_THRESHOLD_NOT_MET`. Any other
+        rejection cause, gate, severity or reason code fails closed. This is derived
+        from recorded gate facts and is never supplied as a caller assertion.
+        """
+
+        if self.validation_status is not RunStatus.SUCCEEDED:
+            return False
+        if self.validation_verdict is not ValidationVerdict.REJECT:
+            return False
+        if any(item.verdict is ValidationVerdict.NOT_EVALUATED for item in self.validation_gates):
+            return False
+        if any(
+            item.verdict is not ValidationVerdict.PASS
+            for item in self.validation_gates
+            if item.gate_id in P14DQ_REQUIRED_PASSING_GATES
+        ):
+            return False
+        rejected = tuple(
+            item for item in self.validation_gates if item.verdict is ValidationVerdict.REJECT
+        )
+        if not rejected:
+            return False
+        return all(
+            item.gate_id in P14DQ_ADMISSIBLE_SOFT_REJECTION_GATES
+            and item.severity is GateSeverity.SOFT
+            and item.reason_code is P14DQ_ADMISSIBLE_SOFT_REJECTION_REASON
+            for item in rejected
+        )
+
 
 class P14dqCampaignEvidence(CanonicalContract):
-    schema_version: Literal["p14dq-campaign-evidence/v2"] = "p14dq-campaign-evidence/v2"
+    schema_version: Literal["p14dq-campaign-evidence/v3"] = "p14dq-campaign-evidence/v3"
     campaign_hash: str = Field(pattern=SHA256_PATTERN)
     family_hash: Literal["fbc0a11c08e502eaeb8abe5f7f9f5db390d9296a24a34607cd404e3655991bbb"]
     budget_hash: str = Field(pattern=SHA256_PATTERN)
@@ -264,6 +401,7 @@ class P14dqCampaignEvidence(CanonicalContract):
                     item.trial_outcome not in {TrialOutcome.SOFT_REJECT, TrialOutcome.HARD_REJECT}
                     for item in self.evaluations
                 )
+                or not all(item.admissible_research_rejection() for item in self.evaluations)
             ):
                 raise ValueError("P14-DQ zero-eligible natural outcome is not exact")
         elif (
@@ -368,7 +506,7 @@ class P14dqReplayCaseEvidence(CanonicalContract):
 
 
 class P14dqRootEvidence(CanonicalContract):
-    schema_version: Literal["p14dq-root-evidence/v2"] = "p14dq-root-evidence/v2"
+    schema_version: Literal["p14dq-root-evidence/v3"] = "p14dq-root-evidence/v3"
     root_id: Literal["root-A", "root-B"]
     external_bindings_hash: str = Field(pattern=SHA256_PATTERN)
     family_hash: Literal["fbc0a11c08e502eaeb8abe5f7f9f5db390d9296a24a34607cd404e3655991bbb"]
@@ -455,7 +593,7 @@ def p14dq_principal_hash_summary(roots: tuple[P14dqRootEvidence, ...]) -> str:
 class P14dqQualificationReport(CanonicalContract):
     """Content-addressed, successful P14-DQ engineering qualification report."""
 
-    schema_version: Literal["p14dq-qualification-report/v2"] = "p14dq-qualification-report/v2"
+    schema_version: Literal["p14dq-qualification-report/v3"] = "p14dq-qualification-report/v3"
     hash_exclude_fields: ClassVar[frozenset[str]] = frozenset({"qualification_hash"})
 
     qualification_hash: str = Field(pattern=SHA256_PATTERN)
@@ -579,11 +717,16 @@ class P14dqQualificationReport(CanonicalContract):
 
 
 __all__ = [
+    "P14DQ_ADMISSIBLE_SOFT_REJECTION_GATES",
+    "P14DQ_ADMISSIBLE_SOFT_REJECTION_REASON",
     "P14DQ_CANDIDATE_HASHES",
     "P14DQ_CANDIDATE_MANIFEST_HASH",
     "P14DQ_FAMILY_HASH",
+    "P14DQ_FROZEN_VALIDATION_GATE_ORDER",
+    "P14DQ_FROZEN_VALIDATION_GATE_SEVERITY",
     "P14DQ_LIMITATIONS",
     "P14DQ_NEGATIVE_CASES",
+    "P14DQ_REQUIRED_PASSING_GATES",
     "P14DQ_RESTART_CASES",
     "P14DQ_SNAPSHOT_HASH",
     "P14DQ_TEMPLATE_HASH",
@@ -601,6 +744,7 @@ __all__ = [
     "P14dqReplayCaseEvidence",
     "P14dqRestartCaseEvidence",
     "P14dqRootEvidence",
+    "P14dqValidationGateEvidence",
     "p14dq_principal_hash_summary",
     "p14dq_root_principal_hash",
     "p14dq_root_principal_payload",

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import csv
+import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -22,6 +24,7 @@ from quantos.application.autonomous import (
     ScriptedAgentDriver,
 )
 from quantos.application.autonomous_execution import (
+    AutonomousExecutionReceipt,
     QuantosResearchExecutionAdapter,
     build_autonomous_execution_bindings,
 )
@@ -55,6 +58,7 @@ from quantos.contracts.campaign import (
 )
 from quantos.contracts.campaign_selection import (
     CampaignSelectionVerdict,
+    CandidateDispositionKind,
     MultipleTestingPolicySpec,
     SelectionPolicySpec,
 )
@@ -71,13 +75,25 @@ from quantos.contracts.ledger import (
     ResearchLedgerObjectRef,
     ResearchLedgerSearchPolicy,
 )
+from quantos.contracts.p14dq_qualification import (
+    P14DQ_CANDIDATE_HASHES,
+    P14DQ_CANDIDATE_MANIFEST_HASH,
+    P14DQ_FAMILY_HASH,
+    P14dqCampaignEvidence,
+    P14dqCandidateEvaluation,
+    P14dqValidationGateEvidence,
+)
 from quantos.contracts.pit import SafeQlibOperator
 from quantos.contracts.qlib_view import QlibViewManifest
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
     HardGateId,
     ResearchPolicy,
+    ResolvedExperimentSpec,
+    SoftGateThreshold,
+    SoftMetric,
     StrategyAuthoringSpec,
+    ThresholdComparison,
     ValidationPolicy,
     ValidationSubperiod,
 )
@@ -85,13 +101,17 @@ from quantos.contracts.research import (
     ResearchSegment as PolicySegment,
 )
 from quantos.contracts.snapshot import DataSnapshotManifest
-from quantos.contracts.status import ReasonCode
+from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
+from quantos.contracts.validation import GateSeverity, ValidationGateId
 from quantos.data import SyntheticSnapshotBuilder, verify_qlib_view, verify_snapshot
 from quantos.research.qlib import (
     QlibResearchError,
     QlibWorkflowResearchService,
+    ResearchResultArtifactBuilder,
+    verify_p14dq_native_label_audit,
     verify_research_result,
 )
+from quantos.validation import verify_validation_report
 
 ROOT = Path(__file__).parents[2]
 FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "p14d_e2e"
@@ -339,6 +359,9 @@ def _contracts(
     view: QlibViewManifest,
     view_hash: str,
     qlib_view_path: Path,
+    *,
+    family_bundle: tuple[object, object, object] | None = None,
+    soft_reject: bool = False,
 ) -> tuple[object, ...]:
     ledger_id = "p14d-e2e-ledger"
     ledger = ResearchLedgerService(root / "ledger")
@@ -386,6 +409,8 @@ def _contracts(
         declared_candidate_count=2,
     )
     manifest = enumerate_research_family(family, template)
+    if family_bundle is not None:
+        template, family, manifest = family_bundle
     first_candidate = manifest.candidates[0]
     trial_window = cast(int, first_candidate.parameters[0].value)
     budget = ResearchBudgetSpec(
@@ -430,6 +455,17 @@ def _contracts(
     validation_policy = ValidationPolicy(
         policy_id="p14d-e2e-validation-policy",
         hard_gates=tuple(HardGateId),
+        soft_gates=(
+            (
+                SoftGateThreshold(
+                    metric=SoftMetric.OOS_SHARPE,
+                    comparison=ThresholdComparison.MIN,
+                    threshold=1.0e9,
+                ),
+            )
+            if soft_reject
+            else ()
+        ),
         minimum_oos_observations=1,
         parameter_windows=(trial_window,),
         parameter_top_k=(1,),
@@ -949,3 +985,402 @@ def test_scripted_autonomous_real_execution_restart_ledger_and_p14c(
     monkeypatch.setattr(release, "build_research_variant", raise_unexpected_bug)
     with pytest.raises(TypeError, match="unexpected internal implementation failure"):
         unexpected_adapter.execute(failure_request)
+
+
+def _load_p14dq_runner() -> object:
+    """Load the frozen P14-DQ qualification runner exactly as its unit test does."""
+
+    spec = importlib.util.spec_from_file_location(
+        "p14dq_zero_eligible_path_runner", ROOT / "scripts/p14dq_qualification.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(str(ROOT / "scripts"))
+    return module
+
+
+def _revalidated(
+    evaluation: P14dqCandidateEvaluation,
+    gates: tuple[P14dqValidationGateEvidence, ...],
+    trial_outcome: TrialOutcome,
+) -> P14dqCandidateEvaluation:
+    return P14dqCandidateEvaluation.model_validate(
+        {
+            **evaluation.model_dump(mode="python"),
+            "validation_gates": gates,
+            "trial_outcome": trial_outcome,
+        }
+    )
+
+
+def test_p14dq_zero_eligible_natural_path_reaches_engineering_acceptance(
+    tmp_path: Path,
+) -> None:
+    """Full zero-eligible P14-DQ path over real artifacts.
+
+    Real candidate execution -> real ResearchResult -> real DQ native-label export-audit
+    sidecar -> real Validation `SUCCEEDED`/`REJECT` produced by a genuine soft research
+    threshold -> the exact P14-DQ admissible-rejection predicate -> a real P14c
+    `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE` report with zero eligible candidates ->
+    the P14-DQ engineering acceptance layer.
+
+    Boundary: the frozen P14-DQ campaign/snapshot/view artifacts are ~198 MB and
+    gitignored, and the adapter refuses `p14dq_v2_profile` on any other inputs, so this
+    test runs the frozen P14-DQ template/family/manifest on the synthetic fixture
+    snapshot/view and creates each DQ sidecar through the same frozen builder API. No
+    frozen threshold, gate, policy, family, manifest or P14c rule is modified.
+    """
+
+    runner = _load_p14dq_runner()
+    family_bundle = runner._p14dq_family_manifest()
+    manifest = family_bundle[2]
+    assert tuple(item.content_hash for item in manifest.candidates) == P14DQ_CANDIDATE_HASHES
+
+    fixture_root = tmp_path / "fixture"
+    dates = _synthetic_fixture(fixture_root)
+    snapshot_fixture = _fixture_hash_directory(E2E_SNAPSHOT_FIXTURE_ROOT)[0]
+    snapshot_path = tmp_path / "prebuilt-snapshot" / snapshot_fixture.name
+    shutil.copytree(snapshot_fixture, snapshot_path)
+    snapshot_manifest = verify_snapshot(snapshot_path)
+    view_fixture = _fixture_hash_directory(E2E_VIEW_FIXTURE_ROOT)[0]
+    view_path = tmp_path / "prebuilt-views" / view_fixture.name
+    shutil.copytree(view_fixture, view_path)
+    view_manifest = verify_qlib_view(view_path)
+
+    contracts = _contracts(
+        tmp_path,
+        dates,
+        snapshot_manifest,
+        snapshot_path,
+        snapshot_manifest.snapshot_hash,
+        view_manifest,
+        view_manifest.view_hash,
+        view_path,
+        family_bundle=family_bundle,
+        soft_reject=True,
+    )
+    (
+        ledger_id,
+        initial_ledger,
+        ledger,
+        campaign,
+        campaign_family,
+        budget,
+        campaign_template,
+        campaign_manifest,
+        search_policy,
+        context_budget,
+        campaign_policy,
+        agent_policy,
+        selection,
+        initial_events,
+        adapter_args,
+        _proposal,
+        _malformed,
+        execution_root,
+    ) = contracts
+    assert campaign_family.content_hash == P14DQ_FAMILY_HASH
+    assert campaign_manifest.content_hash == P14DQ_CANDIDATE_MANIFEST_HASH
+    research_policy = cast(ResearchPolicy, cast(dict[str, object], adapter_args)["research_policy"])
+
+    proposals = tuple(
+        AutonomousCandidateProposal(
+            campaign_hash=cast(ResearchCampaignSpec, campaign).content_hash,
+            candidate_hash=candidate.content_hash,
+            parameters=candidate.parameters,
+            expression=candidate.expression,
+            exact_expression_hash=candidate.exact_expression_hash,
+            structural_expression_hash=candidate.structural_expression_hash,
+            rationale=f"zero-eligible deterministic proposal {index}",
+        )
+        for index, candidate in enumerate(cast(object, campaign_manifest).candidates)
+    )
+    execution_port = QuantosResearchExecutionAdapter(**cast(dict[str, object], adapter_args))
+    orchestrator = AutonomousCampaignOrchestrator(
+        campaign=cast(ResearchCampaignSpec, campaign),
+        family=cast(ResearchFamilySpec, campaign_family),
+        budget=cast(ResearchBudgetSpec, budget),
+        template=cast(ResearchFactorTemplateSpec, campaign_template),
+        manifest=cast(object, campaign_manifest),
+        initial_ledger_snapshot=cast(object, initial_ledger),
+        ledger_service=cast(ResearchLedgerService, ledger),
+        ledger_id=cast(str, ledger_id),
+        search_policy=cast(ResearchLedgerSearchPolicy, search_policy),
+        context_budget=cast(ResearchContextBudgetPolicy, context_budget),
+        campaign_policy=cast(AutonomousCampaignPolicy, campaign_policy),
+        agent_run_policy=cast(AutonomousAgentRunPolicy, agent_policy),
+        agent_driver=ScriptedAgentDriver(
+            cast(tuple[AutonomousCandidateProposal, ...], proposals),
+            cast(AutonomousAgentRunPolicy, agent_policy),
+        ),
+        execution_port=execution_port,
+        exchange_root=tmp_path / "agent-exchanges",
+        event_root=tmp_path / "campaign-events",
+        selection_service=cast(CampaignSelectionService, selection),
+        selection_artifact_root=tmp_path / "selection-reports",
+        autonomous_report_root=tmp_path / "loop-reports",
+        execution_bindings=cast(object, cast(dict[str, object], adapter_args)["bindings"]),
+    )
+    cast(CampaignEventStore, orchestrator.event_store).seed(
+        cast(tuple[CampaignChainEvent, ...], initial_events),
+        cast(ResearchCampaignGovernor, orchestrator.governor),
+        cast(ResearchCampaignSpec, campaign),
+        cast(ResearchBudgetSpec, budget),
+    )
+    started_at = NOW + timedelta(seconds=30)
+    report, events = orchestrator.run(
+        cast(tuple[CampaignChainEvent, ...], initial_events), started_at=started_at
+    )
+
+    trial_events = [event for event in events if getattr(event, "trial", None) is not None]
+    trials = [event.trial for event in trial_events]
+    trial_by_candidate = {cast(object, event.trial).candidate_hash: event for event in trial_events}
+    assert len(trials) == 2
+    assert [item.outcome for item in trials] == [
+        TrialOutcome.SOFT_REJECT,
+        TrialOutcome.SOFT_REJECT,
+    ]
+    assert report.state is AutonomousLoopState.SELECTION_COMPLETE
+    assert report.selection_event_hash is None
+    assert report.sealed_confirmation_authority is False
+
+    receipt_root = cast(Path, execution_root) / "execution-records" / "identities"
+    receipts = tuple(
+        AutonomousExecutionReceipt.model_validate_json(path.read_bytes())
+        for path in sorted(receipt_root.glob("*.json"))
+    )
+    assert len(receipts) == 2
+    exchange_store = AutonomousAgentExchangeStore(
+        tmp_path / "agent-exchanges", cast(AutonomousAgentRunPolicy, agent_policy)
+    )
+    exchanges = tuple(
+        exchange_store.for_campaign_ordinal(
+            cast(ResearchCampaignSpec, campaign).content_hash, ordinal
+        )
+        for ordinal in (1, 2)
+    )
+    assert all(item is not None for item in exchanges)
+
+    calendar = tuple(
+        date.fromisoformat(line)
+        for line in (view_path / "calendars" / "day.txt").read_text(encoding="utf-8").splitlines()
+        if line
+    )
+    validation_segment = cast(ResearchCampaignSpec, campaign).validation
+    dq_calendar = tuple(
+        day for day in calendar if validation_segment.start <= day <= validation_segment.end
+    )
+    assert dq_calendar
+
+    evaluations: list[P14dqCandidateEvaluation] = []
+    for candidate_hash in P14DQ_CANDIDATE_HASHES:
+        receipt = next(
+            item for item in receipts if item.request.candidate.content_hash == candidate_hash
+        )
+        result_hash = receipt.outcome.research_result_hash
+        validation_hash = receipt.outcome.validation_report_hash
+        assert result_hash is not None and validation_hash is not None
+        result_path = cast(Path, execution_root) / "research-results" / f"sha256-{result_hash}"
+        result_manifest = verify_research_result(result_path)
+        validation_report = verify_validation_report(
+            cast(Path, execution_root) / "validation" / f"sha256-{validation_hash}"
+        )
+        assert validation_report.content_hash == validation_hash
+        assert validation_report.run_status is RunStatus.SUCCEEDED
+        assert validation_report.verdict is ValidationVerdict.REJECT
+        assert validation_report.canonical is True
+        submitted = {gate.gate_id: gate for gate in validation_report.gates}
+        assert tuple(submitted) == tuple(ValidationGateId)
+        for gate in validation_report.gates:
+            assert gate.verdict is not ValidationVerdict.NOT_EVALUATED
+            if gate.severity is GateSeverity.HARD:
+                assert gate.verdict is ValidationVerdict.PASS
+        assert submitted[ValidationGateId.G4_REFERENCE_BACKTEST].verdict is ValidationVerdict.PASS
+        assert [
+            (gate_id, gate.reason_code)
+            for gate_id, gate in submitted.items()
+            if gate.verdict is ValidationVerdict.REJECT
+        ] == [(ValidationGateId.G5_OUT_OF_SAMPLE, ReasonCode.SOFT_THRESHOLD_NOT_MET)]
+
+        identity = receipt.request.execution_identity
+        native_root = (
+            cast(Path, execution_root)
+            / "executions"
+            / identity
+            / "qlib-workflow"
+            / "native-records"
+            / f"sha256-{identity}"
+        )
+        signal_path = (
+            cast(Path, execution_root)
+            / "executions"
+            / identity
+            / "baseline"
+            / "signals"
+            / f"sha256-{result_manifest.signal_artifact_hash}"
+        )
+        resolved = ResolvedExperimentSpec.model_validate_json(
+            (signal_path / "resolved-experiment.json").read_bytes()
+        )
+        built = ResearchResultArtifactBuilder().build(
+            resolved,
+            research_policy,
+            signal_path,
+            native_root,
+            cast(Path, execution_root) / "research-results",
+            qlib_run_id=result_manifest.qlib_run_id,
+            label_expression=result_manifest.label_expression,
+            dq_calendar=dq_calendar,
+            dq_audit_root=cast(Path, execution_root) / "research-result-audits",
+        )
+        assert built.manifest.artifact_hash == result_hash
+        assert built.export_audit_path is not None
+        audit = verify_p14dq_native_label_audit(
+            built.path, native_root, built.export_audit_path, dq_calendar
+        )
+        assert audit.audit_hash == built.export_audit_hash
+
+        trial_event = trial_by_candidate[candidate_hash]
+        trial = trial_event.trial
+        evaluations.append(
+            P14dqCandidateEvaluation(
+                candidate_hash=candidate_hash,
+                trial_event_hash=trial_event.content_hash,
+                trial_outcome=trial.outcome,
+                research_result_hash=result_hash,
+                export_audit_hash=cast(str, built.export_audit_hash),
+                validation_report_hash=validation_hash,
+                validation_status=validation_report.run_status,
+                validation_verdict=validation_report.verdict,
+                validation_gates=tuple(
+                    P14dqValidationGateEvidence(
+                        gate_id=gate.gate_id,
+                        severity=gate.severity,
+                        verdict=gate.verdict,
+                        reason_code=gate.reason_code,
+                    )
+                    for gate in validation_report.gates
+                ),
+            )
+        )
+
+    report_dirs = tuple((tmp_path / "selection-reports").glob("sha256-*"))
+    assert len(report_dirs) == 1
+    selection_report = verify_selection_report_artifact(report_dirs[0])
+    assert selection_report.run_status is RunStatus.FAILED
+    assert selection_report.verdict is CampaignSelectionVerdict.NOT_EVALUATED
+    assert selection_report.reason_code is ReasonCode.SOURCE_INCOMPLETE
+    assert selection_report.selected_candidate_hash is None
+    assert selection_report.scores == ()
+    assert tuple(item.kind for item in selection_report.candidate_dispositions) == (
+        CandidateDispositionKind.NONPASS_VALIDATION,
+        CandidateDispositionKind.NONPASS_VALIDATION,
+    )
+
+    frozen = tuple(evaluations)
+    assert all(item.admissible_research_rejection() for item in frozen)
+    assert runner._verify_natural_selection_outcome(selection_report, frozen) == (0, False)
+
+    final_ledger = cast(ResearchLedgerService, ledger).verify(
+        cast(str, ledger_id), created_at=started_at + timedelta(days=1)
+    )
+    assert cast(CampaignSelectionService, selection).plan is not None
+    assert cast(CampaignSelectionService, selection).calendar is not None
+    evidence = P14dqCampaignEvidence.model_validate(
+        {
+            "campaign_hash": cast(ResearchCampaignSpec, campaign).content_hash,
+            "family_hash": P14DQ_FAMILY_HASH,
+            "budget_hash": cast(ResearchBudgetSpec, budget).content_hash,
+            "candidate_manifest_hash": P14DQ_CANDIDATE_MANIFEST_HASH,
+            "candidate_hashes": P14DQ_CANDIDATE_HASHES,
+            "context_pack_hashes": tuple(
+                cast(object, item).request.context_pack.content_hash for item in exchanges
+            ),
+            "agent_request_hashes": tuple(
+                cast(object, item).request.content_hash for item in exchanges
+            ),
+            "agent_proposal_hashes": tuple(
+                cast(object, item).response.proposal_hash for item in exchanges
+            ),
+            "execution_request_hashes": tuple(item.request.content_hash for item in receipts),
+            "execution_identities": tuple(item.request.execution_identity for item in receipts),
+            "evaluations": frozen,
+            "selection_plan_hash": cast(CampaignSelectionService, selection).plan.content_hash,
+            "selection_calendar_hash": cast(
+                CampaignSelectionService, selection
+            ).calendar.content_hash,
+            "selection_calendar_session_count": len(dq_calendar),
+            "selection_calendar_first_date": dq_calendar[0],
+            "selection_calendar_last_date": dq_calendar[-1],
+            "selection_report_hash": selection_report.report_hash,
+            "selection_status": selection_report.run_status,
+            "selection_verdict": selection_report.verdict.value,
+            "selection_reason_code": selection_report.reason_code,
+            "eligible_candidate_count": 0,
+            "selection_performed": False,
+            "selected_candidate_hash": None,
+            "campaign_trial_hashes": tuple(item.content_hash for item in trial_events),
+            "campaign_event_hashes": tuple(item.content_hash for item in events),
+            "final_campaign_event_hash": events[-1].content_hash,
+            "final_ledger_snapshot_hash": report.final_ledger_snapshot_hash,
+            "ledger_principal_hash": runner.p14d._ledger_principal_hash(final_ledger),
+            "autonomous_loop_report_hash": report.content_hash,
+        }
+    )
+    assert evidence.eligible_candidate_count == 0
+    assert evidence.selection_performed is False
+    assert evidence.selection_verdict == "NOT_EVALUATED"
+    assert evidence.selection_status is RunStatus.FAILED
+    assert evidence.selection_reason_code is ReasonCode.SOURCE_INCOMPLETE
+
+    # The very same real evidence fails closed for every non-admissible rejection.
+    genuine_gates = frozen[0].validation_gates
+    hard_gates = tuple(
+        P14dqValidationGateEvidence(
+            gate_id=gate.gate_id,
+            severity=gate.severity,
+            verdict=(
+                ValidationVerdict.REJECT
+                if gate.gate_id is ValidationGateId.G2_PIT_LINEAGE
+                else ValidationVerdict.PASS
+            ),
+            reason_code=(
+                ReasonCode.LOOK_AHEAD if gate.gate_id is ValidationGateId.G2_PIT_LINEAGE else None
+            ),
+        )
+        for gate in genuine_gates
+    )
+    hard_evaluations = tuple(
+        _revalidated(item, hard_gates, TrialOutcome.HARD_REJECT) for item in frozen
+    )
+    assert not all(item.admissible_research_rejection() for item in hard_evaluations)
+    with pytest.raises(runner.QualificationError, match="zero-eligible"):
+        runner._verify_natural_selection_outcome(selection_report, hard_evaluations)
+
+    integrity_gates = tuple(
+        P14dqValidationGateEvidence(
+            gate_id=gate.gate_id,
+            severity=gate.severity,
+            verdict=gate.verdict,
+            reason_code=(
+                ReasonCode.ARTIFACT_CORRUPTED
+                if gate.gate_id is ValidationGateId.G5_OUT_OF_SAMPLE
+                else gate.reason_code
+            ),
+        )
+        for gate in genuine_gates
+    )
+    integrity_evaluations = tuple(
+        _revalidated(item, integrity_gates, TrialOutcome.SOFT_REJECT) for item in frozen
+    )
+    assert not all(item.admissible_research_rejection() for item in integrity_evaluations)
+    with pytest.raises(runner.QualificationError, match="zero-eligible"):
+        runner._verify_natural_selection_outcome(selection_report, integrity_evaluations)
+
+    with pytest.raises(ValidationError, match="complete frozen Validation gate set"):
+        _revalidated(frozen[0], genuine_gates[:-1], TrialOutcome.SOFT_REJECT)

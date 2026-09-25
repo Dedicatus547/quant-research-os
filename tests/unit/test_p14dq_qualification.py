@@ -21,14 +21,25 @@ from quantos.contracts.campaign_selection import (
     CandidateDispositionKind,
 )
 from quantos.contracts.p14dq_qualification import (
+    P14DQ_ADMISSIBLE_SOFT_REJECTION_GATES,
     P14DQ_CANDIDATE_HASHES,
     P14DQ_CANDIDATE_MANIFEST_HASH,
     P14DQ_FAMILY_HASH,
+    P14DQ_FROZEN_VALIDATION_GATE_ORDER,
+    P14DQ_FROZEN_VALIDATION_GATE_SEVERITY,
+    P14DQ_REQUIRED_PASSING_GATES,
     P14DQ_TEMPLATE_HASH,
     P14dqCampaignEvidence,
     P14dqCandidateEvaluation,
+    P14dqValidationGateEvidence,
 )
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
+from quantos.contracts.validation import (
+    VALIDATION_GATE_ORDER,
+    GateSeverity,
+    ValidationGateId,
+)
+from quantos.validation import service as validation_service
 
 ROOT = Path(__file__).parents[2]
 SPEC = importlib.util.spec_from_file_location(
@@ -68,23 +79,68 @@ def test_v3_draft_bytes_are_pinned_but_qualification_is_unapproved(tmp_path: Pat
         runner._require_v3_contract_approval()
 
 
+def _gate_evidence(
+    rejections: dict[ValidationGateId, ReasonCode] | None = None,
+    *,
+    not_evaluated: tuple[ValidationGateId, ...] = (),
+) -> tuple[P14dqValidationGateEvidence, ...]:
+    rejections = rejections or {}
+    gates: list[P14dqValidationGateEvidence] = []
+    for gate_id in P14DQ_FROZEN_VALIDATION_GATE_ORDER:
+        severity = P14DQ_FROZEN_VALIDATION_GATE_SEVERITY[gate_id]
+        if gate_id in not_evaluated:
+            gates.append(
+                P14dqValidationGateEvidence(
+                    gate_id=gate_id, severity=severity, verdict=ValidationVerdict.NOT_EVALUATED
+                )
+            )
+        elif gate_id in rejections:
+            gates.append(
+                P14dqValidationGateEvidence(
+                    gate_id=gate_id,
+                    severity=severity,
+                    verdict=ValidationVerdict.REJECT,
+                    reason_code=rejections[gate_id],
+                )
+            )
+        else:
+            gates.append(
+                P14dqValidationGateEvidence(
+                    gate_id=gate_id, severity=severity, verdict=ValidationVerdict.PASS
+                )
+            )
+    return tuple(gates)
+
+
+def _evaluation(
+    index: int,
+    gates: tuple[P14dqValidationGateEvidence, ...],
+    *,
+    outcome: TrialOutcome = TrialOutcome.SOFT_REJECT,
+    updates: dict[str, object] | None = None,
+) -> P14dqCandidateEvaluation:
+    payload: dict[str, object] = {
+        "candidate_hash": P14DQ_CANDIDATE_HASHES[index],
+        "trial_event_hash": str(index + 1) * 64,
+        "trial_outcome": outcome,
+        "research_result_hash": str(index + 3) * 64,
+        "export_audit_hash": str(index + 5) * 64,
+        "validation_report_hash": str(index + 7) * 64,
+        "validation_verdict": ValidationVerdict.REJECT,
+        "validation_gates": gates,
+    }
+    payload.update(updates or {})
+    return P14dqCandidateEvaluation.model_validate(payload)
+
+
 def _rejected_evaluations() -> tuple[P14dqCandidateEvaluation, ...]:
-    return tuple(
-        P14dqCandidateEvaluation(
-            candidate_hash=candidate_hash,
-            trial_event_hash=str(index + 1) * 64,
-            trial_outcome=TrialOutcome.SOFT_REJECT,
-            research_result_hash=str(index + 3) * 64,
-            export_audit_hash=str(index + 5) * 64,
-            validation_report_hash=str(index + 7) * 64,
-            validation_verdict=ValidationVerdict.REJECT,
-        )
-        for index, candidate_hash in enumerate(P14DQ_CANDIDATE_HASHES)
-    )
+    gates = _gate_evidence({ValidationGateId.G5_OUT_OF_SAMPLE: ReasonCode.SOFT_THRESHOLD_NOT_MET})
+    return tuple(_evaluation(index, gates) for index in range(2))
 
 
-def test_zero_eligible_is_a_distinct_verified_natural_outcome() -> None:
-    evaluations = _rejected_evaluations()
+def _zero_eligible_report(
+    evaluations: tuple[P14dqCandidateEvaluation, ...],
+) -> CampaignSelectionReport:
     dispositions = tuple(
         SimpleNamespace(
             candidate_hash=item.candidate_hash,
@@ -93,7 +149,7 @@ def test_zero_eligible_is_a_distinct_verified_natural_outcome() -> None:
         )
         for item in evaluations
     )
-    report = cast(
+    return cast(
         CampaignSelectionReport,
         SimpleNamespace(
             candidate_dispositions=dispositions,
@@ -104,20 +160,12 @@ def test_zero_eligible_is_a_distinct_verified_natural_outcome() -> None:
             scores=(),
         ),
     )
-    assert runner._verify_natural_selection_outcome(report, evaluations) == (0, False)
-    for changed in (
-        {"verdict": CampaignSelectionVerdict.NO_SELECTION},
-        {"reason_code": ReasonCode.ARTIFACT_CORRUPTED},
-        {"scores": ("fabricated",)},
-        {"candidate_dispositions": dispositions[:1]},
-    ):
-        with pytest.raises(runner.QualificationError):
-            runner._verify_natural_selection_outcome(
-                cast(CampaignSelectionReport, SimpleNamespace(**{**vars(report), **changed})),
-                evaluations,
-            )
 
-    payload = {
+
+def _zero_eligible_payload(
+    evaluations: tuple[P14dqCandidateEvaluation, ...],
+) -> dict[str, object]:
+    return {
         "campaign_hash": "d" * 64,
         "family_hash": P14DQ_FAMILY_HASH,
         "budget_hash": "e" * 64,
@@ -148,6 +196,224 @@ def test_zero_eligible_is_a_distinct_verified_natural_outcome() -> None:
         "ledger_principal_hash": "6" * 64,
         "autonomous_loop_report_hash": "7" * 64,
     }
+
+
+def test_frozen_gate_contract_matches_the_live_validation_service() -> None:
+    assert P14DQ_FROZEN_VALIDATION_GATE_ORDER == VALIDATION_GATE_ORDER
+    assert (
+        dict(P14DQ_FROZEN_VALIDATION_GATE_SEVERITY)  # pyright: ignore[reportPrivateUsage]
+        == validation_service._GATE_SEVERITY
+    )
+    admissible = set(P14DQ_ADMISSIBLE_SOFT_REJECTION_GATES)
+    assert admissible == {
+        gate_id
+        for gate_id in VALIDATION_GATE_ORDER
+        if validation_service._GATE_SEVERITY[gate_id] is GateSeverity.SOFT  # pyright: ignore[reportPrivateUsage]
+        and gate_id is not ValidationGateId.G4_REFERENCE_BACKTEST
+    }
+    assert set(P14DQ_REQUIRED_PASSING_GATES) | admissible == set(VALIDATION_GATE_ORDER)
+    assert not set(P14DQ_REQUIRED_PASSING_GATES) & admissible
+    assert {
+        gate_id
+        for gate_id in validation_service._METRIC_GATE.values()  # pyright: ignore[reportPrivateUsage]
+    } == admissible
+
+
+@pytest.mark.parametrize(
+    "gate_id",
+    (
+        ValidationGateId.G3_FACTOR_RESEARCH,
+        ValidationGateId.G5_OUT_OF_SAMPLE,
+        ValidationGateId.G6_COST_STRESS,
+        ValidationGateId.G7_PARAMETER_STABILITY,
+        ValidationGateId.G8_SUBPERIOD_STABILITY,
+    ),
+)
+def test_genuine_soft_threshold_rejection_is_admissible(
+    gate_id: ValidationGateId,
+) -> None:
+    gates = _gate_evidence({gate_id: ReasonCode.SOFT_THRESHOLD_NOT_MET})
+    evaluations = tuple(_evaluation(index, gates) for index in range(2))
+    assert all(item.admissible_research_rejection() for item in evaluations)
+
+    report = _zero_eligible_report(evaluations)
+    assert runner._verify_natural_selection_outcome(report, evaluations) == (0, False)
+    evidence = P14dqCampaignEvidence.model_validate(_zero_eligible_payload(evaluations))
+    assert evidence.eligible_candidate_count == 0
+    assert evidence.selection_performed is False
+
+
+@pytest.mark.parametrize(
+    "hard_gate",
+    (
+        ValidationGateId.G0_SCHEMA_REFERENCE,
+        ValidationGateId.G1_SNAPSHOT_DATA_QUALITY,
+        ValidationGateId.G2_PIT_LINEAGE,
+        ValidationGateId.G9_REPRODUCIBILITY,
+        ValidationGateId.G10_ARTIFACT_INTEGRITY,
+    ),
+)
+def test_hard_gate_rejection_fails_closed(hard_gate: ValidationGateId) -> None:
+    hard = _gate_evidence(
+        {
+            hard_gate: ReasonCode.REPRODUCIBILITY_MISMATCH,
+            ValidationGateId.G5_OUT_OF_SAMPLE: ReasonCode.SOFT_THRESHOLD_NOT_MET,
+        }
+    )
+    evaluations = (
+        _evaluation(0, hard, outcome=TrialOutcome.HARD_REJECT),
+        _evaluation(1, hard, outcome=TrialOutcome.HARD_REJECT),
+    )
+    assert not all(item.admissible_research_rejection() for item in evaluations)
+    with pytest.raises(runner.QualificationError, match="zero-eligible"):
+        runner._verify_natural_selection_outcome(_zero_eligible_report(evaluations), evaluations)
+    with pytest.raises(ValidationError, match="zero-eligible"):
+        P14dqCampaignEvidence.model_validate(_zero_eligible_payload(evaluations))
+    # A hard-gate rejection that claims the SOFT aggregate outcome is refused outright.
+    with pytest.raises(ValidationError, match="not a Validation disposition"):
+        _evaluation(0, hard, outcome=TrialOutcome.SOFT_REJECT)
+
+
+def test_reference_backtest_gate_rejection_fails_closed() -> None:
+    gates = _gate_evidence(
+        {ValidationGateId.G4_REFERENCE_BACKTEST: ReasonCode.SOFT_THRESHOLD_NOT_MET}
+    )
+    assert not _evaluation(0, gates).admissible_research_rejection()
+
+
+@pytest.mark.parametrize(
+    ("gate_id", "reason_code"),
+    (
+        (ValidationGateId.G6_COST_STRESS, ReasonCode.ARTIFACT_CORRUPTED),
+        (ValidationGateId.G3_FACTOR_RESEARCH, ReasonCode.SOURCE_INCOMPLETE),
+        (ValidationGateId.G5_OUT_OF_SAMPLE, ReasonCode.SCHEMA_INVALID),
+        (ValidationGateId.G6_COST_STRESS, ReasonCode.OOS_POLICY_VIOLATION),
+        (ValidationGateId.G7_PARAMETER_STABILITY, ReasonCode.LOOK_AHEAD),
+        (ValidationGateId.G8_SUBPERIOD_STABILITY, ReasonCode.QLIB_EXECUTION_FAILED),
+        (ValidationGateId.G5_OUT_OF_SAMPLE, ReasonCode.REPRODUCIBILITY_MISMATCH),
+        (ValidationGateId.G3_FACTOR_RESEARCH, ReasonCode.UNKNOWN_AVAILABILITY),
+    ),
+)
+def test_soft_gate_non_threshold_rejection_fails_closed(
+    gate_id: ValidationGateId, reason_code: ReasonCode
+) -> None:
+    gates = _gate_evidence({gate_id: reason_code})
+    assert not _evaluation(0, gates).admissible_research_rejection()
+    evaluations = tuple(_evaluation(index, gates) for index in range(2))
+    with pytest.raises(runner.QualificationError, match="zero-eligible"):
+        runner._verify_natural_selection_outcome(_zero_eligible_report(evaluations), evaluations)
+    with pytest.raises(ValidationError, match="zero-eligible"):
+        P14dqCampaignEvidence.model_validate(_zero_eligible_payload(evaluations))
+
+
+def test_not_evaluated_gate_and_mixed_rejection_fail_closed() -> None:
+    not_evaluated = _gate_evidence(
+        {ValidationGateId.G5_OUT_OF_SAMPLE: ReasonCode.SOFT_THRESHOLD_NOT_MET},
+        not_evaluated=(ValidationGateId.G6_COST_STRESS,),
+    )
+    assert not _evaluation(0, not_evaluated).admissible_research_rejection()
+
+    mixed = _gate_evidence(
+        {
+            ValidationGateId.G5_OUT_OF_SAMPLE: ReasonCode.SOFT_THRESHOLD_NOT_MET,
+            ValidationGateId.G6_COST_STRESS: ReasonCode.ARTIFACT_CORRUPTED,
+        }
+    )
+    assert not _evaluation(0, mixed).admissible_research_rejection()
+
+
+def test_incomplete_duplicate_or_unexpected_gate_set_fails_closed() -> None:
+    genuine = _gate_evidence({ValidationGateId.G5_OUT_OF_SAMPLE: ReasonCode.SOFT_THRESHOLD_NOT_MET})
+    for broken in (
+        genuine[:-1],
+        genuine[1:],
+        (genuine[0], *genuine),
+        tuple(reversed(genuine)),
+    ):
+        with pytest.raises(ValidationError, match="complete frozen Validation gate set"):
+            _evaluation(0, broken)
+
+
+def test_gate_severity_cannot_be_spoofed_and_aggregate_outcome_is_derived() -> None:
+    with pytest.raises(ValidationError, match="severity differs from the frozen contract"):
+        P14dqValidationGateEvidence(
+            gate_id=ValidationGateId.G2_PIT_LINEAGE,
+            severity=GateSeverity.SOFT,
+            verdict=ValidationVerdict.PASS,
+        )
+    with pytest.raises(ValidationError, match="severity differs from the frozen contract"):
+        P14dqValidationGateEvidence(
+            gate_id=ValidationGateId.G5_OUT_OF_SAMPLE,
+            severity=GateSeverity.HARD,
+            verdict=ValidationVerdict.REJECT,
+            reason_code=ReasonCode.SOFT_THRESHOLD_NOT_MET,
+        )
+    with pytest.raises(ValidationError, match="cannot carry a reason code"):
+        P14dqValidationGateEvidence(
+            gate_id=ValidationGateId.G5_OUT_OF_SAMPLE,
+            severity=GateSeverity.SOFT,
+            verdict=ValidationVerdict.PASS,
+            reason_code=ReasonCode.SOFT_THRESHOLD_NOT_MET,
+        )
+    with pytest.raises(ValidationError, match="requires a reason code"):
+        P14dqValidationGateEvidence(
+            gate_id=ValidationGateId.G5_OUT_OF_SAMPLE,
+            severity=GateSeverity.SOFT,
+            verdict=ValidationVerdict.REJECT,
+        )
+
+    genuine = _gate_evidence({ValidationGateId.G5_OUT_OF_SAMPLE: ReasonCode.SOFT_THRESHOLD_NOT_MET})
+    with pytest.raises(ValidationError, match="not a Validation disposition"):
+        _evaluation(0, genuine, outcome=TrialOutcome.HARD_REJECT)
+    with pytest.raises(ValidationError, match="not a Validation disposition"):
+        _evaluation(0, genuine, outcome=TrialOutcome.EXECUTION_FAILED)
+    with pytest.raises(ValidationError, match="not a Validation disposition"):
+        _evaluation(0, genuine, outcome=TrialOutcome.PIT_REJECT)
+
+    all_pass = _gate_evidence()
+    with pytest.raises(ValidationError, match="Validation verdict differs"):
+        _evaluation(0, all_pass, updates={"validation_verdict": ValidationVerdict.REJECT})
+    with pytest.raises(ValidationError, match="not a Validation disposition"):
+        _evaluation(
+            0,
+            all_pass,
+            outcome=TrialOutcome.SOFT_REJECT,
+            updates={"validation_verdict": ValidationVerdict.PASS},
+        )
+
+
+def test_missing_research_result_or_sidecar_hash_fails_closed() -> None:
+    genuine = _gate_evidence({ValidationGateId.G5_OUT_OF_SAMPLE: ReasonCode.SOFT_THRESHOLD_NOT_MET})
+    for field in ("research_result_hash", "export_audit_hash", "validation_report_hash"):
+        with pytest.raises(ValidationError):
+            _evaluation(0, genuine, updates={field: None})
+        with pytest.raises(ValidationError):
+            _evaluation(0, genuine, updates={field: "not-a-hash"})
+    with pytest.raises(ValidationError):
+        _evaluation(
+            0,
+            genuine,
+            updates={"validation_verdict": ValidationVerdict.NOT_EVALUATED},
+        )
+
+
+def test_zero_eligible_is_a_distinct_verified_natural_outcome() -> None:
+    evaluations = _rejected_evaluations()
+    report = _zero_eligible_report(evaluations)
+    assert runner._verify_natural_selection_outcome(report, evaluations) == (0, False)
+    for changed in (
+        {"verdict": CampaignSelectionVerdict.NO_SELECTION},
+        {"reason_code": ReasonCode.ARTIFACT_CORRUPTED},
+        {"scores": ("fabricated",)},
+        {"candidate_dispositions": report.candidate_dispositions[:1]},
+    ):
+        with pytest.raises(runner.QualificationError):
+            runner._verify_natural_selection_outcome(
+                cast(CampaignSelectionReport, SimpleNamespace(**{**vars(report), **changed})),
+                evaluations,
+            )
+
+    payload = _zero_eligible_payload(evaluations)
     assert P14dqCampaignEvidence.model_validate(payload).eligible_candidate_count == 0
     for changed in (
         {"selection_verdict": "NO_SELECTION"},

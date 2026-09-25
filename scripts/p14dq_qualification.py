@@ -105,6 +105,8 @@ from quantos.contracts.p14dq_qualification import (
     P14DQ_CANDIDATE_HASHES,
     P14DQ_CANDIDATE_MANIFEST_HASH,
     P14DQ_FAMILY_HASH,
+    P14DQ_FROZEN_VALIDATION_GATE_ORDER,
+    P14DQ_FROZEN_VALIDATION_GATE_SEVERITY,
     P14DQ_LIMITATIONS,
     P14DQ_NEGATIVE_CASES,
     P14DQ_RESTART_CASES,
@@ -124,6 +126,7 @@ from quantos.contracts.p14dq_qualification import (
     P14dqReplayCaseEvidence,
     P14dqRestartCaseEvidence,
     P14dqRootEvidence,
+    P14dqValidationGateEvidence,
     p14dq_principal_hash_summary,
 )
 from quantos.contracts.pit import SafeQlibOperator
@@ -141,6 +144,7 @@ from quantos.contracts.snapshot import (
     SnapshotSourceKind,
 )
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
+from quantos.contracts.validation import ValidationReport
 from quantos.data import QlibViewBuildError, SnapshotBuildError, verify_qlib_view, verify_snapshot
 from quantos.research.qlib import (
     QlibWorkflowResearchService,
@@ -154,7 +158,7 @@ p14d = importlib.import_module(
 )
 
 CONTRACT_PATH = Path("docs/p14-dq-qualification-contract-v3-draft.md")
-FROZEN_CONTRACT_SHA256 = "add58b23f4763702f329a9f20944865eef0f9d406d0f9964fae0b3edd1b28758"
+FROZEN_CONTRACT_SHA256 = "563b1c44ff8e3b87822902c1f70183de2ddd97b007550f2028990bb37f858e17"
 V3_CONTRACT_APPROVED = False
 SNAPSHOT_RELATIVE_PATH = Path(
     "artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
@@ -1242,6 +1246,37 @@ def _assert_report_only_completion(report: AutonomousLoopReport, events: Sequenc
         )
 
 
+def _validation_gate_evidence(
+    report: ValidationReport,
+) -> tuple[P14dqValidationGateEvidence, ...]:
+    """Copy verified Validation gate facts, enforcing the frozen gate contract.
+
+    The engineering exception is decided from these recorded gate facts, never from the
+    aggregate `TrialOutcome`, so a PIT, artifact, evidence or execution failure cannot be
+    laundered into an engineering PASS.
+    """
+
+    if tuple(item.gate_id for item in report.gates) != P14DQ_FROZEN_VALIDATION_GATE_ORDER:
+        raise QualificationError(
+            "P14-DQ ValidationReport does not contain the complete frozen gate set"
+        )
+    evidence: list[P14dqValidationGateEvidence] = []
+    for gate in report.gates:
+        if gate.severity is not P14DQ_FROZEN_VALIDATION_GATE_SEVERITY[gate.gate_id]:
+            raise QualificationError(
+                "P14-DQ Validation gate severity differs from the frozen contract"
+            )
+        evidence.append(
+            P14dqValidationGateEvidence(
+                gate_id=gate.gate_id,
+                severity=gate.severity,
+                verdict=gate.verdict,
+                reason_code=gate.reason_code,
+            )
+        )
+    return tuple(evidence)
+
+
 def _verify_natural_selection_outcome(
     selection_report: CampaignSelectionReport,
     evaluations: Sequence[P14dqCandidateEvaluation],
@@ -1278,6 +1313,7 @@ def _verify_natural_selection_outcome(
                 item.trial_outcome not in {TrialOutcome.SOFT_REJECT, TrialOutcome.HARD_REJECT}
                 for item in evaluations
             )
+            or not all(item.admissible_research_rejection() for item in evaluations)
         ):
             raise QualificationError("P14-DQ zero-eligible P14c outcome is not exact")
         return 0, False
@@ -1416,6 +1452,7 @@ def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
                 validation_report_hash=validation_hash,
                 validation_status=validation_report.run_status,
                 validation_verdict=validation_report.verdict,
+                validation_gates=_validation_gate_evidence(validation_report),
             )
         )
     eligible_count, selection_performed = _verify_natural_selection_outcome(

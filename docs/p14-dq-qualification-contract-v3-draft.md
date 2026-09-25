@@ -6,9 +6,20 @@ This amendment changes only the P14-DQ engineering acceptance layer. It suppleme
 approved v2 amendment (SHA-256
 `645794fd37108669d712e133bcbdf0305418098d53be10f18155d1321444b13f`) and
 supersedes v1 §6's rule that two genuine Validation rejections cannot support P14-DQ
-engineering PASS, and v2 §4's corresponding sentence. All other v1/v2 bindings and
-gates remain in force. In particular, P14c, Validation, PIT, family, candidate,
-window, policy thresholds, statistical method and denominator are unchanged.
+engineering PASS, and v2 §4's "both candidates rejected" clause. It does not supersede
+v2 §4's separate rule that a natural execution failure blocks P14-DQ PASS, which this
+amendment retains. All other v1/v2 bindings and gates remain in force. In particular,
+P14c, Validation, PIT, family, candidate, window, policy thresholds, statistical method
+and denominator are unchanged.
+
+This revision is the second v3 draft. The first v3 bytes (commit
+`4d97b2452dfccdda30f93f0492fd8c02f33f7cb6`) were rejected by an independent GPT-6 Sol
+High contract review because their zero-eligible acceptance was decided by the aggregate
+`SOFT_REJECT`/`HARD_REJECT` trial outcome, which could admit a PIT, artifact, evidence or
+execution gate failure. §2 now states the exact admissible-rejection predicate, and the
+evidence contract records the verified gate facts so the predicate is rebuilt bottom-up
+instead of asserted. The rejected commit produced no qualification report and remains
+non-authoritative.
 
 ## 1. Reason and authority boundary
 
@@ -36,13 +47,43 @@ mechanically verified natural outcomes:
 
 The zero-eligible case requires **both** frozen candidates to run exactly once on the
 exact qualified snapshot/view and each to have a bottom-up verified ResearchResult,
-DQ native-label export-audit sidecar and ValidationReport. Each Validation execution
-must be `SUCCEEDED` with verdict `REJECT`, and each trial outcome must be only
-`SOFT_REJECT` or `HARD_REJECT`. P14c's verified disposition for each candidate must
-be `NONPASS_VALIDATION`, with no eligible score. Its complete report must mechanically
-rebuild to the exact `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE` result from the full
-two-candidate denominator. A failed PIT, execution, Validation execution, sidecar,
-artifact, accounting, calendar, or statistical/evidence gate cannot use this exception.
+DQ native-label export-audit sidecar and ValidationReport. P14c's verified disposition
+for each candidate must be `NONPASS_VALIDATION`, with no eligible score. Its complete
+report must mechanically rebuild to the exact `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`
+result from the full two-candidate denominator.
+
+Acceptance of the zero-eligible exception is **not** decided by the aggregate
+`TrialOutcome`. The aggregate outcome stays recorded as historical run evidence only.
+For every candidate in the zero-eligible case, the qualification must re-derive an
+exact admissible-rejection predicate from that candidate's complete verified
+`ValidationReport.gates`:
+
+| Requirement | Exact rule |
+|---|---|
+| Execution | `ValidationReport.run_status == SUCCEEDED` and `ValidationReport.verdict == REJECT` |
+| Gate set | exactly the frozen eleven gates, in frozen order, with no missing, extra or repeated gate |
+| Gate severity | each gate's recorded severity equals the frozen severity map (`G0`, `G1`, `G2`, `G9`, `G10` HARD; `G3`–`G8` SOFT) |
+| HARD gates | `G0`, `G1`, `G2`, `G9`, `G10` must each be `PASS` — no `REJECT` and no `NOT_EVALUATED` |
+| Reference backtest | `G4_REFERENCE_BACKTEST` must be `PASS` |
+| Not evaluated | no gate may be `NOT_EVALUATED` |
+| Allowed rejection | every `REJECT` gate must have `gate_id ∈ {G3_FACTOR_RESEARCH, G5_OUT_OF_SAMPLE, G6_COST_STRESS, G7_PARAMETER_STABILITY, G8_SUBPERIOD_STABILITY}`, `severity == SOFT`, and `reason_code == SOFT_THRESHOLD_NOT_MET` |
+| Non-empty rejection | at least one such genuine research-threshold rejection must exist |
+
+This is a positive allowlist evaluated over recorded gate facts. It is deliberately not
+a reason-code denylist, and it is never satisfied by a caller- or artifact-asserted
+boolean. Therefore none of the following may use the zero-eligible exception: any HARD
+gate rejection or `NOT_EVALUATED` gate; a `FAILED` Validation execution; and any
+rejection whose reason is `SOURCE_INCOMPLETE`, `ARTIFACT_CORRUPTED`, `SCHEMA_INVALID`,
+`REPRODUCIBILITY_MISMATCH`, PIT or look-ahead failure, `OOS_POLICY_VIOLATION`,
+`QLIB_EXECUTION_FAILED`, missing evidence, an invalid `ResearchResult`, an
+invalid, missing or swapped DQ export-audit sidecar, an incomplete, duplicated or
+unexpected gate set, or any `REJECT` that is not `SOFT_THRESHOLD_NOT_MET`. A failed
+PIT, execution, Validation execution, sidecar, artifact, accounting, calendar, or
+evidence gate cannot use this exception.
+
+The predicate is part of the immutable evidence contract: the qualification records
+each candidate's gate facts, and both the bottom-up verifier and the evidence model
+rebuild the predicate from those facts rather than trusting an asserted outcome.
 
 The v3 P14-DQ report records the P14c status, verdict, reason, eligible count and
 `selection_performed` explicitly alongside the unchanged P14c report hash. In the
