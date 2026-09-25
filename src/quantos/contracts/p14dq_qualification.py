@@ -188,7 +188,7 @@ class P14dqCandidateEvaluation(CanonicalContract):
 
 
 class P14dqCampaignEvidence(CanonicalContract):
-    schema_version: Literal["p14dq-campaign-evidence/v1"] = "p14dq-campaign-evidence/v1"
+    schema_version: Literal["p14dq-campaign-evidence/v2"] = "p14dq-campaign-evidence/v2"
     campaign_hash: str = Field(pattern=SHA256_PATTERN)
     family_hash: Literal["fbc0a11c08e502eaeb8abe5f7f9f5db390d9296a24a34607cd404e3655991bbb"]
     budget_hash: str = Field(pattern=SHA256_PATTERN)
@@ -208,10 +208,15 @@ class P14dqCampaignEvidence(CanonicalContract):
     selection_calendar_first_date: date
     selection_calendar_last_date: date
     selection_report_hash: str = Field(pattern=SHA256_PATTERN)
+    selection_status: RunStatus
     selection_verdict: Literal[
         "SELECTED",
         "NO_SELECTION",
+        "NOT_EVALUATED",
     ]
+    selection_reason_code: ReasonCode | None
+    eligible_candidate_count: NonNegativeInt
+    selection_performed: bool
     selected_candidate_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
     campaign_trial_hashes: tuple[str, ...]
     campaign_event_hashes: tuple[str, ...]
@@ -231,6 +236,13 @@ class P14dqCampaignEvidence(CanonicalContract):
             raise ValueError("P14-DQ denominator must be the frozen two-candidate manifest")
         if tuple(item.candidate_hash for item in self.evaluations) != self.candidate_hashes:
             raise ValueError("P14-DQ natural run must evaluate every frozen candidate in order")
+        for hashes in (
+            tuple(item.research_result_hash for item in self.evaluations),
+            tuple(item.export_audit_hash for item in self.evaluations),
+            tuple(item.validation_report_hash for item in self.evaluations),
+        ):
+            if len(set(hashes)) != len(self.candidate_hashes):
+                raise ValueError("P14-DQ candidates must have distinct verified evidence")
         if len(self.campaign_trial_hashes) != 2 or len(set(self.campaign_trial_hashes)) != 2:
             raise ValueError("P14-DQ natural run must record exactly two candidate trials")
         if (
@@ -238,8 +250,29 @@ class P14dqCampaignEvidence(CanonicalContract):
             or self.final_campaign_event_hash != self.campaign_event_hashes[-1]
         ):
             raise ValueError("P14-DQ campaign event hash is not the chain head")
-        if not any(item.trial_outcome is TrialOutcome.PASS for item in self.evaluations):
-            raise ValueError("P14-DQ natural run requires at least one Validation PASS trial")
+        eligible_count = sum(item.trial_outcome is TrialOutcome.PASS for item in self.evaluations)
+        if eligible_count != self.eligible_candidate_count:
+            raise ValueError("P14-DQ eligible count differs from verified candidate outcomes")
+        if eligible_count == 0:
+            if (
+                self.selection_status is not RunStatus.FAILED
+                or self.selection_verdict != "NOT_EVALUATED"
+                or self.selection_reason_code is not ReasonCode.SOURCE_INCOMPLETE
+                or self.selection_performed
+                or self.selected_candidate_hash is not None
+                or any(
+                    item.trial_outcome not in {TrialOutcome.SOFT_REJECT, TrialOutcome.HARD_REJECT}
+                    for item in self.evaluations
+                )
+            ):
+                raise ValueError("P14-DQ zero-eligible natural outcome is not exact")
+        elif (
+            self.selection_status is not RunStatus.SUCCEEDED
+            or self.selection_verdict not in {"SELECTED", "NO_SELECTION"}
+            or self.selection_reason_code is not None
+            or not self.selection_performed
+        ):
+            raise ValueError("P14-DQ eligible natural selection did not complete")
         if (self.selection_verdict == "SELECTED") != (self.selected_candidate_hash is not None):
             raise ValueError("P14-DQ selected candidate does not match the natural verdict")
         if self.selected_candidate_hash is not None and self.selected_candidate_hash not in (
@@ -335,7 +368,7 @@ class P14dqReplayCaseEvidence(CanonicalContract):
 
 
 class P14dqRootEvidence(CanonicalContract):
-    schema_version: Literal["p14dq-root-evidence/v1"] = "p14dq-root-evidence/v1"
+    schema_version: Literal["p14dq-root-evidence/v2"] = "p14dq-root-evidence/v2"
     root_id: Literal["root-A", "root-B"]
     external_bindings_hash: str = Field(pattern=SHA256_PATTERN)
     family_hash: Literal["fbc0a11c08e502eaeb8abe5f7f9f5db390d9296a24a34607cd404e3655991bbb"]
@@ -422,7 +455,7 @@ def p14dq_principal_hash_summary(roots: tuple[P14dqRootEvidence, ...]) -> str:
 class P14dqQualificationReport(CanonicalContract):
     """Content-addressed, successful P14-DQ engineering qualification report."""
 
-    schema_version: Literal["p14dq-qualification-report/v1"] = "p14dq-qualification-report/v1"
+    schema_version: Literal["p14dq-qualification-report/v2"] = "p14dq-qualification-report/v2"
     hash_exclude_fields: ClassVar[frozenset[str]] = frozenset({"qualification_hash"})
 
     qualification_hash: str = Field(pattern=SHA256_PATTERN)

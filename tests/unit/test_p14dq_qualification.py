@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -11,11 +14,19 @@ from quantos.contracts.autonomous import (
     P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
     AutonomousSelectionFinalizationProfile,
 )
+from quantos.contracts.campaign import TrialOutcome
+from quantos.contracts.campaign_selection import (
+    CampaignSelectionReport,
+    CampaignSelectionVerdict,
+    CandidateDispositionKind,
+)
 from quantos.contracts.p14dq_qualification import (
     P14DQ_CANDIDATE_HASHES,
     P14DQ_CANDIDATE_MANIFEST_HASH,
     P14DQ_FAMILY_HASH,
     P14DQ_TEMPLATE_HASH,
+    P14dqCampaignEvidence,
+    P14dqCandidateEvaluation,
 )
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
 
@@ -46,13 +57,114 @@ def test_frozen_family_is_reenumerated_and_profile_cannot_grant_sealed_authority
         AutonomousSelectionFinalizationProfile.model_validate(forged)
 
 
-def test_contract_bytes_are_pinned_to_the_approved_baseline(tmp_path: Path) -> None:
+def test_v3_draft_bytes_are_pinned_but_qualification_is_unapproved(tmp_path: Path) -> None:
     assert runner._frozen_contract_hash(ROOT) == runner.FROZEN_CONTRACT_SHA256
     changed = tmp_path / runner.CONTRACT_PATH
     changed.parent.mkdir(parents=True)
     changed.write_bytes(b"changed contract")
-    with pytest.raises(runner.QualificationError, match="approved v2 review"):
+    with pytest.raises(runner.QualificationError, match="v3 draft bytes"):
         runner._frozen_contract_hash(tmp_path)
+    with pytest.raises(runner.QualificationError, match="independent contract approval"):
+        runner._require_v3_contract_approval()
+
+
+def _rejected_evaluations() -> tuple[P14dqCandidateEvaluation, ...]:
+    return tuple(
+        P14dqCandidateEvaluation(
+            candidate_hash=candidate_hash,
+            trial_event_hash=str(index + 1) * 64,
+            trial_outcome=TrialOutcome.SOFT_REJECT,
+            research_result_hash=str(index + 3) * 64,
+            export_audit_hash=str(index + 5) * 64,
+            validation_report_hash=str(index + 7) * 64,
+            validation_verdict=ValidationVerdict.REJECT,
+        )
+        for index, candidate_hash in enumerate(P14DQ_CANDIDATE_HASHES)
+    )
+
+
+def test_zero_eligible_is_a_distinct_verified_natural_outcome() -> None:
+    evaluations = _rejected_evaluations()
+    dispositions = tuple(
+        SimpleNamespace(
+            candidate_hash=item.candidate_hash,
+            kind=CandidateDispositionKind.NONPASS_VALIDATION,
+            trial_event_hashes=(item.trial_event_hash,),
+        )
+        for item in evaluations
+    )
+    report = cast(
+        CampaignSelectionReport,
+        SimpleNamespace(
+            candidate_dispositions=dispositions,
+            run_status=RunStatus.FAILED,
+            verdict=CampaignSelectionVerdict.NOT_EVALUATED,
+            reason_code=ReasonCode.SOURCE_INCOMPLETE,
+            selected_candidate_hash=None,
+            scores=(),
+        ),
+    )
+    assert runner._verify_natural_selection_outcome(report, evaluations) == (0, False)
+    for changed in (
+        {"verdict": CampaignSelectionVerdict.NO_SELECTION},
+        {"reason_code": ReasonCode.ARTIFACT_CORRUPTED},
+        {"scores": ("fabricated",)},
+        {"candidate_dispositions": dispositions[:1]},
+    ):
+        with pytest.raises(runner.QualificationError):
+            runner._verify_natural_selection_outcome(
+                cast(CampaignSelectionReport, SimpleNamespace(**{**vars(report), **changed})),
+                evaluations,
+            )
+
+    payload = {
+        "campaign_hash": "d" * 64,
+        "family_hash": P14DQ_FAMILY_HASH,
+        "budget_hash": "e" * 64,
+        "candidate_manifest_hash": P14DQ_CANDIDATE_MANIFEST_HASH,
+        "candidate_hashes": P14DQ_CANDIDATE_HASHES,
+        "context_pack_hashes": ("1" * 64, "2" * 64),
+        "agent_request_hashes": ("3" * 64, "4" * 64),
+        "agent_proposal_hashes": ("5" * 64, "6" * 64),
+        "execution_request_hashes": ("7" * 64, "8" * 64),
+        "execution_identities": ("9" * 64, "a" * 64),
+        "evaluations": evaluations,
+        "selection_plan_hash": "b" * 64,
+        "selection_calendar_hash": "c" * 64,
+        "selection_calendar_session_count": 726,
+        "selection_calendar_first_date": date(2023, 1, 3),
+        "selection_calendar_last_date": date(2025, 12, 30),
+        "selection_report_hash": "d" * 64,
+        "selection_status": RunStatus.FAILED,
+        "selection_verdict": "NOT_EVALUATED",
+        "selection_reason_code": ReasonCode.SOURCE_INCOMPLETE,
+        "eligible_candidate_count": 0,
+        "selection_performed": False,
+        "selected_candidate_hash": None,
+        "campaign_trial_hashes": ("1" * 64, "2" * 64),
+        "campaign_event_hashes": ("3" * 64, "4" * 64),
+        "final_campaign_event_hash": "4" * 64,
+        "final_ledger_snapshot_hash": "5" * 64,
+        "ledger_principal_hash": "6" * 64,
+        "autonomous_loop_report_hash": "7" * 64,
+    }
+    assert P14dqCampaignEvidence.model_validate(payload).eligible_candidate_count == 0
+    for changed in (
+        {"selection_verdict": "NO_SELECTION"},
+        {"selection_performed": True},
+        {"eligible_candidate_count": 1},
+        {"selection_reason_code": ReasonCode.ARTIFACT_CORRUPTED},
+        {
+            "evaluations": (
+                evaluations[0],
+                evaluations[1].model_copy(
+                    update={"research_result_hash": evaluations[0].research_result_hash}
+                ),
+            )
+        },
+    ):
+        with pytest.raises(ValidationError):
+            P14dqCampaignEvidence.model_validate({**payload, **changed})
 
 
 def test_explicit_paths_and_negative_reason_mismatches_fail_closed(tmp_path: Path) -> None:
@@ -111,11 +223,14 @@ def test_failed_attempt_retains_partial_evidence_without_a_pass_report(tmp_path:
     saved_partial = attempt_path / "root-A" / "natural" / "partial.json"
     assert saved_partial.read_bytes() == partial.read_bytes()
     assert not (attempt_path / "qualification-report.json").exists()
-    assert runner._preserve_failed_attempt(
-        output,
-        staging,
-        runner.InputGateError(ReasonCode.QLIB_EXECUTION_FAILED, "same failure"),
-    ) == attempt_path
+    assert (
+        runner._preserve_failed_attempt(
+            output,
+            staging,
+            runner.InputGateError(ReasonCode.QLIB_EXECUTION_FAILED, "same failure"),
+        )
+        == attempt_path
+    )
 
     (attempt_path / "unexpected.json").write_bytes(b"{}")
     with pytest.raises(runner.QualificationError, match="exact-file"):

@@ -76,7 +76,9 @@ from quantos.contracts.campaign import (
 from quantos.contracts.campaign_selection import (
     CampaignSelectionEvent,
     CampaignSelectionEventType,
+    CampaignSelectionReport,
     CampaignSelectionVerdict,
+    CandidateDispositionKind,
     MultipleTestingPolicySpec,
     SelectionPolicySpec,
 )
@@ -151,8 +153,9 @@ p14d = importlib.import_module(
     "scripts.p14d_qualification" if __package__ else "p14d_qualification"
 )
 
-CONTRACT_PATH = Path("docs/p14-dq-qualification-contract-v2-draft.md")
-FROZEN_CONTRACT_SHA256 = "645794fd37108669d712e133bcbdf0305418098d53be10f18155d1321444b13f"
+CONTRACT_PATH = Path("docs/p14-dq-qualification-contract-v3-draft.md")
+FROZEN_CONTRACT_SHA256 = "add58b23f4763702f329a9f20944865eef0f9d406d0f9964fae0b3edd1b28758"
+V3_CONTRACT_APPROVED = False
 SNAPSHOT_RELATIVE_PATH = Path(
     "artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
 )
@@ -283,8 +286,15 @@ def _view_manifest_bindings_hash(view: QlibViewManifest) -> str:
 def _frozen_contract_hash(workspace: Path) -> str:
     actual = sha256_file(workspace / CONTRACT_PATH)
     if actual != FROZEN_CONTRACT_SHA256:
-        raise QualificationError("P14-DQ contract bytes differ from approved v2 review 46e5f1f")
+        raise QualificationError("P14-DQ v3 draft bytes differ from the review candidate")
     return actual
+
+
+def _require_v3_contract_approval() -> None:
+    if not V3_CONTRACT_APPROVED:
+        raise QualificationError(
+            "P14-DQ v3 requires independent contract approval before qualification"
+        )
 
 
 def _path_has_symlink_component(path: Path) -> bool:
@@ -1232,6 +1242,56 @@ def _assert_report_only_completion(report: AutonomousLoopReport, events: Sequenc
         )
 
 
+def _verify_natural_selection_outcome(
+    selection_report: CampaignSelectionReport,
+    evaluations: Sequence[P14dqCandidateEvaluation],
+) -> tuple[int, bool]:
+    """Accept only complete P14c selection or its exact two-rejection failure."""
+
+    if (
+        tuple(item.candidate_hash for item in selection_report.candidate_dispositions)
+        != (P14DQ_CANDIDATE_HASHES)
+        or tuple(item.candidate_hash for item in evaluations) != P14DQ_CANDIDATE_HASHES
+    ):
+        raise QualificationError("P14-DQ selection denominator differs from the frozen family")
+    eligible_count = sum(item.trial_outcome is TrialOutcome.PASS for item in evaluations)
+    for evaluation, disposition in zip(
+        evaluations, selection_report.candidate_dispositions, strict=True
+    ):
+        expected_kind = (
+            CandidateDispositionKind.ELIGIBLE
+            if evaluation.trial_outcome is TrialOutcome.PASS
+            else CandidateDispositionKind.NONPASS_VALIDATION
+        )
+        if disposition.kind is not expected_kind or disposition.trial_event_hashes != (
+            evaluation.trial_event_hash,
+        ):
+            raise QualificationError("P14-DQ P14c disposition differs from verified Validation")
+    if eligible_count == 0:
+        if (
+            selection_report.run_status is not RunStatus.FAILED
+            or selection_report.verdict is not CampaignSelectionVerdict.NOT_EVALUATED
+            or selection_report.reason_code is not ReasonCode.SOURCE_INCOMPLETE
+            or selection_report.selected_candidate_hash is not None
+            or selection_report.scores
+            or any(
+                item.trial_outcome not in {TrialOutcome.SOFT_REJECT, TrialOutcome.HARD_REJECT}
+                for item in evaluations
+            )
+        ):
+            raise QualificationError("P14-DQ zero-eligible P14c outcome is not exact")
+        return 0, False
+    if (
+        selection_report.run_status is not RunStatus.SUCCEEDED
+        or selection_report.verdict
+        not in {CampaignSelectionVerdict.SELECTED, CampaignSelectionVerdict.NO_SELECTION}
+        or selection_report.reason_code is not None
+        or len(selection_report.scores) != eligible_count
+    ):
+        raise QualificationError("P14-DQ eligible P14c selection did not complete")
+    return eligible_count, True
+
+
 def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
     context = run.context
     loop_report = cast(AutonomousLoopReport, run.report)
@@ -1241,14 +1301,13 @@ def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
         raise QualificationError("P14-DQ natural campaign did not publish a P14c report")
     selection_path = context.case_root / "selection-reports" / f"sha256-{selection_hash}"
     selection_report = verify_selection_report_artifact(selection_path)
-    if selection_report.run_status is not RunStatus.SUCCEEDED or selection_report.verdict not in {
-        CampaignSelectionVerdict.SELECTED,
-        CampaignSelectionVerdict.NO_SELECTION,
-    }:
-        raise InputGateError(
-            selection_report.reason_code or ReasonCode.SOURCE_INCOMPLETE,
-            "P14-DQ natural campaign failed P14c or has zero eligible candidates",
-        )
+    report_events = tuple(
+        event
+        for event in run.events
+        if event.content_hash in set(selection_report.source_event_hashes)
+    )
+    if context.selection.verify_report(selection_path, report_events) != selection_report:
+        raise QualificationError("P14-DQ P14c report did not rebuild from the natural event chain")
     if selection_report.report_hash != loop_report.selection_report_hash:
         raise QualificationError("P14-DQ loop report and P14c report hashes disagree")
     if loop_report.selection_event_hash is not None:
@@ -1328,6 +1387,17 @@ def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
         validation_report = verify_validation_report(validation_path)
         if result.content_hash != result_hash or validation_report.content_hash != validation_hash:
             raise QualificationError("P14-DQ ResearchResult or ValidationReport hash changed")
+        if (
+            result.snapshot_hash != context.campaign.snapshot_hash
+            or result.qlib_view_hash != context.campaign.qlib_view_hash
+            or result.expression_spec_hash != receipt.request.candidate.expression.content_hash
+            or validation_report.snapshot_hash != result.snapshot_hash
+            or validation_report.qlib_view_hash != result.qlib_view_hash
+            or validation_report.resolved_experiment_hash != result.resolved_experiment_hash
+            or validation_report.signal_artifact_hash != result.signal_artifact_hash
+            or not validation_report.canonical
+        ):
+            raise QualificationError("P14-DQ candidate result and Validation lineage disagree")
         audit = run.adapter._verify_dq_audit_for_request(  # pyright: ignore[reportPrivateUsage]
             receipt.request, result_hash
         )
@@ -1344,15 +1414,13 @@ def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
                 research_result_hash=result_hash,
                 export_audit_hash=audit.audit_hash,
                 validation_report_hash=validation_hash,
-                validation_status=validation_report.status,
+                validation_status=validation_report.run_status,
                 validation_verdict=validation_report.verdict,
             )
         )
-    if not any(item.trial_outcome is TrialOutcome.PASS for item in evaluations):
-        raise QualificationError(
-            "both P14-DQ candidates failed Validation; zero eligible candidates "
-            "cannot be NO_SELECTION"
-        )
+    eligible_count, selection_performed = _verify_natural_selection_outcome(
+        selection_report, evaluations
+    )
 
     final_ledger = context.ledger.verify(
         context.ledger_id, created_at=p14d.CASE_STARTED_AT + timedelta(days=1)
@@ -1386,7 +1454,11 @@ def _campaign_evidence(run: p14d._CaseRun) -> P14dqCampaignEvidence:
         selection_calendar_first_date=calendar.trading_dates[0],
         selection_calendar_last_date=calendar.trading_dates[-1],
         selection_report_hash=selection_report.report_hash,
+        selection_status=selection_report.run_status,
         selection_verdict=selection_report.verdict.value,
+        selection_reason_code=selection_report.reason_code,
+        eligible_candidate_count=eligible_count,
+        selection_performed=selection_performed,
         selected_candidate_hash=selection_report.selected_candidate_hash,
         campaign_trial_hashes=tuple(
             trial_by_candidate[item].content_hash for item in P14DQ_CANDIDATE_HASHES
@@ -1788,9 +1860,7 @@ def _dq_negative_cases(
                     "snapshot",
                 ),
                 lambda: _require_explicit_path(
-                    p14d._single_sha_directory(
-                        p14d.FIXTURE_ROOT / "no_selection" / "view"
-                    ),
+                    p14d._single_sha_directory(p14d.FIXTURE_ROOT / "no_selection" / "view"),
                     inputs.view_path,
                     "Qlib view",
                 ),
@@ -2032,12 +2102,8 @@ def _verify_p14dq_attempt(
         report_bytes = (path / "attempt-report.json").read_bytes()
         report = P14dqQualificationAttempt.model_validate_json(report_bytes)
         if (
-            (
-                require_content_addressed_name
-                and path.name != f"sha256-{report.attempt_hash}"
-            )
-            or report_bytes != canonical_json_bytes(report.model_dump(mode="python"))
-        ):
+            require_content_addressed_name and path.name != f"sha256-{report.attempt_hash}"
+        ) or report_bytes != canonical_json_bytes(report.model_dump(mode="python")):
             raise QualificationError("P14-DQ attempt path or canonical bytes do not match")
         tree = regular_tree_files(path)
         expected = {item.logical_path for item in report.files} | {"attempt-report.json"}
@@ -2068,11 +2134,7 @@ def _preserve_failed_attempt(
     if report_path.exists():
         report_path.unlink()
     p14d._strip_runtime_telemetry(staging)
-    files = (
-        _all_file_digests(staging)
-        if any(item.is_file() for item in staging.rglob("*"))
-        else ()
-    )
+    files = _all_file_digests(staging) if any(item.is_file() for item in staging.rglob("*")) else ()
     reason = getattr(error, "reason_code", ReasonCode.ARTIFACT_CORRUPTED)
     if not isinstance(reason, ReasonCode):
         reason = ReasonCode.ARTIFACT_CORRUPTED
@@ -2318,6 +2380,7 @@ def _qualify_from_provenance(
     runtime: RuntimeFingerprint,
 ) -> dict[str, object]:
     _frozen_contract_hash(workspace)
+    _require_v3_contract_approval()
     inputs = verify_external_inputs(
         workspace=workspace,
         snapshot_path=snapshot_path,
@@ -2391,7 +2454,11 @@ def _qualify_from_provenance(
         "external_bindings_hash": verified.external_bindings.content_hash,
         "principal_hash_summary": verified.principal_hash_summary,
         "principal_hashes_byte_exact": verified.principal_hashes_byte_exact,
+        "natural_selection_status": verified.roots[0].campaign.selection_status,
         "natural_selection_verdict": verified.roots[0].campaign.selection_verdict,
+        "natural_selection_reason_code": verified.roots[0].campaign.selection_reason_code,
+        "eligible_candidate_count": verified.roots[0].campaign.eligible_candidate_count,
+        "selection_performed": verified.roots[0].campaign.selection_performed,
         "p14d_negative_case_count": verified.p14d_negative_case_count,
         "p14dq_negative_case_count": verified.p14dq_negative_case_count,
         "restart_case_count": verified.restart_case_count,
@@ -2531,12 +2598,8 @@ def _verify_p14dq_bundle_integrity(
         report_bytes = (path / "qualification-report.json").read_bytes()
         report = P14dqQualificationReport.model_validate_json(report_bytes)
         if (
-            (
-                require_content_addressed_name
-                and path.name != f"sha256-{report.qualification_hash}"
-            )
-            or canonical_json_bytes(report.model_dump(mode="python")) != report_bytes
-        ):
+            require_content_addressed_name and path.name != f"sha256-{report.qualification_hash}"
+        ) or canonical_json_bytes(report.model_dump(mode="python")) != report_bytes:
             raise QualificationError("P14-DQ report path or canonical bytes do not match")
         _verify_report_file_set(path, report)
         code_bytes = (path / "code-provenance.json").read_bytes()
@@ -2611,6 +2674,7 @@ def _verify_p14dq_bundle_integrity(
 def verify_p14dq_bundle_integrity(path: Path) -> P14dqQualificationReport:
     """Verify the immutable P14-DQ bundle without claiming external inputs are present."""
 
+    _require_v3_contract_approval()
     return _verify_p14dq_bundle_integrity(path, require_content_addressed_name=True)
 
 
