@@ -19,11 +19,14 @@ status:  FAILED / NOT_EVALUATED
 
 Diagnosis over the preserved attempt:
 
-- The two root trees contain the identical 518 file paths, and every content-addressed
-  artifact directory name (the artifacts' own authority hashes) is identical between roots.
-- Exactly 68 files differ in raw bytes, and every one of them differs **only** in the
-  top-level `created_at` field, e.g. root-A `2026-09-26T02:33:32.447918Z` versus root-B
-  `2026-09-26T03:42:59.579908Z` for the same signal manifest.
+- Both roots hold the same 519 files and the same 518 inventoried paths (`root-evidence.json`
+  is excluded from the inventory), and every content-addressed artifact directory name (the
+  artifacts' own authority hashes) is identical between roots.
+- Exactly 68 inventoried files differ in raw bytes - 69 including the excluded
+  `root-evidence.json`, which differs by the tree hash itself - and every one of the 68
+  differs **only** in the top-level `created_at` field, e.g. root-A
+  `2026-09-26T02:33:32.447918Z` versus root-B `2026-09-26T03:42:59.579908Z` for the same
+  signal manifest.
 - `artifact_tree_hash` was a raw-byte inventory hash of the whole root tree
   (`_tree_inventory_hash`), it is part of the independent-root principal payload, and it is
   therefore compared for exact equality between roots.

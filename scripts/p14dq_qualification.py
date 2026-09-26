@@ -2085,11 +2085,13 @@ def _inventory_projection(path: Path) -> bytes:
 
     Contract v1 §8 compares deterministic authority hashes and excludes wall-clock
     duration. Several content-addressed artifacts record a top-level `created_at` that
-    their own authority hash already excludes, so the inventory projects exactly that
-    documented field away and hashes every other byte verbatim. Non-JSON payloads and
-    every JSON payload without that field are hashed byte-for-byte, so any other
-    divergence, including a nested timestamp or a reordered or edited field, still
-    separates two roots and fails the qualification closed.
+    their own authority hash already excludes, so a JSON object carrying that documented
+    field is projected by dropping it and canonicalizing the remaining values. Such a
+    file is therefore inventoried by value rather than by raw bytes. Every other payload,
+    including non-JSON artifacts, JSON without that field and every nested structure, is
+    hashed byte-for-byte, so a divergence anywhere else still separates two roots and
+    fails the qualification closed. The raw bytes of every file stay pinned separately by
+    the bundle file inventory.
     """
 
     payload = path.read_bytes()
