@@ -2077,19 +2077,52 @@ def _dq_negative_cases(
     return tuple(evidence[case_id] for case_id in P14DQ_NEGATIVE_CASES)
 
 
-def _tree_inventory_hash(root: Path, *, excluded: frozenset[str] = frozenset()) -> str:
-    entries = tuple(
-        {
-            "logical_path": path.relative_to(root).as_posix(),
-            "sha256": sha256_file(path),
-            "size_bytes": path.stat().st_size,
-        }
-        for path in sorted(path for path in root.rglob("*") if path.is_file())
-        if path.relative_to(root).as_posix() not in excluded
+WALL_CLOCK_INVENTORY_FIELDS = ("created_at",)
+
+
+def _inventory_projection(path: Path) -> bytes:
+    """Return the canonical bytes the evidence tree inventory hashes for one file.
+
+    Contract v1 §8 compares deterministic authority hashes and excludes wall-clock
+    duration. Several content-addressed artifacts record a top-level `created_at` that
+    their own authority hash already excludes, so the inventory projects exactly that
+    documented field away and hashes every other byte verbatim. Non-JSON payloads and
+    every JSON payload without that field are hashed byte-for-byte, so any other
+    divergence, including a nested timestamp or a reordered or edited field, still
+    separates two roots and fails the qualification closed.
+    """
+
+    payload = path.read_bytes()
+    try:
+        parsed = json.loads(payload)
+    except (ValueError, UnicodeDecodeError):
+        return payload
+    if not isinstance(parsed, dict) or not any(
+        name in parsed for name in WALL_CLOCK_INVENTORY_FIELDS
+    ):
+        return payload
+    return canonical_json_bytes(
+        {key: value for key, value in parsed.items() if key not in WALL_CLOCK_INVENTORY_FIELDS}
     )
+
+
+def _tree_inventory_hash(root: Path, *, excluded: frozenset[str] = frozenset()) -> str:
+    entries: list[dict[str, object]] = []
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        logical_path = path.relative_to(root).as_posix()
+        if logical_path in excluded:
+            continue
+        projected = _inventory_projection(path)
+        entries.append(
+            {
+                "logical_path": logical_path,
+                "sha256": sha256_bytes(projected),
+                "size_bytes": len(projected),
+            }
+        )
     if not entries:
         raise QualificationError("P14-DQ evidence tree is empty")
-    return sha256_bytes(canonical_json_bytes(entries))
+    return sha256_bytes(canonical_json_bytes(tuple(entries)))
 
 
 def _run_root_pipeline(

@@ -506,7 +506,7 @@ class P14dqReplayCaseEvidence(CanonicalContract):
 
 
 class P14dqRootEvidence(CanonicalContract):
-    schema_version: Literal["p14dq-root-evidence/v3"] = "p14dq-root-evidence/v3"
+    schema_version: Literal["p14dq-root-evidence/v4"] = "p14dq-root-evidence/v4"
     root_id: Literal["root-A", "root-B"]
     external_bindings_hash: str = Field(pattern=SHA256_PATTERN)
     family_hash: Literal["fbc0a11c08e502eaeb8abe5f7f9f5db390d9296a24a34607cd404e3655991bbb"]
@@ -593,7 +593,7 @@ def p14dq_principal_hash_summary(roots: tuple[P14dqRootEvidence, ...]) -> str:
 class P14dqQualificationReport(CanonicalContract):
     """Content-addressed, successful P14-DQ engineering qualification report."""
 
-    schema_version: Literal["p14dq-qualification-report/v3"] = "p14dq-qualification-report/v3"
+    schema_version: Literal["p14dq-qualification-report/v4"] = "p14dq-qualification-report/v4"
     hash_exclude_fields: ClassVar[frozenset[str]] = frozenset({"qualification_hash"})
 
     qualification_hash: str = Field(pattern=SHA256_PATTERN)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
 from datetime import date
 from pathlib import Path
@@ -15,7 +16,7 @@ from quantos.contracts.autonomous import (
     P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
     AutonomousSelectionFinalizationProfile,
 )
-from quantos.contracts.base import sha256_bytes
+from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import TrialOutcome
 from quantos.contracts.campaign_selection import (
     CampaignSelectionReport,
@@ -111,6 +112,80 @@ def test_v3_contract_bytes_are_pinned_and_activation_binds_the_approval_record(
     monkeypatch.setattr(runner, "V3_CONTRACT_APPROVED", False)
     with pytest.raises(runner.QualificationError, match="independent contract approval"):
         runner._require_v3_contract_approval()
+
+
+def _signal_manifest(base: Path, *, created_at: str, row_count: int) -> Path:
+    artifact = base / "natural" / "execution" / "signals" / ("sha256-" + "a" * 64)
+    artifact.mkdir(parents=True, exist_ok=True)
+    manifest = artifact / "manifest.json"
+    manifest.write_bytes(
+        canonical_json_bytes(
+            {
+                "schema_version": "signal-manifest/v1",
+                "artifact_hash": "a" * 64,
+                "created_at": created_at,
+                "row_count": row_count,
+            }
+        )
+    )
+    return manifest
+
+
+def test_tree_inventory_hash_excludes_only_the_documented_wall_clock_field(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "root-A"
+    second = tmp_path / "root-B"
+    _signal_manifest(first, created_at="2026-09-26T02:33:32.447918Z", row_count=3)
+    _signal_manifest(second, created_at="2026-09-26T03:42:59.579908Z", row_count=3)
+    for base in (first, second):
+        (base / "natural" / "payload.bin").write_bytes(b"\x00\x01\x02")
+
+    digest = runner._tree_inventory_hash(first)
+    assert digest == runner._tree_inventory_hash(second)
+    assert digest != runner._tree_inventory_hash(first, excluded=frozenset({"natural/payload.bin"}))
+
+    # Any other manifest change still separates the two roots.
+    _signal_manifest(second, created_at="2026-09-26T03:42:59.579908Z", row_count=4)
+    assert digest != runner._tree_inventory_hash(second)
+
+    # A non-JSON artifact change still separates the two roots.
+    _signal_manifest(second, created_at="2026-09-26T03:42:59.579908Z", row_count=3)
+    (second / "natural" / "payload.bin").write_bytes(b"\x00\x01\x03")
+    assert digest != runner._tree_inventory_hash(second)
+
+
+def test_tree_inventory_hash_hashes_nested_and_other_json_verbatim(tmp_path: Path) -> None:
+    first = tmp_path / "root-A"
+    second = tmp_path / "root-B"
+    for base, stamp in ((first, "2026-01-01T00:00:00Z"), (second, "2026-12-31T23:59:59Z")):
+        nested = base / "natural" / "nested.json"
+        nested.parent.mkdir(parents=True, exist_ok=True)
+        nested.write_bytes(
+            canonical_json_bytes({"schema_version": "event/v1", "gate": {"created_at": stamp}})
+        )
+        plain = base / "natural" / "plain.json"
+        plain.write_bytes(b'{"b": 1, "a": 2}')
+
+    # Nested wall-clock telemetry is not projected away, so a real divergence still fails.
+    assert runner._tree_inventory_hash(first) != runner._tree_inventory_hash(second)
+
+    # JSON without the documented top-level field keeps its exact bytes.
+    shutil.copytree(first, second, dirs_exist_ok=True)
+    (second / "natural" / "nested.json").write_bytes(
+        canonical_json_bytes(
+            {"schema_version": "event/v1", "gate": {"created_at": "2026-01-01T00:00:00Z"}}
+        )
+    )
+    (second / "natural" / "plain.json").write_bytes(b'{"a": 2, "b": 1}')
+    assert runner._tree_inventory_hash(first) != runner._tree_inventory_hash(second)
+
+
+def test_tree_inventory_hash_rejects_an_empty_tree(tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(runner.QualificationError, match="tree is empty"):
+        runner._tree_inventory_hash(empty)
 
 
 def _gate_evidence(
