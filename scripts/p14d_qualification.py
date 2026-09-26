@@ -81,6 +81,7 @@ from quantos.contracts.campaign_selection import (
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
 from quantos.contracts.enumeration import (
     CandidateEnumerationManifest,
+    ResearchCandidateSpec,
     ResearchFactorTemplateNode,
     ResearchFactorTemplateSpec,
     ResearchTemplateParameterSlot,
@@ -662,6 +663,38 @@ def _load_receipts(
     return tuple(receipts)
 
 
+def _negative_case_receipt(
+    receipts: Sequence[AutonomousExecutionReceipt],
+) -> AutonomousExecutionReceipt:
+    """Select the earliest executed trial's receipt independently of file ordering.
+
+    Receipt artifact names are content-addressed, so a caller that simply took the first
+    sorted path could select any candidate's request, and the candidate-swap negative
+    case would then mutate nothing.
+    """
+
+    if not receipts:
+        raise QualificationError("P14-DQ negative cases require an execution receipt")
+    return min(receipts, key=lambda item: (item.request.trial_ordinal, item.content_hash))
+
+
+def _candidate_swap_target(
+    candidates: Sequence[ResearchCandidateSpec], current_hash: str
+) -> ResearchCandidateSpec:
+    """Return a frozen candidate that really differs from the request's candidate.
+
+    The candidate-swap negative case must mutate its request. Swapping in the candidate
+    the request already carries would leave a fully valid request, so `_verify_request`
+    would correctly accept it and the case would silently test nothing. An impossible
+    swap therefore fails closed instead of passing vacuously.
+    """
+
+    for candidate in candidates:
+        if candidate.content_hash != current_hash:
+            return candidate
+    raise QualificationError("P14-DQ negative case cannot construct a candidate swap")
+
+
 def _ledger_principal_hash(snapshot: ResearchLedgerSnapshot) -> str:
     return sha256_bytes(
         canonical_json_bytes(
@@ -979,10 +1012,13 @@ def _build_pack_for_snapshot(context: _CaseContext, snapshot: ResearchLedgerSnap
 def _run_negative_cases(run: _CaseRun) -> tuple[P14dNegativeCaseEvidence, ...]:
     context = run.context
     orchestrator = run.orchestrator
-    receipt = _load_receipts(context)[0]
+    receipt = _negative_case_receipt(_load_receipts(context))
     request = receipt.request
     exchanges = _load_exchanges(context.case_root / "agent-exchanges", context.agent_policy)
     first_exchange = min(exchanges, key=lambda item: item.request.run_ordinal)
+    swap_candidate = _candidate_swap_target(
+        context.manifest.candidates, request.candidate.content_hash
+    )
     evidence: dict[str, P14dNegativeCaseEvidence] = {}
 
     def record(
@@ -1016,13 +1052,11 @@ def _run_negative_cases(run: _CaseRun) -> tuple[P14dNegativeCaseEvidence, ...]:
         lambda: run.adapter._verify_request(  # pyright: ignore[reportPrivateUsage]
             request.model_copy(
                 update={
-                    "candidate": context.manifest.candidates[1],
-                    "candidate_exact_expression_hash": context.manifest.candidates[
-                        1
-                    ].exact_expression_hash,
-                    "candidate_structural_expression_hash": context.manifest.candidates[
-                        1
-                    ].structural_expression_hash,
+                    "candidate": swap_candidate,
+                    "candidate_exact_expression_hash": swap_candidate.exact_expression_hash,
+                    "candidate_structural_expression_hash": (
+                        swap_candidate.structural_expression_hash
+                    ),
                 }
             )
         ),

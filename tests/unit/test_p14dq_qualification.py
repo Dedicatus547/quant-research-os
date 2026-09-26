@@ -181,6 +181,32 @@ def test_tree_inventory_hash_hashes_nested_and_other_json_verbatim(tmp_path: Pat
     assert runner._tree_inventory_hash(first) != runner._tree_inventory_hash(second)
 
 
+def test_negative_case_helpers_are_order_independent_and_fail_closed() -> None:
+    p14d = runner.p14d
+    _template, _family, manifest = runner._p14dq_family_manifest()
+    first, second = manifest.candidates
+    assert p14d._candidate_swap_target(manifest.candidates, first.content_hash) is second
+    assert p14d._candidate_swap_target(manifest.candidates, second.content_hash) is first
+    with pytest.raises(p14d.QualificationError, match="cannot construct a candidate swap"):
+        p14d._candidate_swap_target((first,), first.content_hash)
+
+    def receipt(ordinal: int, name: str) -> object:
+        return SimpleNamespace(request=SimpleNamespace(trial_ordinal=ordinal), content_hash=name)
+
+    selected = p14d._negative_case_receipt(
+        cast(object, [receipt(2, "b" * 64), receipt(1, "a" * 64)])
+    )
+    assert selected.content_hash == "a" * 64
+
+    def shuffled(ordinals: tuple[int, ...]) -> tuple[object, ...]:
+        return tuple(receipt(ordinal, f"{ordinal:064d}") for ordinal in ordinals)
+
+    for order in ((1, 2), (2, 1)):
+        assert p14d._negative_case_receipt(cast(object, shuffled(order))).request.trial_ordinal == 1
+    with pytest.raises(p14d.QualificationError, match="require an execution receipt"):
+        p14d._negative_case_receipt(())
+
+
 def test_tree_inventory_hash_rejects_an_empty_tree(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
     empty.mkdir()
