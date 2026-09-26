@@ -159,7 +159,10 @@ p14d = importlib.import_module(
 
 CONTRACT_PATH = Path("docs/p14-dq-qualification-contract-v3-draft.md")
 FROZEN_CONTRACT_SHA256 = "563b1c44ff8e3b87822902c1f70183de2ddd97b007550f2028990bb37f858e17"
-V3_CONTRACT_APPROVED = False
+APPROVAL_RECORD_PATH = Path("docs/reviews/p14-dq-v3-contract-approval.md")
+FROZEN_APPROVAL_RECORD_SHA256 = "6010a6c2d53727fabce7e3a6caf9cc5f0dd9dfd2ced131e2a524cd1993f0aa74"
+APPROVED_IMPLEMENTATION_COMMIT = "0130faa5d78d857d34bd12af99027d2bcd23ee16"
+V3_CONTRACT_APPROVED = True
 SNAPSHOT_RELATIVE_PATH = Path(
     "artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
 )
@@ -294,10 +297,39 @@ def _frozen_contract_hash(workspace: Path) -> str:
     return actual
 
 
+def _approval_record_field(encoded: str, name: str) -> str:
+    lines = encoded.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == f"{name}:" or stripped.startswith(f"{name}: "):
+            value = stripped[len(name) + 1 :].strip()
+            if value:
+                return value
+            for follower in lines[index + 1 :]:
+                if follower.strip():
+                    return follower.strip()
+    raise QualificationError(f"P14-DQ v3 approval record omits {name}")
+
+
 def _require_v3_contract_approval() -> None:
     if not V3_CONTRACT_APPROVED:
         raise QualificationError(
             "P14-DQ v3 requires independent contract approval before qualification"
+        )
+    try:
+        record_bytes = (ROOT / APPROVAL_RECORD_PATH).read_bytes()
+    except OSError as error:
+        raise QualificationError("P14-DQ v3 approval record is unavailable") from error
+    encoded = record_bytes.decode("utf-8")
+    if (
+        sha256_bytes(record_bytes) != FROZEN_APPROVAL_RECORD_SHA256
+        or _approval_record_field(encoded, "approved_contract_sha256") != FROZEN_CONTRACT_SHA256
+        or _approval_record_field(encoded, "approved_implementation_commit")
+        != APPROVED_IMPLEMENTATION_COMMIT
+        or _approval_record_field(encoded, "review_verdict") != "APPROVE"
+    ):
+        raise QualificationError(
+            "P14-DQ v3 approval record does not bind the approved contract bytes and commit"
         )
 
 

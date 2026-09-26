@@ -10,10 +10,12 @@ from typing import cast
 import pytest
 from pydantic import ValidationError
 
+from quantos.artifacts.store import sha256_file
 from quantos.contracts.autonomous import (
     P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
     AutonomousSelectionFinalizationProfile,
 )
+from quantos.contracts.base import sha256_bytes
 from quantos.contracts.campaign import TrialOutcome
 from quantos.contracts.campaign_selection import (
     CampaignSelectionReport,
@@ -68,13 +70,45 @@ def test_frozen_family_is_reenumerated_and_profile_cannot_grant_sealed_authority
         AutonomousSelectionFinalizationProfile.model_validate(forged)
 
 
-def test_v3_draft_bytes_are_pinned_but_qualification_is_unapproved(tmp_path: Path) -> None:
+def test_v3_contract_bytes_are_pinned_and_activation_binds_the_approval_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert runner._frozen_contract_hash(ROOT) == runner.FROZEN_CONTRACT_SHA256
     changed = tmp_path / runner.CONTRACT_PATH
     changed.parent.mkdir(parents=True)
     changed.write_bytes(b"changed contract")
     with pytest.raises(runner.QualificationError, match="v3 draft bytes"):
         runner._frozen_contract_hash(tmp_path)
+
+    assert runner.V3_CONTRACT_APPROVED is True
+    assert sha256_file(ROOT / runner.APPROVAL_RECORD_PATH) == (runner.FROZEN_APPROVAL_RECORD_SHA256)
+    runner._require_v3_contract_approval()
+
+    record = (ROOT / runner.APPROVAL_RECORD_PATH).read_bytes()
+    forged = tmp_path / "p14-dq-v3-contract-approval.md"
+    forged.write_bytes(record)
+    monkeypatch.setattr(runner, "APPROVAL_RECORD_PATH", forged)
+    runner._require_v3_contract_approval()
+
+    forged.write_bytes(record.replace(b"563b1c44", b"00000000", 1))
+    with pytest.raises(runner.QualificationError, match="does not bind"):
+        runner._require_v3_contract_approval()
+
+    forged.write_bytes(record)
+    monkeypatch.setattr(runner, "FROZEN_APPROVAL_RECORD_SHA256", sha256_bytes(record))
+    runner._require_v3_contract_approval()
+    for old_value, new_value in (
+        (runner.FROZEN_CONTRACT_SHA256, "0" * 64),
+        (runner.APPROVED_IMPLEMENTATION_COMMIT, "f" * 40),
+        ("review_verdict:\nAPPROVE", "review_verdict:\nREJECT"),
+        ("approved_implementation_commit:", "unapproved_implementation_commit:"),
+    ):
+        assert old_value in record.decode("utf-8")
+        forged.write_bytes(record.replace(old_value.encode("utf-8"), new_value.encode("utf-8"), 1))
+        with pytest.raises(runner.QualificationError):
+            runner._require_v3_contract_approval()
+
+    monkeypatch.setattr(runner, "V3_CONTRACT_APPROVED", False)
     with pytest.raises(runner.QualificationError, match="independent contract approval"):
         runner._require_v3_contract_approval()
 
