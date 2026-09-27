@@ -21,14 +21,18 @@ Diagnosis over the retained evidence:
 - Agent exchanges, signal artifacts and `ResearchResult` hashes reproduce exactly.
 - `order-indicators.parquet` and `trade-indicators.parquet` reproduce byte for byte, so the
   trading decisions are identical.
-- Only valuation-derived outputs diverge: `portfolio.parquet` `account`/`value` by at most
-  `5.8e-10`, `positions.parquet` `portfolio_weight` by at most `1.7e-17`, and
-  `risk-metrics.parquet` by about `8.9e-16`.
+- Only valuation-derived outputs diverge. Across the retained process pairs the largest
+  absolute differences are about `8.2e-10` for `portfolio.parquet` `account` and `value`,
+  about `2.4e-17` for `positions.parquet` `portfolio_weight`, and about `8.9e-16` for
+  `risk-metrics.parquet`; `order-indicators.parquet` and `trade-indicators.parquet` are
+  byte-identical in every retained pair.
 - Re-executing one frozen candidate in separate processes yields different backtest artifact
-  hashes, and the result is fixed by `PYTHONHASHSEED`: two independent processes with
-  `PYTHONHASHSEED=0` produced the identical artifact
-  `f50eda7406431b3eab1f8f155bb85853744fd9463ff93706af47400e54691182`, while
-  `PYTHONHASHSEED=1` produced `fa00f3371641f7f23574ebe8abf3a1950b944d2ad5e467488aee5ebb26990c47`.
+  hashes, and the result is fixed by `PYTHONHASHSEED`. During diagnosis two independent
+  processes with `PYTHONHASHSEED=0` produced the identical artifact
+  `f50eda7406431b3eab1f8f155bb85853744fd9463ff93706af47400e54691182`, while a process with
+  `PYTHONHASHSEED=1` produced a different one. The seed-0 pair, its seed-labelled summaries
+  and the environment that produced them are retained under
+  `artifacts/qualification/diag/` (gitignored local evidence, not part of the repository).
 
 The cause is in the reused third-party engine, Qlib 0.9.7
 (`qlib/backtest/position.py`): `Position.calculate_stock_value()` sums per-instrument values

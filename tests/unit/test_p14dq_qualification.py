@@ -254,7 +254,9 @@ def test_seed_guard_reexecutes_and_cannot_loop() -> None:
         text=True,
         env=environment,
         check=False,
+        timeout=300,
     )
+    assert seeded.returncode == 0, seeded.stderr
     assert "SEEDED 0 0" in seeded.stdout, seeded.stderr
 
     environment[runner.HASH_SEED_REEXEC_MARKER] = "1"
@@ -264,8 +266,12 @@ def test_seed_guard_reexecutes_and_cannot_loop() -> None:
         text=True,
         env=environment,
         check=False,
+        timeout=300,
     )
+    assert blocked.returncode != 0, blocked.stdout
     assert "SEEDED" not in blocked.stdout
+    assert "InputGateError" in blocked.stderr
+    assert "could not establish the frozen interpreter hash seed" in blocked.stderr
 
 
 def test_runtime_environment_record_binds_the_frozen_seed() -> None:

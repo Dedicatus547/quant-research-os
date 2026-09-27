@@ -171,7 +171,7 @@ REPRODUCIBILITY_AMENDMENT_PATH = Path(
     "docs/p14-dq-qualification-contract-v3-reproducibility-amendment.md"
 )
 FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256 = (
-    "dbc6063065608a0d2c2872f670186da371465c671ecfc0a6639279d51ac0030f"
+    "a0f336749bfe67564e378e3022d7e4bf60ce2f758da5ab514e6ed9075d2f74d9"
 )
 FROZEN_PYTHON_HASH_SEED = "0"
 HASH_SEED_REEXEC_MARKER = "QUANTOS_P14DQ_HASH_SEED_REEXEC"
@@ -377,10 +377,16 @@ def _ensure_frozen_hash_seed(arguments: Sequence[str]) -> None:
     ):
         return
     if os.environ.get(HASH_SEED_REEXEC_MARKER) == "1":
-        raise QualificationError("P14-DQ could not establish the frozen interpreter hash seed")
+        raise InputGateError(
+            ReasonCode.REPRODUCIBILITY_MISMATCH,
+            "P14-DQ could not establish the frozen interpreter hash seed",
+        )
     executable = sys.executable
     if not executable:
-        raise QualificationError("P14-DQ cannot re-execute without an interpreter path")
+        raise InputGateError(
+            ReasonCode.REPRODUCIBILITY_MISMATCH,
+            "P14-DQ cannot re-execute without an interpreter path",
+        )
     environment = dict(os.environ)
     environment["PYTHONHASHSEED"] = FROZEN_PYTHON_HASH_SEED
     environment[HASH_SEED_REEXEC_MARKER] = "1"
@@ -2363,9 +2369,9 @@ def _write_frozen_provenance(
     code: CodeProvenance,
     runtime: RuntimeFingerprint,
 ) -> None:
+    _require_frozen_hash_seed()
     (staging / "code-provenance.json").write_bytes(code.canonical_bytes())
     (staging / "runtime-fingerprint.json").write_bytes(runtime.canonical_bytes())
-    _require_frozen_hash_seed()
     environment = P14dqRuntimeEnvironment(
         reproducibility_amendment_hash=_frozen_amendment_hash(workspace),
         runtime_fingerprint_hash=runtime.content_hash,
