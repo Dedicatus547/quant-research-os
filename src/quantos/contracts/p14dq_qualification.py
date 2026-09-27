@@ -590,10 +590,26 @@ def p14dq_principal_hash_summary(roots: tuple[P14dqRootEvidence, ...]) -> str:
     return sha256_bytes(canonical_json_bytes(tuple(p14dq_root_principal_payload(r) for r in roots)))
 
 
+class P14dqRuntimeEnvironment(CanonicalContract):
+    """Frozen interpreter environment that P14-DQ reproducibility is asserted against.
+
+    The reused Qlib engine sums valuation over a hash-ordered instrument set, so artifacts
+    depend on the interpreter hash seed. Qualification therefore freezes and binds that
+    seed instead of re-implementing valuation, and the report is only valid when the
+    recorded environment proves the frozen seed was active from interpreter start.
+    """
+
+    schema_version: Literal["p14dq-runtime-environment/v1"] = "p14dq-runtime-environment/v1"
+    reproducibility_amendment_hash: str = Field(pattern=SHA256_PATTERN)
+    runtime_fingerprint_hash: str = Field(pattern=SHA256_PATTERN)
+    python_hash_seed: Literal["0"] = "0"
+    hash_randomization_enabled: Literal[False] = False
+
+
 class P14dqQualificationReport(CanonicalContract):
     """Content-addressed, successful P14-DQ engineering qualification report."""
 
-    schema_version: Literal["p14dq-qualification-report/v4"] = "p14dq-qualification-report/v4"
+    schema_version: Literal["p14dq-qualification-report/v5"] = "p14dq-qualification-report/v5"
     hash_exclude_fields: ClassVar[frozenset[str]] = frozenset({"qualification_hash"})
 
     qualification_hash: str = Field(pattern=SHA256_PATTERN)
@@ -603,6 +619,7 @@ class P14dqQualificationReport(CanonicalContract):
     code_provenance_hash: str = Field(pattern=SHA256_PATTERN)
     lockfile_hash: str = Field(pattern=SHA256_PATTERN)
     runtime_fingerprint_hash: str = Field(pattern=SHA256_PATTERN)
+    runtime_environment: P14dqRuntimeEnvironment
     qualification_contract_hash: str = Field(pattern=SHA256_PATTERN)
     external_bindings: P14dqExternalBindings
     family_hash: Literal["fbc0a11c08e502eaeb8abe5f7f9f5db390d9296a24a34607cd404e3655991bbb"]
@@ -679,6 +696,8 @@ class P14dqQualificationReport(CanonicalContract):
         }
         if not required_policy_names.issubset({item.name for item in self.policy_hashes}):
             raise ValueError("P14-DQ frozen policy bindings are incomplete")
+        if self.runtime_environment.runtime_fingerprint_hash != self.runtime_fingerprint_hash:
+            raise ValueError("P14-DQ runtime environment differs from the report fingerprint")
         if tuple(item.root_id for item in self.roots) != ("root-A", "root-B"):
             raise ValueError("P14-DQ requires independent root-A and root-B evidence")
         if self.principal_hash_summary != p14dq_principal_hash_summary(self.roots):
@@ -695,9 +714,11 @@ class P14dqQualificationReport(CanonicalContract):
             raise ValueError("P14-DQ restart-case count does not cover both roots")
         required_files = {
             "code-provenance.json",
+            "runtime-environment.json",
             "runtime-fingerprint.json",
             "frozen/uv.lock",
             "frozen/p14-dq-qualification-contract.md",
+            "frozen/p14-dq-reproducibility-amendment.md",
             "external/snapshot-manifest.json",
             "external/snapshot-quality-report.json",
             "external/qlib-view-manifest.json",
@@ -744,6 +765,7 @@ __all__ = [
     "P14dqReplayCaseEvidence",
     "P14dqRestartCaseEvidence",
     "P14dqRootEvidence",
+    "P14dqRuntimeEnvironment",
     "P14dqValidationGateEvidence",
     "p14dq_principal_hash_summary",
     "p14dq_root_principal_hash",

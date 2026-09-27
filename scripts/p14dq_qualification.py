@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 import shutil
+import sys
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -126,8 +128,10 @@ from quantos.contracts.p14dq_qualification import (
     P14dqReplayCaseEvidence,
     P14dqRestartCaseEvidence,
     P14dqRootEvidence,
+    P14dqRuntimeEnvironment,
     P14dqValidationGateEvidence,
     p14dq_principal_hash_summary,
+    p14dq_root_principal_payload,
 )
 from quantos.contracts.pit import SafeQlibOperator
 from quantos.contracts.provenance import CodeProvenance, RuntimeFingerprint
@@ -163,6 +167,14 @@ APPROVAL_RECORD_PATH = Path("docs/reviews/p14-dq-v3-contract-approval.md")
 FROZEN_APPROVAL_RECORD_SHA256 = "6010a6c2d53727fabce7e3a6caf9cc5f0dd9dfd2ced131e2a524cd1993f0aa74"
 APPROVED_IMPLEMENTATION_COMMIT = "0130faa5d78d857d34bd12af99027d2bcd23ee16"
 V3_CONTRACT_APPROVED = True
+REPRODUCIBILITY_AMENDMENT_PATH = Path(
+    "docs/p14-dq-qualification-contract-v3-reproducibility-amendment.md"
+)
+FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256 = (
+    "a825578873a705effdacb22e3f86ce4639b67bbae5c3c338908863eac6f2fc6e"
+)
+FROZEN_PYTHON_HASH_SEED = "0"
+HASH_SEED_REEXEC_MARKER = "QUANTOS_P14DQ_HASH_SEED_REEXEC"
 SNAPSHOT_RELATIVE_PATH = Path(
     "artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
 )
@@ -331,6 +343,57 @@ def _require_v3_contract_approval() -> None:
         raise QualificationError(
             "P14-DQ v3 approval record does not bind the approved contract bytes and commit"
         )
+
+
+def _frozen_hash_seed_error(seed_env: str | None, hash_randomization: int) -> str | None:
+    """Return why this interpreter cannot produce environment-independent P14-DQ evidence."""
+
+    if seed_env != FROZEN_PYTHON_HASH_SEED:
+        return f"PYTHONHASHSEED is {seed_env!r}, expected {FROZEN_PYTHON_HASH_SEED!r}"
+    if hash_randomization != 0:
+        return "interpreter hash randomization is still enabled"
+    return None
+
+
+def _require_frozen_hash_seed() -> None:
+    """Refuse to execute Qlib unless the frozen seed was active from interpreter start."""
+
+    failure = _frozen_hash_seed_error(
+        os.environ.get("PYTHONHASHSEED"), sys.flags.hash_randomization
+    )
+    if failure is not None:
+        raise InputGateError(
+            ReasonCode.REPRODUCIBILITY_MISMATCH,
+            f"P14-DQ requires a frozen interpreter hash seed: {failure}",
+        )
+
+
+def _ensure_frozen_hash_seed(arguments: Sequence[str]) -> None:
+    """Re-execute this command under the frozen seed before any Qlib work starts."""
+
+    if (
+        _frozen_hash_seed_error(os.environ.get("PYTHONHASHSEED"), sys.flags.hash_randomization)
+        is None
+    ):
+        return
+    if os.environ.get(HASH_SEED_REEXEC_MARKER) == "1":
+        raise QualificationError("P14-DQ could not establish the frozen interpreter hash seed")
+    executable = sys.executable
+    if not executable:
+        raise QualificationError("P14-DQ cannot re-execute without an interpreter path")
+    environment = dict(os.environ)
+    environment["PYTHONHASHSEED"] = FROZEN_PYTHON_HASH_SEED
+    environment[HASH_SEED_REEXEC_MARKER] = "1"
+    os.execve(executable, [executable, *arguments], environment)
+
+
+def _frozen_amendment_hash(workspace: Path) -> str:
+    actual = sha256_file(workspace / REPRODUCIBILITY_AMENDMENT_PATH)
+    if actual != FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256:
+        raise QualificationError(
+            "P14-DQ reproducibility amendment bytes differ from the reviewed candidate"
+        )
+    return actual
 
 
 def _path_has_symlink_component(path: Path) -> bool:
@@ -2301,10 +2364,19 @@ def _write_frozen_provenance(
 ) -> None:
     (staging / "code-provenance.json").write_bytes(code.canonical_bytes())
     (staging / "runtime-fingerprint.json").write_bytes(runtime.canonical_bytes())
+    environment = P14dqRuntimeEnvironment(
+        reproducibility_amendment_hash=_frozen_amendment_hash(workspace),
+        runtime_fingerprint_hash=runtime.content_hash,
+    )
+    (staging / "runtime-environment.json").write_bytes(environment.canonical_bytes())
     frozen = staging / "frozen"
     frozen.mkdir(exist_ok=True)
     shutil.copyfile(workspace / "uv.lock", frozen / "uv.lock")
     shutil.copyfile(workspace / CONTRACT_PATH, frozen / "p14-dq-qualification-contract.md")
+    shutil.copyfile(
+        workspace / REPRODUCIBILITY_AMENDMENT_PATH,
+        frozen / "p14-dq-reproducibility-amendment.md",
+    )
     policy_root = frozen / "policies"
     policy_root.mkdir(parents=True, exist_ok=True)
     for name, relative in POLICY_PATHS.items():
@@ -2375,11 +2447,26 @@ def _stage_qualification(
         for root_name in ("root-A", "root-B")
     )
     contract_hash = _frozen_contract_hash(ROOT)
+    amendment_hash = _frozen_amendment_hash(ROOT)
+    environment = P14dqRuntimeEnvironment.model_validate_json(
+        (staging / "runtime-environment.json").read_bytes()
+    )
+    if (
+        environment.reproducibility_amendment_hash != amendment_hash
+        or environment.runtime_fingerprint_hash != runtime.content_hash
+    ):
+        raise QualificationError("P14-DQ runtime environment record differs from its inputs")
+    if p14dq_root_principal_payload(roots[0]) != p14dq_root_principal_payload(roots[1]):
+        raise InputGateError(
+            ReasonCode.REPRODUCIBILITY_MISMATCH,
+            "independent P14-DQ roots produced different principal evidence",
+        )
     report = P14dqQualificationReport.create(
         implementation_commit_hash=code.commit_hash,
         code_provenance_hash=code.content_hash,
         lockfile_hash=code.lockfile_hash,
         runtime_fingerprint_hash=runtime.content_hash,
+        runtime_environment=environment,
         qualification_contract_hash=contract_hash,
         external_bindings=inputs.bindings,
         family_hash=P14DQ_FAMILY_HASH,
@@ -2441,6 +2528,7 @@ def _verify_reproducible_roots(
     view_path: Path,
     release_report_path: Path,
 ) -> None:
+    _require_frozen_hash_seed()
     workspace = workspace.resolve(strict=True)
     if workspace != ROOT.resolve():
         raise QualificationError("P14-DQ verifier workspace must be the runner's repository root")
@@ -2470,7 +2558,10 @@ def _verify_reproducible_roots(
             temporary / "root-B", "root-B", inputs, policies, code, workspace=workspace
         )
     if rebuilt_a != roots[0] or rebuilt_b != roots[1]:
-        raise QualificationError("P14-DQ roots did not reproduce from explicit external inputs")
+        raise InputGateError(
+            ReasonCode.REPRODUCIBILITY_MISMATCH,
+            "P14-DQ roots did not reproduce from explicit external inputs",
+        )
 
 
 def _qualify_from_provenance(
@@ -2483,6 +2574,7 @@ def _qualify_from_provenance(
     code: CodeProvenance,
     runtime: RuntimeFingerprint,
 ) -> dict[str, object]:
+    _require_frozen_hash_seed()
     _frozen_contract_hash(workspace)
     _require_v3_contract_approval()
     inputs = verify_external_inputs(
@@ -2721,10 +2813,21 @@ def _verify_p14dq_bundle_integrity(
             or report.qualification_contract_hash != FROZEN_CONTRACT_SHA256
             or sha256_file(path / "frozen" / "p14-dq-qualification-contract.md")
             != report.qualification_contract_hash
+            or sha256_file(path / "frozen" / "p14-dq-reproducibility-amendment.md")
+            != FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256
         ):
             raise QualificationError(
                 "P14-DQ code, runtime, lockfile or contract provenance differs"
             )
+        environment_bytes = (path / "runtime-environment.json").read_bytes()
+        environment = P14dqRuntimeEnvironment.model_validate_json(environment_bytes)
+        if (
+            environment_bytes != environment.canonical_bytes()
+            or environment != report.runtime_environment
+            or environment.reproducibility_amendment_hash != FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256
+            or environment.python_hash_seed != FROZEN_PYTHON_HASH_SEED
+        ):
+            raise QualificationError("P14-DQ runtime environment record differs from the report")
         _load_bundle_external_metadata(path, report.external_bindings)
         policies = _load_frozen_policy_bundle(path)
         _p14dq_family_manifest()
@@ -2792,6 +2895,8 @@ def verify_p14dq_qualification_artifact(
 ) -> P14dqQualificationReport:
     """Verify bundle integrity, reverify external inputs, then rebuild both roots."""
 
+    _require_frozen_hash_seed()
+    _frozen_amendment_hash(ROOT)
     report = verify_p14dq_bundle_integrity(path)
     _verify_reproducible_roots(
         report.roots,
@@ -2840,6 +2945,7 @@ def main() -> None:
     )
     bundle_parser.add_argument("--artifact", type=Path, required=True)
     args = parser.parse_args()
+    _ensure_frozen_hash_seed(sys.argv)
     try:
         if args.command == "run":
             result = run(

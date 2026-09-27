@@ -34,6 +34,7 @@ from quantos.contracts.p14dq_qualification import (
     P14DQ_TEMPLATE_HASH,
     P14dqCampaignEvidence,
     P14dqCandidateEvaluation,
+    P14dqRuntimeEnvironment,
     P14dqValidationGateEvidence,
 )
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
@@ -179,6 +180,47 @@ def test_tree_inventory_hash_hashes_nested_and_other_json_verbatim(tmp_path: Pat
     )
     (second / "natural" / "plain.json").write_bytes(b'{"a": 2, "b": 1}')
     assert runner._tree_inventory_hash(first) != runner._tree_inventory_hash(second)
+
+
+def test_reproducibility_amendment_is_pinned_and_tamper_refuses(tmp_path: Path) -> None:
+    assert runner._frozen_amendment_hash(ROOT) == (runner.FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256)
+    changed = tmp_path / runner.REPRODUCIBILITY_AMENDMENT_PATH
+    changed.parent.mkdir(parents=True)
+    changed.write_bytes(b"changed amendment")
+    with pytest.raises(runner.QualificationError, match="reproducibility amendment bytes"):
+        runner._frozen_amendment_hash(tmp_path)
+
+
+def test_frozen_hash_seed_guard_refuses_unseeded_processes() -> None:
+    assert runner.FROZEN_PYTHON_HASH_SEED == "0"
+    assert runner._frozen_hash_seed_error("0", 0) is None
+    assert "PYTHONHASHSEED" in str(runner._frozen_hash_seed_error(None, 0))
+    assert "PYTHONHASHSEED" in str(runner._frozen_hash_seed_error("1", 0))
+    assert "hash randomization" in str(runner._frozen_hash_seed_error("0", 1))
+
+    with pytest.raises(runner.InputGateError) as refused:
+        runner._require_frozen_hash_seed()
+    assert refused.value.reason_code is ReasonCode.REPRODUCIBILITY_MISMATCH
+
+
+def test_runtime_environment_record_binds_the_frozen_seed() -> None:
+    environment = P14dqRuntimeEnvironment(
+        reproducibility_amendment_hash=runner.FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256,
+        runtime_fingerprint_hash="a" * 64,
+    )
+    assert environment.python_hash_seed == "0"
+    assert environment.hash_randomization_enabled is False
+    assert environment.schema_version == "p14dq-runtime-environment/v1"
+
+    for overrides in (
+        {"python_hash_seed": "1"},
+        {"hash_randomization_enabled": True},
+        {"reproducibility_amendment_hash": "not-a-hash"},
+    ):
+        with pytest.raises(ValidationError):
+            P14dqRuntimeEnvironment.model_validate(
+                {**environment.model_dump(mode="python"), **overrides}
+            )
 
 
 def test_negative_case_helpers_are_order_independent_and_fail_closed() -> None:
