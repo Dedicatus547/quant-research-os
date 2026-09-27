@@ -258,3 +258,32 @@ P14c. The immutable report grants engineering selection authority within its sta
 bounded deterministic autonomous loop and its clean-commit double-root qualification are implemented
 and qualified; P14d-C remains blocked by FR-03 `NO_GO`. No mutation, crossover, dynamic grammar or
 family expansion has been implemented.
+
+## P14-DQ v3 Data-qualified engineering qualification (accepted)
+
+P14-DQ v3 completed a clean-commit independent double-root qualification from commit
+`6573112a7ae46c2c6a5c29f85ff38a2450ca41ba`:
+
+- qualification report: `f75455152dbd90827d8d1a015ecf1b0fa5ad749f53b67a06226b9d7039f2cb53`
+  (`p14dq-qualification-report/v5`), status/verdict `SUCCEEDED / PASS`
+- approved v3 engineering acceptance contract:
+  `563b1c44ff8e3b87822902c1f70183de2ddd97b007550f2028990bb37f858e17`
+- approved reproducibility environment amendment:
+  `a63058df2df0a89c054965fb33046d99dc0851624bd231b45a2446709539dbce`
+- frozen runtime environment: `PYTHONHASHSEED=0` with hash randomization disabled
+- natural research outcome, recorded verbatim: P14c `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`
+  with `eligible_candidate_count = 0` and `selection_performed = false`
+- independent roots: identical principal evidence, byte-exact across `root-A` and `root-B`;
+  54 P14d negative cases, 24 P14-DQ negative cases and 6 restart cases all passed
+- full bottom-up verifier (`verify`, not the bundle-only mode): `SUCCEEDED / PASS`
+- independent final acceptance: Codex / GPT-6 Sol, High, fresh context — `APPROVE`
+
+The acceptance record with every exact binding, the authority corrections and the preserved
+history is `docs/reviews/p14-dq-v3-qualification-acceptance.md`. The grant is limited to bounded
+deterministic autonomous Data-qualified engineering qualification for that exact frozen
+snapshot/view lineage, clean implementation commit and frozen runtime environment. It grants no
+alpha, profitability, investment-suitability, live-Agent, FR-03 or sealed-confirmation authority,
+and it does not claim that the reused Qlib engine is hash-order independent. The previously
+published `sha256-10cf6e09…` bundle stays unaccepted and every failed attempt stays immutable.
+
+Next task, recorded and not started: **P14 Release Candidate freeze**.
