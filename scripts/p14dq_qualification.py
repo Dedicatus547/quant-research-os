@@ -171,7 +171,7 @@ REPRODUCIBILITY_AMENDMENT_PATH = Path(
     "docs/p14-dq-qualification-contract-v3-reproducibility-amendment.md"
 )
 FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256 = (
-    "a0f336749bfe67564e378e3022d7e4bf60ce2f758da5ab514e6ed9075d2f74d9"
+    "a63058df2df0a89c054965fb33046d99dc0851624bd231b45a2446709539dbce"
 )
 FROZEN_PYTHON_HASH_SEED = "0"
 HASH_SEED_REEXEC_MARKER = "QUANTOS_P14DQ_HASH_SEED_REEXEC"
@@ -390,7 +390,13 @@ def _ensure_frozen_hash_seed(arguments: Sequence[str]) -> None:
     environment = dict(os.environ)
     environment["PYTHONHASHSEED"] = FROZEN_PYTHON_HASH_SEED
     environment[HASH_SEED_REEXEC_MARKER] = "1"
-    os.execve(executable, [executable, *arguments], environment)
+    try:
+        os.execve(executable, [executable, *arguments], environment)
+    except OSError as error:
+        raise InputGateError(
+            ReasonCode.REPRODUCIBILITY_MISMATCH,
+            f"P14-DQ could not re-execute under the frozen interpreter hash seed: {error}",
+        ) from error
 
 
 def _frozen_amendment_hash(workspace: Path) -> str:

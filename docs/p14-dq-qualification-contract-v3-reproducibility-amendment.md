@@ -30,9 +30,13 @@ Diagnosis over the retained evidence:
   hashes, and the result is fixed by `PYTHONHASHSEED`. During diagnosis two independent
   processes with `PYTHONHASHSEED=0` produced the identical artifact
   `f50eda7406431b3eab1f8f155bb85853744fd9463ff93706af47400e54691182`, while a process with
-  `PYTHONHASHSEED=1` produced a different one. The seed-0 pair, its seed-labelled summaries
-  and the environment that produced them are retained under
-  `artifacts/qualification/diag/` (gitignored local evidence, not part of the repository).
+  `PYTHONHASHSEED=1` produced a different one.
+- The two-process same-seed check is re-run and retained for the reviewed commit: each run
+  writes a seed-labelled summary (`tag`, `seed`, `commit`, `research_result_hash`,
+  `validation_report_hash`, `baseline_backtest_result_hash`) plus its full process log and its
+  copied backtest artifact under `artifacts/qualification/diag/`. That directory is gitignored
+  local diagnostic evidence: it supports the diagnosis but is not qualification authority, and
+  the qualification evidence is the bundle and its verifier.
 
 The cause is in the reused third-party engine, Qlib 0.9.7
 (`qlib/backtest/position.py`): `Position.calculate_stock_value()` sums per-instrument values

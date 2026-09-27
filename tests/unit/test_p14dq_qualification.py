@@ -294,6 +294,21 @@ def test_runtime_environment_record_binds_the_frozen_seed() -> None:
             )
 
 
+def test_seed_reexec_failure_is_classified_as_reproducibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner, "_frozen_hash_seed_error", lambda *_args: "injected seed")
+    monkeypatch.delenv(runner.HASH_SEED_REEXEC_MARKER, raising=False)
+
+    def unavailable(*_args: object, **_kwargs: object) -> None:
+        raise OSError("executable unavailable")
+
+    monkeypatch.setattr(runner.os, "execve", unavailable)
+    with pytest.raises(runner.InputGateError) as refused:
+        runner._ensure_frozen_hash_seed(["script"])
+    assert refused.value.reason_code is ReasonCode.REPRODUCIBILITY_MISMATCH
+
+
 def test_negative_case_helpers_are_order_independent_and_fail_closed() -> None:
     p14d = runner.p14d
     _template, _family, manifest = runner._p14dq_family_manifest()
