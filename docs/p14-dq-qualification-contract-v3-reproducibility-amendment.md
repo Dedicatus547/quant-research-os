@@ -80,9 +80,15 @@ live-Agent, FR-03 or vendor-vintage PIT authority.
 
 The bundle `sha256-10cf6e09f32e39716daea7f48e565ad2798f8a0362eb4e81faaed04a14fc92a3` is
 **not accepted** as a qualification artifact: its mandatory full bottom-up verification
-failed. It is retained unmodified as immutable evidence of the defect, and the three earlier
-failed attempts remain immutable failures. Reproducibility-mismatch findings must be reported
-as `REPRODUCIBILITY_MISMATCH`, not as generic artifact corruption.
+failed with a root reproducibility mismatch, which the runner of that commit reported as
+`ARTIFACT_CORRUPTED` because the generic classification was in force then. It is retained
+unmodified as immutable evidence of the defect, and the earlier failed attempts remain
+immutable failures.
+
+That bundle predates this amendment, so it cannot be re-verified under it: the report schema
+was raised, and a pre-amendment report must never be presented as covered by this amendment.
+Reproducibility mismatches produced under this amendment must be reported as
+`REPRODUCIBILITY_MISMATCH`, not as generic artifact corruption.
 
 ## 6. Qualification gate
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -198,9 +200,72 @@ def test_frozen_hash_seed_guard_refuses_unseeded_processes() -> None:
     assert "PYTHONHASHSEED" in str(runner._frozen_hash_seed_error("1", 0))
     assert "hash randomization" in str(runner._frozen_hash_seed_error("0", 1))
 
-    with pytest.raises(runner.InputGateError) as refused:
+    ambient = runner._frozen_hash_seed_error(
+        os.environ.get("PYTHONHASHSEED"), sys.flags.hash_randomization
+    )
+    if ambient is None:
         runner._require_frozen_hash_seed()
+    else:
+        with pytest.raises(runner.InputGateError) as refused:
+            runner._require_frozen_hash_seed()
+        assert refused.value.reason_code is ReasonCode.REPRODUCIBILITY_MISMATCH
+
+
+def test_qlib_execution_boundary_requires_the_frozen_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard must fire before the root pipeline touches its inputs or runs Qlib."""
+
+    monkeypatch.setattr(runner, "_frozen_hash_seed_error", lambda *_args: "injected seed")
+    with pytest.raises(runner.InputGateError) as refused:
+        runner._run_root_pipeline(
+            Path("unused-root"),
+            "root-A",
+            cast(object, None),
+            cast(object, None),
+            cast(object, None),
+            workspace=ROOT,
+        )
     assert refused.value.reason_code is ReasonCode.REPRODUCIBILITY_MISMATCH
+
+
+def test_seed_guard_reexecutes_and_cannot_loop() -> None:
+    probe = (
+        "import importlib.util, os, sys\n"
+        "PROBE_CODE = None\n"
+        "from pathlib import Path\n"
+        f"root = Path({str(ROOT)!r})\n"
+        "script = root / 'scripts/p14dq_qualification.py'\n"
+        "spec = importlib.util.spec_from_file_location('seed_probe', script)\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "sys.modules['seed_probe'] = module\n"
+        "sys.path.insert(0, str(root / 'scripts'))\n"
+        "spec.loader.exec_module(module)\n"
+        "sys.path.remove(str(root / 'scripts'))\n"
+        "module._ensure_frozen_hash_seed(['-c', PROBE_CODE])\n"
+        "print('SEEDED', os.environ.get('PYTHONHASHSEED'), sys.flags.hash_randomization)\n"
+    )
+    probe = probe.replace("PROBE_CODE = None", f"PROBE_CODE = {probe!r}", 1)
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONHASHSEED"}
+    environment.pop(runner.HASH_SEED_REEXEC_MARKER, None)
+    seeded = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    assert "SEEDED 0 0" in seeded.stdout, seeded.stderr
+
+    environment[runner.HASH_SEED_REEXEC_MARKER] = "1"
+    blocked = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    assert "SEEDED" not in blocked.stdout
 
 
 def test_runtime_environment_record_binds_the_frozen_seed() -> None:

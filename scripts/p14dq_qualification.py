@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Literal, cast
 from unittest.mock import patch
 from uuid import UUID
 
@@ -171,7 +171,7 @@ REPRODUCIBILITY_AMENDMENT_PATH = Path(
     "docs/p14-dq-qualification-contract-v3-reproducibility-amendment.md"
 )
 FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256 = (
-    "a825578873a705effdacb22e3f86ce4639b67bbae5c3c338908863eac6f2fc6e"
+    "dbc6063065608a0d2c2872f670186da371465c671ecfc0a6639279d51ac0030f"
 )
 FROZEN_PYTHON_HASH_SEED = "0"
 HASH_SEED_REEXEC_MARKER = "QUANTOS_P14DQ_HASH_SEED_REEXEC"
@@ -2199,6 +2199,7 @@ def _run_root_pipeline(
     *,
     workspace: Path,
 ) -> P14dqRootEvidence:
+    _require_frozen_hash_seed()
     if root_id not in {"root-A", "root-B"}:
         raise QualificationError("P14-DQ root id is invalid")
     _assert_root_lineage(
@@ -2364,9 +2365,14 @@ def _write_frozen_provenance(
 ) -> None:
     (staging / "code-provenance.json").write_bytes(code.canonical_bytes())
     (staging / "runtime-fingerprint.json").write_bytes(runtime.canonical_bytes())
+    _require_frozen_hash_seed()
     environment = P14dqRuntimeEnvironment(
         reproducibility_amendment_hash=_frozen_amendment_hash(workspace),
         runtime_fingerprint_hash=runtime.content_hash,
+        python_hash_seed=cast(
+            Literal["0"], os.environ.get("PYTHONHASHSEED")
+        ),
+        hash_randomization_enabled=cast(Literal[False], bool(sys.flags.hash_randomization)),
     )
     (staging / "runtime-environment.json").write_bytes(environment.canonical_bytes())
     frozen = staging / "frozen"
@@ -2539,7 +2545,10 @@ def _verify_reproducible_roots(
     )
     runtime = capture_runtime_fingerprint()
     if runtime.content_hash != runtime_fingerprint_hash:
-        raise QualificationError("P14-DQ runtime fingerprint differs from the report")
+        raise InputGateError(
+            ReasonCode.REPRODUCIBILITY_MISMATCH,
+            "P14-DQ runtime fingerprint differs from the report",
+        )
     inputs = verify_external_inputs(
         workspace=workspace,
         snapshot_path=snapshot_path,
@@ -2600,8 +2609,9 @@ def _qualify_from_provenance(
                 root_b, "root-B", inputs, policies, code, workspace=workspace
             )
             if evidence_a != evidence_b.model_copy(update={"root_id": evidence_a.root_id}):
-                raise QualificationError(
-                    "independent P14-DQ roots produced different principal evidence"
+                raise InputGateError(
+                    ReasonCode.REPRODUCIBILITY_MISMATCH,
+                    "independent P14-DQ roots produced different principal evidence",
                 )
             (root_a / "root-evidence.json").write_bytes(evidence_a.canonical_bytes())
             (root_b / "root-evidence.json").write_bytes(evidence_b.canonical_bytes())
@@ -2945,8 +2955,8 @@ def main() -> None:
     )
     bundle_parser.add_argument("--artifact", type=Path, required=True)
     args = parser.parse_args()
-    _ensure_frozen_hash_seed(sys.argv)
     try:
+        _ensure_frozen_hash_seed(sys.argv)
         if args.command == "run":
             result = run(
                 workspace=args.workspace,
