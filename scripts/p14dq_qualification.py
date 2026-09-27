@@ -173,6 +173,11 @@ REPRODUCIBILITY_AMENDMENT_PATH = Path(
 FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256 = (
     "a63058df2df0a89c054965fb33046d99dc0851624bd231b45a2446709539dbce"
 )
+AMENDMENT_APPROVAL_RECORD_PATH = Path("docs/reviews/p14-dq-reproducibility-amendment-approval.md")
+FROZEN_AMENDMENT_APPROVAL_RECORD_SHA256 = (
+    "26e331ce4a2df4664995e23f615a205b817bd3318b4ea9e43c9649fc32577ca9"
+)
+APPROVED_REPRODUCIBILITY_IMPLEMENTATION_COMMIT = "e968ce355a338e15425c27e500b74a9c43beb6af"
 FROZEN_PYTHON_HASH_SEED = "0"
 HASH_SEED_REEXEC_MARKER = "QUANTOS_P14DQ_HASH_SEED_REEXEC"
 SNAPSHOT_RELATIVE_PATH = Path(
@@ -397,6 +402,33 @@ def _ensure_frozen_hash_seed(arguments: Sequence[str]) -> None:
             ReasonCode.REPRODUCIBILITY_MISMATCH,
             f"P14-DQ could not re-execute under the frozen interpreter hash seed: {error}",
         ) from error
+
+
+def _require_amendment_approval() -> None:
+    """Refuse to run or verify unless the reproducibility amendment is approved.
+
+    The approval record is hash-pinned by this module and must itself bind the frozen
+    amendment bytes, the reviewed implementation baseline and an APPROVE verdict, so a
+    bundle can never embed an unapproved amendment as its environment authority.
+    """
+
+    try:
+        record_bytes = (ROOT / AMENDMENT_APPROVAL_RECORD_PATH).read_bytes()
+    except OSError as error:
+        raise QualificationError("P14-DQ amendment approval record is unavailable") from error
+    encoded = record_bytes.decode("utf-8")
+    if (
+        sha256_bytes(record_bytes) != FROZEN_AMENDMENT_APPROVAL_RECORD_SHA256
+        or _approval_record_field(encoded, "approved_amendment_sha256")
+        != FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256
+        or _approval_record_field(encoded, "approved_implementation_commit")
+        != APPROVED_REPRODUCIBILITY_IMPLEMENTATION_COMMIT
+        or _approval_record_field(encoded, "review_verdict") != "APPROVE"
+    ):
+        raise QualificationError(
+            "P14-DQ amendment approval record does not bind the approved amendment and baseline"
+        )
+    _frozen_amendment_hash(ROOT)
 
 
 def _frozen_amendment_hash(workspace: Path) -> str:
@@ -2381,9 +2413,7 @@ def _write_frozen_provenance(
     environment = P14dqRuntimeEnvironment(
         reproducibility_amendment_hash=_frozen_amendment_hash(workspace),
         runtime_fingerprint_hash=runtime.content_hash,
-        python_hash_seed=cast(
-            Literal["0"], os.environ.get("PYTHONHASHSEED")
-        ),
+        python_hash_seed=cast(Literal["0"], os.environ.get("PYTHONHASHSEED")),
         hash_randomization_enabled=cast(Literal[False], bool(sys.flags.hash_randomization)),
     )
     (staging / "runtime-environment.json").write_bytes(environment.canonical_bytes())
@@ -2596,6 +2626,7 @@ def _qualify_from_provenance(
     runtime: RuntimeFingerprint,
 ) -> dict[str, object]:
     _require_frozen_hash_seed()
+    _require_amendment_approval()
     _frozen_contract_hash(workspace)
     _require_v3_contract_approval()
     inputs = verify_external_inputs(
@@ -2903,6 +2934,7 @@ def _verify_p14dq_bundle_integrity(
 def verify_p14dq_bundle_integrity(path: Path) -> P14dqQualificationReport:
     """Verify the immutable P14-DQ bundle without claiming external inputs are present."""
 
+    _require_amendment_approval()
     _require_v3_contract_approval()
     return _verify_p14dq_bundle_integrity(path, require_content_addressed_name=True)
 
@@ -2918,7 +2950,7 @@ def verify_p14dq_qualification_artifact(
     """Verify bundle integrity, reverify external inputs, then rebuild both roots."""
 
     _require_frozen_hash_seed()
-    _frozen_amendment_hash(ROOT)
+    _require_amendment_approval()
     report = verify_p14dq_bundle_integrity(path)
     _verify_reproducible_roots(
         report.roots,

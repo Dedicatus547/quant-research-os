@@ -294,6 +294,73 @@ def test_runtime_environment_record_binds_the_frozen_seed() -> None:
             )
 
 
+def test_amendment_approval_record_is_pinned_and_tamper_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert sha256_file(ROOT / runner.AMENDMENT_APPROVAL_RECORD_PATH) == (
+        runner.FROZEN_AMENDMENT_APPROVAL_RECORD_SHA256
+    )
+    runner._require_amendment_approval()
+
+    record = (ROOT / runner.AMENDMENT_APPROVAL_RECORD_PATH).read_bytes()
+    forged = tmp_path / "p14-dq-reproducibility-amendment-approval.md"
+    forged.write_bytes(record)
+    monkeypatch.setattr(runner, "AMENDMENT_APPROVAL_RECORD_PATH", forged)
+    runner._require_amendment_approval()
+
+    forged.write_bytes(record.replace(b"a63058df", b"00000000", 1))
+    with pytest.raises(runner.QualificationError, match="does not bind"):
+        runner._require_amendment_approval()
+
+    forged.write_bytes(record)
+    monkeypatch.setattr(runner, "FROZEN_AMENDMENT_APPROVAL_RECORD_SHA256", sha256_bytes(record))
+    runner._require_amendment_approval()
+    for old_value, new_value in (
+        (runner.FROZEN_REPRODUCIBILITY_AMENDMENT_SHA256, "0" * 64),
+        (runner.APPROVED_REPRODUCIBILITY_IMPLEMENTATION_COMMIT, "f" * 40),
+        ("review_verdict:\nAPPROVE", "review_verdict:\nREJECT"),
+        ("approved_amendment_sha256:", "unapproved_amendment_sha256:"),
+    ):
+        assert old_value in record.decode("utf-8")
+        forged.write_bytes(record.replace(old_value.encode("utf-8"), new_value.encode("utf-8"), 1))
+        with pytest.raises(runner.QualificationError):
+            runner._require_amendment_approval()
+
+
+def test_amendment_gate_precedes_work_on_all_three_entrypoints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class GateFired(RuntimeError):
+        pass
+
+    def refuse() -> None:
+        raise GateFired
+
+    monkeypatch.setattr(runner, "_require_amendment_approval", refuse)
+    monkeypatch.setattr(runner, "_require_frozen_hash_seed", lambda: None)
+
+    with pytest.raises(GateFired):
+        runner._qualify_from_provenance(
+            workspace=ROOT,
+            output_root=tmp_path / "out",
+            snapshot_path=tmp_path / "snapshot",
+            view_path=tmp_path / "view",
+            release_report_path=tmp_path / "release.json",
+            code=cast(object, None),
+            runtime=cast(object, None),
+        )
+    with pytest.raises(GateFired):
+        runner.verify_p14dq_qualification_artifact(
+            tmp_path / "artifact",
+            workspace=ROOT,
+            snapshot_path=tmp_path / "snapshot",
+            view_path=tmp_path / "view",
+            release_report_path=tmp_path / "release.json",
+        )
+    with pytest.raises(GateFired):
+        runner.verify_p14dq_bundle_integrity(tmp_path / "artifact")
+
+
 def test_seed_reexec_failure_is_classified_as_reproducibility(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
