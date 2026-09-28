@@ -25,9 +25,11 @@ Documentation roles:
   method and failure semantics, and
   [P14d qualification contract](docs/p14d-qualification-contract.md) freezes the clean-commit
   double-root autonomous campaign qualification.
-- [P14 Release Candidate record](docs/releases/p14-rc-v1.md) binds the final evidence and authority
-  matrix for the P14 RC freeze; the [append-only verification supplement](docs/releases/p14-rc-v1-verification.md)
-  records final post-commit gates and the exact formatter output.
+- [P14 RC v1 final freeze](docs/releases/p14-rc-v1-final.md) records the resolved Qlib execution
+  race, current-baseline qualifications, final gates, and authority matrix. The
+  [historical blocked freeze](docs/releases/p14-rc-v1.md) and its
+  [append-only verification supplement](docs/releases/p14-rc-v1-verification.md) preserve the
+  earlier attempts unchanged.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records
@@ -339,13 +341,13 @@ complete through bounded deterministic autonomous Data-qualified engineering qua
 P14c, P14d-B synthetic autonomous engineering, and accepted P14-DQ engineering authority are
 qualified; P14b and P14d-A are complete. The natural P14-DQ research outcome remains
 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`, with zero eligible candidates and no selection.
-P14d-C remains blocked by FR-03 `NO_GO`. The current P14 RC record keeps those engineering and
-research statuses separate and records that live-Agent, sealed-confirmation, alpha/profitability,
-vendor-vintage PIT, and unrestricted-autonomous authority are not qualified. Existing admitted DSL
-propagation and an immutable Qlib ResearchResult were parallel factor-research prerequisites for P14.
-The P14 RC audit is recorded as `BLOCKED`: the repository-wide formatter requests formatting-only
-changes in two files from the frozen P14-DQ production baseline, and those changes would alter the
-qualified implementation provenance. The RC record gives the exact gate output and minimum resolution.
+P14d-C remains blocked by FR-03 NO_GO. The [final P14 RC freeze
+record](docs/releases/p14-rc-v1-final.md) keeps engineering and research outcomes separate and
+records that live-Agent, sealed-confirmation, alpha/profitability, vendor-vintage PIT, and
+unrestricted-autonomous authority are not qualified. It binds the corrected Qlib lifecycle
+implementation and new P14d-B/P14-DQ qualifications; the earlier blocked freeze remains available
+as historical evidence. Existing admitted DSL propagation and an immutable Qlib ResearchResult
+were parallel factor-research prerequisites for P14.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
 [`docs/p8-security.md`](docs/p8-security.md),
 [`docs/p9-research-semantics.md`](docs/p9-research-semantics.md), and

@@ -1,22 +1,19 @@
 # P14 progress
 
-Status date: 2026-09-28
+Status date: 2026-09-29
 
 Current P14 status: P14a, P14b, P14c, P14d-A, P14d-B, and P14-DQ are complete within their distinct
-engineering authority scopes. The accepted P14-DQ report remains bound to implementation
-`6573112a7ae46c2c6a5c29f85ff38a2450ca41ba`, its exact snapshot/view lineage, approved contract and
-reproducibility amendment, frozen runtime environment, and `PYTHONHASHSEED=0`. Its natural research
-outcome remains `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`, with 0 eligible candidates and no
-selection. The original P14d-B report remains historical for implementation
-`13d2b7acc44fe33c4f0c45d240fd5fd26e993845`; current-code compatibility requalification passed on
-runner commit `908ee826cdd88cd9a46a55d4462b99e32ec35d31` and is recorded separately below and in the
-P14 RC freeze record. P14d-C remains `BLOCKED_UNIMPLEMENTED` by FR-03
-`NO_GO`. The RC authority matrix and freeze evidence are in [`releases/p14-rc-v1.md`](releases/p14-rc-v1.md).
-The RC audit remains `BLOCKED` by the full repository formatter gate: it requests formatting-only
-changes in two files from the exact qualified P14-DQ production baseline. Those edits would change
-the clean implementation provenance and require qualification reruns, so neither the files nor the
-gate were changed. The post-freeze test rerun, exact formatter output, and the unreproduced first-run
-test failure are preserved in the [append-only verification supplement](releases/p14-rc-v1-verification.md).
+engineering authority scopes. The current P14d-B qualification is report
+`41a27c6fd2b5f0f522a1fcae13424b924b9cdc2fa4e8aa0df24ff12d79fadc71`; the current P14-DQ
+engineering qualification is report
+`f912cb0b376c981c94dae267cb0b16a4d2f1e0a52edcd36d08f938f92964d38a`. Both bind production commit
+`e318dc450e5c02f1120da7644250767bf682b6f9`. The P14-DQ natural research outcome remains
+`FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`, with 0 eligible candidates and no selection.
+P14d-C remains `BLOCKED_UNIMPLEMENTED` by FR-03 `NO_GO`. The final RC authority matrix and freeze
+evidence are in the [P14 RC v1 final freeze record](releases/p14-rc-v1-final.md); earlier blocked
+attempts and their point-in-time verification remain preserved in the
+[historical freeze](releases/p14-rc-v1.md) and its
+[append-only verification supplement](releases/p14-rc-v1-verification.md).
 
 ## P14d-A deterministic orchestration and production execution
 
@@ -290,7 +287,7 @@ published `sha256-10cf6e09…` bundle stays unaccepted and every failed attempt 
 At the time of this acceptance record, the next task was recorded as not started: **P14 Release
 Candidate freeze**.
 
-## Current-code P14d-B compatibility qualification and RC stabilization
+## Historical current-code P14d-B compatibility qualification and RC stabilization (2026-09-28)
 
 The P14d-B runner was requalified after auditing the production changes from its historical
 implementation commit to the accepted P14-DQ implementation. Shared autonomous, Qlib Workflow,
@@ -315,3 +312,24 @@ fresh interpreter. This repairs process-state contamination in the qualification
 P14d-B contract and semantic gates are unchanged. The original P14d-B report, failed stabilization
 attempts, and the accepted P14-DQ report remain retained as separate immutable evidence. This
 qualification grants bounded synthetic Offline Engineering authority only.
+
+## P14 RC Qlib execution race resolution and current qualifications
+
+The full-suite-order-dependent P14-DQ failure was diagnosed as a Qlib asynchronous metric logging
+race. `LGBModel.fit` queued the `l2.valid` metric, then MLflow `FileStore` read its metric file while
+`SignalRecord.generate()` logged an artifact. That read could observe an empty file and raise
+`ValueError("Metric 'l2.valid' is malformed. No data found.")`. The exact lifecycle correction in
+`src/quantos/research/qlib/workflow.py` drains the metric queue after fitting and before artifact
+generation. It preserves fail-closed execution classification and all frozen research and authority
+semantics. The regression test is in `tests/unit/test_qlib_workflow.py`.
+
+Production baseline `e318dc450e5c02f1120da7644250767bf682b6f9` passed the target x10, the ordered
+prefix reproducer, ordinary and `PYTHONHASHSEED=0` full suites (699 passed each), and 85.01% coverage.
+Ruff format/check, Pyright, `git diff --check`, retained P14c verification, and the new P14d-B and
+P14-DQ full artifact verifiers passed. The current reports are P14d-B
+`41a27c6fd2b5f0f522a1fcae13424b924b9cdc2fa4e8aa0df24ff12d79fadc71` and P14-DQ
+`f912cb0b376c981c94dae267cb0b16a4d2f1e0a52edcd36d08f938f92964d38a`. P14-DQ's natural research
+outcome remains `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`; its engineering qualification is
+`SUCCEEDED / PASS` under the approved frozen exception. Full provenance, root equality, resource
+observations, qualification binding, and the authority matrix are recorded in the
+[final P14 RC freeze](releases/p14-rc-v1-final.md).

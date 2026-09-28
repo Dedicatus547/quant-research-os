@@ -33,3 +33,35 @@ informational count; the final gate remains blocked for the same two formatter-o
 qualified production baseline. Neither those files nor the formatter gate was changed. Clearing the
 block still requires authorizing a production formatting commit and rerunning affected clean-commit
 qualifications; no gate exception is applied.
+
+## Qlib execution race resolution and final RC qualification
+
+This section is an append-only update. The preceding results remain the record of the formatter-only
+baseline and the evidence available at that time. The first full-suite Qlib failure was later
+reproduced and diagnosed; its engineering failure classification was retained.
+
+- Starting formatter baseline: `ea2573ffd1d72e3f1f28390550e174338d88dda9`.
+- Nested exception: `ValueError("Metric 'l2.valid' is malformed. No data found.")` from MLflow
+  `FileStore` while Qlib `SignalRecord.generate()` logged a prediction artifact.
+- Cause: Qlib queued the `l2.valid` metric asynchronously during `LGBModel.fit`; the synchronous
+  artifact logging path read the metric file before the queued write completed. Full-suite thread
+  scheduling exposed the race. One pre-fix 75-collected-test prefix plus target reproduced it; the
+  prefix was schedule-sensitive and no individual polluting test or cumulative resource threshold
+  was found.
+- Resource checks showed 9 file descriptors before and after execution against an
+  `RLIMIT_NOFILE` soft/hard limit of 10240/1048576. CWD and `MLFLOW_ALLOW_FILE_STORE` were restored,
+  no MLflow run remained active, and temporary worker-thread counts showed no cumulative growth.
+- Minimal correction: production commit `e318dc450e5c02f1120da7644250767bf682b6f9` drains Qlib's
+  async metric queue after model fitting and before artifact generation. The regression test proves
+  the metric write finishes before `SignalRecord` emits artifacts. No statistical or authority
+  semantics changed; `QLIB_EXECUTION_FAILED` remains fail-closed.
+- On `e318dc4`, the target passed 10/10 isolated repetitions and the ordered 75-item prefix plus
+  target passed (76 tests). The ordinary full suite passed with 699 tests; `PYTHONHASHSEED=0` full
+  suite also passed with 699 tests and 85.01% coverage. Ruff format/check, Pyright, and
+  `git diff --check` passed.
+- Fresh P14d-B report `41a27c6fd2b5f0f522a1fcae13424b924b9cdc2fa4e8aa0df24ff12d79fadc71` and
+  P14-DQ report `f912cb0b376c981c94dae267cb0b16a4d2f1e0a52edcd36d08f938f92964d38a` both bind
+  `e318dc4`; the retained P14c verifier and both new full qualification verifiers passed.
+- The complete freeze and authority matrix are in the
+  [P14 RC v1 final freeze record](p14-rc-v1-final.md). Its enclosing commit is documentation and
+  evidence only.
