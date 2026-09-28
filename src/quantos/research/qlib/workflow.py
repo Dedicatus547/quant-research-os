@@ -82,17 +82,30 @@ def _native_objects(recorder: object) -> tuple[object, object, object, object, d
 
 
 def _flush_recorder_logs(recorder: object) -> None:
-    """Wait for Qlib's asynchronous recorder queue before reading native records.
+    """Drain and close Qlib's asynchronous recorder queue.
 
-    Qlib logs metrics through a background queue. Reading recorder artifacts while a metric file is
-    still being written can make MLflow report a malformed metric instead of returning the exact
-    artefact. Flushing here keeps the read deterministic and does not add authority.
+    Qlib logs metrics through a background queue. MLflow's file store reads run metrics whenever
+    it handles an artifact operation, so artifact writes must not overlap a queued metric write.
+    The queue cannot be reused after ``wait`` closes it; clear it so later metric calls run
+    synchronously instead of being added to a stopped worker.
     """
 
     async_log = getattr(recorder, "async_log", None)
     wait = getattr(async_log, "wait", None)
     if callable(wait):
         wait()
+        if getattr(recorder, "async_log", None) is async_log:
+            cast(Any, recorder).async_log = None
+
+
+def _fit_and_generate_signal_record(
+    model: Any, dataset: Any, recorder: Any, signal_record_type: Any
+) -> None:
+    """Drain Qlib fit metrics before SignalRecord writes artifacts through MLflow."""
+
+    model.fit(dataset, verbose_eval=0)
+    _flush_recorder_logs(recorder)
+    signal_record_type(model, dataset, recorder).generate()
 
 
 def _write_native_records(
@@ -294,8 +307,9 @@ class QlibWorkflowResearchService:
                                 num_boost_round=research_policy.num_boost_round,
                                 early_stopping_rounds=research_policy.early_stopping_rounds,
                             )
-                            model.fit(dataset, verbose_eval=0)
-                            signal_record_type(model, dataset, recorder).generate()
+                            _fit_and_generate_signal_record(
+                                model, dataset, recorder, signal_record_type
+                            )
                             sigana_record_type(recorder, ana_long_short=True).generate()
                         _flush_recorder_logs(recorder)
                         prediction, target, ic, rank_ic, metrics = _native_objects(recorder)
