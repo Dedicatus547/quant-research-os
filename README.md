@@ -11,19 +11,22 @@ evidence.
 Documentation roles:
 
 - [PLAN.md](PLAN.md) is the authoritative roadmap, scope, and acceptance policy.
-- [Implementation status](docs/implementation-status.md) tracks completed P0-P13, FR-01/FR-02, and
-  the current P14a-P14d boundary, including P14d-B qualification, and the evidence summary.
+- [Implementation status](docs/implementation-status.md) tracks completed P0-P14, FR-01/FR-02, the
+  separate Offline Engineering and Data-qualified authority domains, and the current P14 boundary.
 - [P12 progress](docs/p12-progress.md) records the exchange Evidence boundary, bounded official-source
   probe, and clean-commit reproducibility freeze.
 - [P13 progress](docs/p13-progress.md) records the qualified event-feature boundary, synthetic
   native-Qlib bridge freeze, qualification runner, and historical benchmark-gate progression.
 - [P14 entry review](docs/reviews/p14-entry-review.md) freezes the FR-01/FR-02 hard-gate evidence
   and the boundary for starting P14a-P14d.
-- [P14 progress](docs/p14-progress.md) records the implemented P14a-P14d-B slices and their
-  qualification results; [P14c selection contract](docs/p14c-selection-contract.md) freezes the
-  campaign-level statistical method and failure semantics, and
+- [P14 progress](docs/p14-progress.md) records the P14a-P14d-B slices, accepted P14-DQ qualification,
+  current-code P14d-B compatibility requalification, and RC stabilization;
+  [P14c selection contract](docs/p14c-selection-contract.md) freezes the campaign-level statistical
+  method and failure semantics, and
   [P14d qualification contract](docs/p14d-qualification-contract.md) freezes the clean-commit
   double-root autonomous campaign qualification.
+- [P14 Release Candidate record](docs/releases/p14-rc-v1.md) binds the final evidence and authority
+  matrix for the P14 RC freeze.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records
@@ -326,13 +329,22 @@ official Qlib semantics and the full PIT/Signal reproducibility chain. P10 GPT +
 Spike is complete with a 9/9 hard-capability Go for the frozen synthetic configuration. P11 Quant
 Research MCP + Offline Proposal E2E is also complete; it qualifies typed application-service
 facades and a code-defined structured-fixture chain, not a production stdio/JSON-RPC transport or
-an Agent-generated Data-qualified research run. P12 Real-world Evidence Acquisition is complete;
-P13 Qualified Event Feature is the current implementation entry. P13 now has a native-Qlib synthetic
+an Agent-generated Data-qualified research run. P12 Real-world Evidence Acquisition and P13
+Qualified Event Feature are complete. P13 has a native-Qlib synthetic
 bridge freeze, a strict hash-bound qualification runner, and retained non-frozen Agent attempts;
 the approved v2 Store, admitted real Agent proposal and clean-copy double-root qualification
-now pass. See [the v2 freeze record](docs/p13-v2-freeze.md) for exact hashes and limitations.
-Existing admitted DSL propagation and an immutable Qlib ResearchResult are parallel factor-research
-prerequisites for P14 rather than substitutes for P12/P13.
+now pass. See [the v2 freeze record](docs/p13-v2-freeze.md) for exact hashes and limitations. P14 is
+complete through bounded deterministic autonomous Data-qualified engineering qualification: P14a,
+P14c, P14d-B synthetic autonomous engineering, and accepted P14-DQ engineering authority are
+qualified; P14b and P14d-A are complete. The natural P14-DQ research outcome remains
+`FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`, with zero eligible candidates and no selection.
+P14d-C remains blocked by FR-03 `NO_GO`. The current P14 RC record keeps those engineering and
+research statuses separate and records that live-Agent, sealed-confirmation, alpha/profitability,
+vendor-vintage PIT, and unrestricted-autonomous authority are not qualified. Existing admitted DSL
+propagation and an immutable Qlib ResearchResult were parallel factor-research prerequisites for P14.
+The P14 RC audit is recorded as `BLOCKED`: the repository-wide formatter requests formatting-only
+changes in two files from the frozen P14-DQ production baseline, and those changes would alter the
+qualified implementation provenance. The RC record gives the exact gate output and minimum resolution.
 See [`docs/implementation-status.md`](docs/implementation-status.md) and
 [`docs/p8-security.md`](docs/p8-security.md),
 [`docs/p9-research-semantics.md`](docs/p9-research-semantics.md), and

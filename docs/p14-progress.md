@@ -1,21 +1,21 @@
 # P14 progress
 
-Status date: 2026-09-23
+Status date: 2026-09-28
 
-P14a and P14b are complete. P14c implementation commit `618498a64b8e46ab5c38f66ea08a03a2afdaea32`
-passed its clean-commit, independent double-root qualification with report
-`d0412a30d27c4d793fe527a28432292f1616a4ad726830d3cb1ce24a5836913a`. P14c now has qualified
-engineering authority. P14d-A's frozen contract, deterministic orchestration, deterministic
-compute accounting, fail-closed execution taxonomy, and production execution wiring meet its
-Definition of Done. Offline Scripted/Replay E2E passes frozen candidates through PIT, native Qlib
-Workflow and Simulator services, Validation, verified immutable ResearchResult publication, campaign
-trial accounting, Ledger refresh, and the real P14c CampaignSelectionService. P14d-B implementation
-commit `13d2b7acc44fe33c4f0c45d240fd5fd26e993845` passed its clean-commit, independent double-root
-autonomous campaign qualification with immutable report
-`13355dcb0c623c604ff5d0e4a5cd92d9aba59673d62bd76ffa9c839ee0754825`. P14d-B now holds bounded
-synthetic offline autonomous engineering authority only; it is not live Agent, FR-03, market-alpha,
-or sealed-confirmation qualification. Final implementation gates: 514 tests passed at 85.01%
-coverage; Ruff PASS; Pyright 0 errors / 0 warnings. P14d-C remains blocked by FR-03 `NO_GO`.
+Current P14 status: P14a, P14b, P14c, P14d-A, P14d-B, and P14-DQ are complete within their distinct
+engineering authority scopes. The accepted P14-DQ report remains bound to implementation
+`6573112a7ae46c2c6a5c29f85ff38a2450ca41ba`, its exact snapshot/view lineage, approved contract and
+reproducibility amendment, frozen runtime environment, and `PYTHONHASHSEED=0`. Its natural research
+outcome remains `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`, with 0 eligible candidates and no
+selection. The original P14d-B report remains historical for implementation
+`13d2b7acc44fe33c4f0c45d240fd5fd26e993845`; current-code compatibility requalification passed on
+runner commit `908ee826cdd88cd9a46a55d4462b99e32ec35d31` and is recorded separately below and in the
+P14 RC freeze record. P14d-C remains `BLOCKED_UNIMPLEMENTED` by FR-03
+`NO_GO`. The RC authority matrix and freeze evidence are in [`releases/p14-rc-v1.md`](releases/p14-rc-v1.md).
+The RC audit remains `BLOCKED` by the full repository formatter gate: it requests formatting-only
+changes in two files from the exact qualified P14-DQ production baseline. Those edits would change
+the clean implementation provenance and require qualification reruns, so neither the files nor the
+gate were changed.
 
 ## P14d-A deterministic orchestration and production execution
 
@@ -286,4 +286,31 @@ alpha, profitability, investment-suitability, live-Agent, FR-03 or sealed-confir
 and it does not claim that the reused Qlib engine is hash-order independent. The previously
 published `sha256-10cf6e09…` bundle stays unaccepted and every failed attempt stays immutable.
 
-Next task, recorded and not started: **P14 Release Candidate freeze**.
+At the time of this acceptance record, the next task was recorded as not started: **P14 Release
+Candidate freeze**.
+
+## Current-code P14d-B compatibility qualification and RC stabilization
+
+The P14d-B runner was requalified after auditing the production changes from its historical
+implementation commit to the accepted P14-DQ implementation. Shared autonomous, Qlib Workflow,
+ResearchResult, and qualification-contract code had changed, so the original report did not qualify
+the current implementation. The current runner commit is
+`908ee826cdd88cd9a46a55d4462b99e32ec35d31`; its production source files are byte-identical to the
+P14-DQ production baseline `6573112a7ae46c2c6a5c29f85ff38a2450ca41ba`.
+
+- current-code report: `35465fcf21cea713ceba95073f3b4972dcd5a5b0a42aeee0d82442a04b118b35`
+- principal-hash summary: `b8a205c9a45ac490be4c8549d6fe373832f69faed11c344cd1a985785b9b230a`
+- qualification contract hash: `eaa9e35b5141bc75648945718455e7b88b8ad3c2dd34df0d1f937df99e099136`
+- runtime fingerprint: `66d954a1ff034d6ecb555885e12926e585543a4d71c92ea35bb5720465730321`
+- roots: `root-A` and `root-B` principal hashes byte-exact; report `SUCCEEDED / PASS`
+- canonical cases: `SELECTED` → `SelectionFrozen` → `READY_FOR_SEALED_CONFIRMATION`,
+  `NO_SELECTION`, and `FAILED_NOT_EVALUATED`
+- fault coverage: 54 negative cases and 6 restart cases; Replay reused the stored exchange and
+  execution receipt without a second Qlib execution
+- bottom-up bundle verifier: `SUCCEEDED / PASS`
+
+The runner now isolates Qlib-sensitive synthetic scenarios and runs the final self-verifier in a
+fresh interpreter. This repairs process-state contamination in the qualification harness; the
+P14d-B contract and semantic gates are unchanged. The original P14d-B report, failed stabilization
+attempts, and the accepted P14-DQ report remain retained as separate immutable evidence. This
+qualification grants bounded synthetic Offline Engineering authority only.

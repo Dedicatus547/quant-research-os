@@ -1,7 +1,7 @@
 # A 股量化研究 Agent 系统实施计划
 
-> 版本：v14（P14 入口冻结版）<br>
-> 更新日期：2026-09-23<br>
+> 版本：v14（P14 入口冻结版；RC 状态更新）<br>
+> 更新日期：2026-09-28<br>
 > 当前仓库状态：第一阶段 P0-P7 的 Offline Engineering 与 Data-qualified DoD 均已完成。
 > 实现提交 `f3fc7684d09ac351d72d76b2a0370c58bec8589c` 上的两条独立正式流水线均通过：
 > Offline Engineering 基线为 `PASS / VALIDATED`；真实 Tushare Data-qualified 发布为工程
@@ -30,6 +30,13 @@
 > P14d-C blocked by FR-03 `NO_GO`，未实现。
 > P14c 报告不自动授予 autonomous 或 sealed-confirmation authority；P14d-B 同样不授予
 > sealed-confirmation、live Agent、真实市场或 FR-03 authority。
+> P14-DQ v3 已接受为 deterministic autonomous Data-qualified engineering qualification；其自然
+> 研究结果仍为 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`，eligible candidate count 为 0，且
+> selection 未执行。P14d-C 仍因 FR-03 `NO_GO` 而 `BLOCKED_UNIMPLEMENTED`。P14 Release Candidate
+> 冻结状态、完整 authority matrix 与各报告对应的实现 provenance 见 `docs/releases/p14-rc-v1.md`。
+> 当前 P14d-B 兼容重资格报告 `35465fcf...b118b35` 在 clean runner commit
+> `908ee826cdd88cd9a46a55d4462b99e32ec35d31` 上通过；其 production source 与 P14-DQ 实现基线
+> `6573112a...` 字节一致。
 
 ---
 
@@ -1979,7 +1986,9 @@ E2E             P6 validation pipeline / P7 release pipeline
 第二阶段目标是 **Agent-assisted Research v0.2**，不是自动交易系统。它只在 M0 正式冻结后
 开始；Data-qualified Release 作为独立资格轨道并行，不阻塞 Agent 工程，但任何真实市场结论
 必须继承其资格状态。Synthetic fixture、真实公告或 Agent proposal 都不能替代 Data-qualified
-market-data evidence。截至 2026-09-23，M0、DQ-01 至 DQ-06 与 P8-P13 均已完成；
+market-data evidence。截至 2026-09-28，M0、DQ-01 至 DQ-06 与 P8-P14 的当前实现/qualification
+slices 已完成；P14 RC 审计仍为 BLOCKED，因为仓库级 Ruff formatter 要求改写冻结 P14-DQ
+production baseline 中的两个文件，且该格式化改动会改变已资格化实现的精确 provenance；
 FR-01/FR-02 已通过硬入口检查，P14a/P14b 已完成，P14c 已取得有限 synthetic engineering
 selection authority；P14d-A 的 frozen contract、deterministic compute accounting、fail-closed
 execution taxonomy 和 production execution wiring 已满足 DoD；P14d-B 已在 clean implementation
@@ -2357,8 +2366,10 @@ Offline Engineering E2E，但只有 DQ-01 至 DQ-06 完成后才能发布真实�
 | P14b | 预冻结 family 内的 deterministic enumeration、canonical AST fingerprint、duplicate/redundancy evidence | 候选身份、顺序、失败处理、预算和 stopping rule 可重现；所有 schema-invalid/PIT reject/failure/duplicate 进入 trial accounting |
 | P14c | immutable CampaignSelectionReport 与冻结 selection-bias policy | 已由 clean-commit 双根 runner 完成完整重建、principal hash equality、canonical outcomes、negative cases 和 immutable report verification；不把单实验 PASS 写成 campaign selection PASS |
 | P14d-A | frozen autonomous-loop contract、runtime-neutral deterministic orchestrator、deterministic compute accounting、fail-closed execution taxonomy、P14b frozen candidate 到现有 PIT/Qlib/Validation/ResearchResult/Ledger/P14c production path 的 wiring | DoD satisfied；Scripted/Replay + real offline PIT/Qlib/Validation/ResearchResult/Ledger/P14c E2E PASS；restart/duplicate/replay 验证通过；全仓 514 tests、coverage 85.01%、Ruff/Pyright PASS |
-| P14d-B | clean-commit、independent double-root autonomous E2E qualification runner | **QUALIFIED**；implementation commit `13d2b7acc44fe33c4f0c45d240fd5fd26e993845`；报告 `13355dcb...754825`；principal summary `baf7eedb...2760a500`；canonical cases、54 negative、6 restart、replay reuse 与 root principal equality PASS；只授予 bounded synthetic offline engineering authority |
+| P14d-B | clean-commit、independent double-root autonomous E2E qualification runner | **QUALIFIED**；historical implementation `13d2b7acc44fe33c4f0c45d240fd5fd26e993845`, report `13355dcb...754825`; current-code runner commit `908ee826cdd88cd9a46a55d4462b99e32ec35d31`, report `35465fcf21cea713ceba95073f3b4972dcd5a5b0a42aeee0d82442a04b118b35`, principal summary `b8a205c9a45ac490be4c8549d6fe373832f69faed11c344cd1a985785b9b230a`; 54 negative, 6 restart, full verifier and byte-exact roots PASS; production source remains byte-identical to P14-DQ baseline `6573112a...` |
 | P14d-C | live Agent runtime qualification | blocked by FR-03 `NO_GO`；未实现；不得使用 live Codex/OpenAI runtime、dsh、DeepSeek、CLI fallback 或 dual stack |
+| P14-DQ | 与冻结 Data-qualified snapshot/view 上游 release 绑定的 autonomous engineering qualification | 接受报告 `f75455152dbd90827d8d1a015ecf1b0fa5ad749f53b67a06226b9d7039f2cb53` 为 `SUCCEEDED / PASS`；资格边界固定在实现 `6573112a7ae46c2c6a5c29f85ff38a2450ca41ba`、已批准契约/复现修订、冻结运行环境和 `PYTHONHASHSEED=0`；自然研究结果保持 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`、0 eligible candidates、未执行 selection |
+| P14 RC | P14 authority, provenance, regression, and release freeze | **BLOCKED** at the full repository `ruff format --check .` gate: it requests formatting-only edits in two files from the frozen P14-DQ production baseline. No production formatting or gate exception was applied; see `docs/releases/p14-rc-v1.md` for exact output, qualification provenance, and the minimum resolution. |
 
 P8 已于 2026-09-07 完成。冻结实现包括 capability allowlist、有界且不记录正文的请求审计、
 最小 Agent 环境、只接受 domain + content hash 的 authority root resolver、规范 logical path、全权威
