@@ -15,7 +15,8 @@ P14 RC freeze record. P14d-C remains `BLOCKED_UNIMPLEMENTED` by FR-03
 The RC audit remains `BLOCKED` by the full repository formatter gate: it requests formatting-only
 changes in two files from the exact qualified P14-DQ production baseline. Those edits would change
 the clean implementation provenance and require qualification reruns, so neither the files nor the
-gate were changed.
+gate were changed. The post-freeze test rerun, exact formatter output, and the unreproduced first-run
+test failure are preserved in the [append-only verification supplement](releases/p14-rc-v1-verification.md).
 
 ## P14d-A deterministic orchestration and production execution
 

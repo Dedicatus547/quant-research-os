@@ -26,7 +26,8 @@ Documentation roles:
   [P14d qualification contract](docs/p14d-qualification-contract.md) freezes the clean-commit
   double-root autonomous campaign qualification.
 - [P14 Release Candidate record](docs/releases/p14-rc-v1.md) binds the final evidence and authority
-  matrix for the P14 RC freeze.
+  matrix for the P14 RC freeze; the [append-only verification supplement](docs/releases/p14-rc-v1-verification.md)
+  records final post-commit gates and the exact formatter output.
 - [Stage-one architecture review](docs/reviews/stage1-review.md) is the historical review input that shaped
   PLAN v7; its proposed phase numbers are not the current execution plan.
 - [P11 architecture review](docs/reviews/p11-review.md) evaluates the post-P11 boundary and records
