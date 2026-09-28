@@ -712,8 +712,7 @@ def test_p14c_handoff_freezes_or_closes_without_sealed_access(
     close_events = [
         event
         for event in events
-        if isinstance(event, ResearchCampaignEvent)
-        and event.event_type is CampaignEventType.CLOSED
+        if isinstance(event, ResearchCampaignEvent) and event.event_type is CampaignEventType.CLOSED
     ]
     assert len(close_events) == int(closes_campaign)
     verdict_nodes = [

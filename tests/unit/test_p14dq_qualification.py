@@ -25,6 +25,7 @@ from quantos.contracts.campaign_selection import (
     CampaignSelectionVerdict,
     CandidateDispositionKind,
 )
+from quantos.contracts.p14d_qualification import p14d_replay_binding_hash
 from quantos.contracts.p14dq_qualification import (
     P14DQ_ADMISSIBLE_SOFT_REJECTION_GATES,
     P14DQ_CANDIDATE_HASHES,
@@ -32,10 +33,22 @@ from quantos.contracts.p14dq_qualification import (
     P14DQ_FAMILY_HASH,
     P14DQ_FROZEN_VALIDATION_GATE_ORDER,
     P14DQ_FROZEN_VALIDATION_GATE_SEVERITY,
+    P14DQ_NEGATIVE_CASES,
     P14DQ_REQUIRED_PASSING_GATES,
+    P14DQ_RESTART_CASES,
+    P14DQ_SNAPSHOT_HASH,
     P14DQ_TEMPLATE_HASH,
+    P14DQ_UPSTREAM_RELEASE_REPORT_HASH,
+    P14DQ_VIEW_HASH,
     P14dqCampaignEvidence,
     P14dqCandidateEvaluation,
+    P14dqExternalBindings,
+    P14dqNegativeCaseEvidence,
+    P14dqQualificationAttempt,
+    P14dqQualificationFile,
+    P14dqQualificationReport,
+    P14dqReplayCaseEvidence,
+    P14dqRestartCaseEvidence,
     P14dqRuntimeEnvironment,
     P14dqValidationGateEvidence,
 )
@@ -72,6 +85,139 @@ def test_frozen_family_is_reenumerated_and_profile_cannot_grant_sealed_authority
     forged["selected_action"] = "FREEZE_SELECTION"
     with pytest.raises(ValidationError, match="not frozen"):
         AutonomousSelectionFinalizationProfile.model_validate(forged)
+
+
+def test_accepted_p14dq_v5_report_remains_contract_valid() -> None:
+    """Keep the retained accepted report readable under the frozen v5 contract."""
+
+    encoded = (ROOT / "tests/fixtures/p14dq_qualification/accepted-report-v5.json").read_bytes()
+    report = P14dqQualificationReport.model_validate_json(encoded)
+
+    assert encoded == canonical_json_bytes(report.model_dump(mode="python"))
+    assert report.qualification_hash == report.content_hash
+    assert report.implementation_commit_hash == "6573112a7ae46c2c6a5c29f85ff38a2450ca41ba"
+    assert report.runtime_environment.python_hash_seed == "0"
+    assert report.runtime_environment.hash_randomization_enabled is False
+    assert report.p14d_negative_case_count == 54
+    assert report.p14dq_negative_case_count == 24
+    assert report.restart_case_count == 6
+    assert all(
+        root.campaign.selection_status is RunStatus.FAILED
+        and root.campaign.selection_verdict == "NOT_EVALUATED"
+        and not root.campaign.selection_performed
+        for root in report.roots
+    )
+
+
+def test_p14dq_external_restart_and_replay_records_reject_provenance_drift() -> None:
+    external = P14dqExternalBindings(
+        snapshot_path=f"artifacts/data/snapshots/sha256-{P14DQ_SNAPSHOT_HASH}",
+        snapshot_hash=P14DQ_SNAPSHOT_HASH,
+        snapshot_manifest_file_hash="a" * 64,
+        snapshot_files_inventory_hash="b" * 64,
+        snapshot_start_date=date(2014, 11, 1),
+        snapshot_end_date=date(2025, 12, 31),
+        quality_report_hash="e89933f2db98870e6a1143b6ca546713a2abfae30c0c5f00e79dea1d4d275ed8",
+        quality_report_file_hash="c" * 64,
+        qlib_view_path=f"artifacts/data/qlib-views/sha256-{P14DQ_VIEW_HASH}",
+        qlib_view_hash=P14DQ_VIEW_HASH,
+        qlib_view_manifest_file_hash="d" * 64,
+        qlib_view_files_inventory_hash="e" * 64,
+        view_spec_hash="b349355d62166327fc67f3911eb60e7bdd9d639e0218799f124dcb3c85581375",
+        view_spec_file_hash="f" * 64,
+        dump_bin_sha256="1" * 64,
+        health_check_sha256="2" * 64,
+        qlib_view_manifest_bindings_hash="3" * 64,
+        upstream_release_input_hash="4" * 64,
+    )
+    assert external.upstream_release_report_hash == P14DQ_UPSTREAM_RELEASE_REPORT_HASH
+    with pytest.raises(ValidationError, match="date range differs"):
+        P14dqExternalBindings.model_validate(
+            {
+                **external.model_dump(mode="python"),
+                "snapshot_start_date": date(2014, 10, 31),
+            }
+        )
+
+    P14dqNegativeCaseEvidence(
+        case_id=P14DQ_NEGATIVE_CASES[0],
+        input_hash="5" * 64,
+        outcome_hash="6" * 64,
+        reason_code=ReasonCode.ARTIFACT_CORRUPTED,
+    )
+    with pytest.raises(ValidationError, match="unknown P14-DQ external negative case"):
+        P14dqNegativeCaseEvidence(
+            case_id="UNFROZEN_CASE",
+            input_hash="5" * 64,
+            outcome_hash="6" * 64,
+            reason_code=ReasonCode.ARTIFACT_CORRUPTED,
+        )
+
+    restart_values: dict[str, object] = {
+        "case_id": P14DQ_RESTART_CASES[0],
+        "input_hash": "7" * 64,
+        "pre_restart_evidence_hash": "8" * 64,
+        "post_restart_evidence_hash": "9" * 64,
+        "qlib_runs_before_restart": 1,
+        "qlib_runs_after_restart": 1,
+        "pre_campaign_close_count": 0,
+        "post_campaign_close_count": 0,
+    }
+    P14dqRestartCaseEvidence(**restart_values)
+    with pytest.raises(ValidationError, match="run count cannot decrease"):
+        P14dqRestartCaseEvidence(
+            **{**restart_values, "qlib_runs_before_restart": 2, "qlib_runs_after_restart": 1}
+        )
+    with pytest.raises(ValidationError, match="duplicated campaign closure"):
+        P14dqRestartCaseEvidence(**{**restart_values, "post_campaign_close_count": 2})
+
+    replay_values: dict[str, object] = {
+        "request_hash": "a" * 64,
+        "response_hash": "b" * 64,
+        "proposal_hash": "c" * 64,
+        "candidate_hash": "d" * 64,
+        "execution_identity": "e" * 64,
+        "execution_receipt_hash": "f" * 64,
+        "qlib_runs_before_replay": 1,
+        "qlib_runs_after_replay": 1,
+    }
+    replay_values["prior_exchange_hash"] = p14d_replay_binding_hash(
+        request_hash=cast(str, replay_values["request_hash"]),
+        response_hash=cast(str, replay_values["response_hash"]),
+        proposal_hash=cast(str, replay_values["proposal_hash"]),
+        candidate_hash=cast(str, replay_values["candidate_hash"]),
+        execution_identity=cast(str, replay_values["execution_identity"]),
+    )
+    P14dqReplayCaseEvidence(**replay_values)
+    with pytest.raises(ValidationError, match="performed another Qlib execution"):
+        P14dqReplayCaseEvidence(**{**replay_values, "qlib_runs_after_replay": 2})
+    with pytest.raises(ValidationError, match="not canonically bound"):
+        P14dqReplayCaseEvidence(**{**replay_values, "prior_exchange_hash": "0" * 64})
+
+
+def test_p14dq_attempt_files_and_content_hash_are_immutable() -> None:
+    evidence_file = P14dqQualificationFile(
+        logical_path="root-A/partial-evidence.json",
+        sha256="a" * 64,
+        size_bytes=12,
+    )
+    attempt = P14dqQualificationAttempt.create(
+        reason_code=ReasonCode.ARTIFACT_CORRUPTED,
+        files=(evidence_file,),
+    )
+    assert attempt.attempt_hash == attempt.content_hash
+
+    with pytest.raises(ValidationError, match="sorted and unique"):
+        P14dqQualificationAttempt.model_validate(
+            {
+                **attempt.model_dump(mode="python"),
+                "files": (evidence_file, evidence_file),
+            }
+        )
+    with pytest.raises(ValidationError, match="attempt hash does not match"):
+        P14dqQualificationAttempt.model_validate(
+            {**attempt.model_dump(mode="python"), "attempt_hash": "0" * 64}
+        )
 
 
 def test_v3_contract_bytes_are_pinned_and_activation_binds_the_approval_record(
@@ -526,6 +672,44 @@ def _zero_eligible_payload(
         "ledger_principal_hash": "6" * 64,
         "autonomous_loop_report_hash": "7" * 64,
     }
+
+
+@pytest.mark.parametrize("selection_verdict", ("SELECTED", "NO_SELECTION"))
+def test_campaign_contract_accepts_completed_eligible_selection_profiles(
+    selection_verdict: str,
+) -> None:
+    """Exercise the frozen completed-selection variants independently of natural DQ evidence."""
+
+    passing = _evaluation(
+        0,
+        _gate_evidence(),
+        outcome=TrialOutcome.PASS,
+        updates={"validation_verdict": ValidationVerdict.PASS},
+    )
+    evaluations = (
+        passing,
+        _evaluation(
+            1,
+            _gate_evidence({ValidationGateId.G5_OUT_OF_SAMPLE: ReasonCode.SOFT_THRESHOLD_NOT_MET}),
+        ),
+    )
+    payload = _zero_eligible_payload(evaluations)
+    payload.update(
+        selection_status=RunStatus.SUCCEEDED,
+        selection_verdict=selection_verdict,
+        selection_reason_code=None,
+        eligible_candidate_count=1,
+        selection_performed=True,
+        selected_candidate_hash=(
+            P14DQ_CANDIDATE_HASHES[0] if selection_verdict == "SELECTED" else None
+        ),
+    )
+
+    evidence = P14dqCampaignEvidence.model_validate(payload)
+    assert evidence.eligible_candidate_count == 1
+    assert evidence.selection_performed
+    assert (evidence.selected_candidate_hash is not None) == (selection_verdict == "SELECTED")
+    assert not passing.admissible_research_rejection()
 
 
 def test_frozen_gate_contract_matches_the_live_validation_service() -> None:
