@@ -252,8 +252,7 @@ class QuantosResearchExecutionAdapter:
             campaign.campaign_id != "p14-dq-live-data-campaign-v1"
             or snapshot.snapshot_hash
             != "6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
-            or view.view_hash
-            != "fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b"
+            or view.view_hash != "fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b"
             or research_policy.policy_id != "p14dq_daily_research_v2"
             or validation_policy.policy_id != "p14dq_research_candidate_v2"
         ):
@@ -352,9 +351,7 @@ class QuantosResearchExecutionAdapter:
                     self._integrity("DQ export audit is absent before receipt publication")
             return self._publish_receipt(request, outcome)
 
-    def verify_preselection_dq_trials(
-        self, events: tuple[ResearchCampaignEvent, ...]
-    ) -> None:
+    def verify_preselection_dq_trials(self, events: tuple[ResearchCampaignEvent, ...]) -> None:
         """Reverify every DQ trial and its native-label audit before P14c reads it."""
 
         if not self.p14dq_v2_profile:
@@ -364,10 +361,9 @@ class QuantosResearchExecutionAdapter:
             for event in events
             if event.event_type is CampaignEventType.TRIAL_RECORDED and event.trial is not None
         )
-        if (
-            len(trials) != len(self.manifest.candidates)
-            or {trial.candidate_hash for trial in trials} != set(self._candidate_by_hash)
-        ):
+        if len(trials) != len(self.manifest.candidates) or {
+            trial.candidate_hash for trial in trials
+        } != set(self._candidate_by_hash):
             self._integrity("DQ preselection does not cover the full candidate denominator")
         receipts = tuple(
             receipt
@@ -386,10 +382,9 @@ class QuantosResearchExecutionAdapter:
             if len(matches) != 1:
                 self._integrity("DQ trial is not bound to exactly one execution receipt")
             receipt = matches[0]
-            if (
-                receipt.outcome.outcome is not trial.outcome
-                or not set(receipt.outcome.evidence_hashes).issubset(trial.evidence_hashes)
-            ):
+            if receipt.outcome.outcome is not trial.outcome or not set(
+                receipt.outcome.evidence_hashes
+            ).issubset(trial.evidence_hashes):
                 self._integrity("DQ trial evidence differs from its receipt")
             self._verify_receipt(receipt)
 

@@ -335,9 +335,8 @@ def verify_p14dq_native_label_audit(
             ResearchResultMetric(name=name, value=float(native_metrics[name]))
             for name in _METRIC_NAMES
         )
-        if (
-            result.metrics != exact_metrics
-            or any(not math.isfinite(item.value) for item in exact_metrics)
+        if result.metrics != exact_metrics or any(
+            not math.isfinite(item.value) for item in exact_metrics
         ):
             raise ValueError("DQ audit summary metrics differ from native Qlib output")
     except QlibResearchError:
