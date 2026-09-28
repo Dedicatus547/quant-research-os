@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
+import subprocess
+import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -257,6 +260,99 @@ def _load_fixture(fixture_id: str, destination: Path) -> _Fixture:
         view_manifest=view_manifest,
         fixture_hash=fixture_hash,
     )
+
+
+def _fixture_from_materialized_paths(
+    fixture_id: str,
+    snapshot_path: Path,
+    view_path: Path,
+    expected_fixture_hash: str,
+) -> _Fixture:
+    snapshot_manifest = verify_snapshot(snapshot_path)
+    view_manifest = verify_qlib_view(view_path)
+    if view_manifest.source_snapshot_hash != snapshot_manifest.snapshot_hash:
+        raise QualificationError("isolated worker fixture view does not bind its snapshot")
+    fixture_hash = sha256_bytes(
+        canonical_json_bytes(
+            {
+                "fixture_id": fixture_id,
+                "snapshot_content_hash": _directory_file_hash(snapshot_path),
+                "snapshot_hash": snapshot_manifest.snapshot_hash,
+                "view_content_hash": _directory_file_hash(view_path),
+                "view_hash": view_manifest.view_hash,
+            }
+        )
+    )
+    if fixture_hash != expected_fixture_hash:
+        raise QualificationError("isolated worker fixture hash does not match its parent")
+    return _Fixture(
+        fixture_id=fixture_id,
+        snapshot_path=snapshot_path,
+        view_path=view_path,
+        snapshot_manifest=snapshot_manifest,
+        view_manifest=view_manifest,
+        fixture_hash=fixture_hash,
+    )
+
+
+def _run_isolated_worker(payload: dict[str, object]) -> object:
+    """Run one Qlib-sensitive qualification scenario with fresh interpreter state."""
+
+    with tempfile.TemporaryDirectory(prefix=".p14d-worker-") as directory:
+        temporary = Path(directory)
+        request_path = temporary / "request.json"
+        response_path = temporary / "response.json"
+        request = {**payload, "response_path": str(response_path)}
+        request_path.write_bytes(canonical_json_bytes(request))
+        environment = os.environ.copy()
+        environment.pop("TUSHARE_TOKEN", None)
+        completed = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "--internal-worker", str(request_path)],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0 or not response_path.is_file():
+            detail = (completed.stderr or completed.stdout)[-3000:].strip()
+            raise QualificationError(
+                f"isolated P14d worker failed with exit {completed.returncode}: {detail}"
+            )
+        return json.loads(response_path.read_bytes())
+
+
+def _run_internal_worker(request_path: Path) -> None:
+    request = json.loads(request_path.read_bytes())
+    response_path = Path(str(request["response_path"]))
+    code = CodeProvenance.model_validate_json(canonical_json_bytes(request["code_provenance"]))
+    fixture = _fixture_from_materialized_paths(
+        str(request["fixture_id"]),
+        Path(str(request["snapshot_path"])),
+        Path(str(request["view_path"])),
+        str(request["fixture_hash"]),
+    )
+    workspace = Path(str(request["workspace"]))
+    mode = request["mode"]
+    if mode == "canonical_case":
+        run, evidence = _run_canonical_case(
+            str(request["case_id"]),
+            Path(str(request["case_root"])),
+            fixture,
+            code,
+            fault=cast(str | None, request.get("fault")),
+            workspace=workspace,
+        )
+        del run
+        response: object = evidence.model_dump(mode="python")
+    elif mode == "restart_cases":
+        cases = _run_restart_cases(
+            Path(str(request["case_root"])), fixture, code, workspace=workspace
+        )
+        response = [case.model_dump(mode="python") for case in cases]
+    else:
+        raise QualificationError("isolated P14d worker mode is invalid")
+    response_path.write_bytes(canonical_json_bytes(response))
 
 
 def _fixture_dates(view_path: Path) -> tuple[date, ...]:
@@ -840,8 +936,59 @@ def _selection_verdict(run: _CaseRun) -> CampaignSelectionVerdict:
 @dataclass(frozen=True)
 class _CanonicalBundle:
     case_id: str
-    run: _CaseRun
+    run: _CaseRun | None
     evidence: P14dCaseEvidence
+    fixture: _Fixture
+
+
+def _isolated_case_evidence(
+    case_id: str,
+    case_root: Path,
+    fixture: _Fixture,
+    code: CodeProvenance,
+    *,
+    fault: str | None,
+    workspace: Path | None,
+) -> P14dCaseEvidence:
+    raw = _run_isolated_worker(
+        {
+            "mode": "canonical_case",
+            "case_id": case_id,
+            "case_root": str(case_root),
+            "fixture_id": fixture.fixture_id,
+            "snapshot_path": str(fixture.snapshot_path),
+            "view_path": str(fixture.view_path),
+            "fixture_hash": fixture.fixture_hash,
+            "code_provenance": code.model_dump(mode="python"),
+            "workspace": str(workspace or ROOT),
+            "fault": fault,
+        }
+    )
+    return P14dCaseEvidence.model_validate(raw)
+
+
+def _isolated_restart_cases(
+    case_root: Path,
+    fixture: _Fixture,
+    code: CodeProvenance,
+    *,
+    workspace: Path | None,
+) -> tuple[P14dRestartCaseEvidence, ...]:
+    raw = _run_isolated_worker(
+        {
+            "mode": "restart_cases",
+            "case_root": str(case_root),
+            "fixture_id": fixture.fixture_id,
+            "snapshot_path": str(fixture.snapshot_path),
+            "view_path": str(fixture.view_path),
+            "fixture_hash": fixture.fixture_hash,
+            "code_provenance": code.model_dump(mode="python"),
+            "workspace": str(workspace or ROOT),
+        }
+    )
+    if not isinstance(raw, list):
+        raise QualificationError("isolated restart worker response is not a case list")
+    return tuple(P14dRestartCaseEvidence.model_validate(item) for item in raw)
 
 
 def _run_root_canonical_bundles(
@@ -868,8 +1015,8 @@ def _run_root_canonical_bundles(
         or _selection_verdict(selected_run) is not CampaignSelectionVerdict.SELECTED
     ):
         raise QualificationError("SELECTED case did not freeze a verified selection")
-    bundles.append(_CanonicalBundle("SELECTED", selected_run, selected_evidence))
-    no_selection_run, no_selection_evidence = _run_canonical_case(
+    bundles.append(_CanonicalBundle("SELECTED", selected_run, selected_evidence, selected))
+    no_selection_evidence = _isolated_case_evidence(
         "NO_SELECTION",
         root / "cases" / "no_selection",
         no_selection,
@@ -878,12 +1025,20 @@ def _run_root_canonical_bundles(
         workspace=workspace,
     )
     if (
-        no_selection_run.report.state is not AutonomousLoopState.SELECTION_COMPLETE
-        or _selection_verdict(no_selection_run) is not CampaignSelectionVerdict.NO_SELECTION
+        no_selection_evidence.loop_state is not AutonomousLoopState.SELECTION_COMPLETE
+        or no_selection_evidence.selection_report_hash is None
+        or verify_selection_report_artifact(
+            root
+            / "cases"
+            / "no_selection"
+            / "selection-reports"
+            / f"sha256-{no_selection_evidence.selection_report_hash}"
+        ).verdict
+        is not CampaignSelectionVerdict.NO_SELECTION
     ):
         raise QualificationError("NO_SELECTION case did not close without selection")
-    bundles.append(_CanonicalBundle("NO_SELECTION", no_selection_run, no_selection_evidence))
-    failed_run, failed_evidence = _run_canonical_case(
+    bundles.append(_CanonicalBundle("NO_SELECTION", None, no_selection_evidence, no_selection))
+    failed_evidence = _isolated_case_evidence(
         "FAILED_NOT_EVALUATED",
         root / "cases" / "failed_not_evaluated",
         selected,
@@ -892,11 +1047,19 @@ def _run_root_canonical_bundles(
         workspace=workspace,
     )
     if (
-        failed_run.report.state is not AutonomousLoopState.SELECTION_COMPLETE
-        or _selection_verdict(failed_run) is not CampaignSelectionVerdict.NOT_EVALUATED
+        failed_evidence.loop_state is not AutonomousLoopState.SELECTION_COMPLETE
+        or failed_evidence.selection_report_hash is None
+        or verify_selection_report_artifact(
+            root
+            / "cases"
+            / "failed_not_evaluated"
+            / "selection-reports"
+            / f"sha256-{failed_evidence.selection_report_hash}"
+        ).verdict
+        is not CampaignSelectionVerdict.NOT_EVALUATED
     ):
         raise QualificationError("FAILED_NOT_EVALUATED case did not close without authority")
-    bundles.append(_CanonicalBundle("FAILED_NOT_EVALUATED", failed_run, failed_evidence))
+    bundles.append(_CanonicalBundle("FAILED_NOT_EVALUATED", None, failed_evidence, selected))
     if tuple(item.case_id for item in bundles) != P14D_CANONICAL_CASES:
         raise QualificationError("canonical case registry is incomplete or unordered")
     return tuple(bundles)
@@ -1782,18 +1945,19 @@ def _run_root_pipeline(
     canonical = _run_root_canonical_bundles(root, root / "fixtures", code, workspace=workspace)
     selected = canonical[0]
     no_selection = canonical[1]
-    fixture_set_hash = _fixture_set_hash(
-        (selected.run.context.fixture, no_selection.run.context.fixture)
-    )
-    negative_cases = _run_negative_cases(selected.run)
-    restart_cases = _run_restart_cases(
+    selected_run = selected.run
+    if selected_run is None:
+        raise QualificationError("SELECTED case did not retain its live execution context")
+    fixture_set_hash = _fixture_set_hash((selected.fixture, no_selection.fixture))
+    negative_cases = _run_negative_cases(selected_run)
+    restart_cases = _isolated_restart_cases(
         root / "restart",
-        selected.run.context.fixture,
+        selected_run.context.fixture,
         code,
         workspace=workspace,
     )
     replay_case = _replay_evidence(selected)
-    selected_context = selected.run.context
+    selected_context = selected_run.context
     selection_plan = selected_context.selection.plan
     if selection_plan is None:
         raise QualificationError("selected case lost its P14c selection plan")
@@ -2094,7 +2258,11 @@ def main() -> None:
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--output-root", type=Path, default=Path("artifacts/qualification/p14d"))
     parser.add_argument("--verify", type=Path, default=None)
+    parser.add_argument("--internal-worker", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.internal_worker is not None:
+        _run_internal_worker(args.internal_worker.resolve())
+        return
     if args.verify is not None:
         report = verify_p14d_qualification_artifact(args.verify.resolve())
         result: dict[str, object] = {
