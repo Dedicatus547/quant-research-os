@@ -325,6 +325,19 @@ def _run_isolated_worker(payload: dict[str, object]) -> object:
 def _run_internal_worker(request_path: Path) -> None:
     request = json.loads(request_path.read_bytes())
     response_path = Path(str(request["response_path"]))
+    mode = request["mode"]
+    if mode == "verify_artifact":
+        report = verify_p14d_qualification_artifact(Path(str(request["artifact_path"])))
+        response_path.write_bytes(
+            canonical_json_bytes(
+                {
+                    "qualification_hash": report.qualification_hash,
+                    "status": report.status,
+                    "verdict": report.verdict,
+                }
+            )
+        )
+        return
     code = CodeProvenance.model_validate_json(canonical_json_bytes(request["code_provenance"]))
     fixture = _fixture_from_materialized_paths(
         str(request["fixture_id"]),
@@ -333,7 +346,6 @@ def _run_internal_worker(request_path: Path) -> None:
         str(request["fixture_hash"]),
     )
     workspace = Path(str(request["workspace"]))
-    mode = request["mode"]
     if mode == "canonical_case":
         run, evidence = _run_canonical_case(
             str(request["case_id"]),
@@ -353,6 +365,22 @@ def _run_internal_worker(request_path: Path) -> None:
     else:
         raise QualificationError("isolated P14d worker mode is invalid")
     response_path.write_bytes(canonical_json_bytes(response))
+
+
+def _verify_in_isolated_process(path: Path) -> P14dQualificationReport:
+    raw = _run_isolated_worker({"mode": "verify_artifact", "artifact_path": str(path)})
+    if not isinstance(raw, dict):
+        raise QualificationError("isolated qualification verifier response is invalid")
+    report = P14dQualificationReport.model_validate_json(
+        (path / "qualification-report.json").read_bytes()
+    )
+    if (
+        raw.get("qualification_hash") != report.qualification_hash
+        or raw.get("status") != report.status
+        or raw.get("verdict") != report.verdict
+    ):
+        raise QualificationError("isolated qualification verifier returned a different report")
+    return report
 
 
 def _fixture_dates(view_path: Path) -> tuple[date, ...]:
@@ -2095,7 +2123,7 @@ def _publish_qualification(
     )
     destination = output_root / f"sha256-{report.qualification_hash}"
     if destination.exists():
-        stored = verify_p14d_qualification_artifact(destination)
+        stored = _verify_in_isolated_process(destination)
         if stored.content_hash != report.content_hash:
             raise QualificationError("existing P14d qualification bundle conflicts")
         return stored
@@ -2137,7 +2165,7 @@ def _qualify_from_provenance(
             runtime=runtime,
         )
     artifact_path = output_root / f"sha256-{report.qualification_hash}"
-    verified = verify_p14d_qualification_artifact(artifact_path)
+    verified = _verify_in_isolated_process(artifact_path)
     return {
         "schema_version": "p14d-qualification-runner-result/v1",
         "qualification_hash": verified.qualification_hash,
