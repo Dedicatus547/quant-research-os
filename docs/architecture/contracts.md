@@ -77,7 +77,8 @@ Rejected/failed experiment、原始 provenance 和 superseded history 保留。
 1. Contract 的内容 hash，按该对象定义的字段域计算。
 2. Qualification 的 principal summary，绑定其指定的权威对象。
 3. 各根原始文件清单，绑定实际 size 与 SHA-256。
-4. 获批的文件树投影，例如 P14-DQ 仅排除 JSON 顶层 `created_at` 后的 canonical bytes。
+4. 获批的文件树投影：P14-DQ 排除各根 `root-evidence.json`；
+   对带顶层 `created_at` 的 JSON 对象删除该字段并 canonicalize，其他文件保持原始字节。
 
 投影一致不代表所有原始 manifest 字节一致。
 具体 P14 差异与数目见[RC 修正记录](../releases/p14-rc-v1-equality-correction.md)。

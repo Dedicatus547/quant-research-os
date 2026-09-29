@@ -87,7 +87,8 @@ env -u TUSHARE_TOKEN PYTHONHASHSEED=0 uv run --frozen python scripts/p14dq_quali
 ## 比较范围与结果留证
 
 - Principal evidence 按冻结契约的权威哈希域比较。
-- DQ artifact-tree inventory 使用批准的顶层 `created_at` 投影规则。
+- DQ artifact-tree inventory 排除各根 `root-evidence.json`；仅对带顶层 `created_at`
+  的 JSON 对象删除该字段并 canonicalize，其他文件保持原始字节。
 - 原始文件清单分别绑定各根完整字节；不能称整个原始输出树 byte-exact。
 - Qlib Position 的 set-order 敏感性仍存在；seed `0` 之外没有确定性资格。
 

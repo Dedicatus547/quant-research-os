@@ -1,9 +1,11 @@
 # P14 RC v1：一致性权威表述修正
 
-日期：2026-09-29。状态：**文档修正完成，后继提交待独立复审**。
+日期：2026-09-29。状态：**文档修正与审阅完成，后继提交待独立 RC 复审**。
 
 本记录修正提交 `9e2fc41a41f2d2b253e04c67b10519e6926c79dd` 中的 RC 一致性措辞。
-原冻结记录、资格报告和失败尝试保持原始证据身份。本次修订未创建提交或 tag。
+修正已随文档重组提交 `1e76aff09b03c4cda2d821c2f7b09257659151da` 记录；
+后继文档审阅见[审阅记录](../reviews/p14-rc-documentation-successor-review.md)。
+原冻结记录、资格报告和失败尝试保持原始证据身份。
 
 ## 修正内容
 
@@ -15,11 +17,14 @@ P14-DQ artifact trees 无范围限定地称为 byte-exact。正确表述如下�
 | P14d-B 确定性 principal evidence | 在契约定义的权威哈希域内逐字节一致 |
 | P14d-B 原始文件树 | 50 个 manifest 仅顶层 `created_at` 不同；完整原始树不逐字节一致 |
 | P14-DQ 确定性 principal evidence | 在批准的权威哈希域内逐字节一致 |
-| P14-DQ artifact-tree inventory | 按批准规则排除 JSON 顶层 `created_at` 后的投影一致；两根 inventory hash 相同 |
+| P14-DQ artifact-tree inventory | 排除各根 `root-evidence.json`，按批准规则投影 JSON 顶层 `created_at`；两根 inventory hash 相同 |
 | P14-DQ 原始文件树 | 68 个 manifest 仅顶层 `created_at` 不同；完整原始树不逐字节一致 |
 | 各根原始字节 | 分别由 qualification report 的精确文件集合、size 与 SHA-256 清单绑定 |
 
 `root-evidence.json` 的 root identity 也按各根分别记录；上表的 50/68 数量只统计 manifest 差异。
+Inventory 投影仅对带顶层 `created_at` 的 JSON 对象删除该字段并 canonicalize；
+其他文件保持原始字节，包括无该字段的 JSON。嵌套时间字段不排除。
+`root-evidence.json` 包含该根 inventory hash，单独由报告绑定。
 此修正没有新增忽略字段、放宽浮点比较或改变 verifier。
 现有投影规则见[principal-equality conformance 记录](../reviews/p14-dq-v3-principal-equality-conformance.md)。
 
@@ -49,6 +54,7 @@ Runtime amendment    a63058df2df0a89c054965fb33046d99dc0851624bd231b45a244670953
 P14d-B summary       db5c8a0dfe0672fb5c326971d44bd9e8d29c720bb998c281c42c1b0ada96ab64
 P14-DQ root summary  affa9baefe5880b1bc54886e1c48688a4be5fcb92f41fd699a74326ef1abaf9b
 P14-DQ report summary 4bfb5d37b380e9da08f205b8a23b213596b97d1f17b9185983922e97a1fbb64b
+P14-DQ tree inventory d459a2d9d1e5d6995647521f9ac9ad698a078fa5fab01f40cf28de6c479d1be2
 ```
 
 P14-DQ runtime-environment schema 为 `p14dq-runtime-environment/v1`：
@@ -94,7 +100,8 @@ bundle integrity、外部输入与静态检查。完整回归证据仍见[原冻
 
 本次文档修订没有重跑完整 Qlib qualification，也不将 bundle-only 核验称为 bottom-up rebuild。
 
-下一步：形成本次文档的后继提交，对精确提交独立复审；通过后才记录 RC tag / release marker。
+文档审阅已核对原文归档、报告内容哈希、完整原始文件清单和双根差异，结果见[审阅记录](../reviews/p14-rc-documentation-successor-review.md)。
+下一步：对仅文档后继的精确提交独立复审；通过后才记录 RC tag / release marker。
 历史 blocked 提交 `28876d1415681ee98817c84aa16b1e68e01af6b0`、
 `490119cff1ebe8ffe2b698854fbe500f85c42c0a`、formatter 基线
 `ea2573ffd1d72e3f1f28390550e174338d88dda9` 和 `9e2fc41` 均保留。

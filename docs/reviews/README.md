@@ -3,6 +3,11 @@
 审查记录绑定特定契约、实现或历史状态。标题中的 approved/accepted
 不能脱离其 hash 和作用域使用。当前资格由[状态页](../status/README.md)指向。
 
+## P14 RC 文档后继
+
+[文档修订审阅](p14-rc-documentation-successor-review.md)记录对 `1e76aff` 的核对、
+发现与修正，以及仅文档后继提交的边界。独立 RC 复审仍需绑定该后继的精确提交。
+
 ## P14-DQ 契约与复现
 
 | 记录 | 作用 |
