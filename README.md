@@ -35,8 +35,8 @@ P14-DQ 工程结果为 `SUCCEEDED / PASS`；自然研究结果为
 FR-03 为 `NO_GO / THIN_MAINTENANCE`，P14d-C 为 `BLOCKED_UNIMPLEMENTED`。
 
 RC 的逐字节一致性表述已在[修正记录](docs/releases/p14-rc-v1-equality-correction.md)中澄清。
-文档修订已完成[审阅与后继修订](docs/reviews/p14-rc-documentation-successor-review.md)，
-精确后继提交待独立 RC 复审；通过后才记录发布标记。
+文档后继提交 `3a4a898` 已通过[独立 RC 复审](docs/reviews/p14-rc-3a4a898-independent-review.md)，
+结论为 `APPROVE`；下一步记录发布标记。
 
 ## 使用边界
 

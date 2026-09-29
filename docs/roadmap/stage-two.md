@@ -48,7 +48,8 @@ vendor-vintage PIT 或 unrestricted autonomy 权威。
 
 ## 当前下一步
 
-仅完成 P14 RC 文档后继提交的独立复审，再按批准结论记录 release marker。
+精确文档提交 `3a4a898` 已取得[独立 RC 复审 `APPROVE`](../reviews/p14-rc-3a4a898-independent-review.md)。
+下一步按该结论记录 RC tag 或 release marker，并冻结 P14 主线，精确要求见[路线图](../../PLAN.md)。
 本次文档优化不启动 FR-03 新试验或 P14d-C 实现。
 
 - [P14 状态与限制](../status/p14.md)

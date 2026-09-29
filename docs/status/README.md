@@ -11,9 +11,10 @@
 | P13 v2 | `SUCCEEDED / PASS`，基线 `46904c2` | 单公告、批准 benchmark、已 admitted proposal 离线复用 |
 | P14d-B | `QUALIFIED`，基线 `e318dc4` | 有界 synthetic 离线自主工程 |
 | P14-DQ | `SUCCEEDED / PASS`，基线 `e318dc4` | 精确冻结输入和运行环境内的自主工程；研究 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE` |
-| P14 RC 文档 | 一致性修正与文档审阅完成，后继提交待独立 RC 复审 | 复审通过后才记录发布标记 |
+| P14 RC 文档 | `3a4a898` 独立 RC 复审 `APPROVE` | 待记录发布标记；批准范围为精确文档提交 |
 
 完整 P14 哈希与权威矩阵见 [P14 状态](p14.md)及[RC 修正记录](../releases/p14-rc-v1-equality-correction.md)。
+独立复审结论与实际核验范围见[复审报告](../reviews/p14-rc-3a4a898-independent-review.md)。
 
 ## 实现范围
 

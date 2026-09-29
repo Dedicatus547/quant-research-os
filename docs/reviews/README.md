@@ -6,7 +6,11 @@
 ## P14 RC 文档后继
 
 [文档修订审阅](p14-rc-documentation-successor-review.md)记录对 `1e76aff` 的核对、
-发现与修正，以及仅文档后继提交的边界。独立 RC 复审仍需绑定该后继的精确提交。
+发现与修正，以及文档后继提交 `3a4a898` 的边界。
+[独立 RC 复审](p14-rc-3a4a898-independent-review.md)绑定精确
+`3a4a898f74ce2f60a14d2a69250024e92a4378c1`，由 `gpt-6-sol / high`
+在全新上下文执行，结论 `APPROVE`，无阻塞项或 required fixes。
+复审报告原文保持字节身份；当前登记提交不自动继承为独立审阅对象。
 
 ## P14-DQ 契约与复现
 
@@ -40,4 +44,4 @@
 
 这些 YAML 和部分批准记录是 runner 读取的固定 authority input，不能为整理目录而移动或改写。
 本次 RC 问题及修正文档见[修正记录](../releases/p14-rc-v1-equality-correction.md)；
-它没有自动成为新的独立 APPROVE。
+独立结论由[精确提交复审报告](p14-rc-3a4a898-independent-review.md)单独记录。
