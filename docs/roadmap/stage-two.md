@@ -46,10 +46,11 @@ FR-03 当前 `NO_GO / THIN_MAINTENANCE`。实现 adapter、shadow chain 或离�
 阶段名称、接口或工程 PASS 都不增加 Live Agent、sealed、alpha、盈利、投资适用性、
 vendor-vintage PIT 或 unrestricted autonomy 权威。
 
-## 当前下一步
+## 当前状态
 
-精确文档提交 `3a4a898` 已取得[独立 RC 复审 `APPROVE`](../reviews/p14-rc-3a4a898-independent-review.md)。
-下一步按该结论记录 RC tag 或 release marker，并冻结 P14 主线，精确要求见[路线图](../../PLAN.md)。
+P14 v1 主线已由 [annotated tag `p14-rc-v1`](../releases/p14-rc-v1-freeze-marker.md)
+冻结于独立复审批准的精确文档提交 `3a4a898`。
+今后的范围外变更需要独立提案、审查与资格门，路线入口见[路线图](../../PLAN.md)。
 本次文档优化不启动 FR-03 新试验或 P14d-C 实现。
 
 - [P14 状态与限制](../status/p14.md)

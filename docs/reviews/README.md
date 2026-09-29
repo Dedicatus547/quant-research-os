@@ -11,6 +11,8 @@
 `3a4a898f74ce2f60a14d2a69250024e92a4378c1`，由 `gpt-6-sol / high`
 在全新上下文执行，结论 `APPROVE`，无阻塞项或 required fixes。
 复审报告原文保持字节身份；当前登记提交不自动继承为独立审阅对象。
+已复审提交随后登记为 [P14 RC v1 freeze marker](../releases/p14-rc-v1-freeze-marker.md)，
+tag 固定于 `3a4a898`；后继文档提交记录 marker，不改变审阅对象身份。
 
 ## P14-DQ 契约与复现
 

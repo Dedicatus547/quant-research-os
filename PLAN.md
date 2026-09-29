@@ -13,7 +13,7 @@
 | P14a / P14b / P14c | Ledger、有限候选枚举、有限工程选择资格完成 |
 | P14d-A / P14d-B | 确定性编排与 synthetic 自主工程资格完成 |
 | P14-DQ | 精确冻结输入和环境内工程资格完成；研究结果仍未进入选择 |
-| P14 RC | `3a4a898` 独立 RC 复审 `APPROVE`，待记录发布标记 |
+| P14 RC | 冻结于 `p14-rc-v1`，精确目标 `3a4a898`，生产基线 `e318dc4` |
 | FR-03 / P14d-C | `NO_GO / THIN_MAINTENANCE` / `BLOCKED_UNIMPLEMENTED` |
 
 本次文档整理沿用生产实现 `e318dc4` 和已有资格报告；不授予新的生产、研究或运行时权威。
@@ -23,8 +23,9 @@
 
 ## 下一项工作
 
-1. 为已独立复审的 `3a4a898f74ce2f60a14d2a69250024e92a4378c1` 记录 RC tag
-   或 release marker，并冻结 P14 主线；登记同时绑定复审报告、其登记提交与生产实现 `e318dc4`。
+P14 v1 主线已冻结；发布绑定与重开条件见[freeze marker](docs/releases/p14-rc-v1-freeze-marker.md)。
+超出该精确范围的工作需要独立变更提案、审查与资格门。FR-03 仍遵守其
+[THIN_MAINTENANCE 重资格政策](docs/status/fr03.md)。
 
 发布管理步骤不修改生产代码。历史提交 `9e2fc41` 和更早的 blocked RC 保持可追溯。
 

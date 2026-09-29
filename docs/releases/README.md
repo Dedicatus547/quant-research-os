@@ -4,7 +4,8 @@
 
 [独立 RC 复审](../reviews/p14-rc-3a4a898-independent-review.md)已对
 `3a4a898f74ce2f60a14d2a69250024e92a4378c1` 给出 `APPROVE`，无阻塞项或 required fixes。
-下一步记录 tag 或 release marker。
+RC v1 已冻结；本地 annotated tag `p14-rc-v1` 的精确身份与冻结范围见
+[freeze marker](p14-rc-v1-freeze-marker.md)。
 
 [一致性权威表述修正](p14-rc-v1-equality-correction.md)维护 principal、批准投影与原始文件 bytes 的精确范围。
 该修正及[文档后继审阅](../reviews/p14-rc-documentation-successor-review.md)的原文保留；
@@ -23,6 +24,7 @@
 | [文档重组与修正](p14-rc-v1-equality-correction.md) | `1e76aff`；继承 `9e2fc41` 的既有证据 | 当前一致性措辞入口 |
 | [文档后继审阅](../reviews/p14-rc-documentation-successor-review.md) | 审阅 `1e76aff`，记录于 `3a4a898` | 文档修订与原文归档核对 |
 | [独立 RC 复审](../reviews/p14-rc-3a4a898-independent-review.md) | 精确对象 `3a4a898`；`gpt-6-sol / high` | `APPROVE`；允许后续仅发布管理步骤 |
+| [P14 RC v1 freeze marker](p14-rc-v1-freeze-marker.md) | tag `p14-rc-v1` → `3a4a898`；tag object `e20f97e…3e29d6f` | P14 v1 主线 `FROZEN` |
 
 Blocked/failed attempts，以及已被后继报告替代的旧 P14d-B/P14-DQ 报告保持历史身份。
 Retained P14c 和批准的上游 Data-qualified release 仍按各自精确绑定沿用。
