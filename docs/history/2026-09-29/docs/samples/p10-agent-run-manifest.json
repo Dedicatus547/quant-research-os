@@ -1,0 +1,60 @@
+{
+  "completed_at": "2026-09-07T14:05:25.767905Z",
+  "failure_reason_code": null,
+  "harness_identifier": "codex-cli 0.153.4",
+  "input_hashes": [
+    "22bb230d689068e3c5eb49de46dfc3090f742e532ebf2f17bfd39fc723efe571",
+    "5c0c6054b1b6f9de8f17add4fa118f1f7f642e243706767c4fbe3889778dc548",
+    "692ebea058e264ffef6f2897a39ed1f5b579a485e2b5669354554c296e26da3d",
+    "6bd7297663c27b319feeb36b6ad23d1f7c9ceeff60734de2051940fa7b2ffded",
+    "939516d4378e3e79fde66b6416fd15602ea1db9dbd6e016f3a84bfb03d123e45",
+    "976a1c27fb74b7e805c2fe5278042acb97539dc9401acc54daadaa031ac0f471",
+    "b637eba8c6b356468e6df938a006628e771566c6bfc6b919063cab058412c0b0",
+    "d2651847fd2a9fd0804ccd2037e5c3f71db6a79efcca41b056e379ea33c53989",
+    "d7e57dcc63346180f98bb7661ad35602fc980177587e27f49e3d766e24965182"
+  ],
+  "instruction_hashes": [
+    "692ebea058e264ffef6f2897a39ed1f5b579a485e2b5669354554c296e26da3d",
+    "6bd7297663c27b319feeb36b6ad23d1f7c9ceeff60734de2051940fa7b2ffded",
+    "976a1c27fb74b7e805c2fe5278042acb97539dc9401acc54daadaa031ac0f471"
+  ],
+  "interactions": [
+    {
+      "capability": "dataset.describe",
+      "request_hash": "0f9cfb504e62184a9391152d31a03daa4725ef05976b00c0b78f39c816b53fc3",
+      "response_hash": "452c9258f2484e1db5b03b1db7405500fcf76355dcf3919138caf708a23dbb1a",
+      "schema_version": "tool-interaction-digest/v1",
+      "sequence": 1,
+      "succeeded": true
+    }
+  ],
+  "limitations": [
+    "MODEL_IDENTIFIER_NOT_IMMUTABLE",
+    "SYNTHETIC_CAPABILITY_SPIKE"
+  ],
+  "model_configuration_hash": "cd007f18d8575f39f0f057e5bba39f605862e7dd0edc070b5c83faeeb5998059",
+  "model_snapshot_immutable": false,
+  "output_proposal_hashes": [
+    "e8bc5a344efbdec4fc4809aefeeb731ee9490f28d3bbc3fcd0f197f6a30d4ec3"
+  ],
+  "permission_policy_hash": "fb622b23fd11fdda0d0fa9b79e23134a92edc8755b5130aa08eeb43223386fb8",
+  "provider_model_identifier": "gpt-5.6-sol",
+  "provider_thread_id": "01a07c2f-27da-7723-8562-2743e7d93e83",
+  "run_spec_hash": "601b9fa2e5d4bb38270daf1081b34459aba29a56de6ad74d7c92a9b17eee36b7",
+  "run_status": "SUCCEEDED",
+  "runtime_policy_hash": "581fc509cafe6d0eab2417babea29fc95d91a4b46a8d76b5b341f32521bcf501",
+  "sandbox_policy_hash": "f30f13d31b1e3ecf12b32a04b135864e6cd339e1dc78c25a5a36b7af3aea147f",
+  "schema_version": "agent-run-manifest/v1",
+  "skill_hash": "692ebea058e264ffef6f2897a39ed1f5b579a485e2b5669354554c296e26da3d",
+  "started_at": "2026-09-07T14:04:18.921722Z",
+  "tool_schema_hash": "d2651847fd2a9fd0804ccd2037e5c3f71db6a79efcca41b056e379ea33c53989",
+  "transcript_hash": "eb8c4460f326da2c99ab3b21337313334c345e00ca6f7baafcf06d7824db06d7",
+  "usage": {
+    "cached_input_tokens": 128512,
+    "input_tokens": 147099,
+    "output_tokens": 958,
+    "retry_count": 0,
+    "schema_version": "agent-usage/v1",
+    "tool_calls": 1
+  }
+}

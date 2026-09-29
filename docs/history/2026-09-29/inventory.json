@@ -1,0 +1,255 @@
+{
+  "files": [
+    {
+      "path": "PLAN.md",
+      "sha256": "4dc282c079d4a99ea2f40455f97f780a5ba5370d6da8033dcc78e402d83e318a",
+      "size_bytes": 110501
+    },
+    {
+      "path": "README.md",
+      "sha256": "3c7025fe3bd996f0772e567a6b697647faa56d6030741e80d88cfd115798c5d9",
+      "size_bytes": 22549
+    },
+    {
+      "path": "docs/P10-13-refactor-plan.md",
+      "sha256": "69403c021c46ed7a91a5c2458a70d388e40e28e054403a93a404973953466cef",
+      "size_bytes": 23146
+    },
+    {
+      "path": "docs/adr/0001-gpt-codex-harness.md",
+      "sha256": "9e210016abc7386051f7e1bd6f88a285f62dae07226cd8cd7a303327071f349a",
+      "size_bytes": 5373
+    },
+    {
+      "path": "docs/adr/0002-exchange-evidence-acquisition.md",
+      "sha256": "a0992da2b7f6404b74ee780c3b7aaced41e54c964d43ecc4f958c46a150a184a",
+      "size_bytes": 7608
+    },
+    {
+      "path": "docs/adr/0002-official-codex-python-sdk.md",
+      "sha256": "06272fddb9edb75f07624fcaa9b934a25f0668c785ac023a125ae238c7b89dcb",
+      "size_bytes": 10504
+    },
+    {
+      "path": "docs/feasibility/qlib-0.9.7.md",
+      "sha256": "6219d3be0b101bbc1a21ca5a2d737a3182d4b94ab4d2ccfc16818448279d64cf",
+      "size_bytes": 8874
+    },
+    {
+      "path": "docs/fr03-code-mode-aware-p10.md",
+      "sha256": "2277a7047d27bb15eac2b86cf91ec697d1ea90b0721f619cc2fa8499bf9c82b1",
+      "size_bytes": 26568
+    },
+    {
+      "path": "docs/fr03-codex-0.156.1-requalification.md",
+      "sha256": "a175ef151116d96276937c3c488473e6ae1452a530ebc67227599b34633e6f64",
+      "size_bytes": 9389
+    },
+    {
+      "path": "docs/fr03-codex-46947-followup-draft.md",
+      "sha256": "3577db4822ea625f04e079c83d0ffb10d243ee4e091ddc4f9dfb49548d3f28a6",
+      "size_bytes": 2814
+    },
+    {
+      "path": "docs/fr03-codex-account-routing-diagnostic-v2.md",
+      "sha256": "ea4851797feb62db6e235f5e7feb24e5f07bccb121215d087a7175561f8f167e",
+      "size_bytes": 13154
+    },
+    {
+      "path": "docs/fr03-codex-runtime-identity-provenance.md",
+      "sha256": "fb07cfe12296bf18a4404d9dd77a28f24d223c6ce6b68dbeadb08acc6276ae76",
+      "size_bytes": 7554
+    },
+    {
+      "path": "docs/fr03-codex-sdk-failure-isolation-plan.md",
+      "sha256": "2dc61b000a305b65d2ec344df79d48a1b3d36143eceee7fd5359b28d3cb8e570",
+      "size_bytes": 16827
+    },
+    {
+      "path": "docs/fr03-codex-sdk-qualification.md",
+      "sha256": "81b427f10f7acfaf0925865a41c05cc8cafd5dea0f1dbe6243c8712781d228c2",
+      "size_bytes": 11337
+    },
+    {
+      "path": "docs/fr03-codex-sdk-upstream-reproduction.md",
+      "sha256": "7e02bca21c9bd3cbd095141033be0a00f912c02b8b58f56b3bd15cc263dca47f",
+      "size_bytes": 9230
+    },
+    {
+      "path": "docs/fr03-d06-raw-app-server-isolation-test.md",
+      "sha256": "aca16b3eba940b4ac3bb8ff4d8e13d56e5ab37ee71ad45928313886b484d7d29",
+      "size_bytes": 23616
+    },
+    {
+      "path": "docs/fr03-d07-codex-sdk-test.md",
+      "sha256": "c991eeee2169d5d9339cbd4fff75f6aa9bfe19307c2820fd164c588ce16401ee",
+      "size_bytes": 34091
+    },
+    {
+      "path": "docs/implementation-status.md",
+      "sha256": "a29481491bb87026dc90e70b8a164bb696f787df35a671f21e3c70359d7c342c",
+      "size_bytes": 45472
+    },
+    {
+      "path": "docs/p11-progress.md",
+      "sha256": "c4930ef276c44e59897f51077fe4647ae0b1cd104fc206ecf097dfd46b3e3b35",
+      "size_bytes": 5282
+    },
+    {
+      "path": "docs/p12-progress.md",
+      "sha256": "034f5bca8370830a9088e8494ba512eac0e8536010b0578597c08a5481f64864",
+      "size_bytes": 5083
+    },
+    {
+      "path": "docs/p13-progress.md",
+      "sha256": "c3c2a6fc9f1da7aa80895b2e05afce36a428499ef278a9e3992fced4586f00c8",
+      "size_bytes": 12716
+    },
+    {
+      "path": "docs/p13-v2-freeze.md",
+      "sha256": "496402bad0b389b981a8f2f8a44d2400a06c1813e57f5df4c0d26b1abbf07a98",
+      "size_bytes": 3926
+    },
+    {
+      "path": "docs/p14-dq-qualification-contract-v2-draft.md",
+      "sha256": "645794fd37108669d712e133bcbdf0305418098d53be10f18155d1321444b13f",
+      "size_bytes": 10028
+    },
+    {
+      "path": "docs/p14-dq-qualification-contract-v3-draft.md",
+      "sha256": "563b1c44ff8e3b87822902c1f70183de2ddd97b007550f2028990bb37f858e17",
+      "size_bytes": 6907
+    },
+    {
+      "path": "docs/p14-dq-qualification-contract-v3-reproducibility-amendment.md",
+      "sha256": "a63058df2df0a89c054965fb33046d99dc0851624bd231b45a2446709539dbce",
+      "size_bytes": 6200
+    },
+    {
+      "path": "docs/p14-dq-qualification-contract.md",
+      "sha256": "2e8dab7816f49c45e8728892288673d8565947a76d7202d14681f830f2957069",
+      "size_bytes": 19975
+    },
+    {
+      "path": "docs/p14-progress.md",
+      "sha256": "79aace19e94d663b61ab7da53bf0f547454f1f80de4ab66b7cc32dda84ffb171",
+      "size_bytes": 23522
+    },
+    {
+      "path": "docs/p14c-selection-contract.md",
+      "sha256": "07ae45cb45078b10a609ffffc8aa6c9f09150a01986e0894c9c062866819f1fa",
+      "size_bytes": 7943
+    },
+    {
+      "path": "docs/p14d-autonomous-loop-contract.md",
+      "sha256": "105d1120aeffadbda14920a8e2e9b5b6260c7e842248761690239940117dd13e",
+      "size_bytes": 12871
+    },
+    {
+      "path": "docs/p14d-qualification-contract.md",
+      "sha256": "eaa9e35b5141bc75648945718455e7b88b8ad3c2dd34df0d1f937df99e099136",
+      "size_bytes": 8504
+    },
+    {
+      "path": "docs/p8-security.md",
+      "sha256": "4f08ddd12e50e404aea14c2b385f984fa304a13da34b5b54313b32c3850c00d1",
+      "size_bytes": 3366
+    },
+    {
+      "path": "docs/p9-research-semantics.md",
+      "sha256": "37366f9cae21294f33ec083a205b50de968cf086ee3fc4acb6e290adf1ce55ed",
+      "size_bytes": 6828
+    },
+    {
+      "path": "docs/releases/p14-rc-v1-final.md",
+      "sha256": "16e8ac82bd78809761fe2463650e30e58fbfc2d466d2f8073c4dbb246e209ce7",
+      "size_bytes": 8857
+    },
+    {
+      "path": "docs/releases/p14-rc-v1-verification.md",
+      "sha256": "bc64f0d4ba8cb5442b7f5ffacbf86012bb471cc7539e8234b34eb8a2370ddc7e",
+      "size_bytes": 4502
+    },
+    {
+      "path": "docs/releases/p14-rc-v1.md",
+      "sha256": "49161b9fdc8f1f749e8be5c177a825ea27acd60327e03b2f24310b68a42f5158",
+      "size_bytes": 9576
+    },
+    {
+      "path": "docs/reviews/p11-review.md",
+      "sha256": "443af2aa2241bcd476263443cc9f1d08cd4e43fe62adc0653da229562108eaa5",
+      "size_bytes": 41755
+    },
+    {
+      "path": "docs/reviews/p13-benchmark-v2-review.md",
+      "sha256": "45da7bacfca2c661f7c643e7becb3bde1566d7cc39efbaeb88b74f3f58633840",
+      "size_bytes": 3617
+    },
+    {
+      "path": "docs/reviews/p14-dq-contract-reopening.md",
+      "sha256": "acfa2e13a29fec9c081484ee79e88ae241af5689c2f50f747e53836d4727b5aa",
+      "size_bytes": 10434
+    },
+    {
+      "path": "docs/reviews/p14-dq-entry-review.md",
+      "sha256": "d11926482cb6ae2de79c358c1c27e247ea7babeb91fce5da0b16bf2da5045334",
+      "size_bytes": 13812
+    },
+    {
+      "path": "docs/reviews/p14-dq-proposed-research-policy.yaml",
+      "sha256": "0858014140d42472eddf216caba32910354c6ad7c3cbe4d72ca004cd7fff1dc9",
+      "size_bytes": 475
+    },
+    {
+      "path": "docs/reviews/p14-dq-proposed-validation-policy.yaml",
+      "sha256": "4214f8ed1160f8b4134c0b1efbbdedbcbda32d0e42042cf26bf6c4059c07b3e6",
+      "size_bytes": 1136
+    },
+    {
+      "path": "docs/reviews/p14-dq-reproducibility-amendment-approval.md",
+      "sha256": "26e331ce4a2df4664995e23f615a205b817bd3318b4ea9e43c9649fc32577ca9",
+      "size_bytes": 4448
+    },
+    {
+      "path": "docs/reviews/p14-dq-v3-contract-approval.md",
+      "sha256": "6010a6c2d53727fabce7e3a6caf9cc5f0dd9dfd2ced131e2a524cd1993f0aa74",
+      "size_bytes": 3365
+    },
+    {
+      "path": "docs/reviews/p14-dq-v3-negative-case-selection-fix.md",
+      "sha256": "17fc59579435f3411ea26f4bf4899c7a8589533343287f4e4781ee8911b7318a",
+      "size_bytes": 3519
+    },
+    {
+      "path": "docs/reviews/p14-dq-v3-principal-equality-conformance.md",
+      "sha256": "4f95eee0f10b0ff6f31b3d70192bfe7c2d8fd9e41b5dbba97d9c1e875f693a3a",
+      "size_bytes": 4450
+    },
+    {
+      "path": "docs/reviews/p14-dq-v3-qualification-acceptance.md",
+      "sha256": "83854e0e5e0bcc0251448890e0a3ba2ef9209f852bad05d94a4ce13673c17422",
+      "size_bytes": 5502
+    },
+    {
+      "path": "docs/reviews/p14-entry-review.md",
+      "sha256": "3ef5fc835b0ca387c1e2d358dea8907416b80088c82575778aabfbf30d638c99",
+      "size_bytes": 3067
+    },
+    {
+      "path": "docs/reviews/p14-entry-review2.md",
+      "sha256": "560559f8c40e756dfa52c59bb9180cabfce94c7755bec17c0690b2bfadb470a3",
+      "size_bytes": 14132
+    },
+    {
+      "path": "docs/reviews/stage1-review.md",
+      "sha256": "0e2d5b7ff89467b347b2485af865e92709dd800ef533908665af5a6343c27a83",
+      "size_bytes": 25808
+    },
+    {
+      "path": "docs/samples/p10-agent-run-manifest.json",
+      "sha256": "18edcd1dae3111aa30a9b8f00f4724dffb7571c868b4f3b45dea265b9bb5ee19",
+      "size_bytes": 2791
+    }
+  ],
+  "source_commit": "9e2fc41a41f2d2b253e04c67b10519e6926c79dd"
+}
