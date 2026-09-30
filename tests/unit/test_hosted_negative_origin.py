@@ -20,13 +20,23 @@ from quantos.contracts.hosted_qualification import (
     HostedQualificationRoot,
 )
 from quantos.infrastructure.hosted_deployment import HostedNamespacePaths, namespace_command
-from quantos.infrastructure.hosted_negative_origin import CASES, verify_q03
+from quantos.infrastructure.hosted_fixture_frames import (
+    BOUNDED_REJECTION_CASES,
+    bounded_rejection_frame,
+)
+from quantos.infrastructure.hosted_negative_origin import (
+    CASES,
+    verify_q03,
+    verify_q04_transport_matrix,
+)
 from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 from quantos.infrastructure.hosted_store import HostedProtocolStore
 from quantos.infrastructure.hosted_verification import HostedQualificationError, raw_inventory
 
 
-def _case(tmp_path: Path, mutation: str | None):
+def _case(tmp_path: Path, mutation: str | None, family: str = "Q03"):
+    names = CASES if family == "Q03" else BOUNDED_REJECTION_CASES
+    module = "hosted_negative_probe" if family == "Q03" else "hosted_admission_probe"
     f = _fixture(tmp_path / "component")
     f.service.start(f.spec.content_hash)
     request = f.service.pending(f.spec.campaign_hash)
@@ -60,7 +70,7 @@ def _case(tmp_path: Path, mutation: str | None):
         install=SimpleNamespace(
             files=[
                 SimpleNamespace(
-                    relative_path="python/lib/python3.11/site-packages/quantos/infrastructure/hosted_negative_probe.py",
+                    relative_path=f"python/lib/python3.11/site-packages/quantos/infrastructure/{module}.py",
                     bytes_hash="c" * 64,
                 ),
                 SimpleNamespace(relative_path="python-seeded", bytes_hash="e" * 64),
@@ -83,8 +93,8 @@ def _case(tmp_path: Path, mutation: str | None):
             bundle_path=logical, source_path=source, sha256=sha256_bytes(data), size_bytes=len(data)
         )
 
-    for name in CASES:
-        target = manager / "qualification-cases/Q03" / name
+    for name in names:
+        target = manager / "qualification-cases" / family / name
         authority = target / "authority"
         authority.mkdir(parents=True)
         for directory in ("protocol", "business", "business-locks"):
@@ -98,7 +108,9 @@ def _case(tmp_path: Path, mutation: str | None):
         )
         raw = response.canonical_bytes()
         seen = cancellation = None
-        if name in ("expired", "cancelled"):
+        if family == "Q04":
+            raw = bounded_rejection_frame(request, name)
+        elif name in ("expired", "cancelled"):
             seen = service.submit(request.content_hash, b"{}", "negative.fixture")
             if name == "cancelled":
                 cancellation = service.cancel(request.content_hash, "negative.fixture")
@@ -126,7 +138,10 @@ def _case(tmp_path: Path, mutation: str | None):
             "campaign_hash": f.spec.campaign_hash,
             "request_hash": request.content_hash,
             "receipt_hash": receipt.content_hash,
-            "response_json": raw.decode(),
+            "response_json": raw.decode() if family == "Q03" else None,
+            "case_family": family,
+            "response_observed_hash": sha256_bytes(raw),
+            "response_observed_bytes": len(raw),
             "before_inventory": before.model_dump(mode="json"),
             "after_inventory": after.model_dump(mode="json"),
             "primary_clock": receipt.recorded_at.isoformat(),
@@ -147,7 +162,7 @@ def _case(tmp_path: Path, mutation: str | None):
                 "hash_randomization": 0,
             },
         }
-        if name == CASES[0]:
+        if name == names[0]:
             if mutation == "flags_bool":
                 observation["python_flags"]["isolated"] = True
             elif mutation == "network":
@@ -162,17 +177,17 @@ def _case(tmp_path: Path, mutation: str | None):
             ("before", before, target / "channel/before/authority"),
             ("after", after, authority),
         ):
-            logical = f"cases/Q03/{name}/{phase}/authority"
+            logical = f"cases/{family}/{name}/{phase}/authority"
             for item in inventory.files:
                 export(
                     f"{logical}/{item.logical_path}",
                     (origin / item.logical_path).relative_to(manager).as_posix(),
                     (origin / item.logical_path).read_bytes(),
                 )
-            inventory_path = f"cases/Q03/{name}/{phase}-inventory.json"
+            inventory_path = f"cases/{family}/{name}/{phase}-inventory.json"
             export(
                 inventory_path,
-                f"qualification-cases/Q03/{name}/{phase}-inventory.json",
+                f"qualification-cases/{family}/{name}/{phase}-inventory.json",
                 inventory.canonical_bytes(),
             )
             roots.append(
@@ -186,7 +201,7 @@ def _case(tmp_path: Path, mutation: str | None):
         command = (
             "/install/python-seeded",
             "-m",
-            "quantos.infrastructure.hosted_negative_probe",
+            "quantos.infrastructure." + module,
             "--profile-hash",
             "d" * 64,
             "--case",
@@ -198,6 +213,7 @@ def _case(tmp_path: Path, mutation: str | None):
         )
         prelaunch = {
             "schema_version": "hosted-manager-negative-prelaunch/v1",
+            "case_family": family,
             "case": name,
             "deployment_profile_hash": "d" * 64,
             "authority_root": str(authority),
@@ -208,11 +224,12 @@ def _case(tmp_path: Path, mutation: str | None):
                 "files": [],
             },
         }
-        if name == CASES[0] and mutation == "not_fresh":
+        if name == names[0] and mutation == "not_fresh":
             prelaunch["authority_before_inventory"] = before.model_dump(mode="json")
         prelaunch_bytes = canonical_json_bytes(prelaunch)
         run = {
             "schema_version": "hosted-manager-negative-run/v1",
+            "case_family": family,
             "case": name,
             "deployment_profile_hash": "d" * 64,
             "campaign_hash": f.spec.campaign_hash,
@@ -250,7 +267,7 @@ def _case(tmp_path: Path, mutation: str | None):
                 ],
             },
         }
-        if name == CASES[0]:
+        if name == names[0]:
             if mutation == "return_bool":
                 run["return_code"] = False
             elif mutation == "bad_program":
@@ -274,7 +291,7 @@ def _case(tmp_path: Path, mutation: str | None):
             (
                 "observation",
                 observation_bytes,
-                f"qualification-cases/Q03/{name}/channel/negative-observation.json",
+                f"qualification-cases/{family}/{name}/channel/negative-observation.json",
             ),
             (
                 "prelaunch",
@@ -283,11 +300,11 @@ def _case(tmp_path: Path, mutation: str | None):
             ),
             ("run", run_bytes, f"evidence/negative-run-{sha256_bytes(run_bytes)}.json"),
         ):
-            logical = f"cases/Q03/{name}/{label}.json"
+            logical = f"cases/{family}/{name}/{label}.json"
             export(logical, source, data)
             evidence.append(logical)
     case = HostedQualificationCase(
-        case_id="Q03", roots=tuple(roots), evidence_paths=tuple(sorted(evidence))
+        case_id=family, roots=tuple(roots), evidence_paths=tuple(sorted(evidence))
     )
     if mutation == "missing_matrix":
         case = case.model_copy(update={"roots": case.roots[:-1]})
@@ -334,4 +351,37 @@ def test_q03_missing_exported_protocol_never_creates_directories(tmp_path: Path,
     with pytest.raises(HostedQualificationError):
         verify_q03(bundle, case, sources)
     assert not absent.exists()
+    assert before == (raw_inventory(bundle), raw_inventory(sources.deployment.root))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "flags_bool",
+        "network",
+        "repeat",
+        "repeat_clock",
+        "return_bool",
+        "bad_program",
+        "no_kernel",
+        "same_namespace",
+        "not_fresh",
+        "missing_matrix",
+    ],
+)
+def test_q04_bounded_subset_requires_complete_original_records(
+    tmp_path: Path, mutation: str | None
+):
+    bundle, case, sources = _case(tmp_path, mutation, family="Q04")
+    before = raw_inventory(bundle), raw_inventory(sources.deployment.root)
+    if mutation is None:
+        assert verify_q04_transport_matrix(bundle, case, sources)
+        from quantos.infrastructure.hosted_verification import verify_case
+
+        # No full Q04 qualification: DSL/business/path and race cases are still absent.
+        assert verify_case(bundle, case, sources=sources).verdict == "FAIL"
+    else:
+        with pytest.raises((HostedQualificationError, ValueError)):
+            verify_q04_transport_matrix(bundle, case, sources)
     assert before == (raw_inventory(bundle), raw_inventory(sources.deployment.root))

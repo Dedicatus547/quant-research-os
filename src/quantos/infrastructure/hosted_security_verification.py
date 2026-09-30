@@ -174,6 +174,8 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
         "READ_PARENT_FD",
         "READ_PARENT_ROOT",
         "READ_TRUSTED_SOURCE",
+        "READ_PROJECTION_PARENT_SEALED",
+        "READ_ABSOLUTE_INPUTS",
         "READ_OWN_PROC_FD",
     )
     for name in files:
@@ -206,7 +208,13 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
             by_name.get(name, {}).get("channel_returned") is True,
             "Q07 channel control/race query failed",
         )
-    for name in ("CHANNEL_SYMLINK", "CHANNEL_UNLINK", "CHANNEL_REPLACE"):
+    for name in (
+        "CHANNEL_SYMLINK",
+        "CHANNEL_HARDLINK",
+        "CHANNEL_FIFO",
+        "CHANNEL_UNLINK",
+        "CHANNEL_REPLACE",
+    ):
         row = by_name.get(name, {})
         _require(
             row.get("changed") is False

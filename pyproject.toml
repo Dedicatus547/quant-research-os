@@ -82,7 +82,7 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["quantos"]
-concurrency = ["multiprocessing"]
+concurrency = ["thread", "multiprocessing"]
 patch = ["subprocess", "_exit"]
 
 [tool.coverage.report]

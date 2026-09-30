@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from quantos.contracts.base import sha256_bytes
 from quantos.contracts.hosted import (
@@ -19,6 +20,7 @@ from quantos.infrastructure.hosted_verification import (
     raw_inventory,
     verify_protocol_root,
 )
+from quantos.security import SecretArtifactRejected, validate_secret_free
 
 NegativeSubmissionKind = Literal[
     "campaign_hash",
@@ -30,6 +32,10 @@ NegativeSubmissionKind = Literal[
     "cancelled",
     "conflict",
     "seen_bytes",
+    "schema_invalid",
+    "unknown_candidate",
+    "oversized",
+    "credential_like",
 ]
 
 
@@ -52,7 +58,8 @@ def verify_negative_submission_transition(
 
     This routine never executes or repairs authority. A producer's response reason,
     budget counters, success field or claimed unchanged business root is insufficient.
-    Credential-like negative payloads must not be passed or retained by callers.
+    Credential-like fixtures must be explicitly synthetic scanner inputs. Callers
+    must never retain them as raw or reversible artifacts or pass real credentials.
     """
     checked = set(verify_protocol_root(before_root / "protocol", campaign_hash))
     checked.update(verify_protocol_root(after_root / "protocol", campaign_hash))
@@ -62,16 +69,17 @@ def verify_negative_submission_transition(
     _require(before.requests == after.requests, "negative submission changed requests")
     request = before.request(request_hash)
     receipt = after.artifact(receipt_hash, HostedSubmissionReceipt)
-    digest = sha256_bytes(response_bytes)
+    observed = response_bytes[: request.max_response_bytes + 1]
+    digest = sha256_bytes(observed)
+    complete_frame = len(response_bytes) <= request.max_response_bytes
     _require(
-        len(response_bytes) <= request.max_response_bytes
-        and receipt.request_hash == request_hash
+        receipt.request_hash == request_hash
         and receipt.campaign_hash == campaign_hash
         and receipt.attempt_identity == request.attempt_identity
-        and receipt.complete
-        and receipt.observed_bytes == len(response_bytes)
-        and receipt.submission_bytes_hash == digest
-        and receipt.observed_prefix_hash is None,
+        and receipt.complete == complete_frame
+        and receipt.observed_bytes == len(observed)
+        and receipt.submission_bytes_hash == (digest if complete_frame else None)
+        and receipt.observed_prefix_hash == (None if complete_frame else digest),
         "negative submission bytes and receipt differ",
     )
     before_raw, after_raw = raw_inventory(before_root), raw_inventory(after_root)
@@ -199,6 +207,68 @@ def verify_negative_submission_transition(
                 "cancelled request was not terminated",
             )
             _require(receipt.reason == "REQUEST_CANCELLED", "cancellation rejection reason differs")
+        elif kind in ("schema_invalid", "unknown_candidate", "oversized", "credential_like"):
+            _require(
+                receipt.recorded_at < request.expires_at and before.terminal(request_hash) is None,
+                "bounded rejection borrowed an expired or cancelled request",
+            )
+            if kind == "oversized":
+                _require(
+                    not complete_frame and receipt.reason == "FRAME_BYTE_CAP_EXCEEDED",
+                    "oversized rejection lacks a bounded incomplete prefix",
+                )
+            else:
+                _require(complete_frame, "complete rejection has an oversized frame")
+                if kind == "schema_invalid":
+                    invalid = False
+                    try:
+                        parse_hosted_contract(
+                            response_bytes,
+                            HostedAgentResponse,
+                            max_bytes=request.max_response_bytes,
+                        )
+                    except (ValueError, TypeError, UnicodeError, RecursionError):
+                        invalid = True
+                    _require(
+                        invalid and receipt.reason == "SCHEMA_INVALID",
+                        "schema rejection contains a valid canonical response",
+                    )
+                else:
+                    response = parse_hosted_contract(
+                        response_bytes, HostedAgentResponse, max_bytes=request.max_response_bytes
+                    )
+                    _require(
+                        response.campaign_hash == request.campaign_hash
+                        and response.transport_ordinal == request.transport_ordinal
+                        and response.context_pack_hash == request.context_pack_hash
+                        and response.request_hash == request_hash
+                        and response.attempt_identity == request.attempt_identity
+                        and response.host_observation.requested_configuration_hash
+                        == before.spec.requested_model_configuration_hash,
+                        "admission rejection borrowed a wrong binding",
+                    )
+                    proposal: object = json.loads(response.proposal_json)
+                    if kind == "unknown_candidate":
+                        _require(
+                            isinstance(proposal, dict)
+                            and cast(dict[str, object], proposal).get("candidate_hash")
+                            not in {
+                                candidate.content_hash
+                                for candidate in request.business_request.candidate_options
+                            }
+                            and receipt.reason == "UNKNOWN_CANDIDATE",
+                            "unknown-candidate rejection contains an allowed candidate",
+                        )
+                    else:
+                        unsafe = False
+                        try:
+                            validate_secret_free(proposal, file_name="negative-proposal.json")
+                        except SecretArtifactRejected:
+                            unsafe = True
+                        _require(
+                            unsafe and receipt.reason == "CREDENTIAL_LIKE_PAYLOAD",
+                            "credential rejection contains no credential-like proposal",
+                        )
         else:
             _require(
                 kind

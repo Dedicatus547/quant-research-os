@@ -66,6 +66,8 @@ def main() -> None:
         ("READ_PARENT_FD", f"/proc/{context['manager_pid']}/fd/0"),
         ("READ_PARENT_ROOT", f"/proc/{context['manager_pid']}/root/authority/sealed-canary"),
         ("READ_TRUSTED_SOURCE", str(context["source_root"]) + "/evidence/source-canary"),
+        ("READ_PROJECTION_PARENT_SEALED", "/projection/../authority/sealed-canary"),
+        ("READ_ABSOLUTE_INPUTS", "/inputs"),
     ):
         file_attempt(name, path, os.O_RDONLY)
     library = ctypes.CDLL(None, use_errno=True)
@@ -117,6 +119,14 @@ def main() -> None:
     results.append({"name": "AUTHORIZED_QUERY", "channel_returned": reply is not None})
     for name, mutation in (
         ("CHANNEL_SYMLINK", lambda: os.symlink("/tmp/fake.sock", "/channel/probe.sock")),
+        (
+            "CHANNEL_HARDLINK",
+            lambda: os.link(
+                "/install/python/lib/python3.11/site-packages/quantos/__init__.py",
+                "/channel/probe-hardlink",
+            ),
+        ),
+        ("CHANNEL_FIFO", lambda: os.mkfifo("/channel/probe-fifo", 0o600)),
         ("CHANNEL_UNLINK", lambda: os.unlink(config.socket_path)),
         ("CHANNEL_REPLACE", lambda: os.replace("/tmp/channel-replacement", config.socket_path)),
     ):

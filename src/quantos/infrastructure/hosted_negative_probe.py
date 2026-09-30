@@ -18,12 +18,18 @@ from quantos.application.autonomous_execution import QuantosResearchExecutionAda
 from quantos.application.hosted_campaign import HostedCampaignApplicationService
 from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
-from quantos.contracts.hosted import HostedAgentResponse, HostObservation, HostReportedUsage
 from quantos.contracts.hosted_deployment import HostedDeploymentProfile, HostedServiceConfiguration
 from quantos.contracts.hosted_inputs import (
     HostedBusinessLoaderConfiguration,
     HostedFrozenBusinessInputs,
     derive_hosted_campaign_spec,
+)
+from quantos.infrastructure.hosted_fixture_frames import (
+    BOUNDED_REJECTION_CASES,
+    BUSINESS_REJECTION_CASES,
+    bounded_rejection_frame,
+    business_rejection_frame,
+    transport_fixture_response,
 )
 from quantos.infrastructure.hosted_service import (
     bootstrap_hosted_service,
@@ -50,7 +56,12 @@ NEGATIVE_CASES = (
 
 
 def run_negative_probe(profile_hash: str, case: str) -> None:
-    if case not in NEGATIVE_CASES:
+    run_transport_fixture(profile_hash, case, "Q03")
+
+
+def run_transport_fixture(profile_hash: str, case: str, family: str) -> None:
+    allowed = {"Q03": NEGATIVE_CASES, "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES)}
+    if family not in allowed or case not in allowed[family]:
         raise ValueError("unknown fixed negative case")
     authority, channel = Path("/authority"), Path("/channel")
     initial = raw_inventory(authority)
@@ -104,32 +115,25 @@ def run_negative_probe(profile_hash: str, case: str) -> None:
         request = application.pending(campaign)
         if request is None:
             raise ArtifactIntegrityError("negative case has no frozen pending request")
-        proposal = canonical_json_bytes(
-            {"candidate_hash": request.business_request.candidate_options[0].content_hash}
-        ).decode()
-        response = HostedAgentResponse(
-            request_hash=request.content_hash,
-            campaign_hash=request.campaign_hash,
-            transport_ordinal=request.transport_ordinal,
-            context_pack_hash=request.context_pack_hash,
-            attempt_identity=request.attempt_identity,
-            proposal_json=proposal,
-            proposal_hash=sha256_bytes(proposal.encode()),
-            host_observation=HostObservation(
-                requested_configuration_hash=request.business_request.agent_run_spec.requested_model_configuration_hash,
-                reported_usage=HostReportedUsage(unavailable_reason="TRANSPORT_NEGATIVE_FIXTURE"),
-                unavailable_reasons=(
-                    "HOST_INTERNAL_USAGE_UNAVAILABLE",
-                    "HOST_EFFECTIVE_POLICY_NOT_ATTESTED",
-                    "MODEL_IDENTIFIER_NOT_IMMUTABLE",
-                    "HOST_TRANSCRIPT_UNAVAILABLE",
-                ),
-            ),
-        )
+        response = transport_fixture_response(request)
         raw = response.canonical_bytes()
         seen = None
         cancellation = None
-        if case in ("expired", "cancelled"):
+        business_cancellation = None
+        business_report_hash = None
+        if family == "Q04":
+            if case in BUSINESS_REJECTION_CASES:
+                raw = business_rejection_frame(request, case)
+            elif case == "frame_byte_cap":
+                import io
+
+                frame = io.BytesIO(b"x" * (request.max_response_bytes + 8192))
+                raw = application.protocol.read_response_frame(request.content_hash, frame)
+                if frame.tell() != request.max_response_bytes + 1:
+                    raise ArtifactIntegrityError("oversized frame was not bounded")
+            else:
+                raw = bounded_rejection_frame(request, case)
+        elif case in ("expired", "cancelled"):
             seen = application.submit(request.content_hash, b"{}", "negative.fixture")
             if case == "cancelled":
                 cancellation = application.cancel(request.content_hash, "negative.fixture")
@@ -162,6 +166,21 @@ def run_negative_probe(profile_hash: str, case: str) -> None:
         verify_raw_inventory(channel / "before/authority", before)
         verify_raw_inventory(authority, before)
         receipt = application.submit(request.content_hash, raw, "negative.fixture")
+        if family == "Q04":
+            expected = "ACCEPTED" if case in BUSINESS_REJECTION_CASES else "REJECTED"
+            if receipt.outcome != expected:
+                raise ArtifactIntegrityError("admission fixture transport outcome differs")
+            if case in BUSINESS_REJECTION_CASES:
+                status = application.resume(campaign)
+                next_request = application.pending(campaign)
+                if next_request is not None:
+                    business_cancellation = application.cancel(
+                        next_request.content_hash, "negative.fixture"
+                    )
+                    status = application.resume(campaign)
+                business_report_hash = status.report_hash
+                if business_report_hash is None:
+                    raise ArtifactIntegrityError("business fixture has no immutable final report")
         after = raw_inventory(authority)
         clock[0] = request.expires_at + timedelta(seconds=1)
         repeat = application.submit(request.content_hash, raw, "negative.fixture")
@@ -176,6 +195,12 @@ def run_negative_probe(profile_hash: str, case: str) -> None:
             and application.cancel(request.content_hash, "negative.fixture") != cancellation
         ):
             raise ArtifactIntegrityError("repeated cancellation changed receipt")
+        if (
+            business_cancellation is not None
+            and application.cancel(business_cancellation.request_hash, "negative.fixture")
+            != business_cancellation
+        ):
+            raise ArtifactIntegrityError("business cancellation changed receipt")
         verify_raw_inventory(authority, after)
     if execute_calls or workflow_calls or network_attempts:
         raise ArtifactIntegrityError("negative fixture had a deterministic or network side effect")
@@ -187,11 +212,16 @@ def run_negative_probe(profile_hash: str, case: str) -> None:
     observation = {
         "schema_version": "hosted-negative-observation/v1",
         "case": case,
+        "case_family": family,
         "deployment_profile_hash": profile_hash,
         "campaign_hash": campaign,
         "request_hash": request.content_hash,
         "receipt_hash": receipt.content_hash,
-        "response_json": raw.decode(),
+        # Reversible rejected credential-like/invalid UTF-8/oversized bytes are
+        # deliberately absent. The verifier reconstructs the fixed test recipe.
+        "response_json": raw.decode() if family == "Q03" else None,
+        "response_observed_hash": sha256_bytes(raw),
+        "response_observed_bytes": len(raw),
         "before_inventory": before.model_dump(mode="json"),
         "after_inventory": after.model_dump(mode="json"),
         "primary_clock": receipt.recorded_at.isoformat(),
@@ -200,6 +230,10 @@ def run_negative_probe(profile_hash: str, case: str) -> None:
         "seen_receipt_hash": seen.content_hash if seen is not None else None,
         "cancellation_receipt_hash": cancellation.content_hash
         if cancellation is not None
+        else None,
+        "business_report_hash": business_report_hash,
+        "business_cancellation_hash": business_cancellation.content_hash
+        if business_cancellation is not None
         else None,
         "execute_calls": execute_calls,
         "workflow_calls": workflow_calls,

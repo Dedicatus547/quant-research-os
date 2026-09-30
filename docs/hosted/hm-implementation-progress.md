@@ -156,3 +156,48 @@ manifest 的失败尝试引用补充严格 SHA-256 格式校验；完整失败 l
 单文件 `.coverage`，因此 clean provenance 拒绝了尚未创建部署根的 attempt 10。
 CI 已主动中止，partial 日志/coverage 保留，不能当作完成的 Q12。补充忽略标准
 coverage 子进程缓存；后继全量 CI 使用 `/tmp` coverage data file，避免污染工作树。
+
+实际 attempt 11 来自精确 clean `955b07f`，原根 `/tmp/hm-stage-955b07f-attempt11`，
+B `e089b172f135f584f584b187f4cf86bae5ff29d794af58b83e9516778279b1f8`，D
+`3775d679c75bfe43fa52fb0591149e2034fe29bcd5e4aea246316905a557cd57`。
+八个 fixed worker 均成功退出；正确导出将新 inventory 只保存到 manager evidence，
+所有观测 channel 与 before/after authority 完整保持不变。Q03 原件诊断 manifest
+`55637d9b9046cfa3666894235130baf0cc7f610d1ca22b573cd5cac5fb3d5b87`，result
+`88f4123cf137f96d518a50448c2b0645a29a450254821baf6628a2bb6d777019`：仅 Q03 PASS，
+其余十一门 NOT_EVALUATED，整体 NOT_QUALIFIED。原件导出绑定 436 files。
+[attempt 09 窄审](../reviews/hm-q03-origin-review-attempt09.md) 与
+[attempt 11 窄审](../reviews/hm-q03-origin-review-attempt11.md) 均由
+`gpt-6.1-sol/high`、attempt 1、usage unavailable 执行。后者独立核验 77 hashes、实际
+PID/namespace、142 个 git/wheel/install/provenance 项目成员与完整 saved result，无新 P1。
+诊断 manifest 的旧 `PREDICATE_POSTDATES_INSTALLED_COMMIT` limitation 是驱动遗留误写；
+实际本轮安装已经包含 Q03 predicate。原件不覆盖修改，后继生成器需纠正此描述。
+失败 attempt references 在该诊断仍为空，不能当作完整失败 ledger 或最终资格。
+
+精确 `955b07f` 禁网全量 CI：`1049 passed / 344 warnings / 2470.79s`，coverage
+`79.74%`，仍未达到冻结 85%。日志 `/tmp/hm-ci-955b07f-pytest.txt`、XML
+`/tmp/hm-ci-955b07f-coverage.xml` 保留，Q12 不授 PASS。比较旧报告发现新 concurrency
+配置只列 multiprocessing，导致 thread worker 的覆盖记录丢失；后继改为显式同时采集
+thread/multiprocessing。该修复不降低门或排除源码，重要未覆盖路径仍需实际集成验证。
+
+后继 Q04 实施在独立 `hm-admission-followup` 工作树：固定 guest 管理程序覆盖 byte cap、
+invalid UTF-8、duplicate keys、unknown fields、非 canonical、unknown candidate 与
+credential-like 合成 scanner 输入；无效原 bytes 不以 raw/base64/可逆形式导出。
+六类 known-candidate schema/DSL/AST/parameter/fingerprint 错误复用原生业务对账，产生
+一个 SCHEMA_INVALID trial，零 Qlib execution，保留 governor 原本的 validation segment
+计费，不将 validation round 错当作物理执行次数。新原生集成回归 `1 passed / 152.33s`，
+包含六个独立坏 proposal 根和原有两根 Qlib 重执行；联合组件 `136 passed / 1 deselected /
+166.23s`。deselected 为 kernel 子进程测试，此次组件运行不当作隔离证明。
+首次 native predicate 的 validation-round 假设和两次 runtime fixture 序列化错误均修复，
+原失败日志保留，pytest 临时根不当作不可变资格 evidence。
+
+新增完整 Q04 谓词要求全部十三个 before/after 原根，加上实际受限 host 的 path/projection、
+symlink/hardlink/FIFO/并发替换 probes。增加的管理程序仍不在研究 RPC 内，入口仅固定
+模块/finite case，不开放 arbitrary path/code/clock。尚需新 wheel/profile 的完整 Q04 实跑
+与独立来源审查，不能以现有组件和旧安装授 Q04 PASS。
+
+正式 verifier 补充运行时与自身安装绑定：outer runtime hash 必须等于原件 canonical
+fingerprint，Q11 PASS 时所有已验证 native ValidationReport 必须绑定同一 runtime；冻结
+文档读取原管理 provenance，使 wheel 中 verifier 可用；当前实际加载的项目模块（含
+`-m` 的 __main__）源码须逐 bytes 对应冻结 install。各 6 项 runtime 和 source mismatch/
+symlink/missing 模块测试通过。该正式路径仍需最终精确代码与完整 bundle，而 staging
+diagnostic 继续整体 NOT_QUALIFIED。

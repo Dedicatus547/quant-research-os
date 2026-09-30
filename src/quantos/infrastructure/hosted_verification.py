@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import os
 import stat
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -50,11 +51,13 @@ from quantos.contracts.hosted_qualification import (
     HostedRawInventory,
 )
 from quantos.contracts.ledger import ResearchLedgerSnapshot
+from quantos.contracts.provenance import RuntimeFingerprint
 from quantos.contracts.qlib_view import QlibViewManifest
 from quantos.contracts.refs import validate_logical_path
 from quantos.contracts.research_result import ResearchResultManifest
 from quantos.contracts.signal import SignalArtifactManifest
 from quantos.contracts.snapshot import DataSnapshotManifest
+from quantos.contracts.validation import ValidationReport
 
 if TYPE_CHECKING:
     from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
@@ -600,14 +603,15 @@ def verify_case(
                 reason="ACTUAL_MANAGED_ISOLATION_VERIFIED",
                 checked_artifact_hashes=tuple(sorted(hashes)),
             )
-        if sources is not None and case.case_id in {"Q01", "Q03", "Q09", "Q10", "Q11"}:
+        if sources is not None and case.case_id in {"Q01", "Q03", "Q04", "Q09", "Q10", "Q11"}:
             from quantos.infrastructure.hosted_case_predicates import verify_q01, verify_q11
-            from quantos.infrastructure.hosted_negative_origin import verify_q03
+            from quantos.infrastructure.hosted_negative_origin import verify_q03, verify_q04
             from quantos.infrastructure.hosted_replay_verification import verify_q09, verify_q10
 
             predicate = {
                 "Q01": verify_q01,
                 "Q03": verify_q03,
+                "Q04": verify_q04,
                 "Q09": verify_q09,
                 "Q10": verify_q10,
                 "Q11": verify_q11,
@@ -680,20 +684,25 @@ def verify_bundle(bundle: Path, *, manager_root: Path | None = None) -> HostedQu
     for path, file in expected.items():
         if actual[path] != file:
             raise HostedQualificationError("qualification file hash or length differs")
+    sources = None
+    if manager_root is not None:
+        from quantos.infrastructure.hosted_qualification_sources import verify_manager_export
+
+        sources = verify_manager_export(bundle, manifest, manager_root)
+        verify_loaded_project_installation(sources)
+    frozen_root = sources.deployment.paths.provenance if sources is not None else ROOT
     frozen = (
         ("docs/hosted/hosted-contract-v1.md", HOSTED_CONTRACT_SHA256),
         ("docs/hosted/hosted-acceptance-v1.md", HOSTED_ACCEPTANCE_SHA256),
         ("docs/hosted/hm02-freeze-manifest.json", HOSTED_FREEZE_SHA256),
     )
     for path, digest in frozen:
-        if sha256_bytes((ROOT / path).read_bytes()) != digest:
+        if sha256_bytes(read_relative(frozen_root, path)) != digest:
             raise HostedQualificationError("frozen hosted contract bytes changed")
-    sources = None
-    if manager_root is not None:
-        from quantos.infrastructure.hosted_qualification_sources import verify_manager_export
-
-        sources = verify_manager_export(bundle, manifest, manager_root)
     result = verify_staging(bundle, manifest.case_records, sources=sources)
+    verify_runtime_binding(bundle, manifest, result)
+    if sources is not None:
+        verify_loaded_project_installation(sources)
     result_bytes = read_relative(bundle, "verifier-result.json", max_bytes=16_777_216)
     if (
         result.canonical_bytes() != result_bytes
@@ -701,6 +710,60 @@ def verify_bundle(bundle: Path, *, manager_root: Path | None = None) -> HostedQu
     ):
         raise HostedQualificationError("independent verifier result differs from saved result")
     return manifest
+
+
+def verify_runtime_binding(
+    bundle: Path,
+    manifest: HostedQualificationManifest,
+    result: HostedQualificationVerification,
+) -> None:
+    """Bind the outer identity to canonical runtime bytes and verified native reports."""
+    encoded = read_relative(bundle, "deployment/runtime-fingerprint.json")
+    fingerprint = RuntimeFingerprint.model_validate_json(encoded)
+    if (
+        fingerprint.canonical_bytes() != encoded
+        or fingerprint.content_hash != manifest.runtime_fingerprint_hash
+    ):
+        raise HostedQualificationError("qualification runtime fingerprint differs")
+    if next(gate for gate in result.gates if gate.case_id == "Q11").verdict != "PASS":
+        return
+    reports: list[ValidationReport] = []
+    for root in next(case for case in manifest.case_records if case.case_id == "Q11").roots:
+        inventory = HostedRawInventory.model_validate_json(
+            read_relative(bundle, root.raw_inventory_path)
+        )
+        for item in inventory.files:
+            if not item.logical_path.endswith("/manifest.json"):
+                continue
+            data = read_relative(bundle / root.logical_path, item.logical_path)
+            payload = strict_json_object(data, max_bytes=MAX_TYPED_BYTES)
+            if payload.get("schema_version") != "validation-report/v2":
+                continue
+            reports.append(ValidationReport.model_validate_json(data))
+    if not reports or any(
+        report.runtime_fingerprint_hash != fingerprint.content_hash for report in reports
+    ):
+        raise HostedQualificationError(
+            "qualification runtime differs from verified native validation"
+        )
+
+
+def verify_loaded_project_installation(sources: HostedVerifiedSources) -> None:
+    """A formal verifier must execute the frozen project's source bytes itself."""
+    installed = {item.relative_path: item.bytes_hash for item in sources.deployment.install.files}
+    for name, module in tuple(sys.modules.items()):
+        if name == "__main__":
+            name = getattr(getattr(module, "__spec__", None), "name", name)
+        if name != "quantos" and not name.startswith("quantos."):
+            continue
+        filename = getattr(module, "__file__", None)
+        if not isinstance(filename, str) or not filename.endswith(".py"):
+            raise HostedQualificationError("formal verifier loaded an unbound project module")
+        source = Path(filename)
+        relative = "python/lib/python3.11/site-packages/" + name.replace(".", "/")
+        relative += "/__init__.py" if source.name == "__init__.py" else ".py"
+        if source.is_symlink() or sha256_bytes(source.read_bytes()) != installed.get(relative):
+            raise HostedQualificationError("formal verifier differs from the frozen installation")
 
 
 def main() -> None:

@@ -289,6 +289,68 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             **{**adapter_args, "output_root": kwargs["runtime_root"] / "execution"}
         ),
     )
+    from quantos.infrastructure.hosted_admission_verification import (
+        verify_business_admission_fixture,
+    )
+    from quantos.infrastructure.hosted_fixture_frames import (
+        BUSINESS_REJECTION_CASES,
+        business_rejection_frame,
+    )
+
+    # Actual native adapter and full business verification, with explicit synthetic
+    # inputs. A malformed known candidate must create its trial without reaching
+    # Qlib or borrowing a previously executed strategy's receipt.
+    for invalid_case in BUSINESS_REJECTION_CASES:
+        rejected_root = tmp_path / f"native-admission-{invalid_case}"
+        rejected_service, _ = build_component(rejected_root)
+        rejected_service.start(spec.content_hash)
+        rejected_request = rejected_service.pending(campaign.content_hash)
+        assert rejected_request is not None
+        before_root = tmp_path / f"native-admission-before-{invalid_case}"
+        shutil.copytree(rejected_root, before_root)
+        bad_frame = business_rejection_frame(rejected_request, invalid_case)
+        observed_calls: list[str] = []
+
+        def reject_unexpected_execution(
+            self: Any, request: Any, captured_calls: list[str] = observed_calls
+        ) -> Any:
+            captured_calls.append(request.execution_identity)
+            raise AssertionError("schema-invalid proposal reached native execution")
+
+        with monkeypatch.context() as guard:
+            guard.setattr(QuantosResearchExecutionAdapter, "execute", reject_unexpected_execution)
+            accepted = rejected_service.submit(
+                rejected_request.content_hash, bad_frame, "component-test"
+            )
+            assert accepted.outcome == "ACCEPTED"
+            terminal_status = rejected_service.resume(campaign.content_hash)
+            pending_after = rejected_service.pending(campaign.content_hash)
+            cancelled = None
+            if pending_after is not None:
+                cancelled = rejected_service.cancel(pending_after.content_hash, "component-test")
+                terminal_status = rejected_service.resume(campaign.content_hash)
+        assert observed_calls == []
+        assert terminal_status.report_hash is not None
+        original_sources = SimpleNamespace(
+            deployment=SimpleNamespace(
+                bundle=bundle,
+                profile=SimpleNamespace(content_hash=profile_hash),
+                paths=SimpleNamespace(offline_inputs=tmp_path, provenance=tmp_path / "provenance"),
+            )
+        )
+        inventories = raw_inventory(before_root), raw_inventory(rejected_root)
+        checked = verify_business_admission_fixture(
+            before_root,
+            rejected_root,
+            rejected_request,
+            bad_frame,
+            accepted.content_hash,
+            terminal_status.report_hash,
+            cancelled.content_hash if cancelled else None,
+            original_sources,
+        )
+        assert terminal_status.report_hash in checked
+        assert inventories == (raw_inventory(before_root), raw_inventory(rejected_root))
     original_execute = QuantosResearchExecutionAdapter.execute
     exports: list[Path] = []
     native_roots: list[Path] = []

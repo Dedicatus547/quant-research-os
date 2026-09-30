@@ -15,6 +15,12 @@ from quantos.contracts.hosted import (
 )
 from quantos.contracts.hosted_qualification import HostedQualificationCase, HostedRawInventory
 from quantos.infrastructure.hosted_deployment import namespace_command
+from quantos.infrastructure.hosted_fixture_frames import (
+    BOUNDED_REJECTION_CASES,
+    BUSINESS_REJECTION_CASES,
+    bounded_rejection_frame,
+    business_rejection_frame,
+)
 from quantos.infrastructure.hosted_negative_verification import (
     NegativeSubmissionKind,
     verify_negative_submission_transition,
@@ -49,10 +55,75 @@ def require(condition: bool, message: str) -> None:
 def verify_q03(
     bundle: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
 ) -> tuple[str, ...]:
-    require(case.case_id == "Q03", "Q03 case identity differs")
+    return _verify_transport_matrix(bundle, case, sources, family="Q03", names=CASES)
+
+
+def verify_q04_transport_matrix(
+    bundle: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
+) -> tuple[str, ...]:
+    """Only the bounded transport subset; it never grants the full Q04 gate."""
+    return _verify_transport_matrix(
+        bundle,
+        _subset_case(case, BOUNDED_REJECTION_CASES),
+        sources,
+        family="Q04",
+        names=BOUNDED_REJECTION_CASES,
+    )
+
+
+def verify_q04_business_matrix(
+    bundle: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
+) -> tuple[str, ...]:
+    """The known-invalid trial subset still does not independently grant full Q04."""
+    return _verify_transport_matrix(
+        bundle,
+        _subset_case(case, BUSINESS_REJECTION_CASES),
+        sources,
+        family="Q04",
+        names=BUSINESS_REJECTION_CASES,
+    )
+
+
+def verify_q04(
+    bundle: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
+) -> tuple[str, ...]:
+    """Require transport/known-invalid accounting and actual restricted-host path probes."""
+    names = (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES)
+    require(
+        case.case_id == "Q04"
+        and {root.name for root in case.roots}
+        == {f"{name}-{phase}" for name in names for phase in ("before", "after")},
+        "Q04 complete admission matrix is absent",
+    )
+    from quantos.infrastructure.hosted_security_verification import verify_deployment_security
+
+    checked = set(verify_deployment_security(sources.deployment))
+    evidence_hashes = {sha256_bytes(read_relative(bundle, path)) for path in case.evidence_paths}
+    require(checked <= evidence_hashes, "Q04 actual path/isolation source export is incomplete")
+    checked.update(verify_q04_transport_matrix(bundle, case, sources))
+    checked.update(verify_q04_business_matrix(bundle, case, sources))
+    return tuple(sorted(checked))
+
+
+def _subset_case(case: HostedQualificationCase, names: tuple[str, ...]) -> HostedQualificationCase:
+    expected = {f"{name}-{phase}" for name in names for phase in ("before", "after")}
+    return case.model_copy(
+        update={"roots": tuple(root for root in case.roots if root.name in expected)}
+    )
+
+
+def _verify_transport_matrix(
+    bundle: Path,
+    case: HostedQualificationCase,
+    sources: HostedVerifiedSources,
+    *,
+    family: str,
+    names: tuple[str, ...],
+) -> tuple[str, ...]:
+    require(case.case_id == family, "Q03 case identity differs")
     roots = {root.name: root for root in case.roots}
     require(
-        set(roots) == {f"{name}-{phase}" for name in CASES for phase in ("before", "after")},
+        set(roots) == {f"{name}-{phase}" for name in names for phase in ("before", "after")},
         "Q03 complete independent matrix is absent",
     )
     records: list[tuple[str, dict[str, object], bytes]] = []
@@ -65,8 +136,8 @@ def verify_q03(
         records.append((path, payload, data))
     checked: set[str] = set()
     deployment = sources.deployment
-    for name in CASES:
-        target = deployment.root / "qualification-cases/Q03" / name
+    for name in names:
+        target = deployment.root / "qualification-cases" / family / name
         snapshots: list[tuple[Path, HostedRawInventory]] = []
         for phase in ("before", "after"):
             root = roots[f"{name}-{phase}"]
@@ -107,7 +178,7 @@ def verify_q03(
         run_path, run, run_bytes = runs[0]
         require(
             sources.files[observation_path].source_path
-            == f"qualification-cases/Q03/{name}/channel/negative-observation.json",
+            == f"qualification-cases/{family}/{name}/channel/negative-observation.json",
             "Q03 observation origin differs",
         )
         require(
@@ -173,7 +244,8 @@ def verify_q03(
             item.bytes_hash
             for item in deployment.install.files
             if item.relative_path
-            == "python/lib/python3.11/site-packages/quantos/infrastructure/hosted_negative_probe.py"
+            == "python/lib/python3.11/site-packages/quantos/infrastructure/"
+            + ("hosted_negative_probe.py" if family == "Q03" else "hosted_admission_probe.py")
         )
         native = next(
             item.bytes_hash
@@ -201,7 +273,8 @@ def verify_q03(
         command = (
             "/install/python-seeded",
             "-m",
-            "quantos.infrastructure.hosted_negative_probe",
+            "quantos.infrastructure."
+            + ("hosted_negative_probe" if family == "Q03" else "hosted_admission_probe"),
             "--profile-hash",
             deployment.profile.content_hash,
             "--case",
@@ -340,11 +413,37 @@ def verify_q03(
             and observation.get("repeat_receipt_hash") == observation.get("receipt_hash"),
             "Q03 original repeat identity differs",
         )
-        require(
-            isinstance(observation.get("response_json"), str)
-            and isinstance(observation.get("receipt_hash"), str),
-            "Q03 submitted bytes or receipt are absent",
-        )
+        if family == "Q03":
+            require(isinstance(observation.get("response_json"), str), "Q03 original bytes absent")
+            submitted = cast(str, observation["response_json"]).encode()
+            kind = cast(NegativeSubmissionKind, name)
+        else:
+            require(
+                observation.get("response_json") is None
+                and observation.get("case_family") == family
+                and run.get("case_family") == prelaunch.get("case_family") == family,
+                "Q04 raw negative bytes were exported or fixture family differs",
+            )
+            submitted = (
+                business_rejection_frame(request, name)
+                if name in BUSINESS_REJECTION_CASES
+                else bounded_rejection_frame(request, name)
+            )
+            require(
+                observation.get("response_observed_hash") == sha256_bytes(submitted)
+                and type(observation.get("response_observed_bytes")) is int
+                and observation.get("response_observed_bytes") == len(submitted),
+                "Q04 original bounded frame differs from its fixed recipe",
+            )
+            kind = cast(
+                NegativeSubmissionKind,
+                {
+                    "frame_byte_cap": "oversized",
+                    "unknown_candidate": "unknown_candidate",
+                    "credential_like": "credential_like",
+                }.get(name, "schema_invalid"),
+            )
+        require(isinstance(observation.get("receipt_hash"), str), "fixture receipt is absent")
         after_state = HostedProtocolStore(snapshots[1][0] / "protocol").snapshot(
             request.campaign_hash, recover=False
         )
@@ -393,17 +492,35 @@ def verify_q03(
                 == ("CANCEL_REJECTED" if name == "conflict" else "CANCELLED"),
                 "Q03 original cancellation differs",
             )
-        checked.update(
-            verify_negative_submission_transition(
-                snapshots[0][0],
-                snapshots[1][0],
-                campaign_hash=deployment.bundle.campaign.content_hash,
-                request_hash=state.requests[0].content_hash,
-                response_bytes=cast(str, observation["response_json"]).encode(),
-                receipt_hash=cast(str, observation["receipt_hash"]),
-                kind=cast(NegativeSubmissionKind, name),
+        if name in BUSINESS_REJECTION_CASES:
+            from quantos.infrastructure.hosted_admission_verification import (
+                verify_business_admission_fixture,
             )
-        )
+
+            checked.update(
+                verify_business_admission_fixture(
+                    snapshots[0][0],
+                    snapshots[1][0],
+                    request,
+                    submitted,
+                    cast(str, observation["receipt_hash"]),
+                    observation.get("business_report_hash"),
+                    observation.get("business_cancellation_hash"),
+                    sources,
+                )
+            )
+        else:
+            checked.update(
+                verify_negative_submission_transition(
+                    snapshots[0][0],
+                    snapshots[1][0],
+                    campaign_hash=deployment.bundle.campaign.content_hash,
+                    request_hash=state.requests[0].content_hash,
+                    response_bytes=submitted,
+                    receipt_hash=cast(str, observation["receipt_hash"]),
+                    kind=kind,
+                )
+            )
         checked.update(
             (
                 sha256_bytes(observation_bytes),
