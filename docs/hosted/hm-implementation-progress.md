@@ -102,3 +102,23 @@ publications、deterministic 文件完全一致，不信任自填 reason/PASS。
 管理端先保存 durable prelaunch，再记录实际 bwrap/kernel 子进程、固定安装程序 hash、
 返回码及安全 observation；失败原根不可重用。该入口仍需新 wheel/profile 实测和完整
 Q03 来源核验，不能拿现有组件 fixture 冒充模型提案或正式负例执行。
+
+后继实际 attempt 08：`/tmp/hm-stage-24904e9-attempt08`，B
+`44a0efc86c63efd0f110e5c207a06ca4cf73d2019c7a2a01bce7b2331baec77c`，D
+`c6a2f1fe222dfdb92c9d836700600d8ce715334be3076126cfc8019589d68b20`。
+实际隔离检查通过，首个 negative worker 的主错绑提交已保存且独立核验 13 hashes：
+before 20、after 24 文件，unique submissions 0→1；worker 最终退出 1、observation 缺失，
+未给 Q03 授予 PASS。完整 prelaunch、kernel PID 链、失败 completion、partial roots
+保留。干净进程 import blocker 定位到 application capability 导出间接触发顶层 Tushare
+SDK 导入，离线 guard 因此拒绝；不会删模块或放宽 guard 来通过。
+[管理端负例边界窄审](../reviews/hm-negative-boundary-review.md) 未见该范围权限 P1，
+仍要求修复后新冻结实跑；审查为 `gpt-6.1-sol/high`、attempt 1、usage unavailable。
+
+主工作树在 `24904e9` 保持不变并执行禁网全量 CI；后继修复在独立
+`/tmp/hm-negative-followup-worktree`。Tushare SDK 仅在 acquisition constructor 的
+`client is None` 分支导入，显式假值注入 client 不再意外触发 SDK。4 项干净进程
+import-blocker/SDK stub 用例及既有 4 项采集 capability 回归 `8 passed / 15.24s`。
+管理端补充 launch error/timeout 的安全 failed-attempt 记录，标明 `NOT_OBSERVED`，
+不编造 return code/completion；加上实际退出失败与缺安全观测，总计 `4 passed / 5.10s`。
+ruff 和严格 pyright 通过，尚需新 wheel/profile 实跑；Q03 的完整 source predicate 草稿
+未发布或授予资格，仍需原件和负例验证。没有模型调用或模型凭据读取。

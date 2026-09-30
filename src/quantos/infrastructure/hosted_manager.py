@@ -1043,6 +1043,8 @@ def run_managed_negative_case(deployment: HostedManagedDeployment, case: str) ->
     )
     process: subprocess.Popen[bytes] | None = None
     child: dict[str, object] | None = None
+    prelaunch_hash: str | None = None
+    completion_written = False
     try:
         argv = namespace_command(
             "service", paths, command, service_capability_fds=(descriptor,), info_fd=info_fd
@@ -1124,11 +1126,37 @@ def run_managed_negative_case(deployment: HostedManagedDeployment, case: str) ->
         atomic_write_bytes(
             deployment.root / "evidence" / f"negative-run-{sha256_bytes(record)}.json", record
         )
+        completion_written = True
         if return_code or child is None or observation_hash is None:
             raise ArtifactIntegrityError(
                 "negative installed worker failed; original roots retained"
             )
         return target
+    except Exception as error:
+        if prelaunch_hash is not None and not completion_written:
+            # A launch error/timeout has no verified completion. Retain that
+            # uncertainty without inventing an exit code or refund.
+            failure = canonical_json_bytes(
+                {
+                    "schema_version": "hosted-manager-negative-invocation-failure/v1",
+                    "deployment_profile_hash": deployment.profile.content_hash,
+                    "case": case,
+                    "prelaunch_hash": prelaunch_hash,
+                    "authority_root": str(paths.authority),
+                    "wrapper_pid": process.pid if process is not None else None,
+                    "error_type": type(error).__name__,
+                    "completion_status": "NOT_OBSERVED",
+                    "qualification_eligibility": "NOT_QUALIFIED",
+                }
+            )
+            guard(failure)
+            atomic_write_bytes(
+                deployment.root
+                / "evidence"
+                / f"negative-invocation-failure-{sha256_bytes(failure)}.json",
+                failure,
+            )
+        raise
     finally:
         os.close(descriptor)
         os.close(info_fd)

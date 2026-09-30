@@ -82,7 +82,9 @@ def test_start_cannot_reuse_stale_channel_attestation(tmp_path: Path, entry: str
     assert saved.read_bytes() == b"old service evidence"
 
 
-@pytest.mark.parametrize("executable", ["/bin/false", "/bin/true"])
+@pytest.mark.parametrize(
+    "executable", ["/bin/false", "/bin/true", "/missing-worker-fixture", "/timeout-worker-fixture"]
+)
 def test_negative_worker_retains_prelaunch_and_failed_completion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executable: str
 ) -> None:
@@ -116,9 +118,32 @@ def test_negative_worker_retains_prelaunch_and_failed_completion(
     )
     monkeypatch.setattr(
         "quantos.infrastructure.hosted_manager.namespace_command",
-        lambda *args, **kwargs: (executable,),
+        lambda *args, **kwargs: (
+            ("/bin/sleep", "60") if executable == "/timeout-worker-fixture" else (executable,)
+        ),
     )
-    with pytest.raises(ArtifactIntegrityError, match="original roots retained"):
+    if executable == "/timeout-worker-fixture":
+        actual_popen = subprocess.Popen
+
+        def injected_wait_timeout(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+            process = actual_popen(*args, **kwargs)
+            actual_wait = process.wait
+
+            def wait(timeout: float | None = None) -> int:
+                if timeout == 300:
+                    raise subprocess.TimeoutExpired("fixed-timeout-fixture", timeout)
+                return actual_wait(timeout=timeout)
+
+            monkeypatch.setattr(process, "wait", wait)
+            return process
+
+        monkeypatch.setattr(
+            "quantos.infrastructure.hosted_manager.subprocess.Popen", injected_wait_timeout
+        )
+        monkeypatch.setattr(
+            "quantos.infrastructure.hosted_manager._observe_namespace_child", lambda *args: {}
+        )
+    with pytest.raises((ArtifactIntegrityError, FileNotFoundError, subprocess.TimeoutExpired)):
         run_managed_negative_case(deployment, "campaign_hash")
     saved = raw_inventory(tmp_path)
     records = [
@@ -129,14 +154,33 @@ def test_negative_worker_retains_prelaunch_and_failed_completion(
         for record in records
         if record["schema_version"] == "hosted-manager-negative-prelaunch/v1"
     )
-    completion = next(
-        record for record in records if record["schema_version"] == "hosted-manager-negative-run/v1"
-    )
-    assert completion["return_code"] == (1 if executable.endswith("false") else 0)
-    assert completion["observation_hash"] is None
-    assert completion["manager_child_observation"] is None
+    if executable in ("/bin/false", "/bin/true"):
+        completion = next(
+            record
+            for record in records
+            if record["schema_version"] == "hosted-manager-negative-run/v1"
+        )
+        assert completion["return_code"] == (1 if executable.endswith("false") else 0)
+        assert completion["observation_hash"] is None
+        assert completion["manager_child_observation"] is None
+        assert completion["qualification_eligibility"] == "NOT_QUALIFIED"
+    else:
+        assert not any(
+            record["schema_version"] == "hosted-manager-negative-run/v1" for record in records
+        )
+        failure = next(
+            record
+            for record in records
+            if record["schema_version"] == "hosted-manager-negative-invocation-failure/v1"
+        )
+        assert failure["error_type"] == (
+            "FileNotFoundError" if executable == "/missing-worker-fixture" else "TimeoutExpired"
+        )
+        assert failure["completion_status"] == "NOT_OBSERVED"
+        assert "return_code" not in failure
+        assert (failure["wrapper_pid"] is None) == (executable == "/missing-worker-fixture")
+        assert failure["qualification_eligibility"] == "NOT_QUALIFIED"
     assert not HostedRawInventory.model_validate(prelaunch["authority_before_inventory"]).files
-    assert completion["qualification_eligibility"] == "NOT_QUALIFIED"
     with pytest.raises(ArtifactIntegrityError, match="new retained root"):
         run_managed_negative_case(deployment, "campaign_hash")
     assert raw_inventory(tmp_path) == saved
