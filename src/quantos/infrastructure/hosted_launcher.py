@@ -97,7 +97,7 @@ def probe_projection_mount(
     argv = namespace_command(
         "host",
         paths,
-        ("/usr/bin/python3", "-I", "-c", MOUNT_PROBE_CODE),
+        ("/install/python-seeded", "-c", MOUNT_PROBE_CODE),
         seccomp_fd=seccomp_fd,
     )
     result = subprocess.run(

@@ -363,6 +363,7 @@ MOUNT_POLICY_BYTES = canonical_json_bytes(
             "rw-channel",
             "private-proc",
             "private-tmp",
+            "offline-management-source-ro-/saved-evidence",
             "unshared-network",
         ),
         "host": (
@@ -498,6 +499,7 @@ def namespace_command(
     *,
     seccomp_fd: int | None = None,
     service_capability_fds: tuple[int, ...] = (),
+    offline_source_root: Path | None = None,
 ) -> tuple[str, ...]:
     """Management-only argv; this function is never exposed through the research channel."""
     if not command:
@@ -558,6 +560,8 @@ def namespace_command(
         result += ["--setenv", variable, "1"]
     result += ["--setenv", "TZ", "UTC"]
     if role == "service":
+        if offline_source_root is not None:
+            result += ["--ro-bind", str(offline_source_root), "/saved-evidence"]
         if len(service_capability_fds) > 32 or len(set(service_capability_fds)) != len(
             service_capability_fds
         ):
@@ -582,6 +586,8 @@ def namespace_command(
             ]
         result += ["--chdir", "/tmp"]
     else:
+        if offline_source_root is not None:
+            raise ValueError("research host cannot mount offline management sources")
         if service_capability_fds:
             raise ValueError("research host cannot receive service capabilities")
         result += [

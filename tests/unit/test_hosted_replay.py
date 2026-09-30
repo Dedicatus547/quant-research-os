@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from test_hosted_campaign import _fixture, _response
+from test_hosted_protocol import _fixture as _protocol_fixture
 
 from quantos.artifacts.store import ArtifactIntegrityError
 from quantos.contracts.hosted import HostedJournalEntry, HostedPublication
@@ -99,3 +104,51 @@ def test_saved_submit_cannot_smuggle_business_publication(tmp_path: Path) -> Non
     )
     with pytest.raises(ArtifactIntegrityError, match="non-protocol"):
         saved._submission_artifacts(changed)
+
+
+def test_fresh_process_rejects_changed_durable_intent_before_any_publication(
+    tmp_path: Path,
+) -> None:
+    fixture = _protocol_fixture(tmp_path / "source")
+    fixture.service.submit(fixture.request.content_hash, fixture.response.canonical_bytes(), "host")
+    source = fixture.service.store.snapshot(fixture.spec.campaign_hash)
+    target = tmp_path / "corrupted-target"
+    shutil.copytree(fixture.root, target)
+    journal = target / "campaigns" / fixture.spec.campaign_hash / "journal"
+    intent, complete = source.journal[-2:]
+    (journal / f"{complete.sequence:08d}-{complete.content_hash}.json").unlink()
+    (journal / f"{intent.sequence:08d}-{intent.content_hash}.json").unlink()
+    changed = intent.model_copy(update={"recorded_at": intent.recorded_at + timedelta(seconds=1)})
+    (journal / f"{changed.sequence:08d}-{changed.content_hash}.json").write_bytes(
+        changed.canonical_bytes()
+    )
+    missing = (
+        target
+        / "campaigns"
+        / fixture.spec.campaign_hash
+        / "objects"
+        / f"{fixture.response.content_hash}.json"
+    )
+    missing.unlink()
+    before = raw_inventory(target)
+    code = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from quantos.infrastructure.hosted_replay import SavedHostedProtocol\n"
+        "from quantos.infrastructure.hosted_store import HostedProtocolStore\n"
+        "from quantos.artifacts.store import ArtifactIntegrityError\n"
+        "source=SavedHostedProtocol.load(Path(sys.argv[1]),sys.argv[3])\n"
+        "store=HostedProtocolStore(Path(sys.argv[2]),verify_journal_entry=source.verify_entry)\n"
+        "try:\n"
+        " with store.campaign_lock(sys.argv[3]) as fd: store.recover_locked(fd)\n"
+        "except ArtifactIntegrityError: sys.exit(12)\n"
+        "sys.exit(0)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(fixture.root), str(target), fixture.spec.campaign_hash],
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == 12
+    assert not missing.exists()
+    assert raw_inventory(target) == before

@@ -284,6 +284,8 @@ class HostedProtocolStore:
     def recover_locked(self, campaign_fd: int) -> None:
         journal = self._journal(campaign_fd)
         if journal and journal[-1].phase == "INTENT":
+            if self._verify_journal_entry is not None:
+                self._verify_journal_entry(journal[-1])
             self._finish(campaign_fd, journal[-1])
         if journal:
             self.snapshot_locked(campaign_fd)

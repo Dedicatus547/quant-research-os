@@ -22,6 +22,7 @@ from typing import Protocol, TypeVar
 
 from quantos.artifacts.store import (
     ArtifactIntegrityError,
+    atomic_write_bytes,
     opened_directory,
     read_regular_bytes_at,
     sha256_file,
@@ -123,6 +124,10 @@ class HostedUnixService:
         """Trusted management recovery registration; never a channel operation."""
         with self._lock:
             self._requests[request.content_hash] = request.campaign_hash
+
+    def scan_publication(self, data: bytes) -> None:
+        """Manager/runtime publication guard, never an operation on the host channel."""
+        self._guard(data)
 
     def stop(self) -> None:
         self._stop.set()
@@ -580,7 +585,39 @@ def main() -> None:
     parser.add_argument("--profile-hash", required=True)
     args = parser.parse_args()
     _hydrate_service_capabilities(args.profile_hash)
-    bootstrap_hosted_service(args.profile_hash).serve()
+    service = bootstrap_hosted_service(args.profile_hash)
+    observation = canonical_json_bytes(
+        {
+            "schema_version": "hosted-service-bootstrap-observation/v1",
+            "deployment_profile_hash": args.profile_hash,
+            "python_executable": sys.executable,
+            "module_path": __file__,
+            "python_path": sys.path,
+            "python_hash_seed_environment": os.environ.get("PYTHONHASHSEED"),
+            "python_flags": {
+                name: getattr(sys.flags, name)
+                for name in (
+                    "isolated",
+                    "ignore_environment",
+                    "no_user_site",
+                    "safe_path",
+                    "hash_randomization",
+                )
+            },
+            "uid": os.getuid(),
+            "gid": os.getgid(),
+            "network_devices": sorted(path.name for path in Path("/sys/class/net").iterdir())
+            if Path("/sys/class/net").exists()
+            else None,
+            "network_namespace": os.readlink("/proc/self/ns/net"),
+            "proc_self_root": os.readlink("/proc/self/root"),
+            "loaded_before_socket": True,
+            "qualification_eligibility": "NOT_QUALIFIED",
+        }
+    )
+    service.scan_publication(observation)
+    atomic_write_bytes(Path("/channel/bootstrap-observation.json"), observation)
+    service.serve()
 
 
 if __name__ == "__main__":

@@ -22,6 +22,16 @@ HM-07 的只读 raw/protocol/business verifier、保存 SUBMIT 导入和 offline
 已执行的新增检查：99 项 hosted protocol/campaign/inputs/launcher/CLI/qualification/replay
 组件测试通过；5 项真实 CPython seed/isolation 测试通过；ruff 和严格 pyright 检查通过。
 双根组件测试使用明确的测试 receipt producer，不能替代 Qlib 或 live 资格。完整 CI 与
-coverage 85% 门仍需执行。wheel 已可在本地现有缓存中离线构建，未修改依赖锁文件。
+开发工作树全量回归得到 821 passed / coverage 80.48%，未达到 85% 门；这次回归窗口有
+后续开发变化，因此也不能作为 exact-commit Q12 证据。需要补集成测试并在稳定提交重跑。
+wheel 已可在本地现有缓存中离线构建，未修改依赖锁文件。
+
+实际 staging attempt 01 保留在 `/tmp/hm-stage-796b55a-attempt01`：系统 gcc alias 的身份
+读取拒绝导致失败；`5b31ec5` 固定系统二进制解析绑定后，attempt 02
+`/tmp/hm-stage-5b31ec5-attempt02` 已冻结 profile 并启动服务、持久化请求，但受限 CLI
+启动诊断污染 stdout，导致 JSON 解码失败。两个根均保留；没有模型调用、Q 门 PASS。
+后继修复把 CLI import diagnostics 移到 stderr。追加实施审查记录
+[三个 P1](../reviews/hm-replay-isolation-implementation-review.md)；后继实现补了恢复前
+INTENT 校验、mixed Validation 结果处理和离线原 launcher 来源核验，仍需稳定提交验证。
 
 禁止把本进度记录或组件测试视为 HM-09 接受记录。FR-03、P14d-C 和历史 P14-DQ 状态保留。

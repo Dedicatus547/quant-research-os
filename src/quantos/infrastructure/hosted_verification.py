@@ -448,6 +448,8 @@ def verify_protocol_root(root: Path, campaign_hash: str) -> tuple[str, ...]:
                 or exchange.request_hash != receipt.request_hash
                 or exchange.response_hash != response.content_hash
                 or exchange.proposal_hash != response.proposal_hash
+                or exchange.host_observation_hash != response.host_observation.content_hash
+                or objects.get(exchange.host_observation_hash) != response.host_observation
                 or exchange.authenticated_principal != receipt.authenticated_principal
                 or response.request_hash != request.content_hash
                 or response.campaign_hash != campaign_hash

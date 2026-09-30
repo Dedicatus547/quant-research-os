@@ -14,12 +14,20 @@ from quantos.application.autonomous_execution import QuantosResearchExecutionAda
 from quantos.application.hosted_campaign import HostedCampaignApplicationService
 from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes
 from quantos.contracts.base import canonical_json_bytes
-from quantos.contracts.hosted_deployment import HostedDeploymentProfile, HostedServiceConfiguration
+from quantos.contracts.hosted import HostedAgentExchange, HostedAgentResponse
+from quantos.contracts.hosted_deployment import (
+    HostedDeploymentProfile,
+    HostedInstallInventory,
+    HostedLauncherConfiguration,
+    HostedServiceConfiguration,
+)
 from quantos.contracts.hosted_inputs import (
     HostedBusinessLoaderConfiguration,
     HostedFrozenBusinessInputs,
 )
 from quantos.infrastructure.hosted_business_verification import verify_hosted_business_root
+from quantos.infrastructure.hosted_deployment import KnownValueGuard
+from quantos.infrastructure.hosted_launcher import TrustedLauncherEvidenceStore
 from quantos.infrastructure.hosted_replay import SavedHostedProtocol
 from quantos.infrastructure.hosted_service import (
     bootstrap_hosted_service,
@@ -30,7 +38,7 @@ from quantos.infrastructure.hosted_verification import raw_inventory, verify_raw
 from quantos.research.qlib import QlibWorkflowResearchService
 
 
-def run_offline(profile_hash: str, mode: str) -> None:
+def run_offline(profile_hash: str, mode: str, source_inventory_hash: str) -> None:
     if mode not in {"RECEIPT_REUSE", "REEXECUTE"}:
         raise ValueError("unknown fixed offline mode")
     profile = read_hashed_configuration(Path("/config"), profile_hash, HostedDeploymentProfile)
@@ -52,6 +60,37 @@ def run_offline(profile_hash: str, mode: str) -> None:
         raise ArtifactIntegrityError("offline reexecution target is not a fresh root")
     source_before = raw_inventory(source_root)
     saved = SavedHostedProtocol.load(source_root, bundle.campaign.content_hash)
+    model_source = Path("/saved-evidence")
+    original_source_inventory = raw_inventory(model_source)
+    if original_source_inventory.content_hash != source_inventory_hash:
+        raise ArtifactIntegrityError("offline model source differs from explicit manager inventory")
+    original_protocol = SavedHostedProtocol.load(
+        model_source / "protocol", bundle.campaign.content_hash
+    )
+    if original_protocol.source != saved.source:
+        raise ArtifactIntegrityError("offline imported protocol differs from original model source")
+    evidence = TrustedLauncherEvidenceStore(model_source / "evidence", guard=KnownValueGuard(()))
+    initial = read_hashed_configuration(
+        Path("/config"), profile.projection_inventory_hash, HostedInstallInventory
+    )
+    configuration = read_hashed_configuration(
+        Path("/config"), profile.model_configuration_hash, HostedLauncherConfiguration
+    )
+    for request in saved.source.requests:
+        receipt = saved.source.accepted_receipt(request.content_hash)
+        if receipt is None or receipt.accepted_exchange_hash is None:
+            raise ArtifactIntegrityError("offline live source contains an incomplete request")
+        exchange = saved.source.artifact(receipt.accepted_exchange_hash, HostedAgentExchange)
+        response = saved.source.artifact(exchange.response_hash, HostedAgentResponse)
+        evidence.verify_response_source(
+            response,
+            request=request,
+            spec=saved.source.spec,
+            profile=profile,
+            initial_inventory=initial,
+            projection_root=model_source / "request-projections" / request.content_hash,
+            configuration=configuration,
+        )
     execute_calls: list[str] = []
     workflow_calls: list[str] = []
     network_attempts: list[str] = []
@@ -103,6 +142,7 @@ def run_offline(profile_hash: str, mode: str) -> None:
             provenance_workspace=Path("/provenance"),
         )
     verify_raw_inventory(source_root, source_before)
+    verify_raw_inventory(model_source, original_source_inventory)
     if network_attempts or any(
         name == "tushare" or name.startswith(("openai", "quantos.agents.openai"))
         for name in sys.modules
@@ -122,6 +162,7 @@ def run_offline(profile_hash: str, mode: str) -> None:
         "deployment_profile_hash": profile_hash,
         "campaign_hash": bundle.campaign.content_hash,
         "source_inventory_hash": source_before.content_hash,
+        "model_source_inventory_hash": source_inventory_hash,
         "execute_calls": execute_calls,
         "workflow_calls": workflow_calls,
         "network_attempts": network_attempts,
@@ -155,10 +196,11 @@ def run_offline(profile_hash: str, mode: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile-hash", required=True)
+    parser.add_argument("--source-inventory-hash", required=True)
     parser.add_argument("--mode", choices=("RECEIPT_REUSE", "REEXECUTE"), required=True)
     args = parser.parse_args()
     try:
-        run_offline(args.profile_hash, args.mode)
+        run_offline(args.profile_hash, args.mode, args.source_inventory_hash)
     except Exception as error:
         print(
             canonical_json_bytes({"offline": "FAILED", "error_type": type(error).__name__}).decode()

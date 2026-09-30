@@ -17,6 +17,7 @@ from quantos.application.hosted_inputs import (
     build_hosted_execution_adapter,
 )
 from quantos.application.ledger import ResearchLedgerService
+from quantos.contracts.agent import CampaignSegment
 from quantos.contracts.campaign import CampaignEventType, CampaignTrial, ResearchCampaignEvent
 from quantos.contracts.campaign_selection import (
     CampaignSelectionEvent,
@@ -249,7 +250,7 @@ def verify_hosted_business_root(
             raise HostedQualificationError("business trial differs from verified native outcome")
     projection = governor.project(bundle.campaign, bundle.research_budget, events)
     final_budget = budgets[-1]
-    if (
+    if final_budget.phase != "UNCERTAIN" and (
         final_budget.used_trials != projection.trial_count
         or final_budget.used_executions != projection.execution_count
         or final_budget.used_validation_rounds != projection.validation_round_count
@@ -258,6 +259,7 @@ def verify_hosted_business_root(
     ):
         raise HostedQualificationError("business final reservation/event accounting differs")
     previous_budget: HostedResearchBudgetFact | None = None
+    reservation_baseline: HostedResearchBudgetFact | None = None
     for budget in budgets:
         if (
             budget.campaign_hash != campaign
@@ -270,6 +272,90 @@ def verify_hosted_business_root(
             or len(budget.candidate_hashes) > bundle.research_budget.max_distinct_candidates
         ):
             raise HostedQualificationError("business budget chain or cap differs")
+        if previous_budget is None:
+            initial = governor.project(
+                bundle.campaign, bundle.research_budget, bundle.initial_events
+            )
+            if (
+                budget.phase != "INITIAL"
+                or budget.request_hash is not None
+                or budget.used_trials != initial.trial_count
+                or budget.used_executions != initial.execution_count
+                or budget.used_validation_rounds != initial.validation_round_count
+                or budget.used_compute_units != initial.compute_seconds
+                or budget.candidate_hashes
+            ):
+                raise HostedQualificationError("business initial budget differs from seed events")
+        elif budget.phase == "RESERVED":
+            prepared = next(
+                (
+                    step
+                    for step in steps
+                    if step.phase == "PREPARED"
+                    and step.budget_reservation_hash == budget.content_hash
+                ),
+                None,
+            )
+            if prepared is None or previous_budget.phase not in ("INITIAL", "SETTLED"):
+                raise HostedQualificationError("business reservation has no unique prepared step")
+            charge = (
+                execution.execution_compute_charge(prepared.execution_request)
+                if prepared.execution_request is not None
+                else 0
+            )
+            if (
+                budget.request_hash != prepared.request_hash
+                or budget.used_trials != previous_budget.used_trials + 1
+                or budget.candidate_hashes
+                != tuple(sorted({*previous_budget.candidate_hashes, prepared.candidate_hash}))
+                or budget.used_executions
+                != previous_budget.used_executions + int(prepared.execution_request is not None)
+                or budget.used_validation_rounds
+                != previous_budget.used_validation_rounds
+                + int(bundle.campaign_policy.trial_segment is CampaignSegment.VALIDATION)
+                or budget.used_compute_units != previous_budget.used_compute_units + charge
+            ):
+                raise HostedQualificationError("business reserved workload/denominator differs")
+            reservation_baseline = previous_budget
+        elif budget.phase in ("SETTLED", "UNCERTAIN"):
+            if previous_budget.phase != "RESERVED" or reservation_baseline is None:
+                raise HostedQualificationError("business settlement lacks an original reservation")
+            if (
+                budget.request_hash != previous_budget.request_hash
+                or budget.used_trials != previous_budget.used_trials
+                or budget.used_validation_rounds != previous_budget.used_validation_rounds
+                or budget.candidate_hashes != previous_budget.candidate_hashes
+            ):
+                raise HostedQualificationError("business settlement refunded its denominator")
+            if budget.phase == "UNCERTAIN":
+                if (
+                    budget.used_executions != previous_budget.used_executions
+                    or budget.used_compute_units != previous_budget.used_compute_units
+                    or report.state != "RECOVERY_REQUIRED"
+                    or report.reason != "EXECUTION_UNCERTAIN"
+                ):
+                    raise HostedQualificationError(
+                        "business uncertain execution was refunded or continued"
+                    )
+            else:
+                completed = latest.get(str(budget.request_hash))
+                if (
+                    completed is None
+                    or completed.phase != "COMPLETED"
+                    or completed.trial_hash is None
+                ):
+                    raise HostedQualificationError("business settlement lacks a completed trial")
+                trial = state.artifact(completed.trial_hash, CampaignTrial)
+                if (
+                    budget.used_executions
+                    != reservation_baseline.used_executions + int(trial.execution_requested)
+                    or budget.used_compute_units
+                    != reservation_baseline.used_compute_units + trial.compute_seconds
+                    or budget.used_compute_units > previous_budget.used_compute_units
+                ):
+                    raise HostedQualificationError("business settled receipt workload differs")
+        else:
+            raise HostedQualificationError("business budget phase/order is invalid")
         previous_budget = budget
     p14c = None
     if report.selection_report_hash is not None:
@@ -340,7 +426,10 @@ def verify_q11_research_predicate(facts: HostedVerifiedBusiness) -> str:
         )
         if report.verdict is not expected:
             raise HostedQualificationError("Q11 validation aggregate differs from eleven gates")
-    if rejected:
+    passed_reports = sum(
+        report.verdict is ValidationVerdict.PASS for report in facts.validation_reports
+    )
+    if rejected and passed_reports == 0:
         if (
             facts.selection.run_status is not RunStatus.FAILED
             or facts.selection.verdict.value != "NOT_EVALUATED"
@@ -353,4 +442,8 @@ def verify_q11_research_predicate(facts: HostedVerifiedBusiness) -> str:
         ):
             raise HostedQualificationError("Q11 P14c soft-reject natural result differs")
         return "COMPLETE_ADMISSIBLE_SOFT_REJECT"
+    if facts.selection.run_status is not RunStatus.SUCCEEDED:
+        raise HostedQualificationError("Q11 normal P14c result did not succeed")
+    if rejected:
+        return "COMPLETE_MIXED_VALIDATION_RESULTS"
     return "COMPLETE_VALIDATION_PASS"

@@ -410,3 +410,93 @@ def restricted_client_call(
     finally:
         for descriptor in descriptors:
             os.close(descriptor)
+
+
+def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
+    """Observe actual restricted syscalls and retain safe output outside the host mount."""
+    from quantos.infrastructure.hosted_verification import raw_inventory, verify_raw_inventory
+
+    # Non-secret canaries exist in denied mounts. They are deliberately not credentials.
+    atomic_write_bytes(deployment.paths.authority / "sealed-canary", b"sealed-source-canary")
+    atomic_write_bytes(
+        deployment.paths.configuration / "vendor-credential-canary",
+        b"non-secret-vendor-credential-canary",
+    )
+    before = raw_inventory(deployment.paths.authority)
+    install_before = install_inventory(deployment.paths.install)
+    source_fd, _ = source_seccomp_filter()
+    capability_fd = _memory(deployment.capability, "probe-capability")
+    context_fd = _memory(
+        canonical_json_bytes(
+            {
+                "manager_pid": os.getpid(),
+                "campaign_hash": deployment.bundle.campaign.content_hash,
+            }
+        ),
+        "probe-context",
+    )
+    descriptors = (source_fd, capability_fd, context_fd)
+    command = ("/install/python-seeded", "-m", "quantos.infrastructure.hosted_probe")
+    try:
+        argv = namespace_command("host", deployment.paths, command, seccomp_fd=source_fd)
+        index = argv.index(command[0])
+        argv = (
+            *argv[:index],
+            "--perms",
+            "0600",
+            "--file",
+            str(capability_fd),
+            "/tmp/hosted-client-capability",
+            "--perms",
+            "0600",
+            "--file",
+            str(context_fd),
+            "/tmp/hosted-probe.json",
+            *argv[index:],
+        )
+        result = subprocess.run(
+            argv,
+            pass_fds=descriptors,
+            capture_output=True,
+            timeout=30,
+            env={"PATH": "/usr/bin:/bin", "PYTHONPATH": "/untrusted-canary"},
+        )
+        KnownValueGuard((deployment.capability,))(result.stdout)
+        if result.returncode or len(result.stdout) > 65536:
+            raise ArtifactIntegrityError("actual restricted deployment probe did not complete")
+        if not result.stdout.endswith(b"\n"):
+            raise ArtifactIntegrityError("actual deployment probe framing differs")
+        observation = strict_json_object(result.stdout[:-1], max_bytes=65536)
+        if observation.get("schema_version") != "hosted-deployment-probe-observation/v1":
+            raise ArtifactIntegrityError("actual deployment probe returned another schema")
+        verify_raw_inventory(deployment.paths.authority, before)
+        if install_inventory(deployment.paths.install) != install_before:
+            raise ArtifactIntegrityError("actual deployment probe changed frozen installation")
+        evidence = canonical_json_bytes(
+            {
+                "schema_version": "hosted-manager-deployment-probe/v1",
+                "deployment_profile_hash": deployment.profile.content_hash,
+                "hosted_spec_hash": deployment.spec.content_hash,
+                "probe_program_hash": next(
+                    item.bytes_hash
+                    for item in deployment.install.files
+                    if item.relative_path
+                    == (
+                        "python/lib/python3.11/site-packages/quantos/infrastructure/hosted_probe.py"
+                    )
+                ),
+                "authority_before_inventory": before.model_dump(mode="json"),
+                "authority_after_inventory": raw_inventory(deployment.paths.authority).model_dump(
+                    mode="json"
+                ),
+                "install_inventory_hash": install_before.content_hash,
+                "actual_observation": observation,
+                "qualification_eligibility": "NOT_QUALIFIED",
+            }
+        )
+        KnownValueGuard((deployment.capability,))(evidence)
+        atomic_write_bytes(deployment.root / "evidence/deployment-probes.json", evidence)
+        return evidence
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)

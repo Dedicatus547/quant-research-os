@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from quantos.artifacts.store import ArtifactIntegrityError, opened_directory, read_regular_bytes_at
@@ -21,7 +23,10 @@ def main() -> None:
     if descriptor != 100:
         os.dup2(descriptor, 100, inheritable=False)
         os.close(descriptor)
-    from quantos.cli import app
+    # Optional Qlib model discovery writes startup diagnostics to stdout. Keep the
+    # CLI's stdout as one machine-readable reply; diagnostic bytes remain stderr.
+    with redirect_stdout(sys.stderr):
+        from quantos.cli import app
 
     app()
 
