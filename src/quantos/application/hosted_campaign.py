@@ -19,6 +19,7 @@ from quantos.application.hosted_protocol import HostedProtocolService
 from quantos.artifacts.store import ArtifactIntegrityError, exclusive_directory_lock
 from quantos.contracts.agent import CampaignSegment
 from quantos.contracts.autonomous import (
+    P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
     AutonomousAgentRequest,
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
@@ -844,10 +845,18 @@ class HostedCampaignApplicationService:
         reason: str,
     ) -> HostedCampaignStatus:
         o = inputs.orchestrator
+        trials = tuple(
+            event.trial
+            for event in events
+            if isinstance(event, ResearchCampaignEvent) and event.trial is not None
+        )
+        all_candidates = tuple(sorted(item.content_hash for item in o.manifest.candidates))
+        attempted = tuple(sorted({trial.candidate_hash for trial in trials}))
+        incomplete_dq_stop = self.is_incomplete_dq_stop(o, events, final_state)
         selection_hash = None
         run_status: Literal["SUCCEEDED", "FAILED"] = "FAILED"
         verdict: Literal["SELECTED", "NO_SELECTION", "NOT_EVALUATED"] = "NOT_EVALUATED"
-        if final_state != "RECOVERY_REQUIRED":
+        if final_state != "RECOVERY_REQUIRED" and not incomplete_dq_stop:
             selection, events, ledger, _, _ = o.selection_evidence_handoff(
                 events, hosted_evidence=self._evidence(state)
             )
@@ -859,13 +868,6 @@ class HostedCampaignApplicationService:
         else:
             ledger = o.current_ledger_snapshot(state.spec.started_at, events)
         budget = self.verify_research_facts(state).budgets[-1]
-        trials = tuple(
-            event.trial
-            for event in events
-            if isinstance(event, ResearchCampaignEvent) and event.trial is not None
-        )
-        all_candidates = tuple(sorted(item.content_hash for item in o.manifest.candidates))
-        attempted = tuple(sorted({trial.candidate_hash for trial in trials}))
         report = HostedCampaignReport(
             campaign_hash=state.spec.campaign_hash,
             hosted_spec_hash=state.spec.content_hash,
@@ -886,23 +888,64 @@ class HostedCampaignApplicationService:
             reason=reason,
             research_run_status=run_status,
             research_verdict=verdict,
-            limitations=(
-                "HOST_INTERNAL_USAGE_UNAVAILABLE",
-                "HOST_EFFECTIVE_POLICY_NOT_ATTESTED",
-                "MODEL_IDENTIFIER_NOT_IMMUTABLE",
-                "NOT_LIVE_OR_DEPLOYMENT_QUALIFICATION",
-            ),
+            limitations=self.report_limitations(incomplete_dq_stop),
             recorded_at=o.next_event_time(state.spec.started_at, events, ledger),
         )
         self._publish(state, "FINAL_REPORT", state.spec.content_hash, report.recorded_at, (report,))
         self._fault("final_report")
         return self.status(state.spec.campaign_hash)
 
+    @staticmethod
+    def is_incomplete_dq_stop(
+        orchestrator: AutonomousCampaignOrchestrator,
+        events: tuple[CampaignChainEvent, ...],
+        final_state: str,
+    ) -> bool:
+        """A bounded stop can report missing candidates without invoking selection.
+
+        The existing DQ preselection verifier still requires its full denominator.
+        This is a failed hosted accounting report, never a P14c result or Q11 pass.
+        """
+        return (
+            orchestrator.selection_finalization_profile == P14DQ_REPORT_ONLY_FINALIZATION_PROFILE
+            and final_state in ("CANCELLED", "EXPIRED", "EXHAUSTED")
+            and {
+                event.trial.candidate_hash
+                for event in events
+                if isinstance(event, ResearchCampaignEvent) and event.trial is not None
+            }
+            != {candidate.content_hash for candidate in orchestrator.manifest.candidates}
+        )
+
+    @staticmethod
+    def report_limitations(incomplete_dq_stop: bool = False) -> tuple[str, ...]:
+        base = (
+            "HOST_INTERNAL_USAGE_UNAVAILABLE",
+            "HOST_EFFECTIVE_POLICY_NOT_ATTESTED",
+            "MODEL_IDENTIFIER_NOT_IMMUTABLE",
+            "NOT_LIVE_OR_DEPLOYMENT_QUALIFICATION",
+        )
+        return (
+            (*base, "P14DQ_INCOMPLETE_DENOMINATOR_SELECTION_NOT_PERFORMED")
+            if incomplete_dq_stop
+            else base
+        )
+
     def _verify_report(
         self, state: HostedStoreSnapshot, report: HostedCampaignReport, inputs: HostedCampaignInputs
     ) -> None:
         o = inputs.orchestrator
         events = o.event_store.load(o.governor, o.campaign, o.budget)
+        incomplete_dq_stop = self.is_incomplete_dq_stop(o, events, report.state)
+        if report.limitations != self.report_limitations(incomplete_dq_stop) or (
+            incomplete_dq_stop
+            and (
+                report.selection_report_hash is not None
+                or report.research_run_status != "FAILED"
+                or report.research_verdict != "NOT_EVALUATED"
+            )
+        ):
+            raise ArtifactIntegrityError("incomplete DQ stop claims selection or different limits")
         ledger = o.current_ledger_snapshot(report.recorded_at, events)
         if (
             tuple(event.content_hash for event in events) != report.campaign_event_hashes

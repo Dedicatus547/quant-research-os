@@ -579,6 +579,20 @@ def verify_hosted_business_root(
     if len(reports) != 1 or not budgets or budgets[0].phase != "INITIAL":
         raise HostedQualificationError("business final report or initial budget is absent")
     report = reports[0]
+    incomplete_dq_stop = HostedCampaignApplicationService.is_incomplete_dq_stop(
+        orchestrator, events, report.state
+    )
+    if report.limitations != HostedCampaignApplicationService.report_limitations(
+        incomplete_dq_stop
+    ) or (
+        incomplete_dq_stop
+        and (
+            report.selection_report_hash is not None
+            or report.research_run_status != "FAILED"
+            or report.research_verdict != "NOT_EVALUATED"
+        )
+    ):
+        raise HostedQualificationError("business incomplete DQ stop claims selection or limits")
     if (
         report.hosted_spec_hash != state.spec.content_hash
         or report.campaign_hash != campaign

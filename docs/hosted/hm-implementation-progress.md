@@ -493,3 +493,67 @@ ruff/format、pyright、diff-check通过；这些仍不是Q12 coverage≥85%的�
 attempt16继续使用冻结1122922原安装捕获，不包含上述corruption、目录或fsync修复。
 完整fsync forensic/source-bound原件、完整Q05正式dispatch、Q06最小预算/竞争矩阵、Q12、
 真实Q11/Q09/Q10、失败attempt ledger与HM09–11仍待完成。没有模型认证/provider调用。
+
+### 2026-10-01：Q06 有界 DQ 停止与原生 plan 归属后继
+
+精确 P14DQ_REPORT_ONLY profile 下，CANCELLED/EXPIRED/EXHAUSTED 且 trials 未覆盖完整
+候选分母时，现在保存独立 hosted accounting report：FAILED / NOT_EVALUATED、无 selection
+hash、完整未尝试候选和预算/事件/Ledger 引用，增加明确的
+`P14DQ_INCOMPLETE_DENOMINATOR_SELECTION_NOT_PERFORMED` limitation。完整分母仍调用原
+DQ preselection/原生 receipts 门；没有 catch 后降级、P14c 改写或 Q11 放行。resume 和离线
+business verifier 都根据实际 frozen profile/events 要求精确 limitation 与失败声明。
+
+功能第一轮3 passed（10.39s）；后继新增完整分母控制尾部误用 `_Inputs.governor`，第二轮
+3 passed/1 failed（16.77s），原日志/根保留；该测试已经断言原DQ异常，失败发生在测试尾部，
+不能算产品门绕过。修正后全 hosted campaign 回归29 passed（295.39s），日志
+`/tmp/hm-q06-hosted-campaign-regression01.txt`，固定根保留。
+[独立窄审](../reviews/hm-q06-incomplete-dq-stop-narrow-review.md)，hash
+`59a66b3adaf198d27fabbcb7e990b19588e2fd01ca796053faea487a25479c44`，覆盖一次trial后取消、
+七个可解析报告篡改、原完整分母失败门及重启全fixture不变；没有P1。gpt-6.1-sol/high、
+attempt1、usage unavailable。只审组件，不授Q06/HM09。
+
+实际冻结 B `8037d0010807ee7958aeed52de3154c3a1bcd5d763a6bcca42dc65e797d29dc7`
+的两个全新 successor component 根，使用现有 QuantosResearchExecutionAdapter 和 native
+Ledger/selection，不执行研究：cancel 与 expires_at 处过期都保存失败报告，native offline
+verifier/file closure 通过，Q11 predicate 拒绝，fresh resume 文件/目录不变。日志
+`/tmp/hm-q06-frozen-dq-bounded-stop-native01.txt`，根
+`/tmp/hm-q06-frozen-dq-bounded-stop-native01-root`。手工 management registration 的
+frozen-input callback 是组件替身，不声称 source-bound installed bootstrap 或 live source。
+
+新增七个固定管理预算配方（请求、研究attempt、总提交、单请求提交、trial、execution、
+确定性compute workload）。只接受原两候选预算基线，不接受任意 policy edits；typed预算
+验证后重新构造 campaign/native activation/frozen selection plan/readable campaign binding，
+保留原家族、manifest、执行输入和 seed Ledger，不改任何安装中预算。19组件控制通过
+（4.57s），七个实际冻结输入的 native plan authoring/derive-spec/governor 控制全部通过：
+`/tmp/hm-q06-budget-recipe-native01.txt`，新根
+`/tmp/hm-q06-budget-recipe-native01-root`。这些是 authoring 控制；完整 Q06 原始 worker、
+source predicate、最小预算真实执行与 cancel/submit竞争矩阵仍未完成。
+
+### 2026-10-01：attempt16 原执行失败、attempt17 原损坏捕获与 verifier 后继
+
+attempt16 的冻结1122922安装完成28协议+7业务durable捕获后，在首个
+execution-prepared 的 recovery-1 中失败；原 child exit1、failure原件记录
+RecorderInitializationError，父级失败ArtifactIntegrityError。原件、35项capture和失败日志
+`/tmp/hm-stage-1122922-attempt16.log`完整保留；不得把它写成44项完成，也未运行后续Q02–04/
+Q08捕获。另从crashed原件复制到全新组件根做只读来源的原执行诊断，不改原件。
+
+新的冻结77c129f安装 attempt17 捕获五个corruption原件成功，B上述8037d001，D
+`077b62211806f06319cd2ec0a9dd42d6155620bd30371779efe0aae931a9ec9d`，wheel hash
+`7d606c51bd14bd05dbe53ed3201217f0f56b2e228a5ebb96fdf1efc64fde7c6f`；原件根
+`/tmp/hm-stage-77c129f-attempt17`。其 diagnostic01/02 source-bound verifier 仍失败，两个新
+导出根/日志保留。只读跟踪定位唯一未归属文件：生产loader物化冻结
+selection-plans/sha256-<frozenPlanHash>/plan.json，而老组件只在B/initial-event内保留plan。
+后继只按确切 frozen plan 路径和 canonical bytes 归属该文件；完整expected==actual保持，
+未增加prefix排除或任意plan许可。
+[后继窄审](../reviews/hm-q05-frozen-selection-plan-attribution-review.md)，hash
+`7d835326bf48fd0e85706db3dc21010fefd26731a5445bd9a98d0a60b89590b4`，四个plan byte/path
+负例拒绝，实际 frozenDQ组件复制件的十个 coherent protocol/report 篡改仍由新offline
+guard拒绝，原件/目录不变，execute/Workflow/network 0；gpt-6.1-sol/high、attempt1、usage
+unavailable，无P1。不追认原77安装包含后继verifier，不授完整Q05或Q06。
+
+最新49物理窗口+原生业务/C11完整回归通过（1 passed/232 warnings，651.51s），日志
+`/tmp/hm-q06-q05-native-full-regression02.txt`，固定根02完整保留。这轮加载最新required
+COMPLETE object预检、目录核验、DQ停止与plan归属；native组件工厂现在用原方法物化plan，
+另测非canonical plan与错误hash路径的extra plan拒绝。仍非原始部署/fullQ05资格。
+ruff全树、format、src pyright通过；尚未取得新的Q12 coverage≥85%、真实Q11/Q09/Q10、
+完整失败attempt ledger与HM09–11。模型认证/provider没有调用。

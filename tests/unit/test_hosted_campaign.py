@@ -23,8 +23,10 @@ from quantos.application.hosted_protocol import HostedProtocolService
 from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes
 from quantos.contracts.autonomous import (
     AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE,
+    P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
+    AutonomousSelectionFinalizationProfile,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import TrialOutcome
@@ -132,6 +134,9 @@ def _service(
     *,
     fault: str | None = None,
     clock: list[Any] | None = None,
+    selection_profile: AutonomousSelectionFinalizationProfile = (
+        AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE
+    ),
 ) -> HostedCampaignApplicationService:
     clock = clock or [NOW]
     holder: list[HostedCampaignApplicationService] = []
@@ -150,7 +155,10 @@ def _service(
     )
     holder.append(service)
     o = inputs.orchestrator(
-        root, (_proposal(inputs, 0),), execution=_DiskExecution(root / "executions")
+        root,
+        (_proposal(inputs, 0),),
+        execution=_DiskExecution(root / "executions"),
+        selection_finalization_profile=selection_profile,
     )  # type: ignore[arg-type]
     service.register_inputs(spec, HostedCampaignInputs(o, inputs.initial_events, lambda _: None))
     return service
@@ -359,6 +367,98 @@ def test_stops_keep_complete_family_and_no_extra_execution(tmp_path: Path, reaso
     assert len(report.candidate_hashes) == 2 and report.remaining_candidate_hashes
     assert report.research_run_status == "FAILED"
     assert status.protocol.used_requests == 1
+
+
+@pytest.mark.parametrize("reason", ("cancel", "expire", "submission"))
+def test_incomplete_dq_stop_persists_failed_accounting_without_selection(
+    tmp_path: Path, reason: str
+) -> None:
+    inputs = _inputs(tmp_path / "inputs")
+    profile = P14DQ_REPORT_ONLY_FINALIZATION_PROFILE
+    spec = _spec(inputs, submissions=2)
+    spec = HostedCampaignSpec.model_validate(
+        {
+            **spec.model_dump(mode="python"),
+            "selection_finalization_profile_hash": profile.content_hash,
+        }
+    )
+    authority = tmp_path / "authority"
+    clock = [NOW]
+    service = _service(authority, inputs, spec, clock=clock, selection_profile=profile)
+    service.start(spec.content_hash)
+    request = service.pending(spec.campaign_hash)
+    assert request is not None
+    if reason == "cancel":
+        service.cancel(request.content_hash, "functional.host")
+    elif reason == "expire":
+        clock[0] += timedelta(seconds=61)
+    else:
+        for index in range(2):
+            service.submit(
+                request.content_hash, canonical_json_bytes({"bad": index}), "functional.host"
+            )
+    status = service.resume(spec.campaign_hash)
+    state = service.protocol.store.snapshot(spec.campaign_hash, recover=False)
+    report = state.artifact(status.report_hash, HostedCampaignReport)
+    assert (
+        status.state
+        == {"cancel": "CANCELLED", "expire": "EXPIRED", "submission": "EXHAUSTED"}[reason]
+    )
+    assert report.research_run_status == "FAILED" and report.research_verdict == "NOT_EVALUATED"
+    assert report.selection_report_hash is None and report.trial_hashes == ()
+    assert report.remaining_candidate_hashes == report.candidate_hashes
+    assert "P14DQ_INCOMPLETE_DENOMINATOR_SELECTION_NOT_PERFORMED" in report.limitations
+    assert not inputs.paths["selection-reports"].exists()
+    assert not (authority / "executions").exists()
+    bound_inputs = service._registered(spec.campaign_hash)
+    for changes in (
+        {"limitations": report.limitations[:-1]},
+        {"limitations": (*report.limitations, "UNATTESTED_EXTRA_LIMIT")},
+        {"selection_report_hash": "a" * 64},
+        {"research_run_status": "SUCCEEDED", "research_verdict": "SELECTED"},
+        {"research_verdict": "NO_SELECTION"},
+    ):
+        # Untrusted decoded claims must be rejected even before contract validation.
+        with pytest.raises(ArtifactIntegrityError, match="claims selection or different limits"):
+            service._verify_report(state, report.model_copy(update=changes), bound_inputs)
+    from quantos.infrastructure.hosted_verification import directory_inventory, raw_inventory
+
+    before = raw_inventory(authority), directory_inventory(authority)
+    fresh = _service(authority, inputs, spec, clock=clock, selection_profile=profile)
+    assert fresh.resume(spec.campaign_hash) == status
+    assert (raw_inventory(authority), directory_inventory(authority)) == before
+
+
+def test_complete_dq_family_still_requires_native_preselection_verifier(tmp_path: Path) -> None:
+    from quantos.application.autonomous import AutonomousOrchestrationError
+
+    inputs = _inputs(tmp_path / "inputs")
+    profile = P14DQ_REPORT_ONLY_FINALIZATION_PROFILE
+    spec = HostedCampaignSpec.model_validate(
+        {
+            **_spec(inputs).model_dump(mode="python"),
+            "selection_finalization_profile_hash": profile.content_hash,
+        }
+    )
+    authority = tmp_path / "authority"
+    service = _service(authority, inputs, spec, selection_profile=profile)
+    fixture = _Fixture(authority, inputs, spec, service, [NOW])
+    service.start(spec.content_hash)
+    for index in range(2):
+        request = service.pending(spec.campaign_hash)
+        assert request is not None
+        service.submit(request.content_hash, _response(fixture, request, index), "functional.host")
+        if index == 0:
+            assert service.resume(spec.campaign_hash).state == "WAITING_FOR_AGENT"
+        else:
+            # This functional receipt producer has no native DQ verifier. Full
+            # denominators must continue to fail the existing gate, not skip it.
+            with pytest.raises(AutonomousOrchestrationError, match="DQ preselection verifier"):
+                service.resume(spec.campaign_hash)
+    state = service.protocol.store.snapshot(spec.campaign_hash, recover=False)
+    assert not service.verify_research_facts(state).reports
+    facts = service.verify_research_facts(state)
+    assert len(tuple(step for step in facts.steps if step.phase == "COMPLETED")) == 2
 
 
 def test_concurrent_resumes_do_not_mistake_inflight_started_for_uncertainty(tmp_path: Path) -> None:

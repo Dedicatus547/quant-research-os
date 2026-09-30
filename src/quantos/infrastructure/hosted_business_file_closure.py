@@ -373,6 +373,12 @@ def verify_native_authority_file_closure(
             )
     for file in bundle.initial_ledger_files:
         include_hash(f"{prefix}/ledger/{file.logical_path}", file.sha256, file.size_bytes)
+    # The production loader materializes the plan already bound by the frozen
+    # input bundle and initial event. Component factories may retain it only in
+    # that bundle; either way, only these exact referenced bytes are attributed.
+    plan_path = f"{prefix}/selection-plans/sha256-{bundle.selection_plan.content_hash}/plan.json"
+    if plan_path in actual:
+        include_contract(plan_path, bundle.selection_plan)
     ledger_objects: dict[str, CanonicalContract] = {}
     ledger_metadata: dict[str, dict[str, object]] = {}
 

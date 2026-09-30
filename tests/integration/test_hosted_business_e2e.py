@@ -30,6 +30,7 @@ from quantos.application.autonomous_execution import (
     AutonomousExecutionReceipt,
     QuantosResearchExecutionAdapter,
 )
+from quantos.application.campaign_selection import publish_selection_plan
 from quantos.application.hosted_campaign import (
     HostedCampaignApplicationService,
     HostedCampaignInputs,
@@ -224,6 +225,7 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             (execution.research_results_root,),
             plan=bundle.selection_plan,
         )
+        publish_selection_plan(bundle.selection_plan, runtime / "selection-plans")
         orchestrator = AutonomousCampaignOrchestrator(
             campaign=campaign,
             family=family,
@@ -391,6 +393,41 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             assert phase_inventories == {
                 phase: raw_inventory(root) for phase, root in roots.items()
             }
+            if window == "corruption-journal_fragment":
+                checkpoint, native_o, native_events = (
+                    verification.build_verified_business_orchestrator(
+                        roots["before"],
+                        bundle,
+                        deployment_profile_hash=profile_hash,
+                        input_root=tmp_path,
+                        provenance_workspace=tmp_path / "provenance",
+                    )
+                )
+                plan_path = (
+                    f"business/{campaign.content_hash}/selection-plans/"
+                    f"sha256-{bundle.selection_plan.content_hash}/plan.json"
+                )
+                checked_paths = verify_native_authority_file_closure(
+                    roots["before"], bundle, checkpoint, native_o, native_events
+                )
+                assert plan_path in checked_paths
+                for damage in ("noncanonical", "extra_plan"):
+                    altered = tmp_path / "frozen-plan-negatives" / damage
+                    shutil.copytree(roots["before"], altered)
+                    if damage == "noncanonical":
+                        (altered / plan_path).write_bytes(
+                            bundle.selection_plan.canonical_bytes() + b"\n"
+                        )
+                    else:
+                        extra = altered / Path(plan_path).parent.parent / ("sha256-" + "a" * 64)
+                        extra.mkdir()
+                        (extra / "plan.json").write_bytes(bundle.selection_plan.canonical_bytes())
+                    with pytest.raises(
+                        HostedQualificationError, match=r"bytes differ|raw file delta"
+                    ):
+                        verify_native_authority_file_closure(
+                            altered, bundle, checkpoint, native_o, native_events
+                        )
             if MANAGEMENT_FAULT_WINDOWS[window].corruption:
                 assert [item["exit_code"] for item in observation["process_exits"]] == [73, 74, 74]
                 bad_records = deepcopy(records)
