@@ -583,9 +583,20 @@ hydrate_service_capabilities = _hydrate_service_capabilities
 def main() -> None:
     parser = argparse.ArgumentParser(description="Frozen hosted QuantOS service")
     parser.add_argument("--profile-hash", required=True)
+    parser.add_argument("--network-probe-port", type=int, required=True)
     args = parser.parse_args()
+    if not 0 < args.network_probe_port < 65536:
+        raise ValueError("network probe port is outside the fixed transport range")
     _hydrate_service_capabilities(args.profile_hash)
     service = bootstrap_hosted_service(args.profile_hash)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(1)
+        try:
+            probe.connect(("127.0.0.1", args.network_probe_port))
+        except OSError as error:
+            network_probe = {"connected": False, "errno": error.errno}
+        else:
+            network_probe = {"connected": True, "errno": None}
     observation = canonical_json_bytes(
         {
             "schema_version": "hosted-service-bootstrap-observation/v1",
@@ -610,7 +621,18 @@ def main() -> None:
             if Path("/sys/class/net").exists()
             else None,
             "network_namespace": os.readlink("/proc/self/ns/net"),
+            "network_probe_port": args.network_probe_port,
+            "network_probe": network_probe,
             "proc_self_root": os.readlink("/proc/self/root"),
+            "namespace_identities": {
+                name: os.readlink(f"/proc/self/ns/{name}") for name in ("net", "pid", "mnt", "user")
+            },
+            "mountinfo": Path("/proc/self/mountinfo").read_text(),
+            "process_security": [
+                line
+                for line in Path("/proc/self/status").read_text().splitlines()
+                if line.startswith(("Uid:", "Gid:", "CapEff:", "NoNewPrivs:", "Seccomp:"))
+            ],
             "loaded_before_socket": True,
             "qualification_eligibility": "NOT_QUALIFIED",
         }

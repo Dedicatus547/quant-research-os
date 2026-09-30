@@ -416,6 +416,31 @@ class QuantosResearchExecutionAdapter:
         if indexed != encoded:
             self._integrity("saved execution receipt index differs from original bytes")
         self._verify_receipt(receipt)
+        if receipt.outcome.failure_reason_code is not None:
+            failures: list[AutonomousExecutionFailureEvidence] = []
+            for digest in receipt.outcome.evidence_hashes:
+                failure_path = self.output_root / "execution-failures" / f"sha256-{digest}.json"
+                if not failure_path.exists():
+                    continue
+                with opened_directory(failure_path.parent) as parent:
+                    failure_bytes = read_regular_bytes_at(
+                        parent, failure_path.name, max_bytes=65536
+                    )
+                failure = AutonomousExecutionFailureEvidence.model_validate_json(failure_bytes)
+                if failure.canonical_bytes() != failure_bytes or failure.content_hash != digest:
+                    self._integrity("saved execution failure canonical bytes differ")
+                failures.append(failure)
+            if len(failures) != 1 or (
+                failures[0].request_hash != request.content_hash
+                or failures[0].execution_identity != request.execution_identity
+                or failures[0].campaign_hash != request.campaign_hash
+                or failures[0].candidate_hash != request.candidate.content_hash
+                or failures[0].snapshot_hash != request.snapshot_hash
+                or failures[0].reason_code != receipt.outcome.failure_reason_code
+                or (failures[0].failure_kind == "PIT_REJECTED")
+                != (receipt.outcome.outcome is TrialOutcome.PIT_REJECT)
+            ):
+                self._integrity("saved execution failure evidence is missing or mismatched")
         return self._outcome_with_receipt(receipt)
 
     def verify_preselection_dq_trials(self, events: tuple[ResearchCampaignEvent, ...]) -> None:

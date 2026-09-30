@@ -7,8 +7,11 @@ import os
 import platform
 import secrets
 import shutil
+import socket
+import stat
 import subprocess
 import time
+import zipfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import cast
@@ -70,6 +73,42 @@ def _object(root: Path, value: CanonicalContract) -> None:
     atomic_write_bytes(root / f"sha256-{value.content_hash}.json", value.canonical_bytes())
 
 
+def verify_wheel_provenance(workspace: Path, wheel: Path) -> None:
+    """Every installed project member must be the exact clean checkout's tracked bytes."""
+    from quantos.infrastructure.hosted_verification import read_relative
+
+    tracked = (
+        subprocess.run(
+            ("git", "-C", str(workspace), "ls-files", "-z", "--", "src/quantos"),
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode("utf-8")
+        .split("\0")
+    )
+    expected = {
+        path.removeprefix("src/"): read_relative(workspace, path) for path in tracked if path
+    }
+    if not expected:
+        raise ArtifactIntegrityError("wheel provenance has no tracked project files")
+    with zipfile.ZipFile(wheel) as archive:
+        members = [
+            member
+            for member in archive.infolist()
+            if member.filename.startswith("quantos/") and not member.is_dir()
+        ]
+        if len({member.filename for member in members}) != len(members) or {
+            member.filename for member in members
+        } != set(expected):
+            raise ArtifactIntegrityError("wheel project members differ from exact checkout")
+        for member in members:
+            if (
+                member.file_size != len(expected[member.filename])
+                or archive.read(member) != expected[member.filename]
+            ):
+                raise ArtifactIntegrityError("wheel project bytes differ from exact checkout")
+
+
 def stage_hosted_deployment(
     root: Path,
     workspace: Path,
@@ -87,6 +126,7 @@ def stage_hosted_deployment(
     provenance = capture_code_provenance(workspace)
     if provenance != bundle.code_provenance:
         raise ArtifactIntegrityError("business authoring differs from clean deployment provenance")
+    verify_wheel_provenance(workspace, wheel)
     if root.exists() or root.is_symlink():
         raise ArtifactIntegrityError("deployment staging root already exists")
     if (
@@ -305,20 +345,114 @@ def _memory(data: bytes, name: str) -> int:
     return descriptor
 
 
+def read_managed_deployment(root: Path, profile_hash: str) -> HostedManagedDeployment:
+    """Manager restarts an explicit frozen profile; a new capability remains in memory."""
+    from quantos.infrastructure.hosted_service import read_hashed_configuration
+
+    configuration_root = root / "config"
+    profile = read_hashed_configuration(configuration_root, profile_hash, HostedDeploymentProfile)
+    configuration = read_hashed_configuration(
+        configuration_root, profile.configuration_hash, HostedServiceConfiguration
+    )
+    loader = read_hashed_configuration(
+        configuration_root,
+        configuration.business_configuration_hash,
+        HostedBusinessLoaderConfiguration,
+    )
+    bundle = read_hashed_configuration(
+        root / "inputs", loader.business_inputs_hash, HostedFrozenBusinessInputs
+    )
+    installation = read_hashed_configuration(
+        configuration_root, profile.install_inventory_hash, HostedInstallInventory
+    )
+    initial = read_hashed_configuration(
+        configuration_root, profile.projection_inventory_hash, HostedInstallInventory
+    )
+    launcher = read_hashed_configuration(
+        configuration_root, profile.model_configuration_hash, HostedLauncherConfiguration
+    )
+    if len(configuration.principals) != 1 or len(configuration.campaigns) != 1:
+        raise ArtifactIntegrityError("restarted manager requires the fixed single registration")
+    if (
+        bundle.code_provenance.commit_hash != profile.exact_commit
+        or bundle.code_provenance.lockfile_hash != profile.lock_hash
+        or launcher.content_hash != bundle.hosted_recipe.requested_model_configuration_hash
+    ):
+        raise ArtifactIntegrityError("restarted manager business/deployment binding differs")
+    return HostedManagedDeployment(
+        root,
+        HostedNamespacePaths(
+            root / "install",
+            root / "initial-projection",
+            root / "channel",
+            root / "authority",
+            configuration_root,
+            root / "provenance",
+            root / "inputs",
+        ),
+        profile,
+        installation,
+        initial,
+        bundle,
+        launcher,
+        configuration,
+        configuration.principals[0].host_instance,
+        secrets.token_bytes(32),
+    )
+
+
+def stop_managed_service(
+    deployment: HostedManagedDeployment, process: subprocess.Popen[bytes]
+) -> None:
+    """Preserve actual bootstrap output, then reconcile stopped mutable transport files."""
+    from quantos.artifacts.store import opened_directory, read_regular_bytes_at
+
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+    guard = KnownValueGuard((deployment.capability,))
+    with opened_directory(deployment.paths.channel) as parent:
+        for name in os.listdir(parent):
+            metadata = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if name == "bootstrap-observation.json":
+                data = read_regular_bytes_at(parent, name, max_bytes=65536)
+                guard(data)
+                atomic_write_bytes(deployment.root / "evidence" / sha256_bytes(data), data)
+                os.unlink(name, dir_fd=parent)
+            elif name == "quantos.sock" and stat.S_ISSOCK(metadata.st_mode):
+                os.unlink(name, dir_fd=parent)
+            else:
+                raise ArtifactIntegrityError("stopped channel has an unexpected entry")
+        os.fsync(parent)
+
+
 def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Popen[bytes]:
     descriptor = _memory(deployment.capability, "service-capability")
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(2)
+    port = listener.getsockname()[1]
+    with socket.create_connection(("127.0.0.1", port), timeout=2):
+        control, _ = listener.accept()
+        control.close()
     command = (
         "/install/python-seeded",
         "-m",
         "quantos.infrastructure.hosted_service",
         "--profile-hash",
         deployment.profile.content_hash,
+        "--network-probe-port",
+        str(port),
     )
     try:
+        argv = namespace_command(
+            "service", deployment.paths, command, service_capability_fds=(descriptor,)
+        )
         process = subprocess.Popen(
-            namespace_command(
-                "service", deployment.paths, command, service_capability_fds=(descriptor,)
-            ),
+            argv,
             pass_fds=(descriptor,),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -326,15 +460,47 @@ def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Pop
             env={"PATH": "/usr/bin:/bin"},
             start_new_session=True,
         )
+    except BaseException:
+        listener.close()
+        raise
     finally:
         os.close(descriptor)
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         if process.poll() is not None:
+            listener.close()
             raise ArtifactIntegrityError("frozen service failed before socket readiness")
         if (deployment.paths.channel / "quantos.sock").exists():
+            from quantos.infrastructure.hosted_verification import read_relative
+
+            bootstrap = read_relative(deployment.paths.channel, "bootstrap-observation.json")
+            KnownValueGuard((deployment.capability,))(bootstrap)
+            atomic_write_bytes(deployment.root / "evidence" / sha256_bytes(bootstrap), bootstrap)
+            atomic_write_bytes(
+                deployment.root / "evidence" / f"service-start-{sha256_bytes(bootstrap)}.json",
+                canonical_json_bytes(
+                    {
+                        "schema_version": "hosted-manager-service-start/v1",
+                        "deployment_profile_hash": deployment.profile.content_hash,
+                        "hosted_spec_hash": deployment.spec.content_hash,
+                        "argv": argv,
+                        "manager_pid": os.getpid(),
+                        "manager_network_namespace": os.readlink("/proc/self/ns/net"),
+                        "manager_namespace_identities": {
+                            name: os.readlink(f"/proc/self/ns/{name}")
+                            for name in ("net", "pid", "mnt", "user")
+                        },
+                        "network_probe_port": port,
+                        "manager_network_control_connected": True,
+                        "bootstrap_observation_hash": sha256_bytes(bootstrap),
+                        "qualification_eligibility": "NOT_QUALIFIED",
+                    }
+                ),
+            )
+            listener.close()
             return process
         time.sleep(0.1)
+    listener.close()
     process.terminate()
     process.wait(timeout=10)
     raise ArtifactIntegrityError("frozen service readiness timeout")
@@ -423,14 +589,45 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
         b"non-secret-vendor-credential-canary",
     )
     before = raw_inventory(deployment.paths.authority)
+    event_path = next(
+        (item.logical_path for item in before.files if "/campaign-events/" in item.logical_path),
+        None,
+    )
+    ledger_path = next(
+        (item.logical_path for item in before.files if "/ledger/" in item.logical_path), None
+    )
+    if event_path is None or ledger_path is None:
+        raise ArtifactIntegrityError("actual probe requires existing event and Ledger canaries")
     install_before = install_inventory(deployment.paths.install)
-    source_fd, _ = source_seccomp_filter()
+    if (
+        install_before != deployment.install
+        or install_before.content_hash != deployment.profile.install_inventory_hash
+        or install_inventory(deployment.paths.projection) != deployment.initial_projection
+        or sha256_file(
+            deployment.paths.configuration / f"sha256-{deployment.configuration.content_hash}.json"
+        )
+        != deployment.profile.configuration_hash
+    ):
+        raise ArtifactIntegrityError("probe source differs from frozen installation/configuration")
+    atomic_write_bytes(
+        deployment.root / "evidence/source-canary", b"nonsecret-trusted-source-canary"
+    )
+    source_before = raw_inventory(deployment.root / "evidence")
+    configuration_before = raw_inventory(deployment.paths.configuration)
+    projection_before = raw_inventory(deployment.paths.projection)
+    source_fd, bpf = source_seccomp_filter()
+    if sha256_bytes(bpf) != deployment.profile.seccomp_bpf_hash:
+        os.close(source_fd)
+        raise ArtifactIntegrityError("probe source seccomp differs from frozen profile")
     capability_fd = _memory(deployment.capability, "probe-capability")
     context_fd = _memory(
         canonical_json_bytes(
             {
                 "manager_pid": os.getpid(),
                 "campaign_hash": deployment.bundle.campaign.content_hash,
+                "source_root": str(deployment.root),
+                "event_path": "/authority/" + event_path,
+                "ledger_path": "/authority/" + ledger_path,
             }
         ),
         "probe-context",
@@ -470,6 +667,9 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
         if observation.get("schema_version") != "hosted-deployment-probe-observation/v1":
             raise ArtifactIntegrityError("actual deployment probe returned another schema")
         verify_raw_inventory(deployment.paths.authority, before)
+        verify_raw_inventory(deployment.root / "evidence", source_before)
+        verify_raw_inventory(deployment.paths.configuration, configuration_before)
+        verify_raw_inventory(deployment.paths.projection, projection_before)
         if install_inventory(deployment.paths.install) != install_before:
             raise ArtifactIntegrityError("actual deployment probe changed frozen installation")
         evidence = canonical_json_bytes(
@@ -491,6 +691,14 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
                 ),
                 "install_inventory_hash": install_before.content_hash,
                 "actual_observation": observation,
+                "configuration_inventory": configuration_before.model_dump(mode="json"),
+                "projection_inventory": projection_before.model_dump(mode="json"),
+                "trusted_source_inventory": source_before.model_dump(mode="json"),
+                "argv": argv,
+                "seccomp_bpf_hash": sha256_bytes(bpf),
+                "manager_network_namespace": os.readlink("/proc/self/ns/net"),
+                "existing_event_path": event_path,
+                "existing_ledger_path": ledger_path,
                 "qualification_eligibility": "NOT_QUALIFIED",
             }
         )
@@ -500,3 +708,138 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
     finally:
         for descriptor in descriptors:
             os.close(descriptor)
+
+
+def export_live_source(deployment: HostedManagedDeployment, destination: Path) -> str:
+    """Export the stopped manager's original protocol/capture; never copy research results."""
+    from quantos.infrastructure.hosted_verification import (
+        raw_inventory,
+        read_relative,
+        verify_raw_inventory,
+    )
+
+    if destination.exists() or destination.is_symlink():
+        raise ArtifactIntegrityError("offline source export already exists")
+    if any(deployment.paths.channel.iterdir()):
+        raise ArtifactIntegrityError("source export requires a stopped reconciled service")
+    sources = {
+        "protocol": deployment.paths.authority / "protocol",
+        "evidence": deployment.root / "evidence",
+        "request-projections": deployment.root / "request-projections",
+    }
+    inventories = {name: raw_inventory(path) for name, path in sources.items()}
+    destination.mkdir(parents=True, mode=0o700)
+    guard = KnownValueGuard((deployment.capability,))
+    for name, source in sources.items():
+        target = destination / name
+        target.mkdir(mode=0o700)
+        for item in inventories[name].files:
+            data = read_relative(source, item.logical_path)
+            guard(data)
+            if len(data) != item.size_bytes or sha256_bytes(data) != item.sha256:
+                raise ArtifactIntegrityError("live source changed during manager export")
+            atomic_write_bytes(target / item.logical_path, data)
+        verify_raw_inventory(source, inventories[name])
+        verify_raw_inventory(target, inventories[name])
+    inventory = raw_inventory(destination)
+    atomic_write_bytes(
+        deployment.root / "evidence" / f"source-export-{inventory.content_hash}.json",
+        canonical_json_bytes(
+            {
+                "schema_version": "hosted-manager-source-export/v1",
+                "deployment_profile_hash": deployment.profile.content_hash,
+                "hosted_spec_hash": deployment.spec.content_hash,
+                "source_inventory": inventory.model_dump(mode="json"),
+                "source_roots": {
+                    name: value.model_dump(mode="json") for name, value in inventories.items()
+                },
+                "qualification_eligibility": "NOT_QUALIFIED",
+            }
+        ),
+    )
+    return inventory.content_hash
+
+
+def run_managed_offline(
+    deployment: HostedManagedDeployment,
+    source: Path,
+    source_inventory_hash: str,
+    *,
+    mode: str,
+    target: Path | None = None,
+) -> Path:
+    """Run the installed offline entrypoint in the real network-isolated service namespace."""
+    from quantos.infrastructure.hosted_verification import (
+        raw_inventory,
+        read_relative,
+        verify_raw_inventory,
+    )
+
+    if mode not in {"RECEIPT_REUSE", "REEXECUTE"}:
+        raise ValueError("unknown offline management mode")
+    if any(deployment.paths.channel.iterdir()):
+        raise ArtifactIntegrityError("offline run requires the live service to be stopped")
+    source_before = raw_inventory(source)
+    if source_before.content_hash != source_inventory_hash:
+        raise ArtifactIntegrityError("offline source differs from explicit inventory")
+    paths = deployment.paths
+    if mode == "REEXECUTE":
+        if target is None or target.exists() or target.is_symlink():
+            raise ArtifactIntegrityError("offline reexecution requires a new explicit root")
+        target.mkdir(parents=True, mode=0o700)
+        for name in ("authority", "channel"):
+            (target / name).mkdir(mode=0o700)
+        saved = target / "authority/saved-protocol"
+        saved.mkdir(mode=0o700)
+        inventory = raw_inventory(source / "protocol")
+        for item in inventory.files:
+            atomic_write_bytes(
+                saved / item.logical_path, read_relative(source / "protocol", item.logical_path)
+            )
+        verify_raw_inventory(saved, inventory)
+        paths = replace(paths, authority=target / "authority", channel=target / "channel")
+    elif target is not None:
+        raise ValueError("receipt reuse must use the original saved authority")
+    descriptor = _memory(deployment.capability, "offline-service-capability")
+    command = (
+        "/install/python-seeded",
+        "-m",
+        "quantos.infrastructure.hosted_offline",
+        "--profile-hash",
+        deployment.profile.content_hash,
+        "--mode",
+        mode,
+        "--source-inventory-hash",
+        source_inventory_hash,
+    )
+    try:
+        result = subprocess.run(
+            namespace_command(
+                "service",
+                paths,
+                command,
+                service_capability_fds=(descriptor,),
+                offline_source_root=source,
+            ),
+            pass_fds=(descriptor,),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=7200,
+            env={"PATH": "/usr/bin:/bin"},
+        )
+    finally:
+        os.close(descriptor)
+    verify_raw_inventory(source, source_before)
+    if result.returncode:
+        raise ArtifactIntegrityError("installed offline pipeline failed; original roots retained")
+    observation = read_relative(paths.authority, "offline-observation.json", max_bytes=65536)
+    KnownValueGuard((deployment.capability,))(observation)
+    actual = strict_json_object(observation, max_bytes=65536)
+    if (
+        actual.get("mode") != mode
+        or actual.get("model_source_inventory_hash") != source_inventory_hash
+        or actual.get("deployment_profile_hash") != deployment.profile.content_hash
+    ):
+        raise ArtifactIntegrityError("offline observation differs from manager invocation")
+    return paths.authority

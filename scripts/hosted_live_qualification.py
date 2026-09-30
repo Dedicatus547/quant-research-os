@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,10 +48,13 @@ from quantos.infrastructure.hosted_launcher import (
     register_model_auth_memory,
 )
 from quantos.infrastructure.hosted_manager import (
+    HostedManagedDeployment,
     _memory,
+    probe_managed_deployment,
     restricted_client_call,
     stage_hosted_deployment,
     start_managed_service,
+    stop_managed_service,
 )
 
 
@@ -253,19 +255,64 @@ def run_live_attempt(
         codex_binary=codex_binary,
         launcher_configuration=configuration,
     )
+    drive_live_campaign(deployment, model_auth_file=model_auth_file)
+
+
+def drive_live_campaign(deployment: HostedManagedDeployment, *, model_auth_file: Path) -> None:
+    """Drive an explicit staged deployment using original, directly captured model bytes."""
+    root = deployment.root
+    bundle = deployment.bundle
+    configuration = deployment.launcher_configuration
     guard = KnownValueGuard((deployment.capability,))
     evidence = TrustedLauncherEvidenceStore(root / "evidence", guard=guard)
-    with opened_directory(model_auth_file.parent) as parent:
-        auth_bytes = read_regular_bytes_at(parent, model_auth_file.name, max_bytes=1_048_576)
-    auth_fd = _memory(auth_bytes, "hosted-model-auth")
-    del auth_bytes
-    register_model_auth_memory(auth_fd, guard)
+    auth_fd = None
     process = None
     captures: list[str] = []
     try:
         process = start_managed_service(deployment)
         status = restricted_client_call(deployment, "start")
         evidence.publish_bytes(canonical_json_bytes(status))
+        from quantos.infrastructure.hosted_security_verification import verify_deployment_security
+        from quantos.infrastructure.hosted_verification import raw_inventory, verify_raw_inventory
+
+        before = raw_inventory(deployment.paths.authority)
+        pending_before = restricted_client_call(deployment, "pending")
+        stop_managed_service(deployment, process)
+        process = None
+        process = start_managed_service(deployment)
+        queries: list[dict[str, object]] = []
+        for _ in range(2):
+            pending_after = restricted_client_call(deployment, "pending")
+            if pending_after != pending_before:
+                raise ValueError("process restart changed pending request bytes")
+            queries.append(pending_after)
+            queries.append(restricted_client_call(deployment, "status"))
+            status = restricted_client_call(deployment, "resume")
+            queries.append(status)
+        verify_raw_inventory(deployment.paths.authority, before)
+        evidence.publish_bytes(
+            canonical_json_bytes(
+                {
+                    "schema_version": "hosted-manager-suspend-restart/v1",
+                    "deployment_profile_hash": deployment.profile.content_hash,
+                    "before_inventory": before.model_dump(mode="json"),
+                    "after_inventory": raw_inventory(deployment.paths.authority).model_dump(
+                        mode="json"
+                    ),
+                    "pending_before": pending_before,
+                    "queries": queries,
+                    "qualification_eligibility": "NOT_QUALIFIED",
+                }
+            )
+        )
+        probe_managed_deployment(deployment)
+        verify_deployment_security(deployment)
+        # Actual isolation must pass before acquisition of provider auth/model invocation.
+        with opened_directory(model_auth_file.parent) as parent:
+            auth_bytes = read_regular_bytes_at(parent, model_auth_file.name, max_bytes=1_048_576)
+        auth_fd = _memory(auth_bytes, "hosted-model-auth")
+        del auth_bytes
+        register_model_auth_memory(auth_fd, guard)
         while status["state"] == "WAITING_FOR_AGENT":
             pending = restricted_client_call(deployment, "pending")
             request = HostedAgentRequest.model_validate(pending)
@@ -281,6 +328,7 @@ def run_live_attempt(
                     request.context_pack_hash: context_bytes,
                     request.proposal_schema_hash: schema_bytes,
                 },
+                guard=guard,
             )
             fact = publish_projection_fact(
                 request,
@@ -363,14 +411,10 @@ def run_live_attempt(
             )
         )
     finally:
-        os.close(auth_fd)
+        if auth_fd is not None:
+            os.close(auth_fd)
         if process is not None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
+            stop_managed_service(deployment, process)
 
 
 def main() -> None:
