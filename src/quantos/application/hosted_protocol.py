@@ -24,6 +24,7 @@ from quantos.contracts.hosted import (
     HostedSubmissionReceipt,
     parse_hosted_contract,
 )
+from quantos.contracts.validation import ReproducibilityComparison
 from quantos.infrastructure.hosted_store import HostedProtocolStore, HostedStoreSnapshot
 from quantos.security import SecretArtifactRejected, validate_secret_free
 
@@ -105,6 +106,18 @@ def _scan_safe(value: object) -> None:
     def prepare(item: object) -> object:
         if isinstance(item, dict):
             mapping = cast(dict[str, object], item)
+            if mapping.get("schema_version") == "reproducibility-comparison/v1":
+                comparison = ReproducibilityComparison.model_validate(mapping)
+                if type(
+                    mapping.get("exact_content_hash")
+                ) is not bool or comparison.canonical_bytes() != canonical_json_bytes(mapping):
+                    raise ValueError(
+                        "typed reproducibility comparison differs from canonical bytes"
+                    )
+                # This existing contract field is a boolean comparison result, not
+                # a digest. Rename only this validated field in the scan view.
+                mapping = dict(mapping)
+                mapping["exact_content_hash_matches"] = mapping.pop("exact_content_hash")
             return {key: prepare(val) for key, val in mapping.items()}
         if isinstance(item, (list, tuple)):
             return [prepare(val) for val in cast(list[object] | tuple[object, ...], item)]

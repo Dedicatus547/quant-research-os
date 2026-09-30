@@ -500,6 +500,7 @@ def namespace_command(
     seccomp_fd: int | None = None,
     service_capability_fds: tuple[int, ...] = (),
     offline_source_root: Path | None = None,
+    info_fd: int | None = None,
 ) -> tuple[str, ...]:
     """Management-only argv; this function is never exposed through the research channel."""
     if not command:
@@ -513,6 +514,10 @@ def namespace_command(
         "ALL",
         "--clearenv",
     ]
+    if info_fd is not None:
+        if info_fd < 3:
+            raise ValueError("container information requires a private descriptor")
+        result += ["--info-fd", str(info_fd)]
     if role == "host":
         if seccomp_fd is None:
             raise ValueError("research host requires source seccomp")

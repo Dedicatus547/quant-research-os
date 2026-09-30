@@ -31,8 +31,10 @@ from quantos.contracts.hosted import (
     HostedCampaignReport,
     HostedResearchBudgetFact,
     HostedResearchStepIntent,
+    strict_json_object,
 )
 from quantos.contracts.hosted_inputs import HostedFrozenBusinessInputs, derive_hosted_campaign_spec
+from quantos.contracts.hosted_qualification import HostedRawInventory
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
 from quantos.contracts.validation import GateSeverity, ValidationGateId, ValidationReport
 from quantos.infrastructure.hosted_store import HostedProtocolStore
@@ -52,6 +54,34 @@ class HostedVerifiedBusiness:
     validation_reports: tuple[ValidationReport, ...]
     execution_identities: tuple[str, ...]
     artifact_hashes: tuple[str, ...]
+
+
+def principal_business_inventory(
+    authority: Path, facts: HostedVerifiedBusiness
+) -> tuple[HostedRawInventory, HostedRawInventory]:
+    """Derive principal paths after bottom-up verification; bind runtime observations separately.
+
+    Only the fixed offline instrumentation file and Qlib's mutable MLflow recorder
+    trees beneath verified execution identities are runtime observations. Every other
+    file, including unknown additions, remains principal and must compare exactly.
+    """
+    inventory = raw_inventory(authority)
+    prefix = f"business/{facts.report.campaign_hash}/execution/executions/"
+    runtime_prefixes = tuple(
+        prefix + identity + "/qlib-workflow/mlflow-runtime/"
+        for identity in facts.execution_identities
+    )
+    observations = tuple(
+        item
+        for item in inventory.files
+        if item.logical_path == "offline-observation.json"
+        or item.logical_path.startswith(runtime_prefixes)
+    )
+    excluded = {item.logical_path for item in observations}
+    principal = tuple(item for item in inventory.files if item.logical_path not in excluded)
+    if not principal:
+        raise HostedQualificationError("verified business principal inventory is empty")
+    return HostedRawInventory(files=principal), HostedRawInventory(files=observations)
 
 
 def verify_hosted_business_root(
@@ -130,11 +160,12 @@ def verify_hosted_business_root(
     reports: list[HostedCampaignReport] = []
     for digest in publications:
         data = state.artifacts[digest]
-        if b'"schema_version":"hosted-research-budget-fact/v1"' in data:
+        schema = strict_json_object(data, max_bytes=16_777_216).get("schema_version")
+        if schema == "hosted-research-budget-fact/v1":
             budgets.append(state.artifact(digest, HostedResearchBudgetFact))
-        elif b'"schema_version":"hosted-research-step-intent/v1"' in data:
+        elif schema == "hosted-research-step-intent/v1":
             steps.append(state.artifact(digest, HostedResearchStepIntent))
-        elif b'"schema_version":"hosted-campaign-report/v1"' in data:
+        elif schema == "hosted-campaign-report/v1":
             reports.append(state.artifact(digest, HostedCampaignReport))
     if len(reports) != 1 or not budgets or budgets[0].phase != "INITIAL":
         raise HostedQualificationError("business final report or initial budget is absent")

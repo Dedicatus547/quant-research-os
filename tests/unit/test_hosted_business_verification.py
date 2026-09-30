@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -22,6 +23,7 @@ from quantos.contracts.validation import (
 )
 from quantos.infrastructure.hosted_business_verification import (
     HostedVerifiedBusiness,
+    principal_business_inventory,
     verify_q11_research_predicate,
 )
 from quantos.infrastructure.hosted_verification import HostedQualificationError
@@ -142,3 +144,27 @@ def test_q11_execution_failure_and_wrong_gate_severity_remain_rejected() -> None
     changed = passed.model_copy(update={"gates": tuple(gates)})
     with pytest.raises(HostedQualificationError, match="severity"):
         verify_q11_research_predicate(_facts(changed, passed))
+
+
+def test_runtime_inventory_cannot_hide_unknown_authority(tmp_path: Path) -> None:
+    campaign, identity = "a" * 64, "b" * 64
+    facts = HostedVerifiedBusiness(
+        cast(HostedCampaignReport, SimpleNamespace(campaign_hash=campaign)),
+        None,
+        (),
+        (identity,),
+        (),
+    )
+    prefix = f"business/{campaign}/execution/executions/{identity}"
+    expected_runtime = f"{prefix}/qlib-workflow/mlflow-runtime/recorder.json"
+    unknown = f"{prefix}/baseline/validation/mlflow-runtime/unrecognized-authority.json"
+    for logical in (expected_runtime, unknown, "offline-observation.json", "unknown.json"):
+        path = tmp_path / logical
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"immutable")
+    principal, runtime = principal_business_inventory(tmp_path, facts)
+    assert {file.logical_path for file in principal.files} == {unknown, "unknown.json"}
+    assert {file.logical_path for file in runtime.files} == {
+        expected_runtime,
+        "offline-observation.json",
+    }

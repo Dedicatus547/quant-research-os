@@ -9,7 +9,7 @@ from typing import cast
 from quantos.contracts.base import sha256_bytes
 from quantos.contracts.hosted import strict_json_object
 from quantos.contracts.hosted_qualification import HostedRawInventory
-from quantos.infrastructure.hosted_deployment import install_inventory
+from quantos.infrastructure.hosted_deployment import install_inventory, namespace_command
 from quantos.infrastructure.hosted_manager import HostedManagedDeployment
 from quantos.infrastructure.hosted_verification import (
     HostedQualificationError,
@@ -29,6 +29,23 @@ def _unchanged_prefix(root: Path, inventory: HostedRawInventory) -> None:
     actual = {item.logical_path: item for item in raw_inventory(root).files}
     for item in inventory.files:
         _require(actual.get(item.logical_path) == item, "captured immutable source changed")
+
+
+def _argv(value: object) -> tuple[str, ...]:
+    _require(isinstance(value, list), "Q07 manager argv is absent")
+    elements = cast(list[object], value)
+    _require(all(isinstance(element, str) for element in elements), "Q07 argv types differ")
+    return tuple(cast(list[str], elements))
+
+
+def _file_descriptor(argv: tuple[str, ...], destination: str) -> int:
+    matches = [index for index, value in enumerate(argv) if value == destination]
+    _require(len(matches) == 1, "Q07 descriptor destination differs")
+    index = matches[0]
+    _require(index > 1 and argv[index - 2] == "--file", "Q07 private descriptor was not staged")
+    descriptor = int(argv[index - 1])
+    _require(3 <= descriptor < 1_048_576, "Q07 descriptor is invalid")
+    return descriptor
 
 
 def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str, ...]:
@@ -59,6 +76,29 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
         item.bytes_hash for item in deployment.install.files if item.relative_path == probe_path
     )
     _require(fact.get("probe_program_hash") == probe_hash, "Q07 probe program differs")
+    argv = _argv(fact.get("argv"))
+    _require(argv.count("--seccomp") == 1, "Q07 source seccomp was not installed")
+    seccomp_fd = int(argv[argv.index("--seccomp") + 1])
+    capability_fd = _file_descriptor(argv, "/tmp/hosted-client-capability")
+    context_fd = _file_descriptor(argv, "/tmp/hosted-probe.json")
+    command = ("/install/python-seeded", "-m", "quantos.infrastructure.hosted_probe")
+    expected = namespace_command("host", deployment.paths, command, seccomp_fd=seccomp_fd)
+    index = expected.index(command[0])
+    expected = (
+        *expected[:index],
+        "--perms",
+        "0600",
+        "--file",
+        str(capability_fd),
+        "/tmp/hosted-client-capability",
+        "--perms",
+        "0600",
+        "--file",
+        str(context_fd),
+        "/tmp/hosted-probe.json",
+        *expected[index:],
+    )
+    _require(argv == expected, "Q07 actual research namespace argv differs")
     before = HostedRawInventory.model_validate(fact["authority_before_inventory"])
     after = HostedRawInventory.model_validate(fact["authority_after_inventory"])
     _require(before == after, "Q07 probe mutated authority")
@@ -173,6 +213,16 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
             and row.get("errno") in (errno.EROFS, errno.EACCES, errno.EXDEV),
             "Q07 channel path mutation allowed",
         )
+    attempts = by_name.get("CHANNEL_CONCURRENT_RACE", {}).get("attempts")
+    _require(
+        isinstance(attempts, list)
+        and len(cast(list[object], attempts)) == 128
+        and all(
+            value in (errno.EXDEV, errno.EROFS, errno.EACCES)
+            for value in cast(list[object], attempts)
+        ),
+        "Q07 actual concurrent channel race was missing or allowed",
+    )
     _require(
         by_name.get("MANAGEMENT_API_ESCAPE", {}).get("closed_without_reply") is True,
         "Q07 unrestricted operation was exposed",
@@ -206,6 +256,31 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
             and start.get("hosted_spec_hash") == deployment.spec.content_hash
             and start.get("manager_network_control_connected") is True,
             "Q07 manager service origin differs",
+        )
+        service_argv = _argv(start.get("argv"))
+        service_fd = _file_descriptor(service_argv, "/tmp/hosted-service-capability-0")
+        _require(service_argv.count("--info-fd") == 1, "Q07 container information was not captured")
+        info_fd = int(service_argv[service_argv.index("--info-fd") + 1])
+        _require(info_fd >= 3 and info_fd != service_fd, "Q07 container descriptor differs")
+        service_command = (
+            "/install/python-seeded",
+            "-m",
+            "quantos.infrastructure.hosted_service",
+            "--profile-hash",
+            profile.content_hash,
+            "--network-probe-port",
+            str(start.get("network_probe_port")),
+        )
+        _require(
+            service_argv
+            == namespace_command(
+                "service",
+                deployment.paths,
+                service_command,
+                service_capability_fds=(service_fd,),
+                info_fd=info_fd,
+            ),
+            "Q07 service namespace argv differs",
         )
         digest = start.get("bootstrap_observation_hash")
         _require(isinstance(digest, str), "Q07 bootstrap hash is absent")
@@ -248,6 +323,37 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
             "Q07 service namespace attestation incomplete",
         )
         namespaces = cast(dict[str, object], bootstrap["namespace_identities"])
+        child_value = start.get("manager_child_observation")
+        _require(isinstance(child_value, dict), "Q07 actual manager child observation is absent")
+        child = cast(dict[str, object], child_value)
+        native_hash = next(
+            item.bytes_hash
+            for item in deployment.install.files
+            if item.relative_path == "python-seeded"
+        )
+        _require(
+            child.get("service_command") == list(service_command)
+            and child.get("service_executable_hash") == native_hash
+            and child.get("service_namespace_identities") == namespaces
+            and all(
+                type(child.get(name)) is int and cast(int, child[name]) > 1
+                for name in ("wrapper_pid", "init_pid", "service_pid")
+            )
+            and len({child.get(name) for name in ("wrapper_pid", "init_pid", "service_pid")}) == 3,
+            "Q07 actual service child differs from frozen bootstrap",
+        )
+        child_security_value = child.get("service_process_security")
+        _require(isinstance(child_security_value, list), "Q07 external child credentials absent")
+        child_security = {
+            line.split(":", 1)[0]: line.split(":", 1)[1].strip()
+            for line in cast(list[str], child_security_value)
+        }
+        _require(
+            child_security.get("CapEff") == "0000000000000000"
+            and child_security.get("Uid", "").split() == [str(principal.uid)] * 4
+            and child_security.get("Gid", "").split() == [str(principal.gid)] * 4,
+            "Q07 external child credentials differ",
+        )
         manager_namespaces = start.get("manager_namespace_identities")
         _require(isinstance(manager_namespaces, dict), "Q07 manager namespaces absent")
         for name in ("net", "pid", "mnt", "user"):

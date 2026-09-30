@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import hashlib
 import json
 import os
 import platform
@@ -17,7 +19,12 @@ from pathlib import Path
 from typing import cast
 
 from quantos.application.provenance import capture_code_provenance
-from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes, sha256_file
+from quantos.artifacts.store import (
+    ArtifactIntegrityError,
+    atomic_write_bytes,
+    opened_directory,
+    sha256_file,
+)
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.hosted import HostedCampaignSpec, strict_json_object
 from quantos.contracts.hosted_deployment import (
@@ -430,7 +437,13 @@ def stop_managed_service(
 
 
 def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Popen[bytes]:
+    # An old socket/observation must never attest a new child. Stop/forensic cleanup
+    # is explicit; starting does not silently remove evidence from a crashed service.
+    with opened_directory(deployment.paths.channel) as channel:
+        if os.listdir(channel):
+            raise ArtifactIntegrityError("service start requires an empty stopped channel")
     descriptor = _memory(deployment.capability, "service-capability")
+    info_fd = private_memory_fd("service-container-information")
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
     listener.listen(2)
@@ -449,11 +462,15 @@ def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Pop
     )
     try:
         argv = namespace_command(
-            "service", deployment.paths, command, service_capability_fds=(descriptor,)
+            "service",
+            deployment.paths,
+            command,
+            service_capability_fds=(descriptor,),
+            info_fd=info_fd,
         )
         process = subprocess.Popen(
             argv,
-            pass_fds=(descriptor,),
+            pass_fds=(descriptor, info_fd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -462,19 +479,98 @@ def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Pop
         )
     except BaseException:
         listener.close()
+        os.close(info_fd)
         raise
     finally:
         os.close(descriptor)
+    try:
+        return _wait_for_managed_service(deployment, process, argv, port, command, info_fd)
+    except BaseException:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+        raise
+    finally:
+        listener.close()
+        os.close(info_fd)
+
+
+def _observe_namespace_child(
+    wrapper_pid: int, info_fd: int, command: tuple[str, ...]
+) -> dict[str, object]:
+    """Read the real child through the manager's proc, never a child-supplied PID."""
+    data = os.pread(info_fd, 4097, 0)
+    if len(data) > 4096:
+        raise ArtifactIntegrityError("container information exceeded its bound")
+    # bubblewrap emits pretty JSON, not our canonical contract serialization.
+    info = strict_json_object(canonical_json_bytes(json.loads(data)), max_bytes=4096)
+    init_pid = info.get("child-pid")
+    if type(init_pid) is not int or init_pid <= 1:
+        raise ArtifactIntegrityError("container manager did not supply a child PID")
+    init_status = Path(f"/proc/{init_pid}/status").read_text()
+    fields = dict(line.split(":", 1) for line in init_status.splitlines() if ":" in line)
+    if int(fields["PPid"].strip()) != wrapper_pid:
+        raise ArtifactIntegrityError("container init is not the launched wrapper child")
+    children = Path(f"/proc/{init_pid}/task/{init_pid}/children").read_text().split()
+    if len(children) != 1 or not children[0].isdecimal():
+        raise ArtifactIntegrityError("container did not launch exactly one fixed service")
+    child_pid = int(children[0])
+    proc = Path(f"/proc/{child_pid}")
+    actual_command = tuple(
+        part.decode() for part in (proc / "cmdline").read_bytes().split(b"\0") if part
+    )
+    if actual_command != command:
+        raise ArtifactIntegrityError("manager-observed service command differs")
+    status = (proc / "status").read_text()
+    security = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
+    if int(security["PPid"].strip()) != init_pid:
+        raise ArtifactIntegrityError("manager-observed service parent differs")
+    # proc's exe link is a kernel reference to the actual running image, not an
+    # artifact traversal. Hash the opened image; no environment/memory is read.
+    with (proc / "exe").open("rb") as executable:
+        executable_hash = hashlib.file_digest(executable, "sha256").hexdigest()
+    namespaces = {name: os.readlink(proc / "ns" / name) for name in ("net", "pid", "mnt", "user")}
+    for name in ("net", "pid", "mnt"):
+        if namespaces[name] != f"{name}:[{info.get(name + '-namespace')}]":
+            raise ArtifactIntegrityError("container information and actual namespaces differ")
+    return {
+        "container_information": info,
+        "wrapper_pid": wrapper_pid,
+        "init_pid": init_pid,
+        "service_pid": child_pid,
+        "service_command": actual_command,
+        "service_executable_hash": executable_hash,
+        "service_namespace_identities": namespaces,
+        "service_process_security": [
+            line
+            for line in status.splitlines()
+            if line.startswith(("Uid:", "Gid:", "CapEff:", "NoNewPrivs:", "Seccomp:", "NSpid:"))
+        ],
+    }
+
+
+def _wait_for_managed_service(
+    deployment: HostedManagedDeployment,
+    process: subprocess.Popen[bytes],
+    argv: tuple[str, ...],
+    port: int,
+    command: tuple[str, ...],
+    info_fd: int,
+) -> subprocess.Popen[bytes]:
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            listener.close()
             raise ArtifactIntegrityError("frozen service failed before socket readiness")
         if (deployment.paths.channel / "quantos.sock").exists():
             from quantos.infrastructure.hosted_verification import read_relative
 
             bootstrap = read_relative(deployment.paths.channel, "bootstrap-observation.json")
             KnownValueGuard((deployment.capability,))(bootstrap)
+            child = _observe_namespace_child(process.pid, info_fd, command)
             atomic_write_bytes(deployment.root / "evidence" / sha256_bytes(bootstrap), bootstrap)
             atomic_write_bytes(
                 deployment.root / "evidence" / f"service-start-{sha256_bytes(bootstrap)}.json",
@@ -493,16 +589,13 @@ def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Pop
                         "network_probe_port": port,
                         "manager_network_control_connected": True,
                         "bootstrap_observation_hash": sha256_bytes(bootstrap),
+                        "manager_child_observation": child,
                         "qualification_eligibility": "NOT_QUALIFIED",
                     }
                 ),
             )
-            listener.close()
             return process
         time.sleep(0.1)
-    listener.close()
-    process.terminate()
-    process.wait(timeout=10)
     raise ArtifactIntegrityError("frozen service readiness timeout")
 
 
@@ -620,10 +713,12 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
         os.close(source_fd)
         raise ArtifactIntegrityError("probe source seccomp differs from frozen profile")
     capability_fd = _memory(deployment.capability, "probe-capability")
+    memory_canary = ctypes.create_string_buffer(b"nonsecret-manager-memory-canary")
     context_fd = _memory(
         canonical_json_bytes(
             {
                 "manager_pid": os.getpid(),
+                "memory_canary_address": ctypes.addressof(memory_canary),
                 "campaign_hash": deployment.bundle.campaign.content_hash,
                 "source_root": str(deployment.root),
                 "event_path": "/authority/" + event_path,
@@ -843,3 +938,29 @@ def run_managed_offline(
     ):
         raise ArtifactIntegrityError("offline observation differs from manager invocation")
     return paths.authority
+
+
+def publish_manager_export(
+    deployment: HostedManagedDeployment, mappings: tuple[tuple[str, str], ...]
+) -> CanonicalContract:
+    """Retain an exact source mapping; qualification is computed by a separate verifier."""
+    from quantos.contracts.hosted_qualification import HostedManagerExport, HostedManagerExportFile
+    from quantos.infrastructure.hosted_verification import digest_relative
+
+    files: list[HostedManagerExportFile] = []
+    for bundle_path, source_path in sorted(mappings):
+        digest, length = digest_relative(deployment.root, source_path)
+        files.append(
+            HostedManagerExportFile(
+                bundle_path=bundle_path, source_path=source_path, sha256=digest, size_bytes=length
+            )
+        )
+    export = HostedManagerExport(
+        deployment_profile_hash=deployment.profile.content_hash,
+        exact_commit=deployment.profile.exact_commit,
+        files=tuple(files),
+    )
+    encoded = export.canonical_bytes()
+    KnownValueGuard((deployment.capability,))(encoded)
+    atomic_write_bytes(deployment.root / "evidence" / export.content_hash, encoded)
+    return export

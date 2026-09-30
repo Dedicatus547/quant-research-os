@@ -9,7 +9,7 @@ import os
 import stat
 from collections import defaultdict
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from pydantic import ValidationError
 
@@ -55,6 +55,9 @@ from quantos.contracts.refs import validate_logical_path
 from quantos.contracts.research_result import ResearchResultManifest
 from quantos.contracts.signal import SignalArtifactManifest
 from quantos.contracts.snapshot import DataSnapshotManifest
+
+if TYPE_CHECKING:
+    from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 
 ROOT = Path(__file__).resolve().parents[3]
 MAX_BUNDLE_FILES = 100_000
@@ -166,6 +169,29 @@ def read_relative(root: Path, logical_path: str, *, max_bytes: int = MAX_TYPED_B
             os.close(parent)
 
 
+def digest_relative(root: Path, logical_path: str) -> tuple[str, int]:
+    """Stream an anchored original file; do not buffer large research artifacts."""
+    parts = validate_logical_path(logical_path).split("/")
+    with opened_directory(root) as root_fd:
+        parent = os.dup(root_fd)
+        try:
+            for segment in parts[:-1]:
+                child = os.open(
+                    segment, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent
+                )
+                os.close(parent)
+                parent = child
+            descriptor = os.open(
+                parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent
+            )
+            try:
+                return _regular_digest(descriptor)
+            finally:
+                os.close(descriptor)
+        finally:
+            os.close(parent)
+
+
 def raw_inventory(root: Path) -> HostedRawInventory:
     """Inventory every file using descriptor-anchored traversal; no symlink follow."""
     files: list[HostedQualificationFile] = []
@@ -223,7 +249,7 @@ def _c11_projection(data: bytes) -> tuple[str, bytes]:
     if "created_at" not in payload:
         raise HostedQualificationError("C11 authority manifest has no top-level created_at")
     authority = _C11_PROJECTION_TYPES[schema].model_validate(payload)
-    if authority.canonical_bytes() != data:
+    if canonical_json_bytes(authority.model_dump(mode="python")) != data:
         raise HostedQualificationError("C11 authority manifest is not canonical")
     # Each typed authority class validates its own self-hash. Nested dates remain untouched.
     projected = canonical_json_bytes(
@@ -467,7 +493,9 @@ def _file_map(inventory: HostedRawInventory) -> dict[str, HostedQualificationFil
     return {item.logical_path: item for item in inventory.files}
 
 
-def verify_case(bundle: Path, case: HostedQualificationCase) -> HostedQualificationGate:
+def verify_case(
+    bundle: Path, case: HostedQualificationCase, *, sources: HostedVerifiedSources | None = None
+) -> HostedQualificationGate:
     hashes: set[str] = set()
     if not case.roots or not case.evidence_paths:
         return HostedQualificationGate(
@@ -480,7 +508,11 @@ def verify_case(bundle: Path, case: HostedQualificationCase) -> HostedQualificat
             hashes.add(sha256_bytes(read_relative(bundle, logical)))
         for root in case.roots:
             prefix = f"{root.logical_path}/"
-            if not prefix.startswith(f"cases/{case.case_id}/") and not prefix.startswith("replay/"):
+            if not (
+                prefix.startswith(f"cases/{case.case_id}/")
+                or (case.case_id in {"Q09", "Q10"} and prefix.startswith("replay/"))
+                or (case.case_id == "Q11" and prefix.startswith("live/"))
+            ):
                 raise HostedQualificationError("case root escaped its registered scope")
             inventory_bytes = read_relative(bundle, root.raw_inventory_path, max_bytes=16_777_216)
             inventory = HostedRawInventory.model_validate_json(inventory_bytes)
@@ -490,7 +522,27 @@ def verify_case(bundle: Path, case: HostedQualificationCase) -> HostedQualificat
             hashes.add(sha256_bytes(inventory_bytes))
             if not _file_map(inventory):
                 raise HostedQualificationError("authority root has no files")
-            hashes.update(verify_protocol_root(bundle / root.logical_path, root.campaign_hash))
+            hashes.update(
+                verify_protocol_root(bundle / root.logical_path / "protocol", root.campaign_hash)
+            )
+            if sources is not None:
+                sources.root_origin(root, inventory)
+        if sources is not None and case.case_id == "Q07":
+            from quantos.infrastructure.hosted_security_verification import (
+                verify_deployment_security,
+            )
+
+            checked = set(verify_deployment_security(sources.deployment))
+            exported_hashes = {item.sha256 for item in sources.files.values()}
+            if not checked <= exported_hashes:
+                raise HostedQualificationError("Q07 manager evidence export is incomplete")
+            hashes.update(checked)
+            return HostedQualificationGate(
+                case_id=case.case_id,
+                verdict="PASS",
+                reason="ACTUAL_MANAGED_ISOLATION_VERIFIED",
+                checked_artifact_hashes=tuple(sorted(hashes)),
+            )
     except (ArtifactIntegrityError, OSError, ValueError, ValidationError, HostedQualificationError):
         return HostedQualificationGate(
             case_id=case.case_id,
@@ -502,17 +554,22 @@ def verify_case(bundle: Path, case: HostedQualificationCase) -> HostedQualificat
     return HostedQualificationGate(
         case_id=case.case_id,
         verdict="NOT_EVALUATED",
-        reason="SCENARIO_PREDICATE_UNAVAILABLE",
+        reason="ORIGINAL_MANAGER_SOURCE_UNAVAILABLE"
+        if sources is None
+        else "SCENARIO_PREDICATE_UNAVAILABLE",
         checked_artifact_hashes=tuple(sorted(hashes)),
     )
 
 
 def verify_staging(
-    bundle: Path, cases: tuple[HostedQualificationCase, ...]
+    bundle: Path,
+    cases: tuple[HostedQualificationCase, ...],
+    *,
+    sources: HostedVerifiedSources | None = None,
 ) -> HostedQualificationVerification:
     if tuple(case.case_id for case in cases) != HOSTED_QUALIFICATION_CASES:
         raise HostedQualificationError("qualification case registry is incomplete")
-    gates = tuple(verify_case(bundle, case) for case in cases)
+    gates = tuple(verify_case(bundle, case, sources=sources) for case in cases)
     return HostedQualificationVerification(
         gates=gates,
         eligibility=(
@@ -523,7 +580,7 @@ def verify_staging(
     )
 
 
-def verify_bundle(bundle: Path) -> HostedQualificationManifest:
+def verify_bundle(bundle: Path, *, manager_root: Path | None = None) -> HostedQualificationManifest:
     manifest_bytes = read_relative(bundle, "qualification-manifest.json", max_bytes=16_777_216)
     manifest = HostedQualificationManifest.model_validate_json(manifest_bytes)
     if (
@@ -547,7 +604,12 @@ def verify_bundle(bundle: Path) -> HostedQualificationManifest:
     for path, digest in frozen:
         if sha256_bytes((ROOT / path).read_bytes()) != digest:
             raise HostedQualificationError("frozen hosted contract bytes changed")
-    result = verify_staging(bundle, manifest.case_records)
+    sources = None
+    if manager_root is not None:
+        from quantos.infrastructure.hosted_qualification_sources import verify_manager_export
+
+        sources = verify_manager_export(bundle, manifest, manager_root)
+    result = verify_staging(bundle, manifest.case_records, sources=sources)
     result_bytes = read_relative(bundle, "verifier-result.json", max_bytes=16_777_216)
     if (
         result.canonical_bytes() != result_bytes
@@ -560,9 +622,19 @@ def verify_bundle(bundle: Path) -> HostedQualificationManifest:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bundle", type=Path)
+    parser.add_argument(
+        "--manager-root", type=Path, help="original trusted deployment root, supplied independently"
+    )
     args = parser.parse_args()
-    manifest = verify_bundle(args.bundle)
-    result = verify_staging(args.bundle, manifest.case_records)
+    manifest = verify_bundle(args.bundle, manager_root=args.manager_root)
+    from quantos.infrastructure.hosted_qualification_sources import verify_manager_export
+
+    sources = (
+        verify_manager_export(args.bundle, manifest, args.manager_root)
+        if args.manager_root
+        else None
+    )
+    result = verify_staging(args.bundle, manifest.case_records, sources=sources)
     print(
         canonical_json_bytes(
             {"qualification_hash": manifest.qualification_hash, "eligibility": result.eligibility}

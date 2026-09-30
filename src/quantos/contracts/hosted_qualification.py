@@ -83,6 +83,44 @@ class HostedRawInventory(CanonicalContract):
         return value
 
 
+class HostedManagerExportFile(CanonicalContract):
+    """Exact bundle bytes mapped to a file in the independently supplied manager root."""
+
+    schema_version: Literal["hosted-manager-export-file/v1"] = "hosted-manager-export-file/v1"
+    bundle_path: str
+    source_path: str
+    sha256: str = Field(pattern=SHA256_PATTERN)
+    size_bytes: NonNegativeInt
+
+    @field_validator("bundle_path", "source_path")
+    @classmethod
+    def paths_are_safe(cls, value: str) -> str:
+        return validate_logical_path(value)
+
+
+class HostedManagerExport(CanonicalContract):
+    """Source mapping, never a producer verdict or a substitute for original bytes."""
+
+    schema_version: Literal["hosted-manager-export/v1"] = "hosted-manager-export/v1"
+    deployment_profile_hash: str = Field(pattern=SHA256_PATTERN)
+    exact_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    files: tuple[HostedManagerExportFile, ...]
+
+    @field_validator("files")
+    @classmethod
+    def files_are_exact(
+        cls, value: tuple[HostedManagerExportFile, ...]
+    ) -> tuple[HostedManagerExportFile, ...]:
+        paths = tuple(item.bundle_path for item in value)
+        if not paths or paths != tuple(sorted(set(paths))):
+            raise ValueError("manager export files must be nonempty, sorted and unique")
+        if {"manager-export.json", "qualification-manifest.json", "verifier-result.json"} & set(
+            paths
+        ):
+            raise ValueError("manager export cannot bind its own or derived verifier authority")
+        return value
+
+
 class HostedPrincipalProjection(CanonicalContract):
     schema_version: Literal["hosted-principal-projection/v1"] = "hosted-principal-projection/v1"
     logical_path: str

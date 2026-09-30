@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import ctypes
 import importlib.util
 import os
@@ -10,6 +9,7 @@ import socket
 import struct
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from quantos.artifacts.store import opened_directory, read_regular_bytes_at
@@ -75,7 +75,13 @@ def main() -> None:
         _fields_ = [("base", ctypes.c_void_p), ("length", ctypes.c_size_t)]
 
     local = Iovec(ctypes.addressof(buffer), 1)
-    remote = Iovec(1, 1)  # Nonzero read, invalid address cannot disclose a parent secret.
+    remote = Iovec(int(str(context["memory_canary_address"])), 1)
+    canary_fd = private_memory_fd("hosted-pidfd-canary")
+    os.write(canary_fd, b"nonsecret-pidfd-canary")
+    pidfd = library.syscall(434, os.getpid(), 0)
+    if pidfd < 0:
+        os.close(canary_fd)
+        raise OSError(ctypes.get_errno(), "actual pidfd canary unavailable")
     for name, syscall, arguments in (
         ("PTRACE_PARENT", 101, (16, int(str(context["manager_pid"])), 0, 0)),
         (
@@ -84,12 +90,14 @@ def main() -> None:
             (int(str(context["manager_pid"])), ctypes.byref(local), 1, ctypes.byref(remote), 1, 0),
         ),
         ("UNSHARE_ESCAPE", 272, (0x10000000,)),
-        ("PIDFD_GETFD_ESCAPE", 438, (-1, 0, 0)),
+        ("PIDFD_GETFD_ESCAPE", 438, (pidfd, canary_fd, 0)),
         ("SETNS_ESCAPE", 308, (-1, 0)),
     ):
         ctypes.set_errno(0)
         value = library.syscall(syscall, *arguments)
         results.append({"name": name, "return": value, "errno": ctypes.get_errno()})
+    os.close(pidfd)
+    os.close(canary_fd)
     client = HostedUnixClient(Path(config.socket_path), capability, config.policy)
     for name, selected, campaign in (
         (
@@ -119,16 +127,41 @@ def main() -> None:
             results.append({"name": name, "changed": False, "errno": error.errno})
         else:
             results.append({"name": name, "changed": True, "errno": None})
-    for index in range(8):
-        # Repeated path replacement attempts interleaved with actual authenticated queries.
-        with contextlib.suppress(OSError):
-            os.replace("/tmp/channel-replacement", config.socket_path)
-        results.append(
-            {
-                "name": f"CHANNEL_RACE_QUERY_{index}",
-                "channel_returned": client.status(str(context["campaign_hash"])) is not None,
-            }
-        )
+    start_read, start_write = os.pipe()
+    result_read, result_write = os.pipe()
+    racer = os.fork()
+    if racer == 0:
+        os.close(start_write)
+        os.close(result_read)
+        os.read(start_read, 1)
+        attempts: list[int | None] = []
+        for _ in range(128):
+            try:
+                os.replace("/tmp/channel-replacement", config.socket_path)
+            except OSError as error:
+                attempts.append(error.errno)
+            else:
+                attempts.append(None)
+            time.sleep(0.002)
+        os.write(result_write, canonical_json_bytes({"attempts": attempts}))
+        os._exit(0)
+    os.close(start_read)
+    os.close(result_write)
+    try:
+        os.write(start_write, b"x")
+        for index in range(8):
+            results.append(
+                {
+                    "name": f"CHANNEL_RACE_QUERY_{index}",
+                    "channel_returned": client.status(str(context["campaign_hash"])) is not None,
+                }
+            )
+        concurrent = strict_json_object(os.read(result_read, 4096), max_bytes=4096)
+        results.append({"name": "CHANNEL_CONCURRENT_RACE", **concurrent})
+    finally:
+        os.close(start_write)
+        os.close(result_read)
+        os.waitpid(racer, 0)
     header = canonical_json_bytes(
         {
             "schema_version": "hosted-channel-request/v1",
