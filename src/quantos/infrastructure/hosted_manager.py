@@ -1022,11 +1022,17 @@ def run_managed_observation_case(deployment: HostedManagedDeployment, case: str)
     return _run_managed_transport_fixture(deployment, case, "Q08")
 
 
+def run_managed_duplicate_case(deployment: HostedManagedDeployment, case: str) -> Path:
+    """Capture fixed cross-process duplicate fixtures without exposing test operations."""
+    return _run_managed_transport_fixture(deployment, case, "Q02")
+
+
 def _run_managed_transport_fixture(
     deployment: HostedManagedDeployment, case: str, family: str
 ) -> Path:
     from quantos.infrastructure.hosted_fixture_frames import (
         BUSINESS_REJECTION_CASES,
+        DUPLICATE_SUBMISSION_CASES,
         HOST_OBSERVATION_CASES,
     )
     from quantos.infrastructure.hosted_negative_probe import (
@@ -1036,6 +1042,7 @@ def _run_managed_transport_fixture(
     from quantos.infrastructure.hosted_verification import raw_inventory, read_relative
 
     allowed = {
+        "Q02": DUPLICATE_SUBMISSION_CASES,
         "Q03": NEGATIVE_CASES,
         "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES),
         "Q08": HOST_OBSERVATION_CASES,
@@ -1052,6 +1059,7 @@ def _run_managed_transport_fixture(
         (target / name).mkdir(mode=0o700)
     paths = replace(deployment.paths, authority=target / "authority", channel=target / "channel")
     module = {
+        "Q02": "hosted_duplicate_probe",
         "Q03": "hosted_negative_probe",
         "Q04": "hosted_admission_probe",
         "Q08": "hosted_observation_probe",
@@ -1117,7 +1125,7 @@ def _run_managed_transport_fixture(
                 break
             except (ArtifactIntegrityError, OSError, ValueError):
                 time.sleep(0.05)
-        return_code = process.wait(timeout=300)
+        return_code = process.wait(timeout=600 if family == "Q02" else 300)
         observation_hash: str | None = None
         observation_failure_type: str | None = None
         if return_code == 0:

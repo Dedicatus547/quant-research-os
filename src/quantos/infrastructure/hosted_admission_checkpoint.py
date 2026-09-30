@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from quantos.application.autonomous import AutonomousProposalEvidence, autonomous_trial_event_id
+from quantos.application.hosted_campaign import hosted_business_operation_id
 from quantos.contracts.campaign import CampaignTrial, ResearchCampaignEvent, TrialOutcome
 from quantos.contracts.hosted import (
     HostedAgentExchange,
@@ -51,6 +52,7 @@ def verify_native_admission_checkpoint(
     prepared_step, completed = steps
     if (
         completed.previous_intent_hash != prepared_step.content_hash
+        or prepared_step.previous_intent_hash is not None
         or completed.execution_result_hash is not None
         or prepared_step.execution_request is not None
         or completed.trial_hash is None
@@ -126,6 +128,10 @@ def verify_native_admission_checkpoint(
         or initial.candidate_hashes
         or initial.previous_hash is not None
         or initial.request_hash is not None
+        or initial.operation_id
+        != hosted_business_operation_id(
+            request.campaign_hash, "RESEARCH_INITIAL", state.spec.content_hash
+        )
         or prepared_step.budget_reservation_hash != reserved.content_hash
     ):
         raise HostedQualificationError("admission checkpoint initial/reserved budget differs")
@@ -137,6 +143,12 @@ def verify_native_admission_checkpoint(
             or budget.campaign_hash != request.campaign_hash
             or budget.hosted_spec_hash != state.spec.content_hash
             or budget.request_hash != request.content_hash
+            or budget.operation_id
+            != hosted_business_operation_id(
+                request.campaign_hash,
+                "RESERVE" if budget.phase == "RESERVED" else "SETTLE",
+                request.content_hash,
+            )
             or budget.used_trials != projection.trial_count
             or budget.used_executions != projection.execution_count
             or budget.used_compute_units != projection.compute_seconds
@@ -175,4 +187,88 @@ def verify_native_admission_checkpoint(
         )
     ):
         raise HostedQualificationError("admission checkpoint terminal references differ")
+    # Hash-valid publication is not evidence that an object belongs to this step.
+    # Bind every BUSINESS intent to the native publication's exact chronology and
+    # object tuple. Protocol operations also have a fixed shape, so an extra trial
+    # cannot evade this closure by using a different journal operation kind.
+    intents = tuple(entry for entry in state.journal if entry.phase == "INTENT")
+    shapes = (
+        (
+            "REGISTER",
+            (
+                "hosted-campaign-spec/v1",
+                "hosted-budget-journal-fact/v1",
+                "hosted-submission-receipt/v1",
+            ),
+        ),
+        ("BUSINESS", ("hosted-research-budget-fact/v1",)),
+        (
+            "ISSUE",
+            (
+                "hosted-budget-journal-fact/v1",
+                "hosted-agent-request/v1",
+                "hosted-checkpoint/v1",
+                "hosted-submission-receipt/v1",
+            ),
+        ),
+        (
+            "SUBMIT",
+            (
+                "hosted-budget-journal-fact/v1",
+                "hosted-observation/v1",
+                "hosted-agent-response/v1",
+                "hosted-agent-exchange/v1",
+                "hosted-submission-receipt/v1",
+            ),
+        ),
+        ("BUSINESS", ("hosted-research-budget-fact/v1", "hosted-research-step-intent/v1")),
+        (
+            "BUSINESS",
+            (
+                "campaign-trial/v1",
+                "hosted-research-budget-fact/v1",
+                "hosted-research-step-intent/v1",
+            ),
+        ),
+        ("BUSINESS", ("hosted-request-terminal-receipt/v1",)),
+    )
+    if len(state.requests) == 2:
+        shapes += (shapes[2], ("TERMINATE", ("hosted-request-terminal-receipt/v1",)))
+    actual_shapes = tuple(
+        (
+            entry.operation_kind,
+            tuple(
+                strict_json_object(publication.canonical_json.encode(), max_bytes=16_777_216).get(
+                    "schema_version"
+                )
+                for publication in entry.publications
+            ),
+        )
+        for entry in intents
+    )
+    if actual_shapes != shapes:
+        raise HostedQualificationError("admission checkpoint publication chronology differs")
+    business = tuple(entry for entry in intents if entry.operation_kind == "BUSINESS")
+    expected_business = (
+        ("RESEARCH_INITIAL", state.spec.content_hash, state.spec.started_at, (initial,)),
+        ("PREPARED", request.content_hash, prepared_step.event_time, (reserved, prepared_step)),
+        ("COMPLETED", request.content_hash, prepared_step.event_time, (trial, settled, completed)),
+        ("STEP_COMPLETED", request.content_hash, prepared_step.event_time, (terminal,)),
+    )
+    for entry, (kind, identity, recorded_at, artifacts) in zip(
+        business, expected_business, strict=True
+    ):
+        if (
+            entry.operation_id
+            != hosted_business_operation_id(request.campaign_hash, kind, identity)
+            or entry.recorded_at != recorded_at
+            or tuple(
+                (publication.artifact_hash, publication.canonical_json.encode())
+                for publication in entry.publications
+            )
+            != tuple((artifact.content_hash, artifact.canonical_bytes()) for artifact in artifacts)
+        ):
+            raise HostedQualificationError(
+                "admission checkpoint contains an unrelated business publication"
+            )
     return trial, settled, tuple(event.content_hash for event in events)

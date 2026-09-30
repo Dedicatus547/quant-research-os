@@ -261,3 +261,45 @@ Q12 仍未通过：上一固定提交 955b07f 全量禁网回归 1049 passed / 3
 自动审批超时、未启动，按工具允许重试一次后通过，没有模型认证或网络调用。
 新 checkpoint 对 attempt12 原 P14-DQ partial authority 的只读组件核验为26个hash，
 `POSTDATES_INSTALLED_COMMIT / NOT_QUALIFIED`，不补写原失败 observation。
+
+### 2026-09-30：attempt13 矩阵诊断与 publication 闭包后继修复
+
+冻结提交 `abe5a9db5e542eb09caba9fc868c35fa56207e2a` 的实际安装保留于
+`/tmp/hm-stage-abe5a9d-attempt13`。B 为
+`9efc5b967bfdcac665d2efa99343036b24abe6f76a6084012c93a245403e8488`，D 为
+`c62b2a0d8211c347893bb74a7c9a648446f625f521e8afff47fa8fc1062664f6`。
+固定管理入口实际完成 Q03 八项、Q04 十三项、Q08 十一项，未调用模型或读取真实模型认证。
+Q04 保留原生 admission checkpoint，没有再对不完整的 DQ 分母调用 finalization。
+Q08 使用显式合成自报／冲突 metadata，不能当作 live 模型来源。
+
+原件只读诊断 `/tmp/hm-q03-q04-q08-abe5a9d-attempt13-diagnostic` 得到 Q03/Q04/Q08
+PASS，其余九门 NOT_EVALUATED，整体 NOT_QUALIFIED。manifest 为
+`fd301c7c76b1fd4a648f1df32b942fc84542fe8b6530f25f21476acd38e8b3b2`，result 为
+`073ebcb5ddc291f103b21eaa4d28c858804324c4a6f7c1905a9f8c92e15c7783`，manager export 为
+`0e8da7dd3834f0b7b2c547dff95ea7d18d2e44ad82b1046d1494f9dbf8112a1b`。
+该不可变诊断明确记载 abe 的 Q04 未引用 publication P1 和失败 attempt ledger 尚未完整，
+不作为正式资格依据；没有用后继实现重写这轮安装的检查结果。
+
+[abe 独立审查](../reviews/hm-q04-q08-corrective-review-abe5a9d.md) 确认 source-only
+缓存入口 P1 窄实施关闭，但复现额外合法 BUSINESS journal pair 发布未引用 trial 仍被
+Q04 helper 接受。后继实施绑定全部 INTENT 的精确 native schema 顺序，以及四段
+BUSINESS 的原生 operation ID、时间、完整 publication tuple；budget operation ID 同样
+复用应用层原生纯函数。新增发布额外 trial、重复 trial、重复 settlement、用 TERMINATE
+包装 trial 均拒绝，普通未知文件反例仍拒绝；native Qlib 集成回归 1 passed / 145.24s。
+[闭包独立复核](../reviews/hm-admission-journal-closure-review.md) 又重跑原反例，并保持
+有效 journal chain 篡改 operation ID/time，均精确拒绝、读取前后 raw 不变，关闭该窄
+实施 P1。它不追认 abe 安装或 attempt13，也不是最终 HM09 接受记录。
+
+Q02 后继固定入口和只读谓词已接线，研究 RPC 不开放测试入口、root override 或 clock。
+两种 fixture 为 accepted 和 rejected：两个真实 fork 进程经 pipe barrier 同时提交，后续
+重复提交、两个分别重建 application 的进程 resume，再达到冻结 per-request cap=2、TTL
+后重复原 bytes。accepted fixture 使用已知候选的 schema-invalid proposal，原生 admission
+仅形成一个 trial/event/Ledger，execution/Workflow 调用为零；这不是成功执行或 Q11。
+谓词要求原 manager kernel/安装/argv、六个独立 child 的实际退出与锁 inode、原始每阶段
+全量清单、接受/拒绝同 receipt、重复 resume 原件不变、cap unique 拒绝收费且 seen 不收费。
+功能输入的真实 fork/barrier 回归 2 passed / 16.79s，不授实际安装 Q02 资格；新 wheel/profile
+实跑尚待完成。主 agent 完成普通实施，必要独立窄审仍为 gpt-6.1-sol/high、usage unavailable。
+
+当前缺项仍包含实际新安装 Q02、完整 Q05/Q06、修复后的 Q04 新安装原件、Q12 coverage≥85%，
+以及真实 Q11／Q09／Q10、完整失败记录、HM09、HM10（gpt-6-luna/medium）和 HM11。
+HM-MVP 未完成；没有启动真实模型认证、provider 调用、正式发布或资格 tag。

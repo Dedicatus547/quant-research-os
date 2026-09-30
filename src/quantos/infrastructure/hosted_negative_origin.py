@@ -18,10 +18,13 @@ from quantos.infrastructure.hosted_deployment import namespace_command
 from quantos.infrastructure.hosted_fixture_frames import (
     BOUNDED_REJECTION_CASES,
     BUSINESS_REJECTION_CASES,
+    DUPLICATE_SNAPSHOT_PHASES,
+    DUPLICATE_SUBMISSION_CASES,
     HOST_OBSERVATION_CASES,
     HOST_OBSERVATION_SCHEMA_REJECTIONS,
     bounded_rejection_frame,
     business_rejection_frame,
+    duplicate_frame,
     host_observation_frame,
 )
 from quantos.infrastructure.hosted_negative_verification import (
@@ -59,6 +62,14 @@ def verify_q03(
     bundle: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
 ) -> tuple[str, ...]:
     return _verify_transport_matrix(bundle, case, sources, family="Q03", names=CASES)
+
+
+def verify_q02(
+    bundle: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
+) -> tuple[str, ...]:
+    return _verify_transport_matrix(
+        bundle, case, sources, family="Q02", names=DUPLICATE_SUBMISSION_CASES
+    )
 
 
 def verify_q08(
@@ -135,7 +146,12 @@ def _verify_transport_matrix(
     require(case.case_id == family, "Q03 case identity differs")
     roots = {root.name: root for root in case.roots}
     require(
-        set(roots) == {f"{name}-{phase}" for name in names for phase in ("before", "after")},
+        set(roots)
+        == {
+            f"{name}-{phase}"
+            for name in names
+            for phase in (DUPLICATE_SNAPSHOT_PHASES if family == "Q02" else ("before", "after"))
+        },
         "Q03 complete independent matrix is absent",
     )
     records: list[tuple[str, dict[str, object], bytes]] = []
@@ -160,7 +176,15 @@ def _verify_transport_matrix(
             inventory = HostedRawInventory.model_validate_json(
                 read_relative(bundle, root.raw_inventory_path)
             )
-            original = target / ("channel/before/authority" if phase == "before" else "authority")
+            original = target / (
+                (
+                    "channel/snapshots/before/authority"
+                    if family == "Q02"
+                    else "channel/before/authority"
+                )
+                if phase == "before"
+                else "authority"
+            )
             require(
                 sources.root_origin(root, inventory) == original,
                 "Q03 snapshots combine unrelated original roots",
@@ -258,6 +282,7 @@ def _verify_transport_matrix(
             if item.relative_path
             == "python/lib/python3.11/site-packages/quantos/infrastructure/"
             + {
+                "Q02": "hosted_duplicate_probe.py",
                 "Q03": "hosted_negative_probe.py",
                 "Q04": "hosted_admission_probe.py",
                 "Q08": "hosted_observation_probe.py",
@@ -291,6 +316,7 @@ def _verify_transport_matrix(
             "-m",
             "quantos.infrastructure."
             + {
+                "Q02": "hosted_duplicate_probe",
                 "Q03": "hosted_negative_probe",
                 "Q04": "hosted_admission_probe",
                 "Q08": "hosted_observation_probe",
@@ -378,7 +404,8 @@ def _verify_transport_matrix(
             "Q03 actual worker principal differs",
         )
         require(
-            observation.get("fixture_kind") == "TRANSPORT_NEGATIVE_FIXTURE"
+            observation.get("fixture_kind")
+            == ("DUPLICATE_SUBMISSION_FIXTURE" if family == "Q02" else "TRANSPORT_NEGATIVE_FIXTURE")
             and observation.get("execute_calls")
             == observation.get("workflow_calls")
             == observation.get("network_attempts")
@@ -445,12 +472,16 @@ def _verify_transport_matrix(
                 "Q04 raw negative bytes were exported or fixture family differs",
             )
             submitted = (
-                host_observation_frame(request, name)
-                if family == "Q08"
+                duplicate_frame(request, name)
+                if family == "Q02"
                 else (
-                    business_rejection_frame(request, name)
-                    if name in BUSINESS_REJECTION_CASES
-                    else bounded_rejection_frame(request, name)
+                    host_observation_frame(request, name)
+                    if family == "Q08"
+                    else (
+                        business_rejection_frame(request, name)
+                        if name in BUSINESS_REJECTION_CASES
+                        else bounded_rejection_frame(request, name)
+                    )
                 )
             )
             require(
@@ -522,7 +553,15 @@ def _verify_transport_matrix(
                 if name in HOST_OBSERVATION_SCHEMA_REJECTIONS
                 else "source_unattested"
             )
-        if name in BUSINESS_REJECTION_CASES:
+        if family == "Q02":
+            from quantos.infrastructure.hosted_duplicate_verification import (
+                verify_duplicate_fixture,
+            )
+
+            checked.update(
+                verify_duplicate_fixture(bundle, case, name, observation, child_fact, sources)
+            )
+        elif name in BUSINESS_REJECTION_CASES:
             from quantos.infrastructure.hosted_admission_verification import (
                 verify_business_admission_fixture,
             )

@@ -42,9 +42,11 @@ from quantos.contracts.autonomous import (
     AutonomousCandidateProposal,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.campaign import CampaignTrial
 from quantos.contracts.hosted import (
     HostedAgentResponse,
     HostedBudgetPolicy,
+    HostedResearchBudgetFact,
     HostObservation,
     HostReportedUsage,
 )
@@ -375,6 +377,60 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
                     )
                 assert changed == (raw_inventory(before_root), raw_inventory(rejected_root))
                 extra.unlink()
+            checkpoint = HostedProtocolStore(rejected_root / "protocol").snapshot(
+                campaign.content_hash, recover=False
+            )
+            original_trial = next(
+                checkpoint.artifact(digest, CampaignTrial)
+                for digest, data in checkpoint.artifacts.items()
+                if json.loads(data).get("schema_version") == "campaign-trial/v1"
+            )
+            unrelated_trial = CampaignTrial.model_validate(
+                {
+                    **original_trial.model_dump(mode="json"),
+                    "trial_id": "unreferenced-journal-trial",
+                    "idempotency_key": "0" * 64,
+                }
+            )
+            settled = next(
+                checkpoint.artifact(digest, HostedResearchBudgetFact)
+                for digest, data in checkpoint.artifacts.items()
+                if json.loads(data).get("schema_version") == "hosted-research-budget-fact/v1"
+                and json.loads(data).get("phase") == "SETTLED"
+            )
+            for case_index, (kind, publications) in enumerate(
+                (
+                    ("BUSINESS", (unrelated_trial,)),
+                    ("BUSINESS", (original_trial,)),
+                    ("BUSINESS", (settled,)),
+                    ("TERMINATE", (unrelated_trial,)),
+                )
+            ):
+                altered_root = tmp_path / f"extra-journal-publication-{case_index}"
+                shutil.copytree(rejected_root, altered_root)
+                altered_store = HostedProtocolStore(altered_root / "protocol")
+                with altered_store.campaign_lock(campaign.content_hash) as descriptor:
+                    altered_store.commit_locked(
+                        descriptor,
+                        campaign_hash=campaign.content_hash,
+                        operation_id=sha256_bytes(f"extra-publication-{case_index}".encode()),
+                        operation_kind=kind,
+                        recorded_at=rejected_request.issued_at,
+                        artifacts=publications,
+                    )
+                changed = raw_inventory(before_root), raw_inventory(altered_root)
+                with pytest.raises(HostedQualificationError, match="publication chronology"):
+                    verify_business_admission_fixture(
+                        before_root,
+                        altered_root,
+                        rejected_request,
+                        bad_frame,
+                        accepted.content_hash,
+                        None,
+                        cancelled.content_hash if cancelled else None,
+                        original_sources,
+                    )
+                assert changed == (raw_inventory(before_root), raw_inventory(altered_root))
     original_execute = QuantosResearchExecutionAdapter.execute
     exports: list[Path] = []
     native_roots: list[Path] = []

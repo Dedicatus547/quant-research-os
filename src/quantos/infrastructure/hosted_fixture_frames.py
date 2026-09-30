@@ -34,6 +34,24 @@ BUSINESS_REJECTION_CASES = (
     "wrong_structural_fingerprint",
 )
 
+DUPLICATE_SUBMISSION_CASES = ("accepted", "rejected")
+DUPLICATE_SNAPSHOT_PHASES = (
+    "before",
+    "after-submit",
+    "after-first-resume",
+    "after-business",
+    "before-cap",
+    "after",
+)
+
+
+def duplicate_frame(request: HostedAgentRequest, case: str) -> bytes:
+    if case not in DUPLICATE_SUBMISSION_CASES:
+        raise ValueError("unknown fixed duplicate case")
+    return (
+        business_rejection_frame(request, "known_schema_invalid") if case == "accepted" else b"{}"
+    )
+
 
 def transport_fixture_response(request: HostedAgentRequest) -> HostedAgentResponse:
     proposal = canonical_json_bytes(

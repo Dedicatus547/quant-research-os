@@ -71,7 +71,7 @@ class _Facts:
     reports: tuple[HostedCampaignReport, ...]
 
 
-def _operation(campaign_hash: str, kind: str, identity: object) -> str:
+def hosted_business_operation_id(campaign_hash: str, kind: str, identity: object) -> str:
     return sha256_bytes(
         canonical_json_bytes({"campaign": campaign_hash, "kind": kind, "id": identity})
     )
@@ -417,7 +417,7 @@ class HostedCampaignApplicationService:
     ) -> HostedStoreSnapshot:
         return self.protocol.publish_business(
             state.spec.campaign_hash,
-            operation_id=_operation(state.spec.campaign_hash, kind, identity),
+            operation_id=hosted_business_operation_id(state.spec.campaign_hash, kind, identity),
             recorded_at=at,
             artifacts=artifacts,
             expected_journal_head_hash=state.journal_head_hash,
@@ -468,7 +468,9 @@ class HostedCampaignApplicationService:
                 campaign_hash=campaign_hash,
                 hosted_spec_hash=state.spec.content_hash,
                 previous_hash=None,
-                operation_id=_operation(campaign_hash, "RESEARCH_INITIAL", state.spec.content_hash),
+                operation_id=hosted_business_operation_id(
+                    campaign_hash, "RESEARCH_INITIAL", state.spec.content_hash
+                ),
                 request_hash=None,
                 phase="INITIAL",
                 used_trials=projection.trial_count,
@@ -651,7 +653,9 @@ class HostedCampaignApplicationService:
                 campaign_hash=state.spec.campaign_hash,
                 hosted_spec_hash=state.spec.content_hash,
                 previous_hash=before.content_hash,
-                operation_id=_operation(state.spec.campaign_hash, "RESERVE", request.content_hash),
+                operation_id=hosted_business_operation_id(
+                    state.spec.campaign_hash, "RESERVE", request.content_hash
+                ),
                 request_hash=request.content_hash,
                 phase="RESERVED",
                 used_trials=before.used_trials + 1,
@@ -716,7 +720,7 @@ class HostedCampaignApplicationService:
                         uncertain = before.model_copy(
                             update={
                                 "previous_hash": before.content_hash,
-                                "operation_id": _operation(
+                                "operation_id": hosted_business_operation_id(
                                     state.spec.campaign_hash, "UNCERTAIN", request.content_hash
                                 ),
                                 "phase": "UNCERTAIN",
@@ -751,7 +755,7 @@ class HostedCampaignApplicationService:
             settled = before.model_copy(
                 update={
                     "previous_hash": before.content_hash,
-                    "operation_id": _operation(
+                    "operation_id": hosted_business_operation_id(
                         state.spec.campaign_hash, "SETTLE", request.content_hash
                     ),
                     "phase": "SETTLED",

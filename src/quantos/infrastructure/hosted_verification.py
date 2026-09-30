@@ -607,6 +607,7 @@ def verify_case(
             )
         if sources is not None and case.case_id in {
             "Q01",
+            "Q02",
             "Q03",
             "Q04",
             "Q08",
@@ -616,6 +617,7 @@ def verify_case(
         }:
             from quantos.infrastructure.hosted_case_predicates import verify_q01, verify_q11
             from quantos.infrastructure.hosted_negative_origin import (
+                verify_q02,
                 verify_q03,
                 verify_q04,
                 verify_q08,
@@ -624,6 +626,7 @@ def verify_case(
 
             predicate = {
                 "Q01": verify_q01,
+                "Q02": verify_q02,
                 "Q03": verify_q03,
                 "Q04": verify_q04,
                 "Q08": verify_q08,
