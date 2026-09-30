@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import Literal, Self, cast
 
 from pydantic import Field, NonNegativeInt, field_validator, model_validator
 
@@ -191,6 +191,20 @@ class HostedQualificationManifest(CanonicalContract):
     failed_attempt_hashes: tuple[str, ...] = ()
     limitations: tuple[str, ...]
     files: tuple[HostedQualificationFile, ...]
+
+    @field_validator("failed_attempt_hashes", mode="before")
+    @classmethod
+    def failed_attempt_hashes_are_valid(cls, value: object) -> object:
+        import re
+
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("failed attempts must use explicit SHA-256 hashes")
+        if any(
+            not isinstance(digest, str) or re.fullmatch(SHA256_PATTERN, digest) is None
+            for digest in cast(list[object] | tuple[object, ...], value)
+        ):
+            raise ValueError("failed attempts must use explicit SHA-256 hashes")
+        return cast(object, value)
 
     @model_validator(mode="after")
     def exact_registry_and_files(self) -> Self:

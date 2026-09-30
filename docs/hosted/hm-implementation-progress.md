@@ -122,3 +122,32 @@ import-blocker/SDK stub 用例及既有 4 项采集 capability 回归 `8 passed 
 不编造 return code/completion；加上实际退出失败与缺安全观测，总计 `4 passed / 5.10s`。
 ruff 和严格 pyright 通过，尚需新 wheel/profile 实跑；Q03 的完整 source predicate 草稿
 未发布或授予资格，仍需原件和负例验证。没有模型调用或模型凭据读取。
+
+后继 `76939b8` actual attempt 09 的八个固定隔离负例均成功退出，逐项 transition
+核验通过，live authority 的完整 raw inventory 保持不变。原根
+`/tmp/hm-stage-76939b8-attempt09`，B
+`1379e46a28b69081fa838eebfae97b428787b57e672e4869e490fbb97473be46`，D
+`9fd916af5c9d007cd20134063fcfed5d17ddea8088a92937a803f626e028423e`。
+这是明确标记的 transport fixture，仍无模型调用或模型凭据读取。
+
+新增 Q03 来源谓词接入 verifier，要求全部八个独立 before/after 原根、原始管理端
+prelaunch/completion/observation、固定 argv/安装程序、真实 kernel PID 链、namespace
+与外部 UID/GID/capability 绑定；重算拒绝 accounting、完整 raw delta、seen/repeat/cancel。
+17 项语义和只读拒绝测试通过；其中合成 kernel records 不能当作正式部署证明。
+独立窄审发现直接调用谓词可能在缺失 exported specs 目录时触发 Store 创建目录；现先
+验证 raw inventory 与 protocol integrity，再构造 Store，并验证缺失目录不被重建。
+
+actual attempt 09 的完整 diagnostic 首次导出失败，manifest
+`0a73c92b357de0b99d18c4c71711e5bfa718daebbb826930cbbf540b9fe776cb`，result
+`e059f5f8112550e34dd3338f546395fcddefc4aa4d4074214417cc187e31a7a0`。
+导出脚本把 before inventory sidecar 写入已观测的 channel，改变原始清单，来源谓词
+正确拒绝。失败 bundle、sidecar、日志与原根保留；后继导出将只在管理 evidence 下保存
+新 inventory，不放宽 exact channel 检查，不删除失败工件来制造成功。
+
+精确 clean `24904e9` 的禁网 CI 已结束：`1022 passed / 344 warnings / 1739.63s`，
+coverage `80.07%`，未达冻结 `85%`，Q12 仍未通过。保存日志
+`/tmp/hm-ci-24904e9-pytest.txt` 与 XML `/tmp/hm-ci-24904e9-coverage.xml`。
+覆盖率配置增加 multiprocessing 与 subprocess/_exit 采集，以计入实际执行过的
+退出/恢复子进程；冻结 85% 门和 source 范围不变。实际 expired/seen fresh-process
+覆盖率 smoke `1 passed / 30 deselected / 52.49s`，完整稳定提交 CI 尚待重跑。
+manifest 的失败尝试引用补充严格 SHA-256 格式校验；完整失败 ledger 来源对账仍待完成。

@@ -600,12 +600,14 @@ def verify_case(
                 reason="ACTUAL_MANAGED_ISOLATION_VERIFIED",
                 checked_artifact_hashes=tuple(sorted(hashes)),
             )
-        if sources is not None and case.case_id in {"Q01", "Q09", "Q10", "Q11"}:
+        if sources is not None and case.case_id in {"Q01", "Q03", "Q09", "Q10", "Q11"}:
             from quantos.infrastructure.hosted_case_predicates import verify_q01, verify_q11
+            from quantos.infrastructure.hosted_negative_origin import verify_q03
             from quantos.infrastructure.hosted_replay_verification import verify_q09, verify_q10
 
             predicate = {
                 "Q01": verify_q01,
+                "Q03": verify_q03,
                 "Q09": verify_q09,
                 "Q10": verify_q10,
                 "Q11": verify_q11,

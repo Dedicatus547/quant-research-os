@@ -9,7 +9,12 @@ import pytest
 from pydantic import ValidationError
 from test_hosted_protocol import _fixture
 
-from quantos.contracts.hosted_qualification import HostedQualificationCase
+from quantos.contracts.hosted_qualification import (
+    HOSTED_QUALIFICATION_CASES,
+    HostedQualificationCase,
+    HostedQualificationFile,
+    HostedQualificationManifest,
+)
 from quantos.infrastructure.hosted_verification import (
     HostedQualificationError,
     raw_inventory,
@@ -63,3 +68,25 @@ def test_producer_cannot_award_pass_or_qualify_empty_case(tmp_path: Path) -> Non
         HostedQualificationCase.model_validate({"case_id": "Q11", "verdict": "PASS"})
     result = verify_case(tmp_path, HostedQualificationCase(case_id="Q11"))
     assert result.verdict == "NOT_EVALUATED"
+
+
+@pytest.mark.parametrize("digest", ["latest", "a" * 63, "G" * 64, "a" * 64 + "\n"])
+def test_failed_attempt_references_require_sha256(digest: str) -> None:
+    with pytest.raises(ValidationError, match="SHA-256"):
+        HostedQualificationManifest(
+            exact_commit="a" * 40,
+            lockfile_hash="a" * 64,
+            runtime_fingerprint_hash="a" * 64,
+            deployment_profile_hash="a" * 64,
+            verifier_result_hash="a" * 64,
+            failed_attempt_hashes=(digest,),
+            limitations=("SYNTHETIC_NOT_QUALIFIED",),
+            case_records=tuple(
+                HostedQualificationCase(case_id=key) for key in HOSTED_QUALIFICATION_CASES
+            ),
+            files=(
+                HostedQualificationFile(
+                    logical_path="verifier-result.json", sha256="a" * 64, size_bytes=0
+                ),
+            ),
+        )
