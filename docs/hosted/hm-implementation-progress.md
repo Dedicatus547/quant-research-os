@@ -406,7 +406,9 @@ mode=json与原生mode=python日期序列化差异失败147.98s；两次固定�
 Q12 coverage≥85%的证明。
 
 第三后继独立审查已归档：[精确修复边界](../reviews/hm-q05-durable-p1-closure-review03.md)，
-hash `70871c25f574982cf6495cf556ba85ff46f8a735614f16c7317510482195340e`。
+hash `648c2556657f6a6dfb5cc78696c11c81a44e6e6744f7f02bf9a2dd52c0916f7f`。
+先归档的未完成写作快照保留为 `hm-q05-durable-p1-closure-review03-draft.md`，hash
+`70871c25f574982cf6495cf556ba85ff46f8a735614f16c7317510482195340e`，不冒充最终版本。
 独立机械反例确认原三项P1及后续孤立REGISTER、合法错误Ledger分类、提前TTL终结均被拒绝，
 保留原生两执行320文件的完整业务/引用闭包及目录/文件只读核验PASS；该窄审范围内没有
 未关闭的已复现P1。没有将第07/08轮或任何历史失败改写为通过。TERMINATE语义负例同时
