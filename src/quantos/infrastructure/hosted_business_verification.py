@@ -17,7 +17,9 @@ from quantos.application.hosted_inputs import (
     build_hosted_execution_adapter,
 )
 from quantos.application.ledger import ResearchLedgerService
+from quantos.backtest import verify_backtest_artifact
 from quantos.contracts.agent import CampaignSegment
+from quantos.contracts.autonomous import AutonomousExecutionResult
 from quantos.contracts.campaign import CampaignEventType, CampaignTrial, ResearchCampaignEvent
 from quantos.contracts.campaign_selection import (
     CampaignSelectionEvent,
@@ -36,14 +38,23 @@ from quantos.contracts.hosted import (
 from quantos.contracts.hosted_inputs import HostedFrozenBusinessInputs, derive_hosted_campaign_spec
 from quantos.contracts.hosted_qualification import HostedRawInventory
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
-from quantos.contracts.validation import GateSeverity, ValidationGateId, ValidationReport
+from quantos.contracts.validation import (
+    GateSeverity,
+    RobustnessKind,
+    ValidationGateId,
+    ValidationReport,
+)
 from quantos.infrastructure.hosted_store import HostedProtocolStore
 from quantos.infrastructure.hosted_verification import (
     HostedQualificationError,
+    c11_manifest_projection,
     raw_inventory,
+    read_relative,
     verify_protocol_root,
     verify_raw_inventory,
 )
+from quantos.research.qlib.signal import verify_signal_artifact
+from quantos.research.qlib.universe import QlibResearchError
 from quantos.validation import verify_validation_report
 
 
@@ -54,6 +65,98 @@ class HostedVerifiedBusiness:
     validation_reports: tuple[ValidationReport, ...]
     execution_identities: tuple[str, ...]
     artifact_hashes: tuple[str, ...]
+
+
+def c11_business_projection_paths(
+    authority: Path, facts: HostedVerifiedBusiness, bundle: HostedFrozenBusinessInputs
+) -> frozenset[str]:
+    """Authorize native manifest paths from verified validation references and frozen variants.
+
+    Unknown files with an otherwise valid C11 schema do not acquire a timestamp
+    exception. They remain exact principal bytes in the two-root comparison.
+    """
+    prefix = f"business/{facts.report.campaign_hash}/execution"
+    state = HostedProtocolStore(authority / "protocol").snapshot(
+        facts.report.campaign_hash, recover=False
+    )
+    reports = {report.content_hash: report for report in facts.validation_reports}
+    allowed: set[str] = set()
+    for digest, raw in state.artifacts.items():
+        if (
+            strict_json_object(raw, max_bytes=16_777_216).get("schema_version")
+            != "hosted-research-step-intent/v1"
+        ):
+            continue
+        step = state.artifact(digest, HostedResearchStepIntent)
+        if (
+            step.phase != "COMPLETED"
+            or step.execution_request is None
+            or step.execution_result_hash is None
+        ):
+            continue
+        outcome = state.artifact(step.execution_result_hash, AutonomousExecutionResult)
+        if outcome.research_result_hash is not None:
+            allowed.add(
+                f"{prefix}/research-results/sha256-{outcome.research_result_hash}/manifest.json"
+            )
+        if outcome.validation_report_hash not in reports:
+            continue
+        report = reports[outcome.validation_report_hash]
+        execution = f"{prefix}/executions/{step.execution_request.execution_identity}"
+        allowed.update(
+            (
+                f"{execution}/baseline/signals/sha256-{report.signal_artifact_hash}/manifest.json",
+                f"{execution}/baseline/backtests/sha256-{report.backtest_result_hash}/manifest.json",
+            )
+        )
+        if report.reproducibility is not None:
+            allowed.add(
+                f"{execution}/reproduction/sha256-{report.reproducibility.right.sha256}/manifest.json"
+            )
+        for case in report.robustness_cases:
+            variant: str | None = None
+            if case.kind is RobustnessKind.COST_STRESS:
+                for multiplier in bundle.validation_policy.cost_stress_multipliers:
+                    if multiplier != 1.0 and case.case_id == f"cost-{multiplier:.1f}x":
+                        variant = case.case_id
+            elif case.kind is RobustnessKind.PARAMETER_STABILITY:
+                for window in bundle.validation_policy.parameter_windows:
+                    for top_k in bundle.validation_policy.parameter_top_k:
+                        if case.case_id == f"window-{window}-topk-{top_k}" and not all(
+                            ref.sha256 in {report.signal_artifact_hash, report.backtest_result_hash}
+                            for ref in case.evidence
+                        ):
+                            variant = f"parameter-{window}-{top_k}"
+            elif case.kind is RobustnessKind.SUBPERIOD and case.case_id in {
+                period.period_id for period in bundle.validation_policy.subperiods
+            }:
+                variant = f"subperiod-{case.case_id}"
+            if variant is not None:
+                for ref in case.evidence:
+                    directory = {"signal_artifact": "signals", "backtest_result": "backtests"}.get(
+                        ref.kind
+                    )
+                    if directory is not None:
+                        allowed.add(
+                            f"{execution}/{variant}/{directory}/sha256-{ref.sha256}/manifest.json"
+                        )
+    for logical in sorted(allowed):
+        c11_manifest_projection(read_relative(authority, logical), logical_path=logical)
+        directory = authority / Path(logical).parent
+        try:
+            if "/signals/" in logical:
+                manifest = verify_signal_artifact(directory)
+                if directory.name != f"sha256-{manifest.content_hash}":
+                    raise HostedQualificationError("referenced native signal hash differs")
+            elif "/backtests/" in logical or "/reproduction/" in logical:
+                backtest = verify_backtest_artifact(directory)
+                if directory.name != f"sha256-{backtest.content_hash}":
+                    raise HostedQualificationError("referenced native backtest hash differs")
+        except (QlibResearchError, OSError, ValueError) as error:
+            raise HostedQualificationError(
+                "referenced native robustness artifact is invalid"
+            ) from error
+    return frozenset(allowed)
 
 
 def principal_business_inventory(
@@ -406,9 +509,12 @@ def verify_hosted_business_root(
             runtime / "selection-reports" / f"sha256-{report.selection_report_hash}", prefix
         )
     verify_raw_inventory(authority, inventory)
-    return HostedVerifiedBusiness(
+    facts = HostedVerifiedBusiness(
         report, p14c, tuple(validations), tuple(sorted(executions)), tuple(sorted(state.artifacts))
     )
+    c11_business_projection_paths(authority, facts, bundle)
+    verify_raw_inventory(authority, inventory)
+    return facts
 
 
 def verify_q11_research_predicate(facts: HostedVerifiedBusiness) -> str:

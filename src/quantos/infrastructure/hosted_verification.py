@@ -240,7 +240,7 @@ def verify_raw_inventory(root: Path, expected: HostedRawInventory) -> None:
         raise HostedQualificationError("raw authority inventory differs from its manifest")
 
 
-def _c11_projection(data: bytes) -> tuple[str, bytes]:
+def c11_manifest_projection(data: bytes, *, logical_path: str | None = None) -> tuple[str, bytes]:
     """Project only validated C11 authority manifests' top-level created_at."""
     payload = strict_json_object(data, max_bytes=16_777_216)
     schema = payload.get("schema_version")
@@ -251,7 +251,19 @@ def _c11_projection(data: bytes) -> tuple[str, bytes]:
     authority = _C11_PROJECTION_TYPES[schema].model_validate(payload)
     if canonical_json_bytes(authority.model_dump(mode="python")) != data:
         raise HostedQualificationError("C11 authority manifest is not canonical")
-    # Each typed authority class validates its own self-hash. Nested dates remain untouched.
+    # Ledger snapshots have no embedded self-hash: bind the derived content hash
+    # to their verified content-addressed path. Other types validate embedded hashes.
+    if isinstance(authority, ResearchLedgerSnapshot) and (
+        logical_path is None or Path(logical_path).name != f"sha256-{authority.content_hash}.json"
+    ):
+        raise HostedQualificationError("C11 Ledger snapshot path/content binding is absent")
+    if not isinstance(authority, ResearchLedgerSnapshot) and (
+        logical_path is None
+        or Path(logical_path).name != "manifest.json"
+        or Path(logical_path).parent.name != f"sha256-{authority.content_hash}"
+    ):
+        raise HostedQualificationError("C11 manifest directory/content binding is absent")
+    # Nested dates remain untouched.
     projected = canonical_json_bytes(
         {key: value for key, value in payload.items() if key != "created_at"}
     )
@@ -264,6 +276,43 @@ def compare_principal_roots(
     """Compare exact paths/raw inventories and record every permitted C11 projection."""
     verify_raw_inventory(root_a, inventory_a)
     verify_raw_inventory(root_b, inventory_b)
+    return _compare_principal_files(root_a, root_b, inventory_a, inventory_b)
+
+
+def compare_verified_principal_roots(
+    root_a: Path,
+    root_b: Path,
+    raw_a: HostedRawInventory,
+    raw_b: HostedRawInventory,
+    principal_a: HostedRawInventory,
+    principal_b: HostedRawInventory,
+    *,
+    allowed_projection_paths: frozenset[str],
+) -> tuple[HostedPrincipalProjection, ...]:
+    """Compare business-derived subsets while retaining both complete raw inventories."""
+    verify_raw_inventory(root_a, raw_a)
+    verify_raw_inventory(root_b, raw_b)
+    for principal, raw in ((principal_a, raw_a), (principal_b, raw_b)):
+        full = _file_map(raw)
+        if not principal.files or any(
+            full.get(item.logical_path) != item for item in principal.files
+        ):
+            raise HostedQualificationError(
+                "principal inventory is not a subset of verified raw bytes"
+            )
+    return _compare_principal_files(
+        root_a, root_b, principal_a, principal_b, allowed_projection_paths=allowed_projection_paths
+    )
+
+
+def _compare_principal_files(
+    root_a: Path,
+    root_b: Path,
+    inventory_a: HostedRawInventory,
+    inventory_b: HostedRawInventory,
+    *,
+    allowed_projection_paths: frozenset[str] | None = None,
+) -> tuple[HostedPrincipalProjection, ...]:
     files_a, files_b = _file_map(inventory_a), _file_map(inventory_b)
     if set(files_a) != set(files_b):
         raise HostedQualificationError("independent principal file sets differ")
@@ -272,8 +321,16 @@ def compare_principal_roots(
         a, b = files_a[logical_path], files_b[logical_path]
         if a.sha256 == b.sha256 and a.size_bytes == b.size_bytes:
             continue
-        schema_a, projection_a = _c11_projection(read_relative(root_a, logical_path))
-        schema_b, projection_b = _c11_projection(read_relative(root_b, logical_path))
+        if allowed_projection_paths is not None and logical_path not in allowed_projection_paths:
+            raise HostedQualificationError(
+                "differing file is not a verified C11 authority manifest"
+            )
+        schema_a, projection_a = c11_manifest_projection(
+            read_relative(root_a, logical_path), logical_path=logical_path
+        )
+        schema_b, projection_b = c11_manifest_projection(
+            read_relative(root_b, logical_path), logical_path=logical_path
+        )
         if schema_a != schema_b or projection_a != projection_b:
             raise HostedQualificationError("independent principal authority differs")
         projected.append(
@@ -543,7 +600,32 @@ def verify_case(
                 reason="ACTUAL_MANAGED_ISOLATION_VERIFIED",
                 checked_artifact_hashes=tuple(sorted(hashes)),
             )
-    except (ArtifactIntegrityError, OSError, ValueError, ValidationError, HostedQualificationError):
+        if sources is not None and case.case_id in {"Q01", "Q09", "Q10", "Q11"}:
+            from quantos.infrastructure.hosted_case_predicates import verify_q01, verify_q11
+            from quantos.infrastructure.hosted_replay_verification import verify_q09, verify_q10
+
+            predicate = {
+                "Q01": verify_q01,
+                "Q09": verify_q09,
+                "Q10": verify_q10,
+                "Q11": verify_q11,
+            }[case.case_id]
+            hashes.update(predicate(bundle, case, sources))
+            return HostedQualificationGate(
+                case_id=case.case_id,
+                verdict="PASS",
+                reason="ORIGINAL_SCENARIO_AUTHORITY_VERIFIED",
+                checked_artifact_hashes=tuple(sorted(hashes)),
+            )
+    except (
+        ArtifactIntegrityError,
+        OSError,
+        ValueError,
+        ValidationError,
+        RuntimeError,
+        KeyError,
+        TypeError,
+    ):
         return HostedQualificationGate(
             case_id=case.case_id,
             verdict="FAIL",

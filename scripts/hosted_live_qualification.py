@@ -276,10 +276,15 @@ def drive_live_campaign(deployment: HostedManagedDeployment, *, model_auth_file:
         from quantos.infrastructure.hosted_verification import raw_inventory, verify_raw_inventory
 
         before = raw_inventory(deployment.paths.authority)
+        from quantos.infrastructure.hosted_manager import capture_authority_snapshot
+
+        capture_authority_snapshot(deployment, "qualification-cases/Q01/before/authority")
         pending_before = restricted_client_call(deployment, "pending")
+        before_wrapper_pid = process.pid
         stop_managed_service(deployment, process)
         process = None
         process = start_managed_service(deployment)
+        after_wrapper_pid = process.pid
         queries: list[dict[str, object]] = []
         for _ in range(2):
             pending_after = restricted_client_call(deployment, "pending")
@@ -290,6 +295,7 @@ def drive_live_campaign(deployment: HostedManagedDeployment, *, model_auth_file:
             status = restricted_client_call(deployment, "resume")
             queries.append(status)
         verify_raw_inventory(deployment.paths.authority, before)
+        capture_authority_snapshot(deployment, "qualification-cases/Q01/after/authority")
         evidence.publish_bytes(
             canonical_json_bytes(
                 {
@@ -300,6 +306,8 @@ def drive_live_campaign(deployment: HostedManagedDeployment, *, model_auth_file:
                         mode="json"
                     ),
                     "pending_before": pending_before,
+                    "before_wrapper_pid": before_wrapper_pid,
+                    "after_wrapper_pid": after_wrapper_pid,
                     "queries": queries,
                     "qualification_eligibility": "NOT_QUALIFIED",
                 }
@@ -315,7 +323,11 @@ def drive_live_campaign(deployment: HostedManagedDeployment, *, model_auth_file:
         register_model_auth_memory(auth_fd, guard)
         while status["state"] == "WAITING_FOR_AGENT":
             pending = restricted_client_call(deployment, "pending")
-            request = HostedAgentRequest.model_validate(pending)
+            request = HostedAgentRequest.model_validate(
+                restricted_client_call(deployment, "request-export")
+            )
+            if pending.get("request_hash") != request.content_hash:
+                raise ValueError("request export differs from pending identity")
             if request.hosted_spec_hash != deployment.spec.content_hash:
                 raise ValueError("restricted host received a different frozen request")
             projection_root = root / "request-projections" / request.content_hash

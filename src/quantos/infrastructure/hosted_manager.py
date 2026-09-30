@@ -608,7 +608,15 @@ def restricted_client_call(
     request_hash: str | None = None,
 ) -> dict[str, object]:
     """Invoke the installed CLI as the actual restricted research subject."""
-    if operation not in {"start", "pending", "status", "submit", "resume", "cancel"}:
+    if operation not in {
+        "start",
+        "pending",
+        "request-export",
+        "status",
+        "submit",
+        "resume",
+        "cancel",
+    }:
         raise ValueError("unsupported fixed host operation")
     arguments = [
         operation,
@@ -619,6 +627,8 @@ def restricted_client_call(
     ]
     if operation == "start":
         arguments += ["--spec", deployment.spec.content_hash]
+    if operation == "request-export":
+        arguments += ["--output", "/tmp/hosted-request.json"]
     if operation in {"submit", "cancel"}:
         if request_hash is None:
             raise ValueError("request identity is required")
@@ -907,15 +917,36 @@ def run_managed_offline(
         "--source-inventory-hash",
         source_inventory_hash,
     )
+    authority_before = raw_inventory(paths.authority)
+    argv = namespace_command(
+        "service",
+        paths,
+        command,
+        service_capability_fds=(descriptor,),
+        offline_source_root=source,
+    )
+    prelaunch = canonical_json_bytes(
+        {
+            "schema_version": "hosted-manager-offline-prelaunch/v1",
+            "invocation_identity": secrets.token_hex(16),
+            "deployment_profile_hash": deployment.profile.content_hash,
+            "mode": mode,
+            "argv": argv,
+            "source_root": str(source),
+            "source_inventory_hash": source_inventory_hash,
+            "authority_root": str(paths.authority),
+            "authority_before_inventory": authority_before.model_dump(mode="json"),
+            "qualification_eligibility": "NOT_QUALIFIED",
+        }
+    )
+    KnownValueGuard((deployment.capability,))(prelaunch)
+    prelaunch_hash = sha256_bytes(prelaunch)
+    atomic_write_bytes(
+        deployment.root / "evidence" / f"offline-prelaunch-{prelaunch_hash}.json", prelaunch
+    )
     try:
         result = subprocess.run(
-            namespace_command(
-                "service",
-                paths,
-                command,
-                service_capability_fds=(descriptor,),
-                offline_source_root=source,
-            ),
+            argv,
             pass_fds=(descriptor,),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -926,10 +957,42 @@ def run_managed_offline(
     finally:
         os.close(descriptor)
     verify_raw_inventory(source, source_before)
+    observation_hash: str | None = None
+    if not result.returncode:
+        observation = read_relative(paths.authority, "offline-observation.json", max_bytes=65536)
+        KnownValueGuard((deployment.capability,))(observation)
+        observation_hash = sha256_bytes(observation)
+    program_path = "python/lib/python3.11/site-packages/quantos/infrastructure/hosted_offline.py"
+    record = canonical_json_bytes(
+        {
+            "schema_version": "hosted-manager-offline-run/v1",
+            "prelaunch_hash": prelaunch_hash,
+            "deployment_profile_hash": deployment.profile.content_hash,
+            "campaign_hash": deployment.bundle.campaign.content_hash,
+            "mode": mode,
+            "argv": argv,
+            "source_root": str(source),
+            "source_inventory": source_before.model_dump(mode="json"),
+            "authority_root": str(paths.authority),
+            "authority_before_inventory": authority_before.model_dump(mode="json"),
+            "authority_after_inventory": raw_inventory(paths.authority).model_dump(mode="json"),
+            "return_code": result.returncode,
+            "observation_hash": observation_hash,
+            "offline_program_hash": next(
+                item.bytes_hash
+                for item in deployment.install.files
+                if item.relative_path == program_path
+            ),
+            "qualification_eligibility": "NOT_QUALIFIED",
+        }
+    )
+    KnownValueGuard((deployment.capability,))(record)
+    atomic_write_bytes(
+        deployment.root / "evidence" / ("offline-run-" + sha256_bytes(record) + ".json"), record
+    )
     if result.returncode:
         raise ArtifactIntegrityError("installed offline pipeline failed; original roots retained")
     observation = read_relative(paths.authority, "offline-observation.json", max_bytes=65536)
-    KnownValueGuard((deployment.capability,))(observation)
     actual = strict_json_object(observation, max_bytes=65536)
     if (
         actual.get("mode") != mode
@@ -964,3 +1027,36 @@ def publish_manager_export(
     KnownValueGuard((deployment.capability,))(encoded)
     atomic_write_bytes(deployment.root / "evidence" / export.content_hash, encoded)
     return export
+
+
+def capture_authority_snapshot(
+    deployment: HostedManagedDeployment, logical_path: str
+) -> CanonicalContract:
+    """Preserve before/after disk facts for a manager-driven scenario, without verdicts."""
+    from quantos.contracts.refs import validate_logical_path
+    from quantos.infrastructure.hosted_verification import (
+        MAX_SINGLE_FILE_BYTES,
+        raw_inventory,
+        read_relative,
+        verify_raw_inventory,
+    )
+
+    logical = validate_logical_path(logical_path)
+    if not logical.startswith("qualification-cases/"):
+        raise ValueError("case snapshot must use the fixed management evidence prefix")
+    target = deployment.root / logical
+    if target.exists() or target.is_symlink():
+        raise ArtifactIntegrityError("case snapshot requires a new absent root")
+    before = raw_inventory(deployment.paths.authority)
+    with opened_directory(target, create=True):
+        pass
+    for item in before.files:
+        data = read_relative(
+            deployment.paths.authority, item.logical_path, max_bytes=MAX_SINGLE_FILE_BYTES
+        )
+        KnownValueGuard((deployment.capability,))(data)
+        atomic_write_bytes(target / item.logical_path, data, expected_sha256=item.sha256)
+    verify_raw_inventory(deployment.paths.authority, before)
+    verify_raw_inventory(target, before)
+    atomic_write_bytes(deployment.root / (logical + "-inventory.json"), before.canonical_bytes())
+    return before

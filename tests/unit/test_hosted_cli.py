@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from quantos import cli
 from quantos.contracts.hosted_deployment import HostedChannelPolicy, HostedClientConfiguration
 from quantos.infrastructure.hosted_client import HostedUnixClient
+from quantos.infrastructure.hosted_host import _read_exported_request
 
 CAMPAIGN = "a" * 64
 SPEC = "b" * 64
@@ -256,3 +257,39 @@ def test_hosted_errors_never_print_client_exception(monkeypatch: pytest.MonkeyPa
         "reason_code": "HOSTED_OPERATION_FAILED",
         "status": "FAILED",
     }
+
+
+@pytest.mark.parametrize(
+    "mutation", [None, "noncanonical", "corrupted", "symlink", "hardlink", "fifo"]
+)
+def test_manager_wrapper_returns_only_original_export_bytes(
+    tmp_path: Path, mutation: str | None
+) -> None:
+    from quantos.artifacts.store import ArtifactIntegrityError
+
+    fixture = _fixture(tmp_path / "authority")
+    directory = tmp_path / "private-output"
+    directory.mkdir()
+    path = directory / "hosted-request.json"
+    encoded = fixture.request.canonical_bytes()
+    if mutation == "fifo":
+        os.mkfifo(path)
+    elif mutation == "symlink":
+        original = tmp_path / "source.json"
+        original.write_bytes(encoded)
+        path.symlink_to(original)
+    else:
+        path.write_bytes(
+            b" " + encoded
+            if mutation == "noncanonical"
+            else b"{}"
+            if mutation == "corrupted"
+            else encoded
+        )
+        if mutation == "hardlink":
+            os.link(path, directory / "alias")
+    if mutation is None:
+        assert _read_exported_request(directory) == encoded
+    else:
+        with pytest.raises((ArtifactIntegrityError, ValueError, OSError)):
+            _read_exported_request(directory)

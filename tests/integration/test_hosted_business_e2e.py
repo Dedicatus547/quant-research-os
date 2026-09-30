@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -39,7 +41,7 @@ from quantos.contracts.autonomous import (
     AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE,
     AutonomousCandidateProposal,
 )
-from quantos.contracts.base import sha256_bytes
+from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.hosted import (
     HostedAgentResponse,
     HostedBudgetPolicy,
@@ -57,9 +59,16 @@ from quantos.contracts.status import ReasonCode
 from quantos.data import verify_qlib_view, verify_snapshot
 from quantos.infrastructure import hosted_business_verification as verification
 from quantos.infrastructure.hosted_replay import SavedHostedProtocol
+from quantos.infrastructure.hosted_replay_evidence import (
+    capture_replay_comparison,
+    capture_replay_tampers,
+)
+from quantos.infrastructure.hosted_replay_verification import TAMPER_SCHEMAS, verify_tamper_case
 from quantos.infrastructure.hosted_store import HostedProtocolStore
 from quantos.infrastructure.hosted_verification import (
+    HostedQualificationError,
     compare_principal_roots,
+    compare_verified_principal_roots,
     raw_inventory,
     read_relative,
     verify_raw_inventory,
@@ -282,6 +291,10 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
     )
     original_execute = QuantosResearchExecutionAdapter.execute
     exports: list[Path] = []
+    native_roots: list[Path] = []
+    native_inventories: list[Any] = []
+    native_principals: list[Any] = []
+    approved_paths: list[frozenset[str]] = []
     source_before = raw_inventory(authority / "protocol")
     for index in range(2):
         target = tmp_path / f"fresh-authority-{index}"
@@ -306,6 +319,12 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
         assert tuple(sorted(calls)) == replay_facts.execution_identities
         assert len(calls) == 2
         principal, _observations = verification.principal_business_inventory(target, replay_facts)
+        native_roots.append(target)
+        native_inventories.append(raw_inventory(target))
+        native_principals.append(principal)
+        approved_paths.append(
+            verification.c11_business_projection_paths(target, replay_facts, bundle)
+        )
         export = tmp_path / f"principal-{index}"
         for item in principal.files:
             atomic_write_bytes(export / item.logical_path, read_relative(target, item.logical_path))
@@ -315,6 +334,61 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
     compare_principal_roots(
         exports[0], exports[1], raw_inventory(exports[0]), raw_inventory(exports[1])
     )
+    assert approved_paths[0] == approved_paths[1]
+    projections = compare_verified_principal_roots(
+        native_roots[0],
+        native_roots[1],
+        native_inventories[0],
+        native_inventories[1],
+        native_principals[0],
+        native_principals[1],
+        allowed_projection_paths=approved_paths[0],
+    )
+    assert projections
+    source_manifest = next(
+        native_roots[0].glob(
+            "business/*/execution/executions/*/baseline/signals/sha256-*/manifest.json"
+        )
+    )
+    source_relative = source_manifest.relative_to(native_roots[0]).as_posix()
+    source_parts = source_relative.split("/")
+    identities = sorted(
+        {path.split("/")[4] for path in approved_paths[0] if "/executions/" in path}
+    )
+    other_identity = next(identity for identity in identities if identity != source_parts[4])
+    unreferenced = (
+        source_relative.replace(source_parts[-2], source_parts[-2].removeprefix("sha256-")),
+        source_relative.replace(source_parts[4], other_identity),
+        source_relative.replace("/baseline/", "/cost-1.5x/"),
+    )
+    for logical in unreferenced:
+        assert logical not in approved_paths[0]
+        for index, root in enumerate(native_roots):
+            value = json.loads(source_manifest.read_bytes())
+            from datetime import datetime
+
+            value["created_at"] = (
+                datetime.fromisoformat(value["created_at"]) + timedelta(days=index)
+            ).isoformat()
+            atomic_write_bytes(root / logical, canonical_json_bytes(value))
+        changed_raw = [raw_inventory(root) for root in native_roots]
+        changed_principal = [
+            verification.principal_business_inventory(root, replay_facts)[0]
+            for root in native_roots
+        ]
+        approved = verification.c11_business_projection_paths(native_roots[0], replay_facts, bundle)
+        assert logical not in approved
+        with pytest.raises(HostedQualificationError, match="not a verified C11"):
+            compare_verified_principal_roots(
+                *native_roots,
+                *changed_raw,
+                *changed_principal,
+                allowed_projection_paths=approved,
+            )
+        for root in native_roots:
+            (root / logical).unlink()
+        for root, inventory in zip(native_roots, native_inventories, strict=True):
+            verify_raw_inventory(root, inventory)
     verify_raw_inventory(authority / "protocol", source_before)
     monkeypatch.setattr(
         QuantosResearchExecutionAdapter,
@@ -334,6 +408,109 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
     principal, observations = verification.principal_business_inventory(authority, facts)
     assert set(principal.files).isdisjoint(observations.files)
     assert len(principal.files) + len(observations.files) == len(before.files)
+    verify_raw_inventory(authority, before)
+    tamper_sources = SimpleNamespace(
+        deployment=SimpleNamespace(
+            bundle=bundle,
+            profile=SimpleNamespace(content_hash=profile_hash),
+            root=tmp_path,
+            paths=SimpleNamespace(provenance=tmp_path / "provenance"),
+        )
+    )
+    targets: dict[str, str] = {}
+    for file in before.files:
+        if not file.logical_path.endswith(".json"):
+            continue
+        value = json.loads(read_relative(authority, file.logical_path))
+        if not isinstance(value, dict):
+            continue
+        for kind, schema in TAMPER_SCHEMAS.items():
+            if value.get("schema_version") == schema and kind not in targets:
+                # Use the exact native receipt identity consumed by recovery,
+                # rather than its content-addressed secondary copy.
+                if kind == "RECEIPT" and "/execution-records/identities/" not in file.logical_path:
+                    continue
+                targets[kind] = file.logical_path
+    assert set(targets) == set(TAMPER_SCHEMAS)
+    for kind, logical in targets.items():
+        target = tmp_path / f"tamper-{kind.lower()}"
+        shutil.copytree(authority, target)
+        original_value = json.loads(read_relative(authority, logical))
+        (target / logical).write_bytes(
+            canonical_json_bytes(
+                {
+                    **original_value,
+                    "schema_version": "tampered/" + TAMPER_SCHEMAS[kind],
+                }
+            )
+        )
+        assert verify_tamper_case(
+            authority,
+            target,
+            logical_path=logical,
+            kind=kind,
+            baseline_inventory=before,
+            altered_inventory=raw_inventory(target),
+            sources=tamper_sources,
+        )
+        verify_raw_inventory(authority, before)
+    # Capture actual management facts against these native synthetic roots. Their
+    # provenance remains SYNTHETIC_COMPONENT_TEST and cannot supply model sources.
+    for original_input in (snapshot_path, view_path):
+        target_input = tmp_path / "inputs" / original_input.relative_to(tmp_path)
+        target_input.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(original_input, target_input)
+    managed = SimpleNamespace(
+        bundle=bundle,
+        profile=SimpleNamespace(content_hash=profile_hash),
+        root=tmp_path,
+        paths=SimpleNamespace(authority=authority, provenance=tmp_path / "provenance"),
+        capability=b"component-only-capability-material",
+    )
+    comparison_path = capture_replay_comparison(managed, *native_roots)
+    comparison = json.loads(comparison_path.read_bytes())
+    assert len(comparison["roots"]) == 2
+    assert len(comparison["projections"]) == len(projections)
+    tamper_path = capture_replay_tampers(managed)
+    assert len(json.loads(tamper_path.read_bytes())["cases"]) == 5
+    verify_raw_inventory(authority, before)
+    variant_manifest = next(
+        authority.glob("business/*/execution/executions/*/cost-1.5x/signals/sha256-*/manifest.json")
+    )
+    wrong_manifest = next(
+        path
+        for path in authority.glob(
+            "business/*/execution/executions/*/baseline/signals/sha256-*/manifest.json"
+        )
+        if path.parent.name != variant_manifest.parent.name
+    )
+    saved_variant_manifest = variant_manifest.read_bytes()
+    variant_manifest.write_bytes(wrong_manifest.read_bytes())
+    with pytest.raises(HostedQualificationError, match="directory/content"):
+        verification.verify_hosted_business_root(
+            authority,
+            bundle,
+            deployment_profile_hash=profile_hash,
+            input_root=tmp_path,
+            provenance_workspace=tmp_path / "provenance",
+        )
+    variant_manifest.write_bytes(saved_variant_manifest)
+    variant_table = next(
+        authority.glob(
+            "business/*/execution/executions/*/cost-1.5x/backtests/sha256-*/portfolio.parquet"
+        )
+    )
+    saved_variant_table = variant_table.read_bytes()
+    variant_table.write_bytes(b"corrupted robustness portfolio")
+    with pytest.raises(HostedQualificationError, match="robustness artifact is invalid"):
+        verification.verify_hosted_business_root(
+            authority,
+            bundle,
+            deployment_profile_hash=profile_hash,
+            input_root=tmp_path,
+            provenance_workspace=tmp_path / "provenance",
+        )
+    variant_table.write_bytes(saved_variant_table)
     verify_raw_inventory(authority, before)
     native_receipts = tuple(
         AutonomousExecutionReceipt.model_validate_json(path.read_bytes())

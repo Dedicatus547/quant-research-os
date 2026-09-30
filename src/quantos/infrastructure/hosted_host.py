@@ -11,6 +11,15 @@ from quantos.artifacts.store import ArtifactIntegrityError, opened_directory, re
 from quantos.infrastructure.hosted_deployment import private_memory_fd
 
 
+def _read_exported_request(directory: Path) -> bytes:
+    with opened_directory(directory) as parent:
+        encoded = read_regular_bytes_at(parent, "hosted-request.json", max_bytes=1_048_576)
+    from quantos.contracts.hosted import HostedAgentRequest, parse_hosted_contract
+
+    parse_hosted_contract(encoded, HostedAgentRequest, max_bytes=1_048_576)
+    return encoded
+
+
 def main() -> None:
     with opened_directory(Path("/tmp")) as directory:
         capability = read_regular_bytes_at(directory, "hosted-client-capability", max_bytes=32)
@@ -28,7 +37,16 @@ def main() -> None:
     with redirect_stdout(sys.stderr):
         from quantos.cli import app
 
-    app()
+    if sys.argv[1:3] == ["hosted", "request-export"]:
+        # Export to a new private tmpfs file through the existing CLI; return
+        # those exact bytes to the manager's bounded capture pipe.
+        with redirect_stdout(sys.stderr):
+            result = app(standalone_mode=False)
+        if isinstance(result, int) and result:
+            raise SystemExit(result)
+        sys.stdout.buffer.write(_read_exported_request(Path("/tmp")) + b"\n")
+    else:
+        app()
 
 
 if __name__ == "__main__":
