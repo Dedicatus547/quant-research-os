@@ -15,6 +15,7 @@ from quantos.artifacts.store import ArtifactIntegrityError
 from quantos.infrastructure.hosted_deployment import private_memory_fd
 from quantos.infrastructure.hosted_manager import (
     _observe_namespace_child,
+    run_managed_negative_case,
     start_managed_service,
     stop_managed_service,
     verify_wheel_provenance,
@@ -79,6 +80,66 @@ def test_start_cannot_reuse_stale_channel_attestation(tmp_path: Path, entry: str
     with pytest.raises(ArtifactIntegrityError, match="empty stopped channel"):
         start_managed_service(deployment)
     assert saved.read_bytes() == b"old service evidence"
+
+
+@pytest.mark.parametrize("executable", ["/bin/false", "/bin/true"])
+def test_negative_worker_retains_prelaunch_and_failed_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executable: str
+) -> None:
+    from quantos.contracts.hosted import strict_json_object
+    from quantos.contracts.hosted_qualification import HostedRawInventory
+    from quantos.infrastructure.hosted_verification import raw_inventory
+
+    channel, evidence = tmp_path / "channel", tmp_path / "evidence"
+    channel.mkdir()
+    evidence.mkdir()
+    deployment = SimpleNamespace(
+        root=tmp_path,
+        paths=SimpleNamespace(channel=channel),
+        profile=SimpleNamespace(content_hash="d" * 64),
+        bundle=SimpleNamespace(campaign=SimpleNamespace(content_hash="a" * 64)),
+        install=SimpleNamespace(
+            files=[
+                SimpleNamespace(
+                    relative_path="python/lib/python3.11/site-packages/quantos/infrastructure/hosted_negative_probe.py",
+                    bytes_hash="b" * 64,
+                )
+            ]
+        ),
+        capability=b"non-secret-fixture-capability-12345678",
+    )
+    # Actual process failure tests durable management records. This substituted
+    # namespace argv cannot count as an isolation or original qualification proof.
+    monkeypatch.setattr(
+        "quantos.infrastructure.hosted_manager.replace",
+        lambda paths, **kwargs: SimpleNamespace(**kwargs),
+    )
+    monkeypatch.setattr(
+        "quantos.infrastructure.hosted_manager.namespace_command",
+        lambda *args, **kwargs: (executable,),
+    )
+    with pytest.raises(ArtifactIntegrityError, match="original roots retained"):
+        run_managed_negative_case(deployment, "campaign_hash")
+    saved = raw_inventory(tmp_path)
+    records = [
+        strict_json_object(path.read_bytes(), max_bytes=16_777_216) for path in evidence.iterdir()
+    ]
+    prelaunch = next(
+        record
+        for record in records
+        if record["schema_version"] == "hosted-manager-negative-prelaunch/v1"
+    )
+    completion = next(
+        record for record in records if record["schema_version"] == "hosted-manager-negative-run/v1"
+    )
+    assert completion["return_code"] == (1 if executable.endswith("false") else 0)
+    assert completion["observation_hash"] is None
+    assert completion["manager_child_observation"] is None
+    assert not HostedRawInventory.model_validate(prelaunch["authority_before_inventory"]).files
+    assert completion["qualification_eligibility"] == "NOT_QUALIFIED"
+    with pytest.raises(ArtifactIntegrityError, match="new retained root"):
+        run_managed_negative_case(deployment, "campaign_hash")
+    assert raw_inventory(tmp_path) == saved
 
 
 def test_manager_observes_kernel_child_identity_and_rejects_wrong_binding() -> None:

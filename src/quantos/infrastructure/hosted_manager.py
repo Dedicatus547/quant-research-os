@@ -1003,6 +1003,144 @@ def run_managed_offline(
     return paths.authority
 
 
+def run_managed_negative_case(deployment: HostedManagedDeployment, case: str) -> Path:
+    """Run one fixed installed transport fixture in a fresh offline namespace.
+
+    It cannot submit to the live authority or read model credentials. The prelaunch,
+    kernel process identity and completion remain original management evidence.
+    """
+    from quantos.infrastructure.hosted_negative_probe import NEGATIVE_CASES
+    from quantos.infrastructure.hosted_verification import raw_inventory, read_relative
+
+    if case not in NEGATIVE_CASES:
+        raise ValueError("unknown fixed negative case")
+    if tuple(deployment.paths.channel.iterdir()):
+        raise ArtifactIntegrityError("negative cases require a stopped live service")
+    target = deployment.root / "qualification-cases/Q03" / case
+    if target.exists() or target.is_symlink():
+        raise ArtifactIntegrityError("negative case requires a new retained root")
+    target.mkdir(parents=True, mode=0o700)
+    for name in ("authority", "channel"):
+        (target / name).mkdir(mode=0o700)
+    paths = replace(deployment.paths, authority=target / "authority", channel=target / "channel")
+    program_path = (
+        "python/lib/python3.11/site-packages/quantos/infrastructure/hosted_negative_probe.py"
+    )
+    program_hash = next(
+        item.bytes_hash for item in deployment.install.files if item.relative_path == program_path
+    )
+    guard = KnownValueGuard((deployment.capability,))
+    descriptor = _memory(deployment.capability, "negative-service-capability")
+    info_fd = private_memory_fd("negative-container-information")
+    command = (
+        "/install/python-seeded",
+        "-m",
+        "quantos.infrastructure.hosted_negative_probe",
+        "--profile-hash",
+        deployment.profile.content_hash,
+        "--case",
+        case,
+    )
+    process: subprocess.Popen[bytes] | None = None
+    child: dict[str, object] | None = None
+    try:
+        argv = namespace_command(
+            "service", paths, command, service_capability_fds=(descriptor,), info_fd=info_fd
+        )
+        prelaunch = canonical_json_bytes(
+            {
+                "schema_version": "hosted-manager-negative-prelaunch/v1",
+                "invocation_identity": secrets.token_hex(16),
+                "case": case,
+                "deployment_profile_hash": deployment.profile.content_hash,
+                "argv": argv,
+                "authority_root": str(paths.authority),
+                "authority_before_inventory": raw_inventory(paths.authority).model_dump(
+                    mode="json"
+                ),
+                "program_hash": program_hash,
+                "qualification_eligibility": "NOT_QUALIFIED",
+            }
+        )
+        guard(prelaunch)
+        prelaunch_hash = sha256_bytes(prelaunch)
+        atomic_write_bytes(
+            deployment.root / "evidence" / f"negative-prelaunch-{prelaunch_hash}.json", prelaunch
+        )
+        process = subprocess.Popen(
+            argv,
+            pass_fds=(descriptor, info_fd),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env={"PATH": "/usr/bin:/bin"},
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 30
+        while process.poll() is None and time.monotonic() < deadline:
+            try:
+                child = _observe_namespace_child(process.pid, info_fd, command)
+                break
+            except (ArtifactIntegrityError, OSError, ValueError):
+                time.sleep(0.05)
+        return_code = process.wait(timeout=300)
+        observation_hash: str | None = None
+        observation_failure_type: str | None = None
+        if return_code == 0:
+            try:
+                observation = read_relative(
+                    paths.channel, "negative-observation.json", max_bytes=16_777_216
+                )
+                guard(observation)
+                observation_hash = sha256_bytes(observation)
+            except Exception as error:
+                # Keep only a safe type name; arbitrary output/errors may contain
+                # credentials. A zero exit without safe evidence is still a failure.
+                observation_failure_type = type(error).__name__
+        record = canonical_json_bytes(
+            {
+                "schema_version": "hosted-manager-negative-run/v1",
+                "case": case,
+                "deployment_profile_hash": deployment.profile.content_hash,
+                "campaign_hash": deployment.bundle.campaign.content_hash,
+                "prelaunch_hash": prelaunch_hash,
+                "argv": argv,
+                "program_hash": program_hash,
+                "authority_root": str(paths.authority),
+                "authority_after_inventory": raw_inventory(paths.authority).model_dump(mode="json"),
+                "channel_inventory": raw_inventory(paths.channel).model_dump(mode="json"),
+                "manager_child_observation": child,
+                "manager_namespace_identities": {
+                    name: os.readlink(f"/proc/self/ns/{name}")
+                    for name in ("net", "pid", "mnt", "user")
+                },
+                "return_code": return_code,
+                "observation_hash": observation_hash,
+                "observation_failure_type": observation_failure_type,
+                "qualification_eligibility": "NOT_QUALIFIED",
+            }
+        )
+        guard(record)
+        atomic_write_bytes(
+            deployment.root / "evidence" / f"negative-run-{sha256_bytes(record)}.json", record
+        )
+        if return_code or child is None or observation_hash is None:
+            raise ArtifactIntegrityError(
+                "negative installed worker failed; original roots retained"
+            )
+        return target
+    finally:
+        os.close(descriptor)
+        os.close(info_fd)
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+
+
 def publish_manager_export(
     deployment: HostedManagedDeployment, mappings: tuple[tuple[str, str], ...]
 ) -> CanonicalContract:

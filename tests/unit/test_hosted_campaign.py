@@ -34,6 +34,7 @@ from quantos.contracts.hosted import (
     HostedBudgetPolicy,
     HostedCampaignReport,
     HostedCampaignSpec,
+    HostedResearchBudgetFact,
     HostObservation,
     HostReportedUsage,
 )
@@ -235,6 +236,38 @@ def test_suspend_queries_and_new_process_keep_original_request(tmp_path: Path) -
         str(p.relative_to(tmp_path)): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()
     }
     assert status.protocol.used_requests == 1
+
+
+@pytest.mark.parametrize("window", ["research_initial", "request_checkpoint"])
+def test_initial_reservation_and_checkpoint_recover_without_extra_charge(
+    tmp_path: Path, window: str
+) -> None:
+    from quantos.infrastructure.hosted_verification import raw_inventory, verify_protocol_root
+
+    f = _fixture(tmp_path)
+    f.service.protocol.start(f.spec.content_hash)
+    assert _run(tmp_path, f.spec.campaign_hash, window)[0] == 73
+    crashed_state = f.service.protocol.store.snapshot(f.spec.campaign_hash, recover=False)
+    crashed_request = crashed_state.active_request
+    assert (crashed_request is not None) == (window == "request_checkpoint")
+    assert _run(tmp_path, f.spec.campaign_hash) == (0, ("WAITING_FOR_AGENT", None))
+    state = f.service.protocol.store.snapshot(f.spec.campaign_hash, recover=False)
+    assert len(state.requests) == 1
+    if crashed_request is not None:
+        assert state.requests == (crashed_request,)
+    facts = [
+        HostedResearchBudgetFact.model_validate_json(data)
+        for data in state.artifacts.values()
+        if b'"schema_version":"hosted-research-budget-fact/v1"' in data
+    ]
+    assert len(facts) == 1 and facts[0].phase == "INITIAL"
+    assert facts[0].used_trials == facts[0].used_executions == facts[0].used_compute_units == 0
+    assert state.budget.used_requests == 1 and state.budget.used_unique_submissions == 0
+    assert not (tmp_path / "executions" / "calls").exists()
+    inventory = raw_inventory(tmp_path)
+    assert _run(tmp_path, f.spec.campaign_hash) == (0, ("WAITING_FOR_AGENT", None))
+    assert raw_inventory(tmp_path) == inventory
+    verify_protocol_root(tmp_path / "protocol", f.spec.campaign_hash)
 
 
 @pytest.mark.parametrize(

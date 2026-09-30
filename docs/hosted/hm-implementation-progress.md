@@ -4,7 +4,8 @@
 
 HM-01/02 的基线、冻结契约和独立契约审查已保存；HM-03/04/05 的版本化交接、
 持久化业务编排和受限 CLI 已实现并通过组件回归。HM-06 的冻结安装、namespace、
-Unix channel、可信 CLI 捕获及管理 staging 已实现；尚需正式 profile 的实际启动和 Q07。
+Unix channel、可信 CLI 捕获及管理 staging 已实现；已有实际启动和 Q07 原件诊断，
+尚未完成完整正式资格。
 HM-07 的只读 raw/protocol/business verifier、保存 SUBMIT 导入和 offline 管理入口正在完善；
 尚未实现完整 Q01–Q12 的 scenario verdict。HM-08 的实际模型驱动已接入受限 CLI，
 正式 live、receipt reuse、两个全新 Qlib 根及完整 bundle 尚未执行。HM-09/10/11 未完成。
@@ -43,7 +44,7 @@ INTENT 校验、mixed Validation 结果处理和离线原 launcher 来源核验�
 新增 [Q07 窄审](../reviews/hm-q07-attempt06-review.md) 与
 [请求导出窄审](../reviews/hm-request-export-review.md)；新版受限 `request-export`
 只回传固定 guest 私有文件内的原始 canonical request，不增加 channel RPC 操作。
-该修复尚需新冻结安装的实际部署验证，旧 attempt 06 不能替代这一检查。
+该修复已在新 attempt 07 的冻结安装中完成实际部署验证，旧 attempt 06 未被当作替代证据。
 
 Q09/Q10 谓词已接入只读 verifier：核验原始管理端的 durable prelaunch、实际固定 argv、
 返回码、完整输入及 before/after 清单，并重算 native 环境、零网络记录与执行调用分母。
@@ -65,5 +66,39 @@ format 和严格 pyright 通过。这些是合成输入测试，不能替代真�
 没有开放 P1；仍不授予总体资格。其独立原生回归 `1 passed / 123.51s`。
 
 待完成：Q02–Q06、Q08、Q12 完整 scenario predicates 与原件验收矩阵；稳定提交的
-禁网 CI coverage≥85%；新版安装实际导出；真实 Q11、Q09 receipt reuse、Q10 两个新根
+禁网 CI coverage≥85%；真实 Q11、Q09 receipt reuse、Q10 两个新根
 及完整 source-bound bundle；最后 HM-09 独立审查、Luna HM-10、HM-11 发布绑定。
+
+attempt 07 原件位于 `/tmp/hm-stage-463ec6d-attempt07`，精确实现提交
+`463ec6d50bfd4b262a46964920db1698cb9322ab`。新 profile
+`0539efd3a44b42a33d13b454ee0e4ffd1c6e3f9f5855fdfbb03fec05f44db6dc`
+的实际 `request-export` 得到原始完整 R，重复导出前后 20 文件 raw 清单一致；
+随后 Q07 只新增管理端 sealed canary，旧文件字节没有变化。原件 Q01/Q07 诊断
+manifest 为 `f4f1a35be3c4d4067053c9ad4a2f91660e61b85928f0976e1176ed0dbd2c78a4`，
+result 为 `0dfd7782c07e7313e49e85f703d03a565c67abed46760a29608d6f5428fde71f`。
+[独立安装及原件窄审](../reviews/hm-attempt07-export-review.md) 逐字节核对 139 个 wheel
+项目成员、安装与 git object，重算 80 文件管理导出和诊断结果；正式 verifier 仍拒绝
+diagnostic basename，整体 `NOT_QUALIFIED`。首次漏传解析器 `max_bytes` 的驱动失败及日志
+保留；诊断 bundle 的失败尝试列表仍不完整，最终 bundle 必须补齐，不能把空列表当作无失败。
+
+补充 Q05 组件回归：REGISTER、ISSUE、接受/拒绝 SUBMIT、CANCEL、EXPIRE 共 28 个
+逐项 INTENT/publication/COMPLETE 窗口在 spawned 子进程中 `os._exit(73)`，每窗口由
+新进程恢复，原时间/预算/bytes 不变，再启动新进程检查不重复发布。另有真实两进程 barrier
+submit/submit 与 submit/cancel 竞争、稳定 lock inode、TTL 后 seen/未 seen bytes 区分。
+首轮 `30 passed / 1 failed` 的失败来自测试将 JSON 的日期显示格式误认为 canonical bytes，
+修正后该项独立复测 `1 passed / 30 deselected`。业务编排新增 research INITIAL 与
+request checkpoint 实际退出恢复，整个组件文件 `25 passed / 313.50s`。
+
+新增只读负例 accounting helper：重算五种独立错绑、expired/cancelled/conflict/seen bytes，
+检查原 acceptance 保留、一个 charged reservation、完整 raw delta 精确等于 journal
+publications、deterministic 文件完全一致，不信任自填 reason/PASS。51 项语义测试通过，
+额外 protocol 文件、被改 business、错误 bytes/标签和多操作均拒绝。协议、helper 与管理
+组件联合回归 `103 passed / 1 deselected`；kernel namespace 用例另行执行，未以 deselect
+当作隔离通过。它尚未接入 Q03 的完整来源谓词，因此不能给 Q03 授予 PASS。
+
+固定管理端 `hosted_negative_probe` 已实现，研究 RPC 不能指定它的程序、case 或 clock。
+它在独立空权威根调用真实冻结 loader，使用明确标注的 `TRANSPORT_NEGATIVE_FIXTURE`，
+阻断并记录 execution/Workflow/network，保留 before/after 与 seen/cancel 重复结果。
+管理端先保存 durable prelaunch，再记录实际 bwrap/kernel 子进程、固定安装程序 hash、
+返回码及安全 observation；失败原根不可重用。该入口仍需新 wheel/profile 实测和完整
+Q03 来源核验，不能拿现有组件 fixture 冒充模型提案或正式负例执行。
