@@ -26,6 +26,8 @@ from quantos.infrastructure.hosted_client import (
     consume_capability_fd,
 )
 from quantos.infrastructure.hosted_deployment import (
+    LEGACY_MOUNT_POLICY_BYTES,
+    MOUNT_POLICY_BYTES,
     HostedNamespacePaths,
     KnownValueGuard,
     export_projection,
@@ -397,6 +399,25 @@ def test_namespace_role_excludes_authority_credentials_and_checkout_from_host(
     assert str(paths.authority) not in host and str(paths.provenance) not in host
     assert str(paths.offline_inputs) not in host and "--share-net" in host
     assert "--share-net" not in service and "--proc" in service
+    index = service.index("--symlink")
+    assert service[index : index + 3] == ("--symlink", "/usr/bin", "/bin")
+    telemetry = service.index("MLFLOW_DISABLE_TELEMETRY")
+    assert service[telemetry - 1 : telemetry + 2] == (
+        "--setenv",
+        "MLFLOW_DISABLE_TELEMETRY",
+        "true",
+    )
+    legacy = namespace_command(
+        "service",
+        paths,
+        ("/install/python-seeded",),
+        mount_policy_hash=sha256_bytes(LEGACY_MOUNT_POLICY_BYTES),
+    )
+    assert "--symlink" not in legacy
+    assert "MLFLOW_DISABLE_TELEMETRY" not in legacy
+    assert sha256_bytes(MOUNT_POLICY_BYTES) != sha256_bytes(LEGACY_MOUNT_POLICY_BYTES)
+    with pytest.raises(ValueError, match="unknown frozen namespace"):
+        namespace_command("service", paths, ("/install/python-seeded",), mount_policy_hash="f" * 64)
     assert "--tmpfs" in host and "--seccomp" in host and "/home/zjw" not in host
     with pytest.raises(ValueError):
         namespace_command("host", paths, ("/install/codex", "--version"))

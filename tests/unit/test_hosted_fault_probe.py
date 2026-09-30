@@ -136,3 +136,39 @@ def test_fixed_window_physically_exits_and_two_fresh_boots_are_idempotent(
 def test_fault_registry_rejects_arbitrary_fault_code_before_loading(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unknown fixed fault"):
         probe.run_fault_probe("d" * 64, "arbitrary-code", authority_root=tmp_path)
+
+
+def test_unexpected_failure_locations_do_not_export_messages_paths_or_locals() -> None:
+    from quantos.contracts.base import canonical_json_bytes
+
+    message_canary = "do-not-persist-exception-message"
+    local_canary = "do-not-persist-frame-locals"
+
+    def fail() -> None:
+        retained_in_frame = local_canary
+        assert retained_in_frame
+        raise RuntimeError(message_canary)
+
+    try:
+        fail()
+    except RuntimeError as error:
+        locations = probe.failure_locations(error)
+    assert locations and locations[-1]["function"] == "fail"
+    assert all(set(location) == {"module", "function", "line"} for location in locations)
+    encoded = canonical_json_bytes(locations)
+    assert message_canary.encode() not in encoded and local_canary.encode() not in encoded
+    assert __file__.encode() not in encoded
+
+
+def test_unexpected_failure_locations_are_bounded_and_allow_no_traceback() -> None:
+    def nested(depth: int) -> None:
+        if depth:
+            nested(depth - 1)
+        else:
+            raise RuntimeError("not exported")
+
+    assert probe.failure_locations(RuntimeError("no frames")) == ()
+    try:
+        nested(60)
+    except RuntimeError as error:
+        assert len(probe.failure_locations(error)) == 32

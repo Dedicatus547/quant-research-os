@@ -244,6 +244,7 @@ def verify_offline_manager_run(
             command,
             service_capability_fds=(descriptor,),
             offline_source_root=source,
+            mount_policy_hash=deployment.profile.mount_policy_hash,
         ),
         "offline invocation differs from fixed network-isolated program",
     )

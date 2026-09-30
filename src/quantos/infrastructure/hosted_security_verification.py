@@ -82,7 +82,13 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
     capability_fd = _file_descriptor(argv, "/tmp/hosted-client-capability")
     context_fd = _file_descriptor(argv, "/tmp/hosted-probe.json")
     command = ("/install/python-seeded", "-m", "quantos.infrastructure.hosted_probe")
-    expected = namespace_command("host", deployment.paths, command, seccomp_fd=seccomp_fd)
+    expected = namespace_command(
+        "host",
+        deployment.paths,
+        command,
+        seccomp_fd=seccomp_fd,
+        mount_policy_hash=profile.mount_policy_hash,
+    )
     index = expected.index(command[0])
     expected = (
         *expected[:index],
@@ -287,6 +293,7 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
                 service_command,
                 service_capability_fds=(service_fd,),
                 info_fd=info_fd,
+                mount_policy_hash=profile.mount_policy_hash,
             ),
             "Q07 service namespace argv differs",
         )

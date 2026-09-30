@@ -467,6 +467,7 @@ def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Pop
             command,
             service_capability_fds=(descriptor,),
             info_fd=info_fd,
+            mount_policy_hash=deployment.profile.mount_policy_hash,
         )
         process = subprocess.Popen(
             argv,
@@ -650,7 +651,13 @@ def restricted_client_call(
     capability_fd = _memory(deployment.capability, "client-capability")
     descriptors = [seccomp_fd, capability_fd]
     try:
-        argv = namespace_command("host", paths, command, seccomp_fd=seccomp_fd)
+        argv = namespace_command(
+            "host",
+            paths,
+            command,
+            seccomp_fd=seccomp_fd,
+            mount_policy_hash=deployment.profile.mount_policy_hash,
+        )
         insertion = argv.index(command[0])
         extra = ["--perms", "0600", "--file", str(capability_fd), "/tmp/hosted-client-capability"]
         if response_bytes is not None:
@@ -740,7 +747,13 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
     descriptors = (source_fd, capability_fd, context_fd)
     command = ("/install/python-seeded", "-m", "quantos.infrastructure.hosted_probe")
     try:
-        argv = namespace_command("host", deployment.paths, command, seccomp_fd=source_fd)
+        argv = namespace_command(
+            "host",
+            deployment.paths,
+            command,
+            seccomp_fd=source_fd,
+            mount_policy_hash=deployment.profile.mount_policy_hash,
+        )
         index = argv.index(command[0])
         argv = (
             *argv[:index],
@@ -924,6 +937,7 @@ def run_managed_offline(
         command,
         service_capability_fds=(descriptor,),
         offline_source_root=source,
+        mount_policy_hash=deployment.profile.mount_policy_hash,
     )
     prelaunch = canonical_json_bytes(
         {
@@ -1035,7 +1049,15 @@ def run_managed_fault_case(deployment: HostedManagedDeployment, case: str) -> Pa
 def _run_managed_transport_fixture(
     deployment: HostedManagedDeployment, case: str, family: str
 ) -> Path:
-    from quantos.infrastructure.hosted_fault_cases import MANAGEMENT_FAULT_WINDOWS
+    from quantos.infrastructure.hosted_atomic_forensics import (
+        atomic_forensic_inventory,
+        native_registration_publication,
+    )
+    from quantos.infrastructure.hosted_atomic_snapshot import forensic_byte_view
+    from quantos.infrastructure.hosted_fault_cases import (
+        ATOMIC_FAULT_WINDOWS,
+        MANAGEMENT_FAULT_WINDOWS,
+    )
     from quantos.infrastructure.hosted_fixture_frames import (
         BUSINESS_REJECTION_CASES,
         DUPLICATE_SUBMISSION_CASES,
@@ -1051,7 +1073,7 @@ def _run_managed_transport_fixture(
         "Q02": DUPLICATE_SUBMISSION_CASES,
         "Q03": NEGATIVE_CASES,
         "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES),
-        "Q05": tuple(MANAGEMENT_FAULT_WINDOWS),
+        "Q05": (*MANAGEMENT_FAULT_WINDOWS, *ATOMIC_FAULT_WINDOWS),
         "Q08": HOST_OBSERVATION_CASES,
     }
     if family not in allowed or case not in allowed[family]:
@@ -1072,6 +1094,9 @@ def _run_managed_transport_fixture(
         "Q05": "hosted_fault_probe",
         "Q08": "hosted_observation_probe",
     }[family]
+    atomic = family == "Q05" and case in ATOMIC_FAULT_WINDOWS
+    if atomic:
+        module = "hosted_atomic_probe"
     program_path = f"python/lib/python3.11/site-packages/quantos/infrastructure/{module}.py"
     program_hash = next(
         item.bytes_hash for item in deployment.install.files if item.relative_path == program_path
@@ -1094,7 +1119,12 @@ def _run_managed_transport_fixture(
     completion_written = False
     try:
         argv = namespace_command(
-            "service", paths, command, service_capability_fds=(descriptor,), info_fd=info_fd
+            "service",
+            paths,
+            command,
+            service_capability_fds=(descriptor,),
+            info_fd=info_fd,
+            mount_policy_hash=deployment.profile.mount_policy_hash,
         )
         prelaunch = canonical_json_bytes(
             {
@@ -1149,6 +1179,20 @@ def _run_managed_transport_fixture(
                 # Keep only a safe type name; arbitrary output/errors may contain
                 # credentials. A zero exit without safe evidence is still a failure.
                 observation_failure_type = type(error).__name__
+        after_facts: dict[str, object] = {}
+        if atomic:
+            domain, window = ATOMIC_FAULT_WINDOWS[case]
+            target_path, expected_bytes = native_registration_publication(deployment.spec, domain)
+            facts = atomic_forensic_inventory(
+                paths.authority,
+                target_path=target_path,
+                expected_bytes=expected_bytes,
+                window=window,
+            )
+            after_inventory = forensic_byte_view(facts)
+            after_facts["authority_after_forensic_inventory"] = facts.model_dump(mode="json")
+        else:
+            after_inventory = raw_inventory(paths.authority)
         record = canonical_json_bytes(
             {
                 "schema_version": "hosted-manager-negative-run/v1",
@@ -1160,7 +1204,8 @@ def _run_managed_transport_fixture(
                 "argv": argv,
                 "program_hash": program_hash,
                 "authority_root": str(paths.authority),
-                "authority_after_inventory": raw_inventory(paths.authority).model_dump(mode="json"),
+                "authority_after_inventory": after_inventory.model_dump(mode="json"),
+                **after_facts,
                 "channel_inventory": raw_inventory(paths.channel).model_dump(mode="json"),
                 "manager_child_observation": child,
                 "manager_namespace_identities": {

@@ -419,10 +419,28 @@ def verify_managed_fixture_source(
     Scenario roots must separately bind their exact original snapshot paths. This
     shared gate does not accept a producer's verdict or grant any Q-case by itself.
     """
-    from quantos.infrastructure.hosted_fault_cases import MANAGEMENT_FAULT_WINDOWS
+    from quantos.infrastructure.hosted_fault_cases import (
+        ATOMIC_FAULT_WINDOWS,
+        MANAGEMENT_FAULT_WINDOWS,
+    )
 
     require(family in ("Q02", "Q03", "Q04", "Q05", "Q08"), "unknown management fixture family")
-    require(family != "Q05" or name in MANAGEMENT_FAULT_WINDOWS, "unknown fixed fault fixture")
+    atomic = family == "Q05" and name in ATOMIC_FAULT_WINDOWS
+    require(
+        family != "Q05" or name in MANAGEMENT_FAULT_WINDOWS or atomic,
+        "unknown fixed fault fixture",
+    )
+    module = (
+        "hosted_atomic_probe"
+        if atomic
+        else {
+            "Q02": "hosted_duplicate_probe",
+            "Q03": "hosted_negative_probe",
+            "Q04": "hosted_admission_probe",
+            "Q05": "hosted_fault_probe",
+            "Q08": "hosted_observation_probe",
+        }[family]
+    )
     deployment = sources.deployment
     target = deployment.root / "qualification-cases" / family / name
     require(
@@ -498,14 +516,7 @@ def verify_managed_fixture_source(
         item.bytes_hash
         for item in deployment.install.files
         if item.relative_path
-        == "python/lib/python3.11/site-packages/quantos/infrastructure/"
-        + {
-            "Q02": "hosted_duplicate_probe.py",
-            "Q03": "hosted_negative_probe.py",
-            "Q04": "hosted_admission_probe.py",
-            "Q05": "hosted_fault_probe.py",
-            "Q08": "hosted_observation_probe.py",
-        }[family]
+        == "python/lib/python3.11/site-packages/quantos/infrastructure/" + module + ".py"
     )
     native = next(
         item.bytes_hash
@@ -532,14 +543,7 @@ def verify_managed_fixture_source(
     command = (
         "/install/python-seeded",
         "-m",
-        "quantos.infrastructure."
-        + {
-            "Q02": "hosted_duplicate_probe",
-            "Q03": "hosted_negative_probe",
-            "Q04": "hosted_admission_probe",
-            "Q05": "hosted_fault_probe",
-            "Q08": "hosted_observation_probe",
-        }[family],
+        "quantos.infrastructure." + module,
         "--profile-hash",
         deployment.profile.content_hash,
         "--case",
@@ -549,7 +553,12 @@ def verify_managed_fixture_source(
     require(
         tuple(arguments)
         == namespace_command(
-            "service", paths, command, service_capability_fds=(capability_fd,), info_fd=info_fd
+            "service",
+            paths,
+            command,
+            service_capability_fds=(capability_fd,),
+            info_fd=info_fd,
+            mount_policy_hash=deployment.profile.mount_policy_hash,
         ),
         "Q03 fixed namespace argv differs",
     )
@@ -623,7 +632,9 @@ def verify_managed_fixture_source(
     require(
         observation.get("fixture_kind")
         == (
-            "DUPLICATE_SUBMISSION_FIXTURE"
+            "PHYSICAL_EXIT_ATOMIC_FIXTURE"
+            if atomic
+            else "DUPLICATE_SUBMISSION_FIXTURE"
             if family == "Q02"
             else (
                 "PHYSICAL_EXIT_CORRUPTION_FIXTURE"

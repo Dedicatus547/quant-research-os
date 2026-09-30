@@ -1,6 +1,6 @@
 # HM-MVP 实施进度
 
-日期：2026-09-30。整体状态：`NOT_QUALIFIED`，尚未完成 MVP 验收。
+日期：2026-10-01。整体状态：`NOT_QUALIFIED`，尚未完成 MVP 验收。
 
 HM-01/02 的基线、冻结契约和独立契约审查已保存；HM-03/04/05 的版本化交接、
 持久化业务编排和受限 CLI 已实现并通过组件回归。HM-06 的冻结安装、namespace、
@@ -557,3 +557,98 @@ COMPLETE object预检、目录核验、DQ停止与plan归属；native组件工�
 另测非canonical plan与错误hash路径的extra plan拒绝。仍非原始部署/fullQ05资格。
 ruff全树、format、src pyright通过；尚未取得新的Q12 coverage≥85%、真实Q11/Q09/Q10、
 完整失败attempt ledger与HM09–11。模型认证/provider没有调用。
+
+### 2026-10-01：Q05 原件诊断、原子取证与原生 recorder 故障定位
+
+干净后继 `cf9b2d4d776da1b9a67180b88b844d4cbcd0dc35` 的新根
+`/tmp/hm-attempt17-corruption-diagnostic03` 成功核验 attempt17 的五个原始损坏窗口，
+483 个 manager export 来源和55个 checked hashes。qualification hash
+`141995a97a6f7f25f2a53773b1f0a56198211e89b6e04475a47283211d583d51`，export hash
+`4b7320b9c7f27035e4fc01865ca83a00fbf41e4bdaad2f06fb552a3c7519ba87`。
+原77安装与后继verifier源码身份分开记录；完整Q05记录为空、12门仍NOT_EVALUATED，
+不能把subset成功写成完整验收。
+[必要原件窄审](../reviews/hm-q05-corruption-origin-review-attempt17.md)，SHA256
+`bcb06ffc9fad6daf598ba3205565259996ed4f972b63e0b1a9ec6f5918ba1408`，独立核对原安装/
+git成员、原始kernel进程、三次waitpid、目录与逐项损坏，删除空目录及改exit负例拒绝。
+新版mount recipe下另只读重查仍55 hashes通过，日志
+`/tmp/hm-attempt17-legacy-namespace-readonly-recheck01.txt`，保持旧profile的精确argv。
+
+attempt16 的35项非执行durable原件另在全新
+`/tmp/hm-attempt16-partial-durable-diagnostic01` 诊断根只读核验通过，qualification hash
+`da99c9dc0834e6444eb8b418335c602b37fdba5bcd09bd3e4cc0308be530ef66`，export hash
+`58752f8794d681cacca24d910249f33b4e728bbfab3867dacbba292a352732a4`。
+同时保留原父级失败与 RecorderInitializationError child 原件；没有复跑或修补失败根，
+没有完整44项或正式Q05 PASS。该35项partial诊断尚非独立完整资格审查。
+
+新增原子取证reader仅允许已知 native spec/REGISTER INTENT/object 的特定`.publish-*`
+pair 在file_linked窗口拥有同inode/nlink2；两次O_NOFOLLOW descriptor walk检查全文件/
+目录/dev/inode/link/uid/gid/mtime/ctime，bounded entries/file/aggregate，完整hash与名称
+不变。canonical Store/raw reader没有获得hardlink例外。副本明确是forensic bytes，
+每alias复制成独立单链接文件，原physical facts单独保留，不能作为canonical来源权威。
+[原reader审查](../reviews/hm-q05-atomic-forensic-reader-narrow-review.md) 保留资源上限P1，
+[后继资源关闭审](../reviews/hm-q05-atomic-forensic-reader-resource-closure-review.md) 独立确认
+枚举/aggregate/growth在超限前停止，旧报告不改。第一次缺Directory schema的开发回归
+20 failed/19 passed；修正39通过。原资源canary失败也保留，后继41通过。
+
+[原snapshot/probe审查](../reviews/hm-q05-atomic-snapshot-probe-narrow-review.md) 复现输出位于
+authority内时先写后拒绝；[关闭审](../reviews/hm-q05-atomic-snapshot-source-closure-review.md)
+确认写前检查字面和physical祖先/dev/inode别名、O_NOFOLLOW pin现有根，same/inside/parent/
+sidecar symlink均拒绝且完整原facts不变。只保证固定已有channel，不承诺任意fresh channel
+API。独立43 reader/probe controls通过，真实fork退出73/74/0。
+
+生产bootstrap现在先read-only检查spec registration；frozen seed物化复用原
+atomic_write_bytes_at，不再在重启时产生新temporary或改变原seed目录时间戳。
+[两处生产重启副作用窄审](../reviews/hm-q05-atomic-production-restart-side-effects-review.md)，
+SHA256 `43348643cc1e1f9b133672788f99c6625d14376e29da38f580d30d4623e53687`，25 controls及
+真实fsync/错spec bytes/额外spec/existing seed冲突反例通过；不宣称完整installed bootstrap。
+
+主agent12固定atomic fork controls与unknown case共13 passed（19.54s）；reader/probe后继
+43 passed（24.28s）；exact native checkpoint/篡改/dispatch/inputs共35 passed（12.11s）。
+actual frozen B17 加生产loader在12个全新component根全部通过：原未完成窗两次fresh拒绝
+且physical facts全相同；已发布窗 nativeprotocol/budget/Ledger/file closure及R1等待状态
+通过，第二次bootstrap事实不变，execution/Workflow/network均0。日志
+`/tmp/hm-q05-atomic-frozen-business-component01.txt`，根
+`/tmp/hm-q05-atomic-frozen-business-component01-root`。其management factory绕过安装/
+profile/kernel检查，保持NOT_QUALIFIED，不能替代installed原件。
+
+管理端原子worker/source predicate和完整61窗口Q05 dispatch已接线：44 durable、5损坏、
+12原子全部必需；不能把49或12 subset给PASS。copy root与原physical sidecars明确绑定，
+actual after unsafe原树通过独立forensic reader重新读取；positive native根复用已有只读
+验证。独立窄审发现exit原件只检查集合membership而漏了path phase；已改为精确source
+phase及该phase的waitpid tuple相等。
+[原谓词窄审](../reviews/hm-q05-atomic-verification-narrow-review.md) 原样保留P1；
+[exit闭合窄审](../reviews/hm-q05-atomic-exit-record-closure-review.md) SHA256
+`1b652dd1756558c51d699964f840abb83eb6abded962292581f1ddfa0a99896d`，独立精确branch控制
+证明三合法phase通过、两个错path phase拒绝；它不是完整installed sourcewrapper验证。
+
+Recorder诊断component01未安装network hooks，约12分钟后主动SIGTERM并保存abort marker，
+不当作离线证据；component02安装deny hooks后完成首次候选，返回WAITING_FOR_AGENT但记录
+一次SOCKET_CONNECT，仍非离线PASS，且未消费完整家族。两原根/日志保留。
+随后全新实际namespace诊断
+`/tmp/hm-q05-recorder-namespace-component01-root/child.log` 明确复现：没有/bin/sh、存在
+/usr/bin/sh；Qlib原生start_run→_log_uncommitted_code→subprocess因FileNotFoundError失败，
+留下active experiment；第二次qlib.init报RecorderInitializationError，network0。
+后继component02只增加/bin→只读/usr/bin布局，native recorder正常结束，active=false，
+第二次init成功，network0。两次均是component诊断，不追认原安装或完整Q05执行。
+
+新mount policy v2绑定service的/bin别名，并显式设置MLFLOW_DISABLE_TELEMETRY=true，
+使用[MLflow官方opt-out](https://mlflow.org/docs/latest/community/usage-tracking/)；未确认长
+component02那一次connect的caller，不把遥测说成其已证明原因。固定deny hooks及零网络
+门仍保留。原v1 mount bytes/hash和来源重算recipe保持；unknown policy hash硬拒绝。
+失败worker新增有限module/function/line位置与联网调用位置，不记录异常message、frame
+locals、路径或环境。原16失败记录不改写。
+[v2 mount policy窄审](../reviews/hm-service-mount-policy-v2-narrow-review.md)，SHA256
+`b379aa98714398055d583f428e98ba591cefd6327e120c2b878a9b146c3eac61`，独立核对原legacy
+bytes/两role argv不变、host新旧相同、unknown hash拒绝。最终v2 policy hash
+`8d1b9175f41626fbd33eed6c6d350a0fbb6003dbe59536fba29e8d8a00fd2d4d`；新component03实测
+telemetry client absent、env=true、native recorder结束/二次初始化成功/network0，原根
+`/tmp/hm-q05-recorder-namespace-component03-root`。另独立12 frozen业务组件只读复核通过，
+完整原files/dirs/physical facts不变，执行/Workflow/network0；仍不授完整Q05或HM09。
+
+管理端含真实kernel检查14 passed（5.91s）；默认沙箱AF_UNIX bind拒绝造成5 failed/69
+passed，保留原日志与first-failure诊断。正常Unix权限下原deployment整组18 passed
+（11.08s），namespace+offline environment控制1 passed；不删除失败记录或把deselect当作
+隔离证明。synthetic negative-origin/reader/probe回归77 passed（153.85s），失败位置probe43 passed
+（113.27s）；launcher/offline profile绑定组件29 passed（6.90s）。src严格pyright、ruff、
+format通过。这些均不是Q12 exact-commit coverage门。
+尚待完整新安装Q05 source矩阵、Q06、Q12、真实Q11/Q09/Q10、失败尝试总账及HM09–11。

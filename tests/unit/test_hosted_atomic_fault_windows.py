@@ -122,10 +122,13 @@ def test_fresh_spec_registration_rejects_unfinished_publication_without_repair(
     fresh = HostedProtocolStore(root)
     if window in ("file_fsynced", "file_linked"):
         with pytest.raises(ArtifactIntegrityError, match=r"spec|hard-link|one link"):
+            fresh.verify_spec_registration(spec)
+        with pytest.raises(ArtifactIntegrityError, match=r"spec|hard-link|one link"):
             fresh.register_spec(spec)
         with pytest.raises(ArtifactIntegrityError, match=r"spec|hard-link|one link"):
             fresh.spec(spec.content_hash)
     else:
+        fresh.verify_spec_registration(spec)
         assert fresh.register_spec(spec) == spec.content_hash
         assert fresh.spec(spec.content_hash) == spec
     assert physical_files() == original

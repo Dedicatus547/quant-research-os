@@ -195,6 +195,31 @@ class HostedProtocolStore:
             raise ArtifactIntegrityError("hosted spec hash mismatch")
         return value
 
+    def verify_spec_registration(self, expected: HostedCampaignSpec) -> None:
+        """Read-only bootstrap preflight before any business materialization.
+
+        Empty registration is permitted only for a genuinely fresh spec store.
+        Unfinished temporary publications and any unrelated registration reject
+        before the loader can touch the retained business tree.
+        """
+        with opened_directory(self._root) as root_fd, _child(root_fd, "specs") as specs_fd:
+            flock(specs_fd, LOCK_EX)
+            try:
+                self._require_spec_names(specs_fd)
+                names = _names(specs_fd)
+                if not names:
+                    return
+                name = f"{expected.content_hash}.json"
+                if names != (name,):
+                    raise ArtifactIntegrityError("unexpected hosted spec registration")
+                data = read_regular_bytes_at(specs_fd, name, max_bytes=REQUEST_BYTE_CAP)
+                if data != expected.canonical_bytes():
+                    raise ArtifactIntegrityError(
+                        "hosted registered spec differs from frozen inputs"
+                    )
+            finally:
+                flock(specs_fd, LOCK_UN)
+
     @contextmanager
     def campaign_lock(
         self, campaign_hash: str, *, create: bool = False

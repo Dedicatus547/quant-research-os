@@ -99,6 +99,7 @@ def probe_projection_mount(
         paths,
         ("/install/python-seeded", "-c", MOUNT_PROBE_CODE),
         seccomp_fd=seccomp_fd,
+        mount_policy_hash=profile.mount_policy_hash,
     )
     result = subprocess.run(
         argv, pass_fds=(seccomp_fd,), capture_output=True, timeout=10, env={"PATH": "/usr/bin:/bin"}
@@ -584,7 +585,13 @@ class TrustedCodexLauncher:
             "/projection/" + request.proposal_schema_hash,
             "-",
         )
-        argv = namespace_command("host", self.paths, command, seccomp_fd=seccomp_fd)
+        argv = namespace_command(
+            "host",
+            self.paths,
+            command,
+            seccomp_fd=seccomp_fd,
+            mount_policy_hash=self.profile.mount_policy_hash,
+        )
         descriptors = (seccomp_fd,)
         if model_auth_memory_fd is not None:
             # bwrap copies the caller's private memory fd into tmpfs; no disk auth copy.

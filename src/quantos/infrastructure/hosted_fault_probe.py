@@ -13,6 +13,7 @@ import signal
 import socket
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -57,6 +58,23 @@ from quantos.infrastructure.hosted_verification import (
 from quantos.research.qlib import QlibWorkflowResearchService
 
 
+def failure_locations(error: Exception) -> tuple[dict[str, object], ...]:
+    """Bounded installed-code locations only; no paths, messages or frame locals."""
+    locations: list[dict[str, object]] = []
+    for frame, line in traceback.walk_tb(error.__traceback__):
+        module = frame.f_globals.get("__name__")
+        locations.append(
+            {
+                "module": module if isinstance(module, str) else "unknown",
+                "function": frame.f_code.co_name,
+                "line": line,
+            }
+        )
+        if len(locations) == 32:
+            break
+    return tuple(locations)
+
+
 def run_fault_probe(
     profile_hash: str,
     case: str,
@@ -90,6 +108,7 @@ def run_fault_probe(
     execute_calls: list[str] = []
     workflow_calls: list[str] = []
     network_attempts: list[str] = []
+    network_locations: list[tuple[dict[str, object], ...]] = []
     original_execute = QuantosResearchExecutionAdapter.execute
     original_workflow = QlibWorkflowResearchService.run
 
@@ -115,6 +134,20 @@ def run_fault_probe(
     def denied_network(*args: object, **kwargs: object) -> None:
         del args, kwargs
         network_attempts.append("SOCKET_CONNECT")
+        if len(network_locations) < 32:
+            locations: list[dict[str, object]] = []
+            for frame, line in traceback.walk_stack(None):
+                module = frame.f_globals.get("__name__")
+                locations.append(
+                    {
+                        "module": module if isinstance(module, str) else "unknown",
+                        "function": frame.f_code.co_name,
+                        "line": line,
+                    }
+                )
+                if len(locations) == 32:
+                    break
+            network_locations.append(tuple(locations))
         raise ArtifactIntegrityError("offline fault fixture attempted network")
 
     def boot(*, crash: bool = False) -> HostedCampaignApplicationService:
@@ -367,7 +400,13 @@ def run_fault_probe(
                     atomic_write_bytes(
                         channel / "process-records" / f"{phase}-failure.json",
                         canonical_json_bytes(
-                            {"pid": os.getpid(), "error_type": type(error).__name__}
+                            {
+                                "pid": os.getpid(),
+                                "error_type": type(error).__name__,
+                                "failure_locations": failure_locations(error),
+                                "network_attempts": network_attempts,
+                                "network_locations": network_locations,
+                            }
                         ),
                     )
                     os._exit(1)

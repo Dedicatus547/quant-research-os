@@ -12,7 +12,8 @@ from types import SimpleNamespace
 import pytest
 
 from quantos.artifacts.store import ArtifactIntegrityError
-from quantos.infrastructure.hosted_deployment import private_memory_fd
+from quantos.contracts.base import sha256_bytes
+from quantos.infrastructure.hosted_deployment import MOUNT_POLICY_BYTES, private_memory_fd
 from quantos.infrastructure.hosted_manager import (
     _observe_namespace_child,
     run_managed_negative_case,
@@ -98,7 +99,10 @@ def test_negative_worker_retains_prelaunch_and_failed_completion(
     deployment = SimpleNamespace(
         root=tmp_path,
         paths=SimpleNamespace(channel=channel),
-        profile=SimpleNamespace(content_hash="d" * 64),
+        profile=SimpleNamespace(
+            content_hash="d" * 64,
+            mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES),
+        ),
         bundle=SimpleNamespace(campaign=SimpleNamespace(content_hash="a" * 64)),
         install=SimpleNamespace(
             files=[

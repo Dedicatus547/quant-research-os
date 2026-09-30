@@ -82,3 +82,11 @@ CORRUPTION_FAULT_WINDOWS = {
 # Keep the durable-only matrix separately identifiable for retained diagnostics.
 MANAGEMENT_FAULT_WINDOWS = {**HOSTED_FAULT_WINDOWS, **CORRUPTION_FAULT_WINDOWS}
 FAULT_SNAPSHOT_PHASES = ("before", "crashed", "recovered", "after")
+
+# Physical intermediates use their own forensic reader and fixed worker. They
+# must never be passed to the canonical durable/corruption snapshot predicate.
+ATOMIC_FAULT_WINDOWS = {
+    f"atomic-{domain}-{window}": (domain, window)
+    for domain in ("spec", "journal", "object")
+    for window in ("file_fsynced", "file_linked", "file_published", "directory_fsynced")
+}

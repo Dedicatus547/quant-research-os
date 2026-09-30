@@ -351,7 +351,7 @@ SYSTEM_RUNTIME_PATHS = (
     "/etc/nsswitch.conf",
     "/etc/ssl/certs/ca-certificates.crt",
 )
-MOUNT_POLICY_BYTES = canonical_json_bytes(
+LEGACY_MOUNT_POLICY_BYTES = canonical_json_bytes(
     {
         "schema_version": "hosted-mount-policy/v1",
         "service": (
@@ -377,6 +377,14 @@ MOUNT_POLICY_BYTES = canonical_json_bytes(
             "ro-dns-and-ca-bundle",
         ),
         "system_ro": ("/usr", "/lib", "/lib64"),
+    }
+)
+MOUNT_POLICY_BYTES = canonical_json_bytes(
+    {
+        **json.loads(LEGACY_MOUNT_POLICY_BYTES),
+        "schema_version": "hosted-mount-policy/v2",
+        "service_bin_alias": {"/bin": "/usr/bin"},
+        "service_environment": {"MLFLOW_DISABLE_TELEMETRY": "true"},
     }
 )
 
@@ -501,10 +509,16 @@ def namespace_command(
     service_capability_fds: tuple[int, ...] = (),
     offline_source_root: Path | None = None,
     info_fd: int | None = None,
+    mount_policy_hash: str = sha256_bytes(MOUNT_POLICY_BYTES),
 ) -> tuple[str, ...]:
     """Management-only argv; this function is never exposed through the research channel."""
     if not command:
         raise ValueError("namespace requires fixed command")
+    if mount_policy_hash not in (
+        sha256_bytes(LEGACY_MOUNT_POLICY_BYTES),
+        sha256_bytes(MOUNT_POLICY_BYTES),
+    ):
+        raise ValueError("unknown frozen namespace mount policy")
     result = [
         "/usr/bin/bwrap",
         "--unshare-all",
@@ -535,6 +549,17 @@ def namespace_command(
         (paths.projection, "/projection"),
     ):
         result += ["--ro-bind", str(source), target]
+    if role == "service" and mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES):
+        # Qlib's native recorder uses subprocess(..., shell=True), which resolves
+        # /bin/sh. Both names reach the same already-read-only /usr tree.
+        result += [
+            "--symlink",
+            "/usr/bin",
+            "/bin",
+            "--setenv",
+            "MLFLOW_DISABLE_TELEMETRY",
+            "true",
+        ]
     result += [
         "--dev",
         "/dev",

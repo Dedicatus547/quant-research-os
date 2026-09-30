@@ -22,7 +22,7 @@ from quantos.application.ledger import ResearchLedgerService
 from quantos.application.provenance import verify_code_provenance
 from quantos.artifacts.store import (
     ArtifactIntegrityError,
-    atomic_write_bytes,
+    atomic_write_bytes_at,
     opened_directory,
     read_regular_bytes_at,
     regular_tree_files,
@@ -107,6 +107,15 @@ def _verify_file(root: Path, item: HostedFrozenInputFile) -> bytes:
     if len(data) != item.size_bytes or sha256_bytes(data) != item.sha256:
         raise ArtifactIntegrityError("frozen input file bytes differ from inventory")
     return data
+
+
+def _publish_seed_file(ledger_root: Path, item: HostedFrozenInputFile, data: bytes) -> None:
+    """Materialize frozen seed bytes without rewriting existing directory facts."""
+    if len(data) != item.size_bytes or sha256_bytes(data) != item.sha256:
+        raise ArtifactIntegrityError("seed ledger bytes differ from frozen input")
+    destination = ledger_root / item.logical_path
+    with opened_directory(destination.parent, create=True) as descriptor:
+        atomic_write_bytes_at(descriptor, destination.name, data)
 
 
 def _verify_bundle(
@@ -210,11 +219,7 @@ def load_hosted_campaign_application(
     seed_root = root / bundle.initial_ledger_directory
     ledger_root = runtime / "ledger"
     for item in bundle.initial_ledger_files:
-        atomic_write_bytes(
-            ledger_root / item.logical_path,
-            _verify_file(seed_root, item),
-            expected_sha256=item.sha256,
-        )
+        _publish_seed_file(ledger_root, item, _verify_file(seed_root, item))
     ledger = ResearchLedgerService(ledger_root)
     execution = build_hosted_execution_adapter(
         bundle,

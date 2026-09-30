@@ -604,6 +604,29 @@ def verify_case(
     try:
         for logical in case.evidence_paths:
             hashes.add(sha256_bytes(read_relative(bundle, logical)))
+        if case.case_id == "Q05":
+            # Empty prelaunch roots and explicit forensic corruption/atomic
+            # copies are not ordinary complete canonical protocol snapshots.
+            # Their finite predicate binds every original phase and distinguishes
+            # unsafe intermediates before invoking any native canonical reader.
+            if any(not root.logical_path.startswith("cases/Q05/") for root in case.roots):
+                raise HostedQualificationError("Q05 root escaped its registered scope")
+            if sources is None:
+                return HostedQualificationGate(
+                    case_id="Q05",
+                    verdict="NOT_EVALUATED",
+                    reason="ORIGINAL_MANAGER_SOURCE_UNAVAILABLE",
+                    checked_artifact_hashes=tuple(sorted(hashes)),
+                )
+            from quantos.infrastructure.hosted_fault_verification import verify_q05
+
+            hashes.update(verify_q05(bundle, case, sources))
+            return HostedQualificationGate(
+                case_id="Q05",
+                verdict="PASS",
+                reason="ORIGINAL_SCENARIO_AUTHORITY_VERIFIED",
+                checked_artifact_hashes=tuple(sorted(hashes)),
+            )
         for root in case.roots:
             prefix = f"{root.logical_path}/"
             if not (

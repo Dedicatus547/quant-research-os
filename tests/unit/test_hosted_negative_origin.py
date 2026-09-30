@@ -20,7 +20,11 @@ from quantos.contracts.hosted_qualification import (
     HostedQualificationCase,
     HostedQualificationRoot,
 )
-from quantos.infrastructure.hosted_deployment import HostedNamespacePaths, namespace_command
+from quantos.infrastructure.hosted_deployment import (
+    MOUNT_POLICY_BYTES,
+    HostedNamespacePaths,
+    namespace_command,
+)
 from quantos.infrastructure.hosted_fixture_frames import (
     BOUNDED_REJECTION_CASES,
     FAKE_ATTESTATION_BYTES,
@@ -73,7 +77,9 @@ def _case(tmp_path: Path, mutation: str | None, family: str = "Q03"):
         root=manager,
         paths=paths,
         spec=f.spec,
-        profile=SimpleNamespace(content_hash="d" * 64),
+        profile=SimpleNamespace(
+            content_hash="d" * 64, mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES)
+        ),
         bundle=SimpleNamespace(campaign=SimpleNamespace(content_hash=f.spec.campaign_hash)),
         configuration=SimpleNamespace(principals=[SimpleNamespace(uid=1000, gid=1000)]),
         install=SimpleNamespace(

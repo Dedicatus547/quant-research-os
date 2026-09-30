@@ -34,6 +34,7 @@ from quantos.infrastructure.hosted_business_verification import (
     verify_native_business_steps,
 )
 from quantos.infrastructure.hosted_fault_cases import (
+    ATOMIC_FAULT_WINDOWS,
     CORRUPTION_FAULT_WINDOWS,
     FAULT_SNAPSHOT_PHASES,
     HOSTED_FAULT_WINDOWS,
@@ -55,6 +56,36 @@ from quantos.infrastructure.hosted_verification import (
 )
 
 FAULT_PROCESS_PHASES = ("crash", "recovery-1", "recovery-2")
+
+
+def verify_q05(
+    bundle_root: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
+) -> tuple[str, ...]:
+    """Require durable, corruption and atomic original source matrices together."""
+    from quantos.infrastructure.hosted_atomic_verification import verify_q05_atomic_subset
+
+    names = (*MANAGEMENT_FAULT_WINDOWS, *ATOMIC_FAULT_WINDOWS)
+    require(
+        case.case_id == "Q05"
+        and {root.name for root in case.roots}
+        == {f"{name}-{phase}" for name in names for phase in FAULT_SNAPSHOT_PHASES},
+        "Q05 complete durable/corruption/atomic matrix is absent",
+    )
+    checked: set[str] = set()
+    for windows in (tuple(HOSTED_FAULT_WINDOWS), tuple(CORRUPTION_FAULT_WINDOWS)):
+        expected = {f"{name}-{phase}" for name in windows for phase in FAULT_SNAPSHOT_PHASES}
+        subset = case.model_copy(
+            update={"roots": tuple(root for root in case.roots if root.name in expected)}
+        )
+        checked.update(_verify_q05_windows(bundle_root, subset, sources, windows))
+    atomic_names = {
+        f"{name}-{phase}" for name in ATOMIC_FAULT_WINDOWS for phase in FAULT_SNAPSHOT_PHASES
+    }
+    atomic_case = case.model_copy(
+        update={"roots": tuple(root for root in case.roots if root.name in atomic_names)}
+    )
+    checked.update(verify_q05_atomic_subset(bundle_root, atomic_case, sources))
+    return tuple(sorted(checked))
 
 
 def verify_q05_durable_subset(

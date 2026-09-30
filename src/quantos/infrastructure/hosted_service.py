@@ -478,6 +478,7 @@ def bootstrap_hosted_service(
         verify_journal_entry=verify_journal_entry,
         fault_hook=protocol_fault_hook,
     )
+    store.verify_spec_registration(derived_spec)
     campaign_directory = authority_root / "protocol/campaigns" / campaign_hash
     existing_requests: dict[str, str] = {}
     if campaign_directory.exists() or campaign_directory.is_symlink():
