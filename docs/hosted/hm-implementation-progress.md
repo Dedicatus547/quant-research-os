@@ -151,3 +151,8 @@ coverage `80.07%`，未达冻结 `85%`，Q12 仍未通过。保存日志
 退出/恢复子进程；冻结 85% 门和 source 范围不变。实际 expired/seen fresh-process
 覆盖率 smoke `1 passed / 30 deselected / 52.49s`，完整稳定提交 CI 尚待重跑。
 manifest 的失败尝试引用补充严格 SHA-256 格式校验；完整失败 ledger 来源对账仍待完成。
+
+`53f365a` 首次启用子进程覆盖率时产生 `.coverage.<host>.pid...`，既有 gitignore 只忽略
+单文件 `.coverage`，因此 clean provenance 拒绝了尚未创建部署根的 attempt 10。
+CI 已主动中止，partial 日志/coverage 保留，不能当作完成的 Q12。补充忽略标准
+coverage 子进程缓存；后继全量 CI 使用 `/tmp` coverage data file，避免污染工作树。
