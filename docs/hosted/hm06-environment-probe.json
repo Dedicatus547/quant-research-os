@@ -1,0 +1,175 @@
+{
+  "attempt_count": 1,
+  "environment": {
+    "bwrap_sha256": "bf6cf3d4456665f5d80c14eb79a76e0ce87b39a0883e614a161658b4ec33492c",
+    "bwrap_version": "bubblewrap 0.6.1",
+    "controller_namespaces": {
+      "mnt": "mnt:[4026532216]",
+      "net": "net:[4026531833]",
+      "pid": "pid:[4026532219]",
+      "user": "user:[4026531837]"
+    },
+    "gid": 1000,
+    "kernel": "6.18.33.2-microsoft-standard-WSL2",
+    "libc": [
+      "glibc",
+      "2.35"
+    ],
+    "uid": 1000
+  },
+  "model": "gpt-6-sol",
+  "probes": [
+    {
+      "exit_code": 0,
+      "observation": {
+        "checks": {
+          "acquisition_canary_read": {
+            "denied": true,
+            "errno": 2
+          },
+          "authority_read": {
+            "denied": true,
+            "errno": 2
+          },
+          "authority_write": {
+            "denied": true,
+            "errno": 2
+          },
+          "frozen_install_write": {
+            "denied": true,
+            "errno": 30
+          },
+          "inherited_authority_fd_absent": {
+            "denied": true
+          },
+          "launcher_evidence_write": {
+            "denied": true,
+            "errno": 2
+          },
+          "outside_parent_proc": {
+            "denied": true,
+            "errno": 2
+          },
+          "parent_fd_escape": {
+            "denied": true,
+            "errno": 2
+          },
+          "parent_tcp_unreachable": {
+            "denied": true,
+            "errno": 111
+          },
+          "proc_init_root_escape": {
+            "denied": true,
+            "errno": 2
+          },
+          "projection_write": {
+            "denied": true,
+            "errno": 30
+          },
+          "python_environment_isolated": {
+            "denied": true,
+            "isolated": true
+          },
+          "sealed_read": {
+            "denied": true,
+            "errno": 2
+          }
+        },
+        "gid": 1000,
+        "namespaces": {
+          "mnt": "mnt:[4026532283]",
+          "net": "net:[4026532411]",
+          "pid": "pid:[4026532409]",
+          "user": "user:[4026532485]"
+        },
+        "pid": 2,
+        "role": "offline-service-canary",
+        "uid": 1000
+      },
+      "role": "offline-service-canary",
+      "stderr": ""
+    },
+    {
+      "exit_code": 0,
+      "observation": {
+        "checks": {
+          "acquisition_canary_read": {
+            "denied": true,
+            "errno": 2
+          },
+          "authority_read": {
+            "denied": true,
+            "errno": 2
+          },
+          "authority_write": {
+            "denied": true,
+            "errno": 2
+          },
+          "frozen_install_write": {
+            "denied": true,
+            "errno": 30
+          },
+          "inherited_authority_fd_absent": {
+            "denied": true
+          },
+          "launcher_evidence_write": {
+            "denied": true,
+            "errno": 2
+          },
+          "outside_parent_proc": {
+            "denied": true,
+            "errno": 2
+          },
+          "parent_fd_escape": {
+            "denied": true,
+            "errno": 2
+          },
+          "parent_tcp_unreachable": {
+            "denied": false
+          },
+          "proc_init_root_escape": {
+            "denied": true,
+            "errno": 2
+          },
+          "projection_write": {
+            "denied": true,
+            "errno": 30
+          },
+          "python_environment_isolated": {
+            "denied": true,
+            "isolated": true
+          },
+          "sealed_read": {
+            "denied": true,
+            "errno": 2
+          }
+        },
+        "gid": 1000,
+        "namespaces": {
+          "mnt": "mnt:[4026532284]",
+          "net": "net:[4026531833]",
+          "pid": "pid:[4026532486]",
+          "user": "user:[4026532488]"
+        },
+        "pid": 2,
+        "role": "restricted-research-host-canary",
+        "uid": 1000
+      },
+      "role": "restricted-research-host-canary",
+      "stderr": ""
+    }
+  ],
+  "profile": "hm-isolated-service/v1",
+  "qualification_cases": {
+    "Q07": "NOT_EVALUATED",
+    "Q11": "NOT_EVALUATED"
+  },
+  "qualification_granted": false,
+  "reasoning_effort": "high",
+  "schema_version": "hm06-environment-preflight/v1",
+  "scope": "CANARY_PREFLIGHT_ONLY_NOT_Q07_QUALIFICATION",
+  "usage": "unavailable",
+  "probe_run_ordinal": 3,
+  "capture_retry_reason": "Previous tool output token budget truncated the JSON; no qualification verdict inferred.",
+  "probe_source_sha256": "8cc599f3726c9d0aa39f1c34606fd4249d5d7571fbc4a6d669c4ed03ac313d89"
+}

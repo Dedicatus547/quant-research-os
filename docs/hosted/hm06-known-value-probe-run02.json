@@ -1,0 +1,59 @@
+{
+  "attempt_count": 1,
+  "canary_generation": "RANDOM_IN_MEMORY_NO_VALUE_OR_DIGEST_RETAINED",
+  "facts": [
+    {
+      "case": "literal",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "base64",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "urlsafe_base64",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "base64_without_padding",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "hex",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "uppercase_hex",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "percent_encoded",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "fully_percent_encoded",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "lowercase_percent_encoded",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "json_decoded_value",
+      "rejected_before_publish": true
+    },
+    {
+      "allowed": true,
+      "case": "safe_control"
+    }
+  ],
+  "model": "gpt-6-sol",
+  "qualification_granted": false,
+  "reasoning_effort": "high",
+  "rejected_case_files_written": 0,
+  "schema_version": "hm06-known-value-preflight/v1",
+  "scope": "IN_MEMORY_CANARY_NOT_PRODUCTION_SCANNER_QUALIFICATION",
+  "source_sha256": "7aacdce1ae21a05f312436f7bbda35091807d5b7d05392b0940ce56afed7c4be",
+  "usage": "unavailable",
+  "probe_run_ordinal": 2
+}

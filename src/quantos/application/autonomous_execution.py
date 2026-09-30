@@ -22,6 +22,8 @@ from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
     exclusive_directory_lock,
+    opened_directory,
+    read_regular_bytes_at,
     regular_tree_files,
 )
 from quantos.backtest import QlibBacktestService
@@ -350,6 +352,71 @@ class QuantosResearchExecutionAdapter:
                 if audit.audit_hash not in outcome.evidence_hashes:
                     self._integrity("DQ export audit is absent before receipt publication")
             return self._publish_receipt(request, outcome)
+
+    def execution_compute_charge(self, request: AutonomousExecutionRequest) -> int:
+        """Quote the existing frozen workload units without running the pipeline."""
+        self._verify_request(request)
+        return self._deterministic_compute_charge(request)
+
+    def verified_completed_execution(
+        self, request: AutonomousExecutionRequest
+    ) -> AutonomousExecutionResult | None:
+        """Verify an existing receipt; never reserve a trial or run the pipeline.
+
+        An existing receipt may repair its content-addressed receipt index through
+        ``_read_receipt``. This is a recoverable publication, not a pure read. Missing
+        receipts produce no receipt, trial reservation, or execution.
+        """
+        self._verify_request(request)
+        with exclusive_directory_lock(
+            self.output_root / "execution-locks" / request.execution_identity
+        ):
+            receipt = self._read_receipt(request.execution_identity)
+            if receipt is None:
+                return None
+            if receipt.request != request:
+                self._integrity("completed execution is bound to different inputs")
+            self._verify_receipt(receipt)
+            if receipt.outcome.failure_reason_code is not None:
+                failures = tuple(
+                    failure
+                    for digest in receipt.outcome.evidence_hashes
+                    if (failure := self.verify_execution_failure(digest)) is not None
+                )
+                if len(failures) != 1 or (
+                    failures[0].request_hash != request.content_hash
+                    or failures[0].reason_code != receipt.outcome.failure_reason_code
+                    or (failures[0].failure_kind == "PIT_REJECTED")
+                    != (receipt.outcome.outcome is TrialOutcome.PIT_REJECT)
+                ):
+                    self._integrity("completed execution failure evidence is missing or mismatched")
+            return self._outcome_with_receipt(receipt)
+
+    def inspect_completed_execution(
+        self, request: AutonomousExecutionRequest
+    ) -> AutonomousExecutionResult | None:
+        """Bottom-up verify saved execution authority without repairing or publishing files.
+
+        Offline qualification uses this read-only boundary. Online crash recovery keeps
+        using ``verified_completed_execution`` and its existing receipt-index repair.
+        """
+        self._verify_request(request)
+        path = self._receipt_path(request.execution_identity)
+        if not path.exists():
+            return None
+        with opened_directory(path.parent) as parent:
+            encoded = read_regular_bytes_at(parent, path.name, max_bytes=16_777_216)
+        receipt = AutonomousExecutionReceipt.model_validate_json(encoded)
+        if receipt.canonical_bytes() != encoded or receipt.request != request:
+            self._integrity("saved execution receipt differs from exact request")
+        with opened_directory(self.output_root / "execution-record-artifacts") as parent:
+            indexed = read_regular_bytes_at(
+                parent, f"sha256-{receipt.content_hash}.json", max_bytes=16_777_216
+            )
+        if indexed != encoded:
+            self._integrity("saved execution receipt index differs from original bytes")
+        self._verify_receipt(receipt)
+        return self._outcome_with_receipt(receipt)
 
     def verify_preselection_dq_trials(self, events: tuple[ResearchCampaignEvent, ...]) -> None:
         """Reverify every DQ trial and its native-label audit before P14c reads it."""

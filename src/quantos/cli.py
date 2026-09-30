@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import stat
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, TypeVar, cast
@@ -69,6 +71,7 @@ registry_app = typer.Typer(no_args_is_help=True)
 ledger_app = typer.Typer(no_args_is_help=True)
 release_app = typer.Typer(no_args_is_help=True)
 campaign_app = typer.Typer(no_args_is_help=True)
+hosted_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tushare_app, name="tushare")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(qlib_app, name="qlib")
@@ -79,6 +82,7 @@ app.add_typer(registry_app, name="registry")
 app.add_typer(ledger_app, name="ledger")
 app.add_typer(release_app, name="release")
 app.add_typer(campaign_app, name="campaign")
+app.add_typer(hosted_app, name="hosted")
 
 C = TypeVar("C", bound=CanonicalContract)
 
@@ -1386,6 +1390,260 @@ def build_research_context_pack(
         _ledger_failure(error)
         return
     typer.echo(pack.canonical_bytes().decode("utf-8"))
+
+
+_HOSTED_CONFIG_PATH = Path("/install/hosted-client.json")
+_HOSTED_HASH = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def _hosted_failure(reason: str, code: int = 20) -> None:
+    typer.echo(json.dumps({"status": "FAILED", "reason_code": reason}, sort_keys=True))
+    raise typer.Exit(code=code)
+
+
+def _hosted_hash(value: str) -> str:
+    if _HOSTED_HASH.fullmatch(value) is None:
+        _hosted_failure("HOSTED_HASH_INVALID")
+    return value
+
+
+def _hosted_parent(path: Path) -> tuple[int, str]:
+    parts = path.parts
+    if not parts or path.name in ("", ".", "..") or ".." in parts:
+        raise ValueError("invalid local path")
+    directory = os.open("/" if path.is_absolute() else ".", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in parts[:-1]:
+            if part == "/":
+                continue
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        return directory, parts[-1]
+    except Exception:
+        os.close(directory)
+        raise
+
+
+def _hosted_read_regular(path: Path, cap: int) -> bytes:
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    parent, leaf = _hosted_parent(path)
+    try:
+        fd = os.open(leaf, flags, dir_fd=parent)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("unique regular file required")
+            remaining = cap + 1
+            chunks: list[bytes] = []
+            while remaining:
+                chunk = os.read(fd, remaining)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            return b"".join(chunks)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
+def _hosted_write_new(path: Path, content: bytes) -> None:
+    parent, leaf = _hosted_parent(path)
+    try:
+        fd = os.open(
+            leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent
+        )
+        try:
+            with os.fdopen(fd, "wb", closefd=False) as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(fd)
+            os.fsync(parent)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
+def _hosted_client(config_path: Path, capability_fd: int) -> Any:
+    from quantos.contracts.hosted import parse_hosted_contract
+    from quantos.contracts.hosted_deployment import HostedClientConfiguration
+    from quantos.infrastructure.hosted_client import HostedUnixClient
+
+    raw = _hosted_read_regular(config_path, 16_384)
+    config = parse_hosted_contract(raw, HostedClientConfiguration, max_bytes=16_384)
+    return HostedUnixClient.from_configuration(config, capability_fd)
+
+
+def _hosted_emit(value: dict[str, object] | None) -> None:
+    if value is None:
+        _hosted_failure("HOSTED_RESULT_INVALID")
+    typer.echo(json.dumps(value, sort_keys=True, ensure_ascii=False))
+
+
+@hosted_app.command("start")
+def hosted_start(
+    spec: Annotated[str, typer.Option("--spec")],
+    campaign: Annotated[str, typer.Option("--campaign")],
+    capability_fd: Annotated[int, typer.Option("--capability-fd")],
+    client_config: Annotated[Path, typer.Option("--client-config")] = _HOSTED_CONFIG_PATH,
+) -> None:
+    """Start one management-registered frozen hosted spec."""
+    try:
+        spec_hash, campaign_hash = _hosted_hash(spec), _hosted_hash(campaign)
+        _hosted_emit(_hosted_client(client_config, capability_fd).start(spec_hash, campaign_hash))
+    except typer.Exit:
+        raise
+    except Exception:
+        _hosted_failure("HOSTED_OPERATION_FAILED")
+
+
+@hosted_app.command("pending")
+def hosted_pending(
+    campaign: Annotated[str, typer.Option("--campaign")],
+    capability_fd: Annotated[int, typer.Option("--capability-fd")],
+    client_config: Annotated[Path, typer.Option("--client-config")] = _HOSTED_CONFIG_PATH,
+) -> None:
+    """Read the pending request identity without displaying request content."""
+    from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+    from quantos.contracts.hosted import REQUEST_BYTE_CAP, HostedAgentRequest, parse_hosted_contract
+
+    try:
+        _hosted_hash(campaign)
+        value = _hosted_client(client_config, capability_fd).pending(campaign)
+        if value is None:
+            _hosted_emit({"status": "NO_PENDING_REQUEST", "campaign_hash": campaign})
+            return
+        encoded = canonical_json_bytes(value)
+        request = parse_hosted_contract(encoded, HostedAgentRequest, max_bytes=REQUEST_BYTE_CAP)
+        if sha256_bytes(encoded) != request.content_hash:
+            raise ValueError("request bytes mismatch")
+        if request.campaign_hash != campaign:
+            raise ValueError("campaign mismatch")
+        _hosted_emit(
+            {
+                "status": "PENDING",
+                "campaign_hash": campaign,
+                "request_hash": request.content_hash,
+                "expires_at": request.expires_at.isoformat(),
+            }
+        )
+    except typer.Exit:
+        raise
+    except Exception:
+        _hosted_failure("HOSTED_OPERATION_FAILED")
+
+
+@hosted_app.command("request-export")
+def hosted_request_export(
+    campaign: Annotated[str, typer.Option("--campaign")],
+    output: Annotated[Path, typer.Option("--output")],
+    capability_fd: Annotated[int, typer.Option("--capability-fd")],
+    client_config: Annotated[Path, typer.Option("--client-config")] = _HOSTED_CONFIG_PATH,
+) -> None:
+    """Export canonical pending request bytes to an explicit new local file."""
+    from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+    from quantos.contracts.hosted import REQUEST_BYTE_CAP, HostedAgentRequest, parse_hosted_contract
+
+    try:
+        _hosted_hash(campaign)
+        value = _hosted_client(client_config, capability_fd).pending(campaign)
+        if value is None:
+            _hosted_failure("HOSTED_NO_PENDING_REQUEST", code=21)
+        source_bytes = canonical_json_bytes(value)
+        request = parse_hosted_contract(
+            source_bytes, HostedAgentRequest, max_bytes=REQUEST_BYTE_CAP
+        )
+        if sha256_bytes(source_bytes) != request.content_hash:
+            raise ValueError("request bytes mismatch")
+        if request.campaign_hash != campaign:
+            raise ValueError("campaign mismatch")
+        encoded = request.canonical_bytes()
+        _hosted_write_new(output, encoded)
+        _hosted_emit(
+            {
+                "status": "EXPORTED",
+                "campaign_hash": campaign,
+                "request_hash": request.content_hash,
+            }
+        )
+    except typer.Exit:
+        raise
+    except Exception:
+        _hosted_failure("HOSTED_OPERATION_FAILED")
+
+
+@hosted_app.command("submit")
+def hosted_submit(
+    campaign: Annotated[str, typer.Option("--campaign")],
+    request: Annotated[str, typer.Option("--request")],
+    response: Annotated[Path, typer.Option("--response")],
+    capability_fd: Annotated[int, typer.Option("--capability-fd")],
+    client_config: Annotated[Path, typer.Option("--client-config")] = _HOSTED_CONFIG_PATH,
+) -> None:
+    """Submit bounded local response bytes through the authenticated channel."""
+    try:
+        _hosted_hash(campaign)
+        _hosted_hash(request)
+        client = _hosted_client(client_config, capability_fd)
+        body = _hosted_read_regular(response, client.policy.response_byte_cap)
+        _hosted_emit(client.submit(request, body, campaign))
+    except typer.Exit:
+        raise
+    except Exception:
+        _hosted_failure("HOSTED_OPERATION_FAILED")
+
+
+@hosted_app.command("resume")
+def hosted_resume(
+    campaign: Annotated[str, typer.Option("--campaign")],
+    capability_fd: Annotated[int, typer.Option("--capability-fd")],
+    client_config: Annotated[Path, typer.Option("--client-config")] = _HOSTED_CONFIG_PATH,
+) -> None:
+    """Resume one explicit campaign to its next persisted waiting point."""
+    try:
+        _hosted_hash(campaign)
+        _hosted_emit(_hosted_client(client_config, capability_fd).resume(campaign))
+    except typer.Exit:
+        raise
+    except Exception:
+        _hosted_failure("HOSTED_OPERATION_FAILED")
+
+
+@hosted_app.command("status")
+def hosted_status(
+    campaign: Annotated[str, typer.Option("--campaign")],
+    capability_fd: Annotated[int, typer.Option("--capability-fd")],
+    client_config: Annotated[Path, typer.Option("--client-config")] = _HOSTED_CONFIG_PATH,
+) -> None:
+    """Read one explicit campaign status without advancing it."""
+    try:
+        _hosted_hash(campaign)
+        _hosted_emit(_hosted_client(client_config, capability_fd).status(campaign))
+    except typer.Exit:
+        raise
+    except Exception:
+        _hosted_failure("HOSTED_OPERATION_FAILED")
+
+
+@hosted_app.command("cancel")
+def hosted_cancel(
+    campaign: Annotated[str, typer.Option("--campaign")],
+    request: Annotated[str, typer.Option("--request")],
+    capability_fd: Annotated[int, typer.Option("--capability-fd")],
+    client_config: Annotated[Path, typer.Option("--client-config")] = _HOSTED_CONFIG_PATH,
+) -> None:
+    """Cancel one explicit request through the shared service."""
+    try:
+        _hosted_hash(campaign)
+        _hosted_hash(request)
+        _hosted_emit(_hosted_client(client_config, capability_fd).cancel(request, campaign))
+    except typer.Exit:
+        raise
+    except Exception:
+        _hosted_failure("HOSTED_OPERATION_FAILED")
 
 
 if __name__ == "__main__":  # pragma: no cover

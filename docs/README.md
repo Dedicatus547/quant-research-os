@@ -35,6 +35,7 @@
 | [实施路线图](../PLAN.md) | 依赖与下一项工作 |
 | [第一阶段验收](roadmap/stage-one.md) | P0–P7 和独立 DQ 轨道 |
 | [第二阶段验收](roadmap/stage-two.md) | P8–P14 与 FR 入口门 |
+| [Codex-hosted MVP 实施提案](roadmap/host-mediated-mvp.md) | 独立 hosted 轨道、交接契约、验收与逐项模型分配；尚未实施或资格化 |
 | [发布记录](releases/README.md) | 当前 RC 修正和历次冻结记录 |
 | [审查记录](reviews/README.md) | 契约批准、资格接受与历史评审 |
 | [历史文档](history/README.md) | 重组前的完整文档快照 |
