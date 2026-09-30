@@ -416,7 +416,7 @@ def bootstrap_hosted_service(
         or sha256_file(provenance_root / "uv.lock") != profile.lock_hash
         or sha256_file(install_root / "codex") != profile.cli_binary_hash
         or sha256_file(Path("/usr/bin/bwrap")) != profile.bwrap_binary_hash
-        or sha256_file(Path("/lib/x86_64-linux-gnu/libseccomp.so.2"))
+        or sha256_file(Path("/lib/x86_64-linux-gnu/libseccomp.so.2").resolve(strict=True))
         != profile.libseccomp_binary_hash
         or system_runtime_inventory().content_hash != profile.os_inventory_hash
         or sha256_bytes(MOUNT_POLICY_BYTES) != profile.mount_policy_hash

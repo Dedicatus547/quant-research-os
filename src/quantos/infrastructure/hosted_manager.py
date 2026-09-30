@@ -216,7 +216,7 @@ def stage_hosted_deployment(
             {
                 "schema_version": "hosted-python-initialization/v1",
                 "source_hash": sha256_file(native_source),
-                "compiler_hash": sha256_file(Path("/usr/bin/gcc")),
+                "compiler_hash": sha256_file(Path("/usr/bin/gcc").resolve(strict=True)),
                 "compiler_flags": (
                     "-O2",
                     "-Wall",
@@ -257,7 +257,9 @@ def stage_hosted_deployment(
         bwrap_binary_hash=sha256_file(Path("/usr/bin/bwrap")),
         os_inventory_hash=system_runtime_inventory().content_hash,
         mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES),
-        libseccomp_binary_hash=sha256_file(Path("/lib/x86_64-linux-gnu/libseccomp.so.2")),
+        libseccomp_binary_hash=sha256_file(
+            Path("/lib/x86_64-linux-gnu/libseccomp.so.2").resolve(strict=True)
+        ),
         bwrap_version=subprocess.run(
             ["/usr/bin/bwrap", "--version"],
             check=True,
