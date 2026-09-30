@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import py_compile
 import shutil
 import subprocess
 import sys
@@ -16,10 +17,15 @@ ROOT = Path(__file__).parents[2]
 
 @pytest.fixture(scope="module")
 def seeded_python(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    output = tmp_path_factory.mktemp("hosted-isolated-python") / "python-seeded"
+    _compile_seeded_python(output)
+    return output
+
+
+def _compile_seeded_python(output: Path, cache_prefix: Path | None = None) -> None:
     compiler = shutil.which("gcc")
     if compiler is None:
         pytest.skip("native compiler unavailable; actual deployment still requires it")
-    output = tmp_path_factory.mktemp("hosted-isolated-python") / "python-seeded"
     prefix = Path(sys.base_prefix)
     subprocess.run(
         [
@@ -29,6 +35,11 @@ def seeded_python(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "-Werror",
             "-I" + str(prefix / "include/python3.11"),
             '-DQUANTOS_PYTHON_HOME="' + str(prefix) + '"',
+            *(
+                ['-DQUANTOS_PYCACHE_PREFIX="' + str(cache_prefix) + '"']
+                if cache_prefix is not None
+                else []
+            ),
             str(ROOT / "src/quantos/infrastructure/hosted_python.c"),
             "-L" + str(prefix / "lib"),
             "-lpython3.11",
@@ -39,7 +50,6 @@ def seeded_python(tmp_path_factory: pytest.TempPathFactory) -> Path:
         check=True,
         capture_output=True,
     )
-    return output
 
 
 def test_preinitialization_has_effective_seed_and_import_isolation(
@@ -100,3 +110,59 @@ def test_wrong_or_missing_exec_seed_stops_before_loading_code(
     assert result.returncode == 78
     assert result.stdout == result.stderr == b""
     assert not marker.exists()
+
+
+def test_native_source_import_ignores_real_timestamp_valid_stale_cache(
+    tmp_path: Path, seeded_python: Path
+) -> None:
+    source = tmp_path / "canary.py"
+    frozen = b"MARKER = 'frozen'\n"
+    stale = b"MARKER = 'staled'\n"
+    assert len(frozen) == len(stale)
+    source.write_bytes(stale)
+    timestamp = source.stat().st_mtime_ns
+    py_compile.compile(
+        str(source), doraise=True, invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP
+    )
+    source.write_bytes(frozen)
+    os.utime(source, ns=(timestamp, timestamp))
+    script = (
+        "import importlib.util,json,sys; "
+        f"s=importlib.util.spec_from_file_location('canary',{str(source)!r}); "
+        "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
+        "print(json.dumps({'marker':m.MARKER,'cache_prefix':sys.pycache_prefix,"
+        "'write_bytecode':not sys.dont_write_bytecode}))"
+    )
+    environment = {**os.environ, "PYTHONHASHSEED": "0"}
+    ordinary = subprocess.run(
+        [sys.executable, "-I", "-c", script], env=environment, check=True, capture_output=True
+    )
+    native = subprocess.run(
+        [str(seeded_python), "-c", script], env=environment, check=True, capture_output=True
+    )
+    assert json.loads(ordinary.stdout)["marker"] == "staled"
+    assert json.loads(native.stdout) == {
+        "marker": "frozen",
+        "cache_prefix": "/tmp/quantos-disabled-bytecode-cache",
+        "write_bytecode": False,
+    }
+    assert not Path("/tmp/quantos-disabled-bytecode-cache").exists()
+
+
+def test_polluted_cache_prefix_stops_native_before_python_initialization(tmp_path: Path) -> None:
+    # A compile-time path override isolates this fault test. Formal verification
+    # still requires the fixed production prefix and native inventory hash.
+    prefix = tmp_path / "cache-prefix"
+    binary = tmp_path / "python-seeded"
+    _compile_seeded_python(binary, cache_prefix=prefix)
+    environment = {**os.environ, "PYTHONHASHSEED": "0"}
+    control = subprocess.run(
+        [str(binary), "-c", "print('initialized')"], env=environment, capture_output=True
+    )
+    assert control.returncode == 0 and control.stdout == b"initialized\n"
+    assert not prefix.exists()
+    prefix.mkdir()
+    result = subprocess.run(
+        [str(binary), "-c", "print('initialized')"], env=environment, capture_output=True
+    )
+    assert result.returncode == 78 and result.stdout == result.stderr == b""

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from quantos.application.autonomous import (
     AutonomousCampaignOrchestrator,
     AutonomousProposalEvidence,
     CampaignEventStore,
 )
+from quantos.application.autonomous_execution import QuantosResearchExecutionAdapter
 from quantos.application.campaign_selection import CampaignSelectionService
 from quantos.application.campaigns import ResearchCampaignGovernor
 from quantos.application.hosted_inputs import (
@@ -44,7 +46,7 @@ from quantos.contracts.validation import (
     ValidationGateId,
     ValidationReport,
 )
-from quantos.infrastructure.hosted_store import HostedProtocolStore
+from quantos.infrastructure.hosted_store import HostedProtocolStore, HostedStoreSnapshot
 from quantos.infrastructure.hosted_verification import (
     HostedQualificationError,
     c11_manifest_projection,
@@ -187,16 +189,19 @@ def principal_business_inventory(
     return HostedRawInventory(files=principal), HostedRawInventory(files=observations)
 
 
-def verify_hosted_business_root(
+def build_verified_business_orchestrator(
     authority: Path,
     bundle: HostedFrozenBusinessInputs,
     *,
     deployment_profile_hash: str,
     input_root: Path,
     provenance_workspace: Path,
-) -> HostedVerifiedBusiness:
-    """Verify complete authority without creating, repairing, executing or accepting it."""
-    inventory = raw_inventory(authority)
+) -> tuple[
+    HostedStoreSnapshot,
+    AutonomousCampaignOrchestrator,
+    tuple[ResearchCampaignEvent | CampaignSelectionEvent, ...],
+]:
+    """Read-only construction shared by complete and negative-checkpoint verification."""
     campaign = bundle.campaign.content_hash
     verify_protocol_root(authority / "protocol", campaign)
     state = HostedProtocolStore(authority / "protocol").snapshot(campaign, recover=False)
@@ -253,6 +258,34 @@ def verify_hosted_business_root(
         autonomous_report_root=runtime / "legacy-loop-reports-unused",
         execution_bindings=bundle.execution_bindings,
         selection_finalization_profile=bundle.selection_finalization_profile,
+    )
+    return state, orchestrator, events
+
+
+def verify_hosted_business_root(
+    authority: Path,
+    bundle: HostedFrozenBusinessInputs,
+    *,
+    deployment_profile_hash: str,
+    input_root: Path,
+    provenance_workspace: Path,
+) -> HostedVerifiedBusiness:
+    """Verify complete authority without creating, repairing, executing or accepting it."""
+    inventory = raw_inventory(authority)
+    campaign = bundle.campaign.content_hash
+    runtime = authority / "business" / campaign
+    state, orchestrator, events = build_verified_business_orchestrator(
+        authority,
+        bundle,
+        deployment_profile_hash=deployment_profile_hash,
+        input_root=input_root,
+        provenance_workspace=provenance_workspace,
+    )
+    execution = cast(QuantosResearchExecutionAdapter, orchestrator.execution_port)
+    governor, selection, ledger = (
+        orchestrator.governor,
+        orchestrator.selection_service,
+        orchestrator.ledger_service,
     )
     publications = dict.fromkeys(
         publication.artifact_hash for entry in state.journal for publication in entry.publications

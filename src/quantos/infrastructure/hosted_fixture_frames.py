@@ -121,3 +121,70 @@ def business_rejection_frame(request: HostedAgentRequest, case: str) -> bytes:
         .model_copy(update={"proposal_json": text, "proposal_hash": sha256_bytes(text.encode())})
         .canonical_bytes()
     )
+
+
+HOST_OBSERVATION_CASES = (
+    "reported_permission_pass",
+    "reported_usage",
+    "reported_model",
+    "claimed_snapshot",
+    "missing_transcript",
+    "fake_attestation",
+    "source_model_conflict",
+    "reported_verdict",
+    "fake_sdk_manifest",
+    "removed_limitations",
+    "claimed_trusted_source",
+)
+HOST_OBSERVATION_SCHEMA_REJECTIONS = (
+    "reported_verdict",
+    "fake_sdk_manifest",
+    "removed_limitations",
+    "claimed_trusted_source",
+)
+FAKE_ATTESTATION_BYTES = canonical_json_bytes(
+    {"source": "HOST_REPORTED", "policy_pass": True, "fixture": "SYNTHETIC_UNTRUSTED_SOURCE"}
+)
+
+
+def host_observation_frame(request: HostedAgentRequest, case: str) -> bytes:
+    """Self reports remain typed self reports; extra authority fields are invalid."""
+    if case not in HOST_OBSERVATION_CASES:
+        raise ValueError("unknown fixed host observation case")
+    data = transport_fixture_response(request).model_dump(mode="json")
+    observation = data["host_observation"]
+    if case == "reported_permission_pass":
+        observation["reported_permission_pass"] = True
+    elif case == "reported_usage":
+        observation["reported_usage"] = HostReportedUsage(
+            input_tokens=0, output_tokens=0, cost_microunits=0
+        ).model_dump(mode="json")
+    elif case in ("reported_model", "source_model_conflict"):
+        observation["reported_model_identifier"] = "SYNTHETIC_SELF_REPORTED_MODEL"
+        observation["reported_reasoning_effort"] = "SYNTHETIC_SELF_REPORTED_EFFORT"
+    elif case == "claimed_snapshot":
+        observation["immutable_model_snapshot"] = "SYNTHETIC_SELF_REPORTED_SNAPSHOT"
+    elif case == "fake_attestation":
+        digest = sha256_bytes(FAKE_ATTESTATION_BYTES)
+        observation["transcript_hash"] = digest
+        observation["external_evidence_hashes"] = [digest]
+    elif case == "reported_verdict":
+        data["verdict"] = "PASS"
+    elif case == "fake_sdk_manifest":
+        data["sdk_manifest"] = {"permission_pass": True}
+    elif case == "removed_limitations":
+        observation["unavailable_reasons"] = ["SYNTHETIC_NO_LIMITATIONS_CLAIM"]
+    elif case == "claimed_trusted_source":
+        observation["source"] = "TRUSTED"
+    return canonical_json_bytes(data)
+
+
+def conflicting_model_capture(proposal: str) -> bytes:
+    """Explicitly synthetic CLI metadata for requested/observed identity rejection."""
+    events = (
+        {"type": "thread.started", "thread_id": "synthetic-not-live"},
+        {"type": "turn.started", "model": "SYNTHETIC_CONFLICTING_MODEL"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": proposal}},
+        {"type": "turn.completed"},
+    )
+    return b"\n".join(canonical_json_bytes(event) for event in events) + b"\n"

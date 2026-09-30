@@ -27,8 +27,13 @@ from quantos.contracts.hosted_inputs import (
 from quantos.infrastructure.hosted_fixture_frames import (
     BOUNDED_REJECTION_CASES,
     BUSINESS_REJECTION_CASES,
+    FAKE_ATTESTATION_BYTES,
+    HOST_OBSERVATION_CASES,
+    HOST_OBSERVATION_SCHEMA_REJECTIONS,
     bounded_rejection_frame,
     business_rejection_frame,
+    conflicting_model_capture,
+    host_observation_frame,
     transport_fixture_response,
 )
 from quantos.infrastructure.hosted_service import (
@@ -60,7 +65,11 @@ def run_negative_probe(profile_hash: str, case: str) -> None:
 
 
 def run_transport_fixture(profile_hash: str, case: str, family: str) -> None:
-    allowed = {"Q03": NEGATIVE_CASES, "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES)}
+    allowed = {
+        "Q03": NEGATIVE_CASES,
+        "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES),
+        "Q08": HOST_OBSERVATION_CASES,
+    }
     if family not in allowed or case not in allowed[family]:
         raise ValueError("unknown fixed negative case")
     authority, channel = Path("/authority"), Path("/channel")
@@ -121,7 +130,35 @@ def run_transport_fixture(profile_hash: str, case: str, family: str) -> None:
         cancellation = None
         business_cancellation = None
         business_report_hash = None
-        if family == "Q04":
+        source_conflict_rejected = None
+        if family == "Q08":
+            raw = host_observation_frame(request, case)
+            if case == "fake_attestation":
+                atomic_write_bytes(
+                    channel / "untrusted-source" / sha256_bytes(FAKE_ATTESTATION_BYTES),
+                    FAKE_ATTESTATION_BYTES,
+                )
+            if case == "source_model_conflict":
+                from quantos.contracts.hosted_deployment import HostedLauncherConfiguration
+                from quantos.infrastructure.hosted_deployment import KnownValueGuard
+                from quantos.infrastructure.hosted_launcher import extract_proposal
+
+                configuration = read_hashed_configuration(
+                    Path("/config"), profile.model_configuration_hash, HostedLauncherConfiguration
+                )
+                try:
+                    extract_proposal(
+                        conflicting_model_capture(response.proposal_json),
+                        configuration,
+                        guard=KnownValueGuard(()),
+                    )
+                except ValueError:
+                    source_conflict_rejected = True
+                else:
+                    raise ArtifactIntegrityError(
+                        "conflicting synthetic model metadata was accepted"
+                    )
+        elif family == "Q04":
             if case in BUSINESS_REJECTION_CASES:
                 raw = business_rejection_frame(request, case)
             elif case == "frame_byte_cap":
@@ -166,6 +203,10 @@ def run_transport_fixture(profile_hash: str, case: str, family: str) -> None:
         verify_raw_inventory(channel / "before/authority", before)
         verify_raw_inventory(authority, before)
         receipt = application.submit(request.content_hash, raw, "negative.fixture")
+        if family == "Q08":
+            expected = "REJECTED" if case in HOST_OBSERVATION_SCHEMA_REJECTIONS else "ACCEPTED"
+            if receipt.outcome != expected:
+                raise ArtifactIntegrityError("self-report fixture transport outcome differs")
         if family == "Q04":
             expected = "ACCEPTED" if case in BUSINESS_REJECTION_CASES else "REJECTED"
             if receipt.outcome != expected:
@@ -177,10 +218,10 @@ def run_transport_fixture(profile_hash: str, case: str, family: str) -> None:
                     business_cancellation = application.cancel(
                         next_request.content_hash, "negative.fixture"
                     )
-                    status = application.resume(campaign)
+                # Q04 examines native admission accounting at a checkpoint.
+                # Production DQ finalization still requires its complete family
+                # and native execution receipts; cancellation does not waive it.
                 business_report_hash = status.report_hash
-                if business_report_hash is None:
-                    raise ArtifactIntegrityError("business fixture has no immutable final report")
         after = raw_inventory(authority)
         clock[0] = request.expires_at + timedelta(seconds=1)
         repeat = application.submit(request.content_hash, raw, "negative.fixture")
@@ -231,6 +272,7 @@ def run_transport_fixture(profile_hash: str, case: str, family: str) -> None:
         "cancellation_receipt_hash": cancellation.content_hash
         if cancellation is not None
         else None,
+        "source_conflict_rejected": source_conflict_rejected,
         "business_report_hash": business_report_hash,
         "business_cancellation_hash": business_cancellation.content_hash
         if business_cancellation is not None

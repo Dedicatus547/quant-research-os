@@ -201,3 +201,63 @@ fingerprint，Q11 PASS 时所有已验证 native ValidationReport 必须绑定�
 `-m` 的 __main__）源码须逐 bytes 对应冻结 install。各 6 项 runtime 和 source mismatch/
 symlink/missing 模块测试通过。该正式路径仍需最终精确代码与完整 bundle，而 staging
 diagnostic 继续整体 NOT_QUALIFIED。
+
+
+### 2026-09-30：attempt12 原件与检查点修正（未授资格）
+
+主 agent 按用户替代分工完成实施；必要独立审查使用 `gpt-6.1-sol / high`，
+usage unavailable。HM10 的 `gpt-6-luna / medium` 仍等待 HM09 接受事实。
+
+固定提交 `a6d1859398225f94cdc75c7f80adc73b1cc9b4ad` 的实际安装 attempt12 保留于
+`/tmp/hm-stage-a6d1859-attempt12`：B
+`826a9e0996c34046331b90b79e154659ba9b716bed3c92cf4b01daa8e68c3d08`、D
+`bab80b80d65268a75e529fb5e2ea2d82f9877fc1957c5d9f7bfff6d4fccb5895`。
+Q07 路径/符号链接/hardlink/FIFO/权限探针重算通过，Q03 八个原件调用完成，
+Q04 七个 bounded 调用完成。`known_schema_invalid` 正确创建零 execution 的
+SCHEMA_INVALID trial 后，管理 worker 取消下一请求并继续 resume，触发 P14-DQ
+完整家族/receipt 前置拒绝；该调用 exit=1、observation=null，失败 root/prelaunch/
+completion 完整保留，不能补写成功或授 Q04 PASS。
+
+Q03 单项原件诊断 `/tmp/hm-q03-a6d1859-attempt12-diagnostic` 的 manifest
+`d8fd68f4a49c7f63b997563367af22f88b853335a4b27e79607eab0f9bd8e48e`、result
+`1d5804cad2e4efb572131d3bc3aa022961dc5b4755573caf9a233665c55cc778`、export
+`e5bbff940548291c32589b6f2217cc59a64ea788bccfcb3bbbd5b82c13c5eae4`。
+Q03 PASS，其余十一门 NOT_EVALUATED，整体 NOT_QUALIFIED；明确保留 a6 的两个
+P1 与失败 ledger 不完整限制，inventory sidecar 只写 manager/evidence。
+
+[独立窄审](../reviews/hm-q04-review-attempt12.md) 在 a6 复现两项 P1：磁盘 .py hash
+不能证明执行时没有加载 stale .pyc；known-invalid helper 接受额外未知 authority 文件。
+本轮修正 native PyConfig 的缓存读取前缀，在初始化前拒绝前缀污染，禁写 bytecode；
+正式 verifier 仅接受固定 native、安装内 SourceFileLoader/spec/file 与不存在的私有
+cache，并继续核验冻结库存。这改变 native/profile 身份，a6 旧原件不能替代新入口实测。
+真实 CPython 同 mtime/size stale-cache 反例已显示普通入口读取旧值、native 入口读取冻结值。
+
+Q04 改为原生 admission 检查点：复用只读 native orchestrator 构建及 prepare_trial/
+finish_trial、governor、Ledger，核验 PREPARED→COMPLETED、SCHEMA_INVALID trial、
+原预算、事件、STEP_COMPLETED 和下一 request 的原取消 receipt，不运行 finalization，
+不伪造完整 campaign/P14c report。完整 raw 新增集合必须来自已核验协议 publications、
+事件和 trial Ledger 节点；未知文件、额外 execution/manifest/sidecar 均拒绝。
+生产 DQ 的完整终态要求保持原有严格语义。原生集成六类拒绝及额外文件反例通过，
+并同时重跑现有两根 Qlib replay：1 passed / 232 warnings / 142.40s。
+
+新增 Q08 固定管理 worker 与完整原件谓词，研究 RPC 不能选择该入口；覆盖自填
+permission pass、usage、model/effort、snapshot、缺 transcript、fake attestation、
+requested/observed 冲突、verdict、伪 SDK manifest、删限制和 TRUSTED 来源自填。
+自填合法字段仅为 HOST_REPORTED；schema 不合法则 bounded 拒绝；原可信来源根与
+冲突判定另行重算，缺原件不创建目录。所有响应和 CLI metadata 都为显式合成 fixture，
+不属于 Q11 live 来源。Q08 组件及原件语义测试通过，实际安装运行与独立复核仍待完成。
+
+Q12 仍未通过：上一固定提交 955b07f 全量禁网回归 1049 passed / 344 warnings /
+2470.79s，coverage 79.74% < 85%。修正 thread/multiprocessing 采集配置不能当成
+新覆盖率通过证明，未降门槛或排除新实现。HM07 剩余 Q02/Q05/Q06/Q08 实际原件、
+新安装 Q04、Q12，以及 HM08–HM11 仍待完成；尚未读取真实模型认证或调用 provider。
+
+
+补充验证：Q08/原 negative/cache 组合 141 passed / 89.34s；完整原件语义
+37 passed / 134.73s。受影响 business/offline/manager/cache 组合 99 passed 后，两项
+失败分别为 missing-source 期望异常类型写错（实际 fail-closed 的 ArtifactIntegrityError，
+无目录创建）及沙箱 /proc 无法观察宿主 kernel PID。修正测试类型后单项
+1 passed / 9.58s；管理环境 kernel 子进程测试 1 passed / 5.06s。该内核测试第一次
+自动审批超时、未启动，按工具允许重试一次后通过，没有模型认证或网络调用。
+新 checkpoint 对 attempt12 原 P14-DQ partial authority 的只读组件核验为26个hash，
+`POSTDATES_INSTALLED_COMMIT / NOT_QUALIFIED`，不补写原失败 observation。

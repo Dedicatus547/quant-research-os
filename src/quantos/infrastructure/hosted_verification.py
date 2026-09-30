@@ -9,6 +9,8 @@ import os
 import stat
 import sys
 from collections import defaultdict
+from importlib.machinery import SourceFileLoader
+from importlib.util import cache_from_source
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -603,15 +605,28 @@ def verify_case(
                 reason="ACTUAL_MANAGED_ISOLATION_VERIFIED",
                 checked_artifact_hashes=tuple(sorted(hashes)),
             )
-        if sources is not None and case.case_id in {"Q01", "Q03", "Q04", "Q09", "Q10", "Q11"}:
+        if sources is not None and case.case_id in {
+            "Q01",
+            "Q03",
+            "Q04",
+            "Q08",
+            "Q09",
+            "Q10",
+            "Q11",
+        }:
             from quantos.infrastructure.hosted_case_predicates import verify_q01, verify_q11
-            from quantos.infrastructure.hosted_negative_origin import verify_q03, verify_q04
+            from quantos.infrastructure.hosted_negative_origin import (
+                verify_q03,
+                verify_q04,
+                verify_q08,
+            )
             from quantos.infrastructure.hosted_replay_verification import verify_q09, verify_q10
 
             predicate = {
                 "Q01": verify_q01,
                 "Q03": verify_q03,
                 "Q04": verify_q04,
+                "Q08": verify_q08,
                 "Q09": verify_q09,
                 "Q10": verify_q10,
                 "Q11": verify_q11,
@@ -749,8 +764,39 @@ def verify_runtime_binding(
 
 
 def verify_loaded_project_installation(sources: HostedVerifiedSources) -> None:
-    """A formal verifier must execute the frozen project's source bytes itself."""
+    """Formal verification uses source-only imports in the fixed native installation.
+
+    Checking only disk .py bytes cannot attest executed code: CPython may load an
+    older timestamp-valid .pyc. The native entrypoint disables writing and routes
+    all cache reads to an initially empty private tmpfs prefix before initialization.
+    Formal verification rejects any existing cache for a loaded project module.
+    """
     installed = {item.relative_path: item.bytes_hash for item in sources.deployment.install.files}
+    install_root = Path("/install")
+    native = "python-seeded"
+    prefix = "/tmp/quantos-disabled-bytecode-cache"
+    if (
+        sys.executable != str(install_root / native)
+        or sha256_bytes(read_relative(install_root, native)) != installed.get(native)
+        or Path(prefix).exists()
+        or Path(prefix).is_symlink()
+        or sys.pycache_prefix != prefix
+        or sys.dont_write_bytecode is not True
+        or sys.flags.optimize != 0
+        or sys.flags.isolated != 1
+        or sys.flags.ignore_environment != 1
+        or sys.flags.no_user_site != 1
+        or sys.flags.safe_path is not True
+        or sys.flags.hash_randomization != 0
+        or any(
+            path.startswith("python/lib/python3.11/site-packages/quantos/")
+            and path.endswith(".pyc")
+            for path in installed
+        )
+    ):
+        raise HostedQualificationError(
+            "formal verifier requires the frozen source-only interpreter"
+        )
     for name, module in tuple(sys.modules.items()):
         if name == "__main__":
             name = getattr(getattr(module, "__spec__", None), "name", name)
@@ -762,8 +808,22 @@ def verify_loaded_project_installation(sources: HostedVerifiedSources) -> None:
         source = Path(filename)
         relative = "python/lib/python3.11/site-packages/" + name.replace(".", "/")
         relative += "/__init__.py" if source.name == "__init__.py" else ".py"
-        if source.is_symlink() or sha256_bytes(source.read_bytes()) != installed.get(relative):
-            raise HostedQualificationError("formal verifier differs from the frozen installation")
+        loader = getattr(module, "__loader__", None)
+        spec = getattr(module, "__spec__", None)
+        cached = getattr(module, "__cached__", None)
+        if (
+            source != install_root / relative
+            or type(loader) is not SourceFileLoader
+            or loader.path != str(source)
+            or getattr(spec, "origin", None) != str(source)
+            or not isinstance(cached, str)
+            or cached != cache_from_source(str(source))
+            or not cached.startswith(prefix + "/")
+            or Path(cached).exists()
+            or Path(cached).is_symlink()
+            or sha256_bytes(read_relative(install_root, relative)) != installed.get(relative)
+        ):
+            raise HostedQualificationError("formal verifier differs from the frozen source imports")
 
 
 def main() -> None:

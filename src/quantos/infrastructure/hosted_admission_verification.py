@@ -5,18 +5,21 @@ from __future__ import annotations
 from pathlib import Path
 
 from quantos.contracts.agent import CampaignSegment
+from quantos.contracts.base import sha256_bytes
 from quantos.contracts.campaign import CampaignTrial, TrialOutcome
 from quantos.contracts.hosted import (
     HostedAgentRequest,
     HostedAgentResponse,
-    HostedResearchBudgetFact,
+    strict_json_object,
 )
-from quantos.infrastructure.hosted_business_verification import verify_hosted_business_root
+from quantos.contracts.hosted_qualification import HostedQualificationFile
+from quantos.contracts.ledger import ResearchLedgerEventV2
 from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 from quantos.infrastructure.hosted_store import HostedProtocolStore
 from quantos.infrastructure.hosted_verification import (
     HostedQualificationError,
     raw_inventory,
+    read_relative,
     verify_protocol_root,
     verify_raw_inventory,
 )
@@ -60,22 +63,14 @@ def verify_business_admission_fixture(
     if response.canonical_bytes() != submitted:
         raise HostedQualificationError("business fixture accepted different proposal bytes")
     deployment = sources.deployment
-    facts = verify_hosted_business_root(
-        after_root,
-        deployment.bundle,
-        deployment_profile_hash=deployment.profile.content_hash,
-        input_root=deployment.paths.offline_inputs,
-        provenance_workspace=deployment.paths.provenance,
+    if report_hash is not None:
+        raise HostedQualificationError("Q04 admission fixtures must retain the native checkpoint")
+    from quantos.infrastructure.hosted_admission_checkpoint import (
+        verify_native_admission_checkpoint,
     )
-    if (
-        facts.report.content_hash != report_hash
-        or len(facts.report.trial_hashes) != 1
-        or facts.execution_identities
-        or facts.validation_reports
-    ):
-        raise HostedQualificationError("business fixture has execution or wrong trial denominator")
-    trial = after.artifact(facts.report.trial_hashes[0], CampaignTrial)
-    budget = after.artifact(facts.report.research_budget_hash, HostedResearchBudgetFact)
+
+    trial, budget, event_hashes = verify_native_admission_checkpoint(after_root, request, sources)
+    artifact_hashes = tuple(after.artifacts)
     candidate = request.business_request.candidate_options[0]
     checks = {
         "TRIAL_CANDIDATE": trial.candidate_hash == candidate.content_hash,
@@ -86,7 +81,6 @@ def verify_business_admission_fixture(
         "VALIDATION_SEGMENT_CHARGE": budget.used_validation_rounds
         == int(trial.segment == CampaignSegment.VALIDATION),
         "BUDGET_CANDIDATE": budget.candidate_hashes == (candidate.content_hash,),
-        "REPORT_CANDIDATE": facts.report.attempted_candidate_hashes == (candidate.content_hash,),
         "FROZEN_SPEC": before.spec == after.spec,
         "ORIGINAL_REQUEST": after.requests[:1] == (request,),
         "ONE_SUBMISSION": after.budget.used_unique_submissions == 1,
@@ -100,19 +94,91 @@ def verify_business_admission_fixture(
             terminal is None
             or terminal.outcome != "CANCELLED"
             or terminal.content_hash != cancellation_hash
-            or facts.report.state != "CANCELLED"
         ):
             raise HostedQualificationError("business fixture final cancellation is unbound")
     elif len(after.requests) != 1 or cancellation_hash is not None:
         raise HostedQualificationError("business fixture issued unexpected requests")
+    # A valid referenced trial is insufficient if unrelated files were added.
+    # Attribute the full raw delta to protocol publication, the verified event
+    # chain, and the native Ledger node for the invalid trial.
+    expected = {item.logical_path: item for item in before_raw.files}
+
+    def include(path: str, data: bytes) -> None:
+        item = HostedQualificationFile(
+            logical_path=path, sha256=sha256_bytes(data), size_bytes=len(data)
+        )
+        if expected.get(path, item) != item:
+            raise HostedQualificationError("business admission replaced a published file")
+        expected[path] = item
+
+    if after.journal[: len(before.journal)] != before.journal:
+        raise HostedQualificationError("business admission replaced protocol history")
+    for entry in after.journal[len(before.journal) :]:
+        include(
+            f"protocol/campaigns/{request.campaign_hash}/journal/{entry.sequence:08d}-{entry.content_hash}.json",
+            entry.canonical_bytes(),
+        )
+        for publication in entry.publications:
+            include(
+                f"protocol/campaigns/{request.campaign_hash}/objects/{publication.artifact_hash}.json",
+                publication.canonical_json.encode(),
+            )
+    runtime = f"business/{request.campaign_hash}"
+    expected_nodes: set[str] = set()
+    for sequence, digest in enumerate(event_hashes, 1):
+        path = f"{runtime}/campaign-events/{sequence:08d}-sha256-{digest}.json"
+        data = read_relative(after_root, path)
+        if sha256_bytes(data) != digest:
+            raise HostedQualificationError("business admission event bytes differ")
+        include(path, data)
+        payload = strict_json_object(data, max_bytes=16_777_216)
+        event_trial = payload.get("trial")
+        if event_trial is not None:
+            if CampaignTrial.model_validate(event_trial) != trial:
+                raise HostedQualificationError("business admission event trial differs")
+            expected_nodes.add(f"campaign-trial-{digest}")
+    objects = {trial.content_hash: trial.canonical_bytes()}
+    observed_nodes: set[str] = set()
+    for item in after_raw.files:
+        if item.logical_path in expected or not item.logical_path.startswith(
+            runtime + "/ledger/events/"
+        ):
+            continue
+        data = read_relative(after_root, item.logical_path)
+        event = ResearchLedgerEventV2.model_validate_json(data)
+        reference = event.object_ref
+        if (
+            event.node_id not in expected_nodes
+            or event.node_id in observed_nodes
+            or event.ledger_id != deployment.bundle.ledger_id
+            or reference.object_hash not in objects
+            or reference.source_domain != "quantos-autonomous"
+            or reference.media_type != "application/json"
+            or reference.campaign_hash != request.campaign_hash
+            or reference.access.value != "CAMPAIGN_INTERNAL"
+            or data != event.canonical_bytes()
+            or item.logical_path
+            != (
+                f"{runtime}/ledger/events/{event.ledger_id}/"
+                f"{event.sequence:020d}-{event.event_id}.json"
+            )
+        ):
+            raise HostedQualificationError("business admission added an unrelated Ledger node")
+        observed_nodes.add(event.node_id)
+        include(item.logical_path, data)
+        include(
+            f"{runtime}/ledger/objects/quantos-autonomous/sha256-{reference.object_hash}.json",
+            objects[reference.object_hash],
+        )
+    if observed_nodes != expected_nodes or expected != original_files:
+        raise HostedQualificationError("business admission has an unattributed raw file delta")
     verify_raw_inventory(before_root, before_raw)
     verify_raw_inventory(after_root, after_raw)
     return tuple(
         sorted(
             {
-                *facts.artifact_hashes,
+                *artifact_hashes,
                 receipt_hash,
-                facts.report.content_hash,
                 before_raw.content_hash,
                 after_raw.content_hash,
             }

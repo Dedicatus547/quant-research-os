@@ -1017,17 +1017,29 @@ def run_managed_admission_case(deployment: HostedManagedDeployment, case: str) -
     return _run_managed_transport_fixture(deployment, case, "Q04")
 
 
+def run_managed_observation_case(deployment: HostedManagedDeployment, case: str) -> Path:
+    """Run a fixed self-report/source negative fixture without model authentication."""
+    return _run_managed_transport_fixture(deployment, case, "Q08")
+
+
 def _run_managed_transport_fixture(
     deployment: HostedManagedDeployment, case: str, family: str
 ) -> Path:
-    from quantos.infrastructure.hosted_fixture_frames import BUSINESS_REJECTION_CASES
+    from quantos.infrastructure.hosted_fixture_frames import (
+        BUSINESS_REJECTION_CASES,
+        HOST_OBSERVATION_CASES,
+    )
     from quantos.infrastructure.hosted_negative_probe import (
         BOUNDED_REJECTION_CASES,
         NEGATIVE_CASES,
     )
     from quantos.infrastructure.hosted_verification import raw_inventory, read_relative
 
-    allowed = {"Q03": NEGATIVE_CASES, "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES)}
+    allowed = {
+        "Q03": NEGATIVE_CASES,
+        "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES),
+        "Q08": HOST_OBSERVATION_CASES,
+    }
     if family not in allowed or case not in allowed[family]:
         raise ValueError("unknown fixed negative case")
     if tuple(deployment.paths.channel.iterdir()):
@@ -1039,7 +1051,11 @@ def _run_managed_transport_fixture(
     for name in ("authority", "channel"):
         (target / name).mkdir(mode=0o700)
     paths = replace(deployment.paths, authority=target / "authority", channel=target / "channel")
-    module = "hosted_negative_probe" if family == "Q03" else "hosted_admission_probe"
+    module = {
+        "Q03": "hosted_negative_probe",
+        "Q04": "hosted_admission_probe",
+        "Q08": "hosted_observation_probe",
+    }[family]
     program_path = f"python/lib/python3.11/site-packages/quantos/infrastructure/{module}.py"
     program_hash = next(
         item.bytes_hash for item in deployment.install.files if item.relative_path == program_path

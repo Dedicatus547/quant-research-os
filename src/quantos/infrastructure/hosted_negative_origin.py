@@ -18,8 +18,11 @@ from quantos.infrastructure.hosted_deployment import namespace_command
 from quantos.infrastructure.hosted_fixture_frames import (
     BOUNDED_REJECTION_CASES,
     BUSINESS_REJECTION_CASES,
+    HOST_OBSERVATION_CASES,
+    HOST_OBSERVATION_SCHEMA_REJECTIONS,
     bounded_rejection_frame,
     business_rejection_frame,
+    host_observation_frame,
 )
 from quantos.infrastructure.hosted_negative_verification import (
     NegativeSubmissionKind,
@@ -56,6 +59,15 @@ def verify_q03(
     bundle: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
 ) -> tuple[str, ...]:
     return _verify_transport_matrix(bundle, case, sources, family="Q03", names=CASES)
+
+
+def verify_q08(
+    bundle: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
+) -> tuple[str, ...]:
+    """Unattested fields and fake sources never establish qualification authority."""
+    return _verify_transport_matrix(
+        bundle, case, sources, family="Q08", names=HOST_OBSERVATION_CASES
+    )
 
 
 def verify_q04_transport_matrix(
@@ -245,7 +257,11 @@ def _verify_transport_matrix(
             for item in deployment.install.files
             if item.relative_path
             == "python/lib/python3.11/site-packages/quantos/infrastructure/"
-            + ("hosted_negative_probe.py" if family == "Q03" else "hosted_admission_probe.py")
+            + {
+                "Q03": "hosted_negative_probe.py",
+                "Q04": "hosted_admission_probe.py",
+                "Q08": "hosted_observation_probe.py",
+            }[family]
         )
         native = next(
             item.bytes_hash
@@ -274,7 +290,11 @@ def _verify_transport_matrix(
             "/install/python-seeded",
             "-m",
             "quantos.infrastructure."
-            + ("hosted_negative_probe" if family == "Q03" else "hosted_admission_probe"),
+            + {
+                "Q03": "hosted_negative_probe",
+                "Q04": "hosted_admission_probe",
+                "Q08": "hosted_observation_probe",
+            }[family],
             "--profile-hash",
             deployment.profile.content_hash,
             "--case",
@@ -425,9 +445,13 @@ def _verify_transport_matrix(
                 "Q04 raw negative bytes were exported or fixture family differs",
             )
             submitted = (
-                business_rejection_frame(request, name)
-                if name in BUSINESS_REJECTION_CASES
-                else bounded_rejection_frame(request, name)
+                host_observation_frame(request, name)
+                if family == "Q08"
+                else (
+                    business_rejection_frame(request, name)
+                    if name in BUSINESS_REJECTION_CASES
+                    else bounded_rejection_frame(request, name)
+                )
             )
             require(
                 observation.get("response_observed_hash") == sha256_bytes(submitted)
@@ -492,6 +516,12 @@ def _verify_transport_matrix(
                 == ("CANCEL_REJECTED" if name == "conflict" else "CANCELLED"),
                 "Q03 original cancellation differs",
             )
+        if family == "Q08":
+            kind = (
+                "schema_invalid"
+                if name in HOST_OBSERVATION_SCHEMA_REJECTIONS
+                else "source_unattested"
+            )
         if name in BUSINESS_REJECTION_CASES:
             from quantos.infrastructure.hosted_admission_verification import (
                 verify_business_admission_fixture,
@@ -519,6 +549,16 @@ def _verify_transport_matrix(
                     response_bytes=submitted,
                     receipt_hash=cast(str, observation["receipt_hash"]),
                     kind=kind,
+                )
+            )
+        if family == "Q08":
+            from quantos.infrastructure.hosted_observation_verification import (
+                verify_untrusted_observation_source,
+            )
+
+            checked.update(
+                verify_untrusted_observation_source(
+                    request, submitted, name, observation.get("source_conflict_rejected"), sources
                 )
             )
         checked.update(

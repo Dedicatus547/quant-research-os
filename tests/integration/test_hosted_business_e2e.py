@@ -328,9 +328,9 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             cancelled = None
             if pending_after is not None:
                 cancelled = rejected_service.cancel(pending_after.content_hash, "component-test")
-                terminal_status = rejected_service.resume(campaign.content_hash)
+                # Keep the cancelled next request at its original checkpoint.
         assert observed_calls == []
-        assert terminal_status.report_hash is not None
+        assert terminal_status.report_hash is None
         original_sources = SimpleNamespace(
             deployment=SimpleNamespace(
                 bundle=bundle,
@@ -349,8 +349,32 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             cancelled.content_hash if cancelled else None,
             original_sources,
         )
-        assert terminal_status.report_hash in checked
+        assert accepted.content_hash in checked
         assert inventories == (raw_inventory(before_root), raw_inventory(rejected_root))
+        if invalid_case == BUSINESS_REJECTION_CASES[0]:
+            for extra_path in (
+                "unpublished.json",
+                f"business/{campaign.content_hash}/execution/receipts/unpublished.json",
+                f"business/{campaign.content_hash}/execution/validation/unpublished-manifest.json",
+                f"business/{campaign.content_hash}/execution/signals/unpublished-sidecar.json",
+            ):
+                extra = rejected_root / extra_path
+                extra.parent.mkdir(parents=True, exist_ok=True)
+                extra.write_bytes(b'{"unpublished":true}')
+                changed = raw_inventory(before_root), raw_inventory(rejected_root)
+                with pytest.raises((HostedQualificationError, ValueError)):
+                    verify_business_admission_fixture(
+                        before_root,
+                        rejected_root,
+                        rejected_request,
+                        bad_frame,
+                        accepted.content_hash,
+                        terminal_status.report_hash,
+                        cancelled.content_hash if cancelled else None,
+                        original_sources,
+                    )
+                assert changed == (raw_inventory(before_root), raw_inventory(rejected_root))
+                extra.unlink()
     original_execute = QuantosResearchExecutionAdapter.execute
     exports: list[Path] = []
     native_roots: list[Path] = []

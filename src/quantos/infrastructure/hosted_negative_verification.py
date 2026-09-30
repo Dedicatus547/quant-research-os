@@ -8,9 +8,11 @@ from typing import Literal, cast
 
 from quantos.contracts.base import sha256_bytes
 from quantos.contracts.hosted import (
+    HostedAgentExchange,
     HostedAgentResponse,
     HostedBudgetJournalFact,
     HostedSubmissionReceipt,
+    HostObservation,
     parse_hosted_contract,
 )
 from quantos.contracts.hosted_qualification import HostedQualificationFile
@@ -33,6 +35,7 @@ NegativeSubmissionKind = Literal[
     "conflict",
     "seen_bytes",
     "schema_invalid",
+    "source_unattested",
     "unknown_candidate",
     "oversized",
     "credential_like",
@@ -173,6 +176,51 @@ def verify_negative_submission_transition(
         ),
         "negative submission did not charge exactly one bounded reservation",
     )
+    if kind == "source_unattested":
+        response = parse_hosted_contract(
+            response_bytes, HostedAgentResponse, max_bytes=request.max_response_bytes
+        )
+        _require(
+            before.accepted_receipt(request_hash) is None
+            and after.accepted_receipt(request_hash) == receipt
+            and receipt.outcome == "ACCEPTED"
+            and receipt.reason == "TRANSPORT_ACCEPTED"
+            and receipt.accepted_exchange_hash is not None
+            and before.terminal(request_hash) is None
+            and after.terminals == before.terminals
+            and receipt.recorded_at < request.expires_at,
+            "self-report fixture has no unique transport acceptance",
+        )
+        assert receipt.accepted_exchange_hash is not None
+        exchange = after.artifact(receipt.accepted_exchange_hash, HostedAgentExchange)
+        _require(
+            exchange.request_hash == request_hash
+            and exchange.response_hash == response.content_hash
+            and exchange.proposal_hash == response.proposal_hash
+            and exchange.host_observation_hash == response.host_observation.content_hash
+            and after.artifact(exchange.host_observation_hash, HostObservation)
+            == response.host_observation
+            and response.request_hash == request_hash
+            and response.campaign_hash == campaign_hash
+            and response.transport_ordinal == request.transport_ordinal
+            and response.attempt_identity == request.attempt_identity
+            and response.context_pack_hash == request.context_pack_hash
+            and response.host_observation.requested_configuration_hash
+            == before.spec.requested_model_configuration_hash
+            and response.host_observation.source == "HOST_REPORTED"
+            and after.artifact(exchange.response_hash, HostedAgentResponse) == response
+            and {publication.artifact_hash for publication in intent.publications}
+            == {
+                budget.content_hash,
+                receipt_hash,
+                response.content_hash,
+                exchange.content_hash,
+                response.host_observation.content_hash,
+            },
+            "self report was promoted or its accepted evidence differs",
+        )
+        checked.update((response.content_hash, exchange.content_hash))
+        return tuple(sorted(checked))
     accepted = before.accepted_receipt(request_hash)
     _require(
         after.accepted_receipt(request_hash) == accepted, "negative submission replaced acceptance"

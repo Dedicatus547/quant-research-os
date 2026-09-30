@@ -1,5 +1,7 @@
 /* Isolated CPython with a fixed hash seed before interpreter initialization. */
 #include <Python.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -7,9 +9,17 @@
 #define QUANTOS_PYTHON_HOME "/install/python"
 #endif
 
+#ifndef QUANTOS_PYCACHE_PREFIX
+#define QUANTOS_PYCACHE_PREFIX "/tmp/quantos-disabled-bytecode-cache"
+#endif
+
 int main(int argc, char **argv) {
     const char *seed = getenv("PYTHONHASHSEED");
     if (seed == NULL || strcmp(seed, "0") != 0) {
+        return 78;
+    }
+    struct stat cache_status;
+    if (lstat(QUANTOS_PYCACHE_PREFIX, &cache_status) == 0 || errno != ENOENT) {
         return 78;
     }
     PyConfig config;
@@ -23,6 +33,10 @@ int main(int argc, char **argv) {
     status = PyConfig_SetBytesArgv(&config, argc, argv);
     if (!PyStatus_Exception(status)) {
         status = PyConfig_SetBytesString(&config, &config.home, QUANTOS_PYTHON_HOME);
+    }
+    if (!PyStatus_Exception(status)) {
+        status = PyConfig_SetBytesString(
+            &config, &config.pycache_prefix, QUANTOS_PYCACHE_PREFIX);
     }
     if (!PyStatus_Exception(status)) {
         status = Py_InitializeFromConfig(&config);

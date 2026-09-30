@@ -12,6 +12,7 @@ import pytest
 from test_hosted_campaign import _fixture, _response
 
 from quantos.application.hosted_protocol import HostedProtocolService
+from quantos.artifacts.store import ArtifactIntegrityError
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.hosted import HostedAgentResponse
 from quantos.contracts.hosted_qualification import (
@@ -22,12 +23,16 @@ from quantos.contracts.hosted_qualification import (
 from quantos.infrastructure.hosted_deployment import HostedNamespacePaths, namespace_command
 from quantos.infrastructure.hosted_fixture_frames import (
     BOUNDED_REJECTION_CASES,
+    FAKE_ATTESTATION_BYTES,
+    HOST_OBSERVATION_CASES,
     bounded_rejection_frame,
+    host_observation_frame,
 )
 from quantos.infrastructure.hosted_negative_origin import (
     CASES,
     verify_q03,
     verify_q04_transport_matrix,
+    verify_q08,
 )
 from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 from quantos.infrastructure.hosted_store import HostedProtocolStore
@@ -35,8 +40,12 @@ from quantos.infrastructure.hosted_verification import HostedQualificationError,
 
 
 def _case(tmp_path: Path, mutation: str | None, family: str = "Q03"):
-    names = CASES if family == "Q03" else BOUNDED_REJECTION_CASES
-    module = "hosted_negative_probe" if family == "Q03" else "hosted_admission_probe"
+    names = {"Q03": CASES, "Q04": BOUNDED_REJECTION_CASES, "Q08": HOST_OBSERVATION_CASES}[family]
+    module = {
+        "Q03": "hosted_negative_probe",
+        "Q04": "hosted_admission_probe",
+        "Q08": "hosted_observation_probe",
+    }[family]
     f = _fixture(tmp_path / "component")
     f.service.start(f.spec.content_hash)
     request = f.service.pending(f.spec.campaign_hash)
@@ -77,6 +86,14 @@ def _case(tmp_path: Path, mutation: str | None, family: str = "Q03"):
             ]
         ),
     )
+    from quantos.contracts.hosted_deployment import (
+        HostedLauncherConfiguration,
+    )
+
+    deployment.initial_projection = SimpleNamespace(content_hash="a" * 64)
+    deployment.launcher_configuration = HostedLauncherConfiguration(
+        output_byte_cap=1048576, proposal_byte_cap=262144, runtime_timeout_seconds=900
+    )
     records = {}
     roots = []
     evidence = []
@@ -108,7 +125,13 @@ def _case(tmp_path: Path, mutation: str | None, family: str = "Q03"):
         )
         raw = response.canonical_bytes()
         seen = cancellation = None
-        if family == "Q04":
+        if family == "Q08":
+            raw = host_observation_frame(request, name)
+            if name == "fake_attestation":
+                fake = target / "channel/untrusted-source" / sha256_bytes(FAKE_ATTESTATION_BYTES)
+                fake.parent.mkdir(parents=True)
+                fake.write_bytes(FAKE_ATTESTATION_BYTES)
+        elif family == "Q04":
             raw = bounded_rejection_frame(request, name)
         elif name in ("expired", "cancelled"):
             seen = service.submit(request.content_hash, b"{}", "negative.fixture")
@@ -149,6 +172,7 @@ def _case(tmp_path: Path, mutation: str | None, family: str = "Q03"):
             "repeat_receipt_hash": receipt.content_hash,
             "seen_receipt_hash": seen.content_hash if seen else None,
             "cancellation_receipt_hash": cancellation.content_hash if cancellation else None,
+            "source_conflict_rejected": True if name == "source_model_conflict" else None,
             "fixture_kind": "TRANSPORT_NEGATIVE_FIXTURE",
             "execute_calls": [],
             "workflow_calls": [],
@@ -384,4 +408,44 @@ def test_q04_bounded_subset_requires_complete_original_records(
     else:
         with pytest.raises((HostedQualificationError, ValueError)):
             verify_q04_transport_matrix(bundle, case, sources)
+    assert before == (raw_inventory(bundle), raw_inventory(sources.deployment.root))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "flags_bool",
+        "network",
+        "repeat",
+        "repeat_clock",
+        "bad_program",
+        "no_kernel",
+        "same_namespace",
+        "missing_matrix",
+    ],
+)
+def test_q08_self_reports_need_complete_original_process_and_no_trusted_source(
+    tmp_path: Path, mutation: str | None
+):
+    bundle, case, sources = _case(tmp_path, mutation, family="Q08")
+    before = raw_inventory(bundle), raw_inventory(sources.deployment.root)
+    if mutation is None:
+        assert verify_q08(bundle, case, sources)
+        from quantos.infrastructure.hosted_verification import verify_case
+
+        assert verify_case(bundle, case, sources=sources).verdict == "PASS"
+    else:
+        with pytest.raises((HostedQualificationError, ValueError)):
+            verify_q08(bundle, case, sources)
+    assert before == (raw_inventory(bundle), raw_inventory(sources.deployment.root))
+
+
+def test_q08_missing_original_source_directory_is_rejected_without_creation(tmp_path: Path):
+    bundle, case, sources = _case(tmp_path, None, family="Q08")
+    shutil.rmtree(sources.deployment.root / "evidence")
+    before = raw_inventory(bundle), raw_inventory(sources.deployment.root)
+    with pytest.raises(ArtifactIntegrityError):
+        verify_q08(bundle, case, sources)
+    assert not (sources.deployment.root / "evidence").exists()
     assert before == (raw_inventory(bundle), raw_inventory(sources.deployment.root))
