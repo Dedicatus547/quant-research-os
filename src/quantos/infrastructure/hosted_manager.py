@@ -128,14 +128,26 @@ def stage_hosted_deployment(
     dependency_site: Path,
     codex_binary: Path,
     launcher_configuration: HostedLauncherConfiguration,
+    prepared_root_fd: int | None = None,
 ) -> HostedManagedDeployment:
     """Construct the reviewed B→L→C→I0→D graph before exposing any service/model."""
     provenance = capture_code_provenance(workspace)
     if provenance != bundle.code_provenance:
         raise ArtifactIntegrityError("business authoring differs from clean deployment provenance")
     verify_wheel_provenance(workspace, wheel)
-    if root.exists() or root.is_symlink():
-        raise ArtifactIntegrityError("deployment staging root already exists")
+    if prepared_root_fd is None:
+        if root.exists() or root.is_symlink():
+            raise ArtifactIntegrityError("deployment staging root already exists")
+    else:
+        if root != Path("."):
+            raise ArtifactIntegrityError("prepared management staging requires its pinned cwd")
+        expected = os.fstat(prepared_root_fd)
+        with opened_directory(Path(".")) as observed_fd:
+            observed = os.fstat(observed_fd)
+            if (observed.st_dev, observed.st_ino) != (expected.st_dev, expected.st_ino):
+                raise ArtifactIntegrityError("prepared management staging inode differs")
+        if os.listdir(prepared_root_fd):
+            raise ArtifactIntegrityError("prepared management staging requires an empty root")
     if (
         launcher_configuration.content_hash
         != bundle.hosted_recipe.requested_model_configuration_hash
@@ -143,7 +155,8 @@ def stage_hosted_deployment(
         raise ArtifactIntegrityError("model configuration differs from frozen business recipe")
     if set(frozen_objects) != {item.logical_path for item in bundle.frozen_byte_objects}:
         raise ArtifactIntegrityError("business input file set differs")
-    root.mkdir(parents=True, mode=0o700)
+    if prepared_root_fd is None:
+        root.mkdir(parents=True, mode=0o700)
     for name in ("inputs", "config", "initial-projection", "authority", "channel", "evidence"):
         (root / name).mkdir(mode=0o700)
     inputs, config = root / "inputs", root / "config"
@@ -1046,6 +1059,26 @@ def run_managed_fault_case(deployment: HostedManagedDeployment, case: str) -> Pa
     return _run_managed_transport_fixture(deployment, case, "Q05")
 
 
+def run_managed_lifecycle_case(deployment: HostedManagedDeployment, case: str) -> Path:
+    """Capture a fixed offline Q06 lifecycle subset; never award the full Q06 gate."""
+    from quantos.infrastructure.hosted_lifecycle_cases import HOSTED_LIFECYCLE_CASES
+
+    if case not in HOSTED_LIFECYCLE_CASES:
+        raise ValueError("unknown fixed lifecycle case")
+    return _run_managed_transport_fixture(deployment, case, "Q06")
+
+
+def run_managed_budget_case(deployment: HostedManagedDeployment, case: str) -> Path:
+    """Capture one separately frozen finite budget variant; never grant full Q06."""
+    from quantos.infrastructure.hosted_budget_cases import HOSTED_BUDGET_CASES
+
+    if case not in HOSTED_BUDGET_CASES:
+        raise ValueError("unknown fixed budget case")
+    if deployment.bundle.research_budget.budget_id != f"hm-q06-{case}-budget-v1":
+        raise ArtifactIntegrityError("budget capture requires a separately frozen variant")
+    return _run_managed_transport_fixture(deployment, case, "Q06")
+
+
 def _run_managed_transport_fixture(
     deployment: HostedManagedDeployment, case: str, family: str
 ) -> Path:
@@ -1054,6 +1087,7 @@ def _run_managed_transport_fixture(
         native_registration_publication,
     )
     from quantos.infrastructure.hosted_atomic_snapshot import forensic_byte_view
+    from quantos.infrastructure.hosted_budget_cases import HOSTED_BUDGET_CASES
     from quantos.infrastructure.hosted_fault_cases import (
         ATOMIC_FAULT_WINDOWS,
         MANAGEMENT_FAULT_WINDOWS,
@@ -1063,6 +1097,7 @@ def _run_managed_transport_fixture(
         DUPLICATE_SUBMISSION_CASES,
         HOST_OBSERVATION_CASES,
     )
+    from quantos.infrastructure.hosted_lifecycle_cases import HOSTED_LIFECYCLE_CASES
     from quantos.infrastructure.hosted_negative_probe import (
         BOUNDED_REJECTION_CASES,
         NEGATIVE_CASES,
@@ -1074,10 +1109,17 @@ def _run_managed_transport_fixture(
         "Q03": NEGATIVE_CASES,
         "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES),
         "Q05": (*MANAGEMENT_FAULT_WINDOWS, *ATOMIC_FAULT_WINDOWS),
+        "Q06": (*HOSTED_LIFECYCLE_CASES, *HOSTED_BUDGET_CASES),
         "Q08": HOST_OBSERVATION_CASES,
     }
     if family not in allowed or case not in allowed[family]:
         raise ValueError("unknown fixed negative case")
+    if (
+        family == "Q06"
+        and case in HOSTED_BUDGET_CASES
+        and deployment.bundle.research_budget.budget_id != f"hm-q06-{case}-budget-v1"
+    ):
+        raise ArtifactIntegrityError("budget capture requires a separately frozen variant")
     if tuple(deployment.paths.channel.iterdir()):
         raise ArtifactIntegrityError("negative cases require a stopped live service")
     target = deployment.root / "qualification-cases" / family / case
@@ -1092,9 +1134,12 @@ def _run_managed_transport_fixture(
         "Q03": "hosted_negative_probe",
         "Q04": "hosted_admission_probe",
         "Q05": "hosted_fault_probe",
+        "Q06": "hosted_lifecycle_probe",
         "Q08": "hosted_observation_probe",
     }[family]
     atomic = family == "Q05" and case in ATOMIC_FAULT_WINDOWS
+    if family == "Q06" and case in HOSTED_BUDGET_CASES:
+        module = "hosted_budget_probe"
     if atomic:
         module = "hosted_atomic_probe"
     program_path = f"python/lib/python3.11/site-packages/quantos/infrastructure/{module}.py"
@@ -1164,7 +1209,19 @@ def _run_managed_transport_fixture(
             except (ArtifactIntegrityError, OSError, ValueError):
                 time.sleep(0.05)
         return_code = process.wait(
-            timeout=7200 if family == "Q05" else 600 if family == "Q02" else 300
+            timeout=(
+                14400
+                if family == "Q05"
+                else 7200
+                if (
+                    family == "Q06"
+                    and case in HOSTED_BUDGET_CASES
+                    and HOSTED_BUDGET_CASES[case].native_execution
+                )
+                else 600
+                if family == "Q02"
+                else 300
+            )
         )
         observation_hash: str | None = None
         observation_failure_type: str | None = None

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import signal
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,6 +23,43 @@ from quantos.infrastructure.hosted_fault_cases import (
     PROTOCOL_FAULT_WINDOWS,
 )
 from quantos.infrastructure.hosted_verification import raw_inventory, verify_protocol_root
+
+
+def test_parent_timeout_retains_actual_killed_child_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from quantos.artifacts.store import ArtifactIntegrityError
+
+    actual_fork = os.fork
+    actual_sleep = time.sleep
+
+    def stalled_child() -> int:
+        pid = actual_fork()
+        if pid == 0:
+            actual_sleep(60)
+            os._exit(99)
+        return pid
+
+    ticks = iter(range(0, 100_000, 1000))
+    monkeypatch.setattr(probe.os, "fork", stalled_child)
+    monkeypatch.setattr(
+        probe,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: next(ticks),
+            sleep=actual_sleep,
+        ),
+    )
+    with pytest.raises(ArtifactIntegrityError, match="fault child timeout"):
+        test_fixed_window_physically_exits_and_two_fresh_boots_are_idempotent(
+            tmp_path, monkeypatch, next(iter(PROTOCOL_FAULT_WINDOWS))
+        )
+    recorded = json.loads((tmp_path / "channel/process-records/crash-exit.json").read_bytes())
+    assert recorded["phase"] == "crash" and recorded["exit_code"] == -signal.SIGKILL
+    assert recorded["pid"] > os.getpid()
+    with pytest.raises(ChildProcessError):
+        os.waitpid(recorded["pid"], os.WNOHANG)
+    assert not (tmp_path / "channel/negative-observation.json").exists()
 
 
 @pytest.mark.parametrize(

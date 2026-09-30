@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
 
 from quantos.contracts.campaign import ResearchBudgetSpec
@@ -91,3 +94,43 @@ def test_other_base_policies_cannot_silently_use_reviewed_minimum_recipes(
         )
     with pytest.raises(ValueError, match="frozen two-candidate baseline"):
         budget_case_specs("trial_allowance", research, transport)
+
+
+@pytest.mark.parametrize("case", tuple(HOSTED_BUDGET_CASES))
+def test_baseline_budget_cannot_be_run_as_an_installed_variant(tmp_path: Path, case: str) -> None:
+    from quantos.artifacts.store import ArtifactIntegrityError
+    from quantos.infrastructure.hosted_manager import run_managed_budget_case
+
+    deployment = SimpleNamespace(
+        root=tmp_path,
+        bundle=SimpleNamespace(research_budget=_base()[0]),
+    )
+    with pytest.raises(ArtifactIntegrityError, match="separately frozen"):
+        run_managed_budget_case(deployment, case)
+    assert tuple(tmp_path.iterdir()) == ()
+
+
+@pytest.mark.parametrize("case", ("../trial_allowance", "execution_allowance;exec", "auto", ""))
+def test_unregistered_budget_deployments_reject_before_read_or_write(
+    tmp_path: Path, case: str
+) -> None:
+    from quantos.artifacts.store import ArtifactIntegrityError
+    from quantos.infrastructure.hosted_budget_deployment import (
+        read_managed_budget_deployment,
+        stage_managed_budget_deployment,
+    )
+    from quantos.infrastructure.hosted_budget_probe import run_budget_probe
+    from quantos.infrastructure.hosted_manager import run_managed_budget_case
+
+    untrusted = SimpleNamespace(root=tmp_path)
+    with pytest.raises(ValueError, match="unknown fixed"):
+        stage_managed_budget_deployment(
+            untrusted, case, tmp_path, base_python=tmp_path, dependency_site=tmp_path
+        )
+    with pytest.raises(ArtifactIntegrityError, match="unknown fixed"):
+        read_managed_budget_deployment(untrusted, case, "0" * 64)
+    with pytest.raises(ValueError, match="unknown fixed"):
+        run_managed_budget_case(untrusted, case)
+    with pytest.raises(ValueError, match="unknown fixed"):
+        run_budget_probe("0" * 64, case, authority_root=tmp_path, channel_root=tmp_path)
+    assert tuple(tmp_path.iterdir()) == ()

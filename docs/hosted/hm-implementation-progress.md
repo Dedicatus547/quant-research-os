@@ -652,3 +652,156 @@ passed，保留原日志与first-failure诊断。正常Unix权限下原deploymen
 （113.27s）；launcher/offline profile绑定组件29 passed（6.90s）。src严格pyright、ruff、
 format通过。这些均不是Q12 exact-commit coverage门。
 尚待完整新安装Q05 source矩阵、Q06、Q12、真实Q11/Q09/Q10、失败尝试总账及HM09–11。
+
+### 2026-10-01：新安装原子来源闭合与 Q06 生命周期子集
+
+原子发布与只读服务修复冻结为 `93fef2875bcf10386badb921f6ede112cf2704c5`。独立干净
+工作树 `/tmp/hm-q05-atomic-installed-worktree` 离线构建 wheel，SHA256
+`de30b64fce57fbe49d50e25e2fe1594e405d53e21fc9f0e2992c5ff0246fe217`。全新 attempt18
+安装根 `/tmp/hm-stage-93fef28-attempt18`，B
+`aa03f815f0c5701c676fd6ae943ab68bd8493720b53db46545e84089b19471ef`，D
+`8af66253b6f052821ab4d8a9f4caca1d78e348311e4e98ca439f4ec89f54580b`。实际启动、权限
+探测后停止 live 服务；12 个 atomic 窗口各自在新 authority/channel 内捕获三个真实 child
+退出及四阶段副本、原 physical facts。live authority 不变，未读取模型认证或调用 provider。
+
+首次 export driver 在写出前因错误模块 import 失败，脚本和
+`/tmp/hm-attempt18-atomic-diagnostic01.log` 保留；新 driver02 只修正 import。新导出根
+`/tmp/hm-attempt18-atomic-diagnostic02` 的 565 个文件通过原始 manager export 绑定，完整
+12-window subset 的只读 source predicate 通过124个 checked hashes。qualification hash
+`418ec5c9b108d4d44fd17d5d3e8ad0a1484697958ab4d12c2586bcd9b2cf8d1e`，export hash
+`0dbb89f3b1b6769942c2b91ac317b216144364302a17a4b7faa935be3ae6621d`，外部 subset result
+hash `35973fc6ca4c5505724df560fd3dd42d9fa3672047756ef3a0b662a4c1129a08`。producer/
+verifier 与安装使用同一精确93提交；完整 Q05 case 仍为空，12个正式门全部 NOT_EVALUATED，
+eligibility NOT_QUALIFIED。新的必要独立原件审查正在进行；该 subset 不替代61窗口矩阵。
+同一新安装另在全新 execution-prepared case 执行真实 Qlib 恢复，首次物理退出73已捕获，
+完整恢复尚在运行，不能写成 PASS。其日志
+`/tmp/hm-stage-93fef28-attempt18-native-prepared01.log` 和原件完整保留。
+
+Q06 后继代码新增四个管理端固定生命周期 worker：cancel/submit 两种获锁顺序、TTL 首次
+响应和 TTL 已见响应。winner 在原生 intent_published 持有目录 flock，loser 在同 inode
+进入实际 LOCK_EX，父级独立 LOCK_NB 被拒绝且 loser waitpid 为(0,0)后才释放 winner。
+记录与 journal 中的实际操作顺序交叉核验；没有给研究 RPC 增加故障或任意执行接口。
+新 source subset 强制四案例/四阶段、精确原来源/lock inode、installed program/namespace/
+PID、逐 phase exit、native events/Ledger/report/budget/file/directory closure。该代码尚未
+取得完整 installed lifecycle 原件；预算七案例和正式完整 Q06 门仍未闭合。
+
+开发失败保留：首轮功能测试4 failed/1 passed源于测试引用不存在的 report 字段；后继
+2 failed/3 passed源于忽略 native 预发布 EXHAUSTED receipts；修正后5 passed/25.17s。
+原生 e2e01 1 failed/26.18s发现 schema-invalid trial 的 native validation round=1，旧
+谓词误要求0；e2e02 1 failed/36.02s发现 first-expired SUBMIT 的原生
+(budget, EXPIRED terminal, receipt)漏归属。后继只在确切无 prior acceptance/terminal 且
+达到 TTL 时重建原生 service EXPIRED terminal，并比较完整 canonical tuple；实际协议
+执行规则未改。e2e03四 native 场景和20篡改控制通过1 passed/51.14s。
+
+[原生命周期窄审](../reviews/hm-q06-lifecycle-narrow-review.md)，SHA256
+`6872a2a51f9b72b0f3a8ec98cdb6298c26dac72f01fed822040a95afee0cfc93`，独立发现实际
+protocol clock 偏移+1秒而 metadata 保持exact expiry时原谓词仍接受。原反例与报告不改。
+[后继时间关闭审](../reviews/hm-q06-lifecycle-clock-closure-review.md)，SHA256
+`a175c72c0489bfd4ccfd739b18a8c87faf8cb213d1471eeca19fb1ca08ce56ee`，在原反例上只读
+拒绝，全部原/阶段 physical facts 不变；独立两个 frozen B17 race 原件复核42/83 hashes
+通过，六个 native expiration tuple边界负例拒绝。审查 gpt-6.1-sol/high、usage unavailable，
+不授完整 Q06/MVP 资格。后继要求实际 request/receipt/terminal/journal 的 exact fixture
+clock与principal匹配；普通生产过期仍允许 deadline 之后，未改变全局 expiration 语义。
+
+最新 e2e05通过1 passed/55.06s，含四 native 场景、20篡改、七有限预算派生及新 plan
+publication controls。TTL±1秒/错误principal/native tuple控制15 passed/14.51s。最初
+11个 tuple tests 使用通用仅ContextPack projection的fixture而被拒绝，11 failed/48 passed
+日志保留；新独立 native fixture包含原生要求的ContextPack+proposal schema，11 passed。
+历史49物理窗口+原生业务/C11完整回归1 passed/232 warnings/656.45s，日志
+`/tmp/hm-q06-ttl-native-full-regression01.txt`，证明有限 first-expired closure 修复未回退
+已覆盖的原生恢复链路，不是正式安装或 Q12 coverage 门。
+
+预算 authoring 分出只读 `derive_hosted_budget_case`，管理发布仍调用 native plan publisher。
+对实际 frozen B17 的七次派生与之前 native01 已发布 B 逐字节相同，原 plan 文件/目录不变，
+日志 `/tmp/hm-q06-budget-derivation-readonly01.txt`；不靠后继作者标签接受任意预算。
+frozen B17 lifecycle component02已只读复核原01两race根，并在新根捕获两个TTL案例，
+四项通过42/83/40/46 hashes。其bootstrap仍是管理组件工厂，不能替代 installed/kernel
+来源验证，且不覆盖原01旧谓词失败。全 src 严格 pyright与ruff通过。
+尚待完整 Q05/Q06 安装矩阵、Q12≥85%、真实 Q11/Q09/Q10、失败总账及 HM09–11；MVP未完成。
+
+后继 attempt18 原子原件独立审查已完成，见
+[原件窄审](../reviews/hm-q05-atomic-origin-review-attempt18.md)，SHA256
+`c05d62683f16b657b359319510f0408d1729af194834a3645638b103c4f97294`。
+冻结93源码独立重算124 hashes；160 installed Python 文件与wheel、git一致；48阶段根、
+36 actual waitpid记录；12 original case完整文件、目录和physical facts在审查前后不变。
+九项新的错来源、错phase/exit/inode、空目录增删反例均拒绝，三原link2 authority仍被canonical
+raw reader拒绝。未发现新P1；该窄审不授完整Q05或MVP资格，正式12门仍NOT_EVALUATED。
+
+Q06预算后继加入七个固定worker：独立冻结variant B/D后才启动实际fork进程；执行预算
+调用native deterministic adapter/QLib Workflow，其他六项不执行；32次unique over-cap响应
+复用固定exhaustion receipt，seen response复用原receipt不增加收费或文件；两次fresh
+bootstrap恢复核对完整raw inventory和目录。管理RPC未增加任意执行或预算编辑能力。
+新budget verifier复用native events、budget、execution、Validation、Ledger和file closure，
+逐阶段核对固定clock/principal、报告分母、真实execute/workflow计数与父级waitpid。
+
+预算组件失败记录均保留：e2e06的receipt字典hash未经过契约类型规范化；后继改用
+HostedSubmissionReceipt.content_hash。e2e07测试adapter仍绑定基线campaign/budget而被native
+request校验拒绝，修正测试接线使adapter与独立冻结variant一致。e2e08新predicate漏计
+native预发布的global/per-request exhaustion receipts，修正为原生固定集合。e2e09漏计
+实际native execution的空execution-locks目录及MLflow .trash；后继仅按核验过的execution
+identity加入这些固定路径，未知目录仍拒绝。原目录、日志和失败状态未重写。
+e2e10 `/tmp/hm-q06-lifecycle-budget-native-e2e10.txt`通过1 passed/208.15s：四lifecycle、
+七预算native accounting、35篡改控制；execution_allowance确实一次native execute并有
+Workflow，compute_allowance零execute/Workflow。该测试仍使用明确的synthetic组件工厂，
+不能替代installed/kernel original-source资格。运行期间后继加入额外recovery目录guard；
+最终installed矩阵须使用最后冻结源码重新运行。
+
+管理预算与TTL/protocol/qualification组件01有1 failed/63 passed，原因是默认sandbox的
+`/proc/73/status`视图无法读取真实子进程。没有放宽内核校验；新02在真实内核环境执行
+同组测试并加入qualification回归，73 passed/37.57s，日志
+`/tmp/hm-q06-budget-management-components02.txt`。全src严格pyright02零错误；ruff通过。
+
+管理部署新增固定child路径`qualification-deployments/Q06/<case>`和可信parent declaration，
+每项重新冻结B→L→C→I0→D；read-only verifier从parent原件重新derive B、核对完整child
+install/provenance/projection以及固定runtime字段，并沿parent manager export绑定child每个
+原文件。组合Q06入口强制4×4生命周期根和7×4预算根共44根全部通过。当前只有组件正例，
+该组合入口和嵌套安装来源正由gpt-6.1-sol/high独立窄审，尚无正式完整Q06 PASS。
+attempt18 execution-prepared真实安装恢复随后失败，保留
+`/tmp/hm-stage-93fef28-attempt18/evidence/attempt18-native-prepared-failure.json`与原日志。
+原managed negative-run `23840865aac7c95d2d14b28e2c7cee815af1add9a832d96a363ce40d19ee0d5b`
+记录return_code=1，prelaunch
+`0058db92039b37db7ff6267fa45e9acf2b7a0ca1105f0104687cb71002b61ab2`。
+实际crash exit=73；recovery-1运行至旧3600s边界后没有完成记录，既有两research result与
+一validation report保留，不据此宣称完整执行成功。旧源码timeout分支仅在RAM追加waitpid
+记录，未发布phase-exit；后继在kill/reap后发布实际exit记录，再按失败停止，旧根不追补。
+仅后继未冻结源码的native Q05管理child设7200s，外层Q05设14400s；Q06唯一native预算
+case外层7200s/child3600s，其他Q06外层300s。均为有限管理fixture wallclock上限，与
+协议TTL、研究预算和compute workload units分开；冻结契约、旧D及旧结果未改，需新源码
+审查与新D重新执行，不能继承原attempt18部分成功。
+
+后继超时留证/原故障窗口组件44 passed/111.01s；manager export/source回归11 passed/17.56s。
+预算[原窄审](../reviews/hm-q06-budget-narrow-review.md)，SHA256
+`cbd02d35428b0ea895fe3b3ebb589119ef4394fa7d8e13d77cc3d9575f8492fe`，独立发现子staging
+祖先alias可把失败前写入重定向父authority，原合成反例17files/21dirs与报告P1 OPEN保留。
+未冻结stage19。后继先O_NOFOLLOW pin父管理root、保护目录inode树、固定Q06祖先，所有已有
+alias检查先于任何mkdir；管理fork固定新case inode为cwd，真实stager只以`.`和显式
+prepared_root_fd操作，要求同inode且空根。所有第三方copy/git/compiler保持相对case cwd；
+母级只通过RAM pipe取D hash/root inode，pinned evidence fd发布declaration，label替换不能
+把写入重定向到父authority。旧case-root仅后验核对的中间版本仍被独立审指出遗漏，未授关闭。
+
+后继路径与预算组件02 48 passed/5.56s，18条路径控制覆盖8 protected roles、两个祖先层、
+Q06父目录/evidence标签替换和新case basename替换；文件、目录及stat physical facts不变。
+真实native staging组件01、02分别新根通过。最新02以prepared case cwd执行，D
+`3257f1e3b33e325acce4027b2c5f71546ee3410bd2b4b3c0ee46363b205aaf31`、B
+`5d12624bd9f09c18f4887d2e0a4f6f41714428e89c185921c9ba6568abf4999a`，8 protected raw/dirs
+和主进程cwd不变；独立新case-root替换真实stager控制在不存在base prefix处停止，23832个
+partial native文件只在原case inode，8 protected raw/dirs不变。日志分别为
+`/tmp/hm-q06-budget-stage-native-component02.txt`和
+`/tmp/hm-q06-budget-case-root-component01.txt`。这些仅只读借用旧93 wheel/input的组件，
+该wheel没有budgetworker，不替代七个新安装原件；独立后继关闭审查仍在进行。
+
+CI覆盖率新增coverage.py原生fork收集，以测量真实fork子进程，85%门槛不变。首个临时
+组件诊断误带threshold override，发现后中断并保留9 passed/KeyboardInterrupt日志，未授
+任何coverage门。新组件02遵守原85%门槛，79 tests passed/305.56s，因只运行组件子集而
+全库coverage30.63% FAILED，明确不是Q12 PASS。79项trace中lifecycle worker实际收集168/
+203 statements，fault worker135/228；仍需新冻结提交的全库CI测量，不降低门槛或排除模块。
+
+独立[路径关闭审](../reviews/hm-q06-budget-path-closure-review.md)，SHA256
+`731a112ada54b26177f513821a6feb6891fd79a5caa9b192e2d60cf13b24793f`，对后继明确源码
+关闭具体ancestor/case-basename P1，原OPEN报告不改。独立最新两文件52 passed/5.22s，
+native组件02重新只读核验B、D、inventory与两declaration通过，原组件完整raw/dirs不变，
+deny execute/Workflow/network零调用。主agent最新prepared-root管理回归14 passed/6.52s、
+预算/路径52 passed/5.34s；全src严格pyright、ruff及514文件format检查通过。
+该关闭仍不授Q06或MVP资格；下一步冻结新源码运行完整七个installed预算worker与四个
+lifecycle来源矩阵、剩余native Q05窗口和完整Q12。已准备新attempt19离线driver，未复用
+旧失败root，也没有运行provider或读认证；完整资格声明继续等待全部门与HM09独立接受。

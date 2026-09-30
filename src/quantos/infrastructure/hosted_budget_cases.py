@@ -12,7 +12,7 @@ from types import MappingProxyType
 from typing import Literal
 from uuid import NAMESPACE_URL, uuid5
 
-from quantos.application.campaign_selection import CampaignSelectionService
+from quantos.application.campaign_selection import CampaignSelectionService, publish_selection_plan
 from quantos.application.campaigns import ResearchCampaignGovernor
 from quantos.contracts.autonomous import (
     P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
@@ -105,14 +105,13 @@ def budget_case_specs(
     return bounded_research, bounded_transport
 
 
-def freeze_hosted_budget_case(
+def derive_hosted_budget_case(
     bundle: HostedFrozenBusinessInputs,
     case: str,
     *,
     input_root: Path,
-    artifact_root: Path,
 ) -> HostedFrozenBusinessInputs:
-    """Derive a new B with native activation and a newly verified frozen plan.
+    """Read-only derivation of a finite B variant and native activation/plan events.
 
     The caller authors the clean baseline B and verifies its input bytes first.
     This function never mutates it, its seed Ledger or an installed deployment.
@@ -126,8 +125,6 @@ def freeze_hosted_budget_case(
         or not bundle.code_provenance.worktree_clean
     ):
         raise ValueError("Q06 recipes require clean frozen DQ business inputs")
-    if artifact_root.exists() or artifact_root.is_symlink():
-        raise ValueError("Q06 plan publication requires a fresh artifact root")
     campaign = ResearchCampaignSpec.model_validate(
         {
             **bundle.campaign.model_dump(mode="python"),
@@ -156,12 +153,15 @@ def freeze_hosted_budget_case(
         event_id=uuid5(NAMESPACE_URL, f"quantos/hosted/q06/activate/{campaign.content_hash}"),
         occurred_at=bundle.initial_events[0].occurred_at,
     )
-    frozen_plan, _ = selection.freeze_plan(
-        governor,
+    frozen_plan = governor._freeze_verified_plan(  # pyright: ignore[reportPrivateUsage]
+        campaign,
+        bundle.family,
+        research,
+        bundle.manifest,
         (activation,),
+        plan,
         event_id=uuid5(NAMESPACE_URL, f"quantos/hosted/q06/plan/{plan.content_hash}"),
         occurred_at=bundle.initial_events[1].occurred_at,
-        artifact_root=artifact_root,
     )
     policy = AutonomousCampaignPolicy.model_validate(
         {
@@ -188,3 +188,20 @@ def freeze_hosted_budget_case(
             "selection_plan": plan,
         }
     )
+
+
+def freeze_hosted_budget_case(
+    bundle: HostedFrozenBusinessInputs,
+    case: str,
+    *,
+    input_root: Path,
+    artifact_root: Path,
+) -> HostedFrozenBusinessInputs:
+    """Publish a newly derived plan; never overwrite an existing variant root."""
+    if artifact_root.exists() or artifact_root.is_symlink():
+        raise ValueError("Q06 plan publication requires a fresh artifact root")
+    bounded = derive_hosted_budget_case(bundle, case, input_root=input_root)
+    # Same native publication used by CampaignSelectionService.freeze_plan;
+    # read-only source verifiers use the derivation above without publication.
+    publish_selection_plan(bounded.selection_plan, artifact_root)
+    return bounded

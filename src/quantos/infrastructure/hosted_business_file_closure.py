@@ -59,6 +59,7 @@ def _verify_native_protocol_publication(
     entry: HostedJournalEntry,
     previous_budget: HostedBudgetJournalFact | None,
     accepted_requests: set[str],
+    terminal_requests: set[str],
 ) -> HostedBudgetJournalFact | None:
     """Bind the tuple to native operation identity and exact counter transition."""
     spec = state.spec
@@ -169,6 +170,26 @@ def _verify_native_protocol_publication(
                 raise HostedQualificationError("native protocol accepted exchange differs")
             expected = (budget, response.host_observation, response, exchange, receipt)
             accepted_requests.add(request.content_hash)
+        elif (
+            request.content_hash not in accepted_requests
+            and request.content_hash not in terminal_requests
+            and now >= request.expires_at
+        ):
+            # A first submission at/after TTL publishes its expiration together
+            # with the charged rejection. Rebuild the native terminal rather
+            # than accepting a producer's extra publication or reason label.
+            if receipt.outcome != "REJECTED" or receipt.reason != "REQUEST_EXPIRED":
+                raise HostedQualificationError("native first expired submission differs")
+            terminal = HostedRequestTerminalReceipt(
+                request_hash=request.content_hash,
+                campaign_hash=campaign,
+                outcome="EXPIRED",
+                reason="REQUEST_TTL_ELAPSED",
+                authenticated_principal="service",
+                recorded_at=now,
+            )
+            expected = (budget, terminal, receipt)
+            terminal_requests.add(request.content_hash)
         else:
             expected = (budget, receipt)
     elif entry.operation_kind == "TERMINATE":
@@ -204,6 +225,8 @@ def _verify_native_protocol_publication(
         ):
             raise HostedQualificationError("native protocol termination differs")
         expected = (terminal,)
+        if terminal.outcome != "CANCEL_REJECTED":
+            terminal_requests.add(terminal.request_hash)
     else:
         raise HostedQualificationError("native protocol publication is unrelated")
     if entry.operation_id != op or tuple(
@@ -276,11 +299,17 @@ def verify_native_authority_file_closure(
                 "hosted-submission-receipt/v1",
             ),
             ("hosted-budget-journal-fact/v1", "hosted-submission-receipt/v1"),
+            (
+                "hosted-budget-journal-fact/v1",
+                "hosted-request-terminal-receipt/v1",
+                "hosted-submission-receipt/v1",
+            ),
         ),
         "TERMINATE": (("hosted-request-terminal-receipt/v1",),),
     }
     protocol_budget = None
     accepted_requests: set[str] = set()
+    terminal_requests: set[str] = set()
     for entry in state.journal:
         include_contract(
             f"protocol/campaigns/{campaign}/journal/{entry.sequence:08d}-{entry.content_hash}.json",
@@ -364,7 +393,7 @@ def verify_native_authority_file_closure(
             raise HostedQualificationError("native protocol publication shape differs")
         else:
             protocol_budget = _verify_native_protocol_publication(
-                state, entry, protocol_budget, accepted_requests
+                state, entry, protocol_budget, accepted_requests, terminal_requests
             )
         for publication in entry.publications:
             include(

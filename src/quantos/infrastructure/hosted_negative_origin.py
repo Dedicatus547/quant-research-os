@@ -419,12 +419,21 @@ def verify_managed_fixture_source(
     Scenario roots must separately bind their exact original snapshot paths. This
     shared gate does not accept a producer's verdict or grant any Q-case by itself.
     """
+    from quantos.infrastructure.hosted_budget_cases import HOSTED_BUDGET_CASES
     from quantos.infrastructure.hosted_fault_cases import (
         ATOMIC_FAULT_WINDOWS,
         MANAGEMENT_FAULT_WINDOWS,
     )
+    from quantos.infrastructure.hosted_lifecycle_cases import HOSTED_LIFECYCLE_CASES
 
-    require(family in ("Q02", "Q03", "Q04", "Q05", "Q08"), "unknown management fixture family")
+    require(
+        family in ("Q02", "Q03", "Q04", "Q05", "Q06", "Q08"),
+        "unknown management fixture family",
+    )
+    require(
+        family != "Q06" or name in (*HOSTED_LIFECYCLE_CASES, *HOSTED_BUDGET_CASES),
+        "unknown fixed lifecycle fixture",
+    )
     atomic = family == "Q05" and name in ATOMIC_FAULT_WINDOWS
     require(
         family != "Q05" or name in MANAGEMENT_FAULT_WINDOWS or atomic,
@@ -433,11 +442,14 @@ def verify_managed_fixture_source(
     module = (
         "hosted_atomic_probe"
         if atomic
+        else "hosted_budget_probe"
+        if family == "Q06" and name in HOSTED_BUDGET_CASES
         else {
             "Q02": "hosted_duplicate_probe",
             "Q03": "hosted_negative_probe",
             "Q04": "hosted_admission_probe",
             "Q05": "hosted_fault_probe",
+            "Q06": "hosted_lifecycle_probe",
             "Q08": "hosted_observation_probe",
         }[family]
     )
@@ -644,6 +656,10 @@ def verify_managed_fixture_source(
                 else "PHYSICAL_EXIT_ADMISSION_FIXTURE"
             )
             if family == "Q05"
+            else "BUDGET_FIXTURE"
+            if family == "Q06" and name in HOSTED_BUDGET_CASES
+            else "LIFECYCLE_FIXTURE"
+            if family == "Q06"
             else "TRANSPORT_NEGATIVE_FIXTURE"
         )
         and observation.get("execute_calls")

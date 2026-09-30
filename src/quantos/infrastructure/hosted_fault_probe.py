@@ -411,7 +411,7 @@ def run_fault_probe(
                     )
                     os._exit(1)
                 os._exit(0)
-            deadline = time.monotonic() + (3600 if window.native_execution else 120)
+            deadline = time.monotonic() + (7200 if window.native_execution else 120)
             while True:
                 observed, status = os.waitpid(pid, os.WNOHANG)
                 if observed:
@@ -419,7 +419,16 @@ def run_fault_probe(
                 if time.monotonic() >= deadline:
                     os.kill(pid, signal.SIGKILL)
                     observed, status = os.waitpid(pid, 0)
-                    exits.append({"phase": phase, "pid": observed, "exit_code": -signal.SIGKILL})
+                    timeout_exit: dict[str, object] = {
+                        "phase": phase,
+                        "pid": observed,
+                        "exit_code": os.waitstatus_to_exitcode(status),
+                    }
+                    exits.append(timeout_exit)
+                    atomic_write_bytes(
+                        channel / "process-records" / f"{phase}-exit.json",
+                        canonical_json_bytes(timeout_exit),
+                    )
                     raise ArtifactIntegrityError("fault child timeout; original root retained")
                 time.sleep(0.05)
             code = os.waitstatus_to_exitcode(status)

@@ -669,6 +669,7 @@ def verify_case(
             "Q02",
             "Q03",
             "Q04",
+            "Q06",
             "Q08",
             "Q09",
             "Q10",
@@ -681,6 +682,7 @@ def verify_case(
                 verify_q04,
                 verify_q08,
             )
+            from quantos.infrastructure.hosted_q06_verification import verify_q06
             from quantos.infrastructure.hosted_replay_verification import verify_q09, verify_q10
 
             predicate = {
@@ -688,6 +690,7 @@ def verify_case(
                 "Q02": verify_q02,
                 "Q03": verify_q03,
                 "Q04": verify_q04,
+                "Q06": verify_q06,
                 "Q08": verify_q08,
                 "Q09": verify_q09,
                 "Q10": verify_q10,
