@@ -418,3 +418,24 @@ hash `648c2556657f6a6dfb5cc78696c11c81a44e6e6744f7f02bf9a2dd52c0916f7f`。
 日志 `/tmp/hm-q05-public-projections-regression02.txt`。
 冻结这一durable子集实现用于新安装实际核验；完整fsync/损坏source-bound窗口、Q05正式
 dispatch、Q06、Q12 coverage、真实Q11/Q09/Q10和HM09–11仍未完成，不授完整MVP资格。
+
+### 2026-10-01：attempt16 安装矩阵与管理导出后继
+
+新安装 attempt16 原件保留于 `/tmp/hm-stage-1122922-attempt16`，冻结源码提交
+`1122922f6e67e3b1802010cf3b350764e898f99a`；B
+`f40980818a44c6a34c89754a2d80e9bd6af816f4822c2a5d7303b7f7b6914b35`，D
+`ab0c81b49db036b7afc73421fe243b9dbaf45d4d6541d2244eb663500d822653`。
+wheel hash `a051e0242251afc3d8487e132cb4efdddae75e0c106a0afd6e5a0f508cdd2467`。
+首次 offline build 因新 worktree 未发现 Python3.11 失败，原日志保留；后继显式指定已有
+3.11 interpreter 构建成功，未用 `.venv` symlink。实际固定安装 Q07 原件已捕获并机械核验；
+44项 durable Q05→Q04→Q02→Q03→Q08 串行管理捕获仍在运行，无真实模型交接或完整资格。
+
+完整44项组件文件映射预检为9881项、canonical export7143305bytes；原管理 publisher 的
+通用4MiB guard 无法承载该集合。后继 publisher 保留通用4MiB每次扫描上限，以完整typed
+header/每条record扫描解码字段，并用重叠1MiB窗口覆盖全部raw bytes；aggregate明确限制
+16MiB，与现存reader相同。4项测试通过（17.97s），pyright与ruff通过。
+[独立窄审](../reviews/hm-large-manager-export-scanning-review.md)，hash
+`c5de75fdf551f7e6af4250f1482a882c3cc60c2e0a494bd981dad801a9b97047`，
+gpt-6.1-sol/high、attempt1、usage unavailable；独立4测试及短转义/最长Unicode跨窗口
+canary均通过，无P1。该改动属于另行记录身份的后继管理诊断producer，未改变attempt16的
+冻结源码/安装或原件，不能宣称1122922安装已包含它，不能据此授Q05或MVP资格。

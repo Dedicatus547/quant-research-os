@@ -1242,7 +1242,21 @@ def publish_manager_export(
         files=tuple(files),
     )
     encoded = export.canonical_bytes()
-    KnownValueGuard((deployment.capability,))(encoded)
+    # The existing export reader accepts at most16MiB. A complete durable matrix
+    # can exceed the guard's per-call4MiB cap, so scan typed records separately
+    # (including decoded JSON strings) and all raw bytes in overlapping windows.
+    # The generic guard and research-channel limits retain their existing caps.
+    if len(encoded) > 16_777_216:
+        raise ValueError("manager export byte cap exceeded")
+    guard = KnownValueGuard((deployment.capability,))
+    guard(canonical_json_bytes(export.model_dump(mode="python", exclude={"files"})))
+    for file in export.files:
+        guard(file.canonical_bytes())
+    window_bytes = 1_048_576
+    # register_value's longest representation is six bytes per input byte.
+    overlap = 6 * len(deployment.capability)
+    for offset in range(0, len(encoded), window_bytes - overlap):
+        guard(encoded[offset : offset + window_bytes])
     atomic_write_bytes(deployment.root / "evidence" / export.content_hash, encoded)
     return export
 
