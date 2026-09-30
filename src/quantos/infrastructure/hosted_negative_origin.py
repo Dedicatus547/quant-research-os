@@ -419,10 +419,10 @@ def verify_managed_fixture_source(
     Scenario roots must separately bind their exact original snapshot paths. This
     shared gate does not accept a producer's verdict or grant any Q-case by itself.
     """
-    from quantos.infrastructure.hosted_fault_cases import HOSTED_FAULT_WINDOWS
+    from quantos.infrastructure.hosted_fault_cases import MANAGEMENT_FAULT_WINDOWS
 
     require(family in ("Q02", "Q03", "Q04", "Q05", "Q08"), "unknown management fixture family")
-    require(family != "Q05" or name in HOSTED_FAULT_WINDOWS, "unknown fixed fault fixture")
+    require(family != "Q05" or name in MANAGEMENT_FAULT_WINDOWS, "unknown fixed fault fixture")
     deployment = sources.deployment
     target = deployment.root / "qualification-cases" / family / name
     require(
@@ -626,8 +626,10 @@ def verify_managed_fixture_source(
             "DUPLICATE_SUBMISSION_FIXTURE"
             if family == "Q02"
             else (
-                "PHYSICAL_EXIT_EXECUTION_FIXTURE"
-                if HOSTED_FAULT_WINDOWS[name].native_execution
+                "PHYSICAL_EXIT_CORRUPTION_FIXTURE"
+                if MANAGEMENT_FAULT_WINDOWS[name].corruption
+                else "PHYSICAL_EXIT_EXECUTION_FIXTURE"
+                if MANAGEMENT_FAULT_WINDOWS[name].native_execution
                 else "PHYSICAL_EXIT_ADMISSION_FIXTURE"
             )
             if family == "Q05"

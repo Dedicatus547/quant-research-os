@@ -20,7 +20,7 @@ from unittest.mock import patch
 from quantos.application.autonomous_execution import QuantosResearchExecutionAdapter
 from quantos.application.hosted_campaign import HostedCampaignApplicationService
 from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes
-from quantos.contracts.base import canonical_json_bytes
+from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.hosted import HostedJournalEntry, strict_json_object
 from quantos.contracts.hosted_deployment import HostedDeploymentProfile, HostedServiceConfiguration
 from quantos.contracts.hosted_inputs import (
@@ -28,7 +28,11 @@ from quantos.contracts.hosted_inputs import (
     HostedFrozenBusinessInputs,
     derive_hosted_campaign_spec,
 )
-from quantos.infrastructure.hosted_fault_cases import HOSTED_FAULT_WINDOWS
+from quantos.infrastructure.hosted_fault_cases import MANAGEMENT_FAULT_WINDOWS
+from quantos.infrastructure.hosted_fault_corruption import (
+    apply_corruption_fixture,
+    expected_corruption_error,
+)
 from quantos.infrastructure.hosted_fixture_frames import (
     deterministic_candidate_frame,
     duplicate_frame,
@@ -45,6 +49,7 @@ from quantos.infrastructure.hosted_service import (
     read_hashed_configuration,
 )
 from quantos.infrastructure.hosted_verification import (
+    directory_inventory,
     raw_inventory,
     read_relative,
     verify_raw_inventory,
@@ -60,9 +65,9 @@ def run_fault_probe(
     channel_root: Path = Path("/channel"),
 ) -> None:
     """Root overrides are management test arguments, never CLI or RPC inputs."""
-    if case not in HOSTED_FAULT_WINDOWS:
+    if case not in MANAGEMENT_FAULT_WINDOWS:
         raise ValueError("unknown fixed fault window")
-    window = HOSTED_FAULT_WINDOWS[case]
+    window = MANAGEMENT_FAULT_WINDOWS[case]
     authority, channel = authority_root, channel_root
     if raw_inventory(authority).files or tuple(channel.iterdir()):
         raise ArtifactIntegrityError("fault case requires fresh retained roots")
@@ -214,6 +219,67 @@ def run_fault_probe(
             if pid == 0:
                 try:
                     before = raw_inventory(authority)
+                    if window.corruption:
+                        if crash:
+                            application = boot()
+                            state = application.protocol.store.snapshot(campaign, recover=False)
+                            apply_corruption_fixture(case, authority, state)
+                            fields = {
+                                "point": window.point,
+                                "occurrence": 1,
+                                "journal_entry": None,
+                                "inventory": raw_inventory(authority).model_dump(mode="json"),
+                            }
+                        else:
+                            directories = directory_inventory(authority)
+                            try:
+                                application = boot()
+                                application.protocol.resume(campaign)
+                            except (ArtifactIntegrityError, ValueError) as error:
+                                if type(error).__name__ != expected_corruption_error(case):
+                                    raise ArtifactIntegrityError(
+                                        "corruption recovery rejected for a different reason"
+                                    ) from error
+                                result_json = {
+                                    "outcome": "REJECTED_CORRUPT_AUTHORITY",
+                                    "error_type": type(error).__name__,
+                                }
+                            else:
+                                raise ArtifactIntegrityError("corrupt authority was recovered")
+                            verify_raw_inventory(authority, before)
+                            after_directories = directory_inventory(authority)
+                            if directories != after_directories:
+                                raise ArtifactIntegrityError("corrupt recovery changed directories")
+                            fields = {
+                                "before_inventory": before.model_dump(mode="json"),
+                                "after_inventory": raw_inventory(authority).model_dump(mode="json"),
+                                "before_directories": directories,
+                                "after_directories": after_directories,
+                                "result_json": result_json,
+                                "result_hash": sha256_bytes(canonical_json_bytes(result_json)),
+                            }
+                        assert_offline_imports()
+                        atomic_write_bytes(
+                            channel / "process-records" / f"{phase}.json",
+                            canonical_json_bytes(
+                                {
+                                    "schema_version": "hosted-fault-process-observation/v1",
+                                    "phase": phase,
+                                    "case": case,
+                                    "pid": os.getpid(),
+                                    "parent_pid": os.getppid(),
+                                    "fresh_application_bootstrap": True,
+                                    "clock": clock[0].isoformat(),
+                                    "execute_calls": execute_calls,
+                                    "workflow_calls": workflow_calls,
+                                    "network_attempts": network_attempts,
+                                    "python_flags": management_python_flags(),
+                                    "python_executable": sys.executable,
+                                    **fields,
+                                }
+                            ),
+                        )
+                        os._exit(73 if crash else 74)
                     application = boot(crash=crash)
                     if window.action in ("register", "issue", "start"):
                         result = application.start(spec.content_hash)
@@ -323,7 +389,7 @@ def run_fault_probe(
                 channel / "process-records" / f"{phase}-exit.json",
                 canonical_json_bytes(exits[-1]),
             )
-            if observed != pid or code != (73 if crash else 0):
+            if observed != pid or code != (73 if crash else 74 if window.corruption else 0):
                 raise ArtifactIntegrityError("fault child exit differs; original root retained")
             if crash:
                 return None
@@ -350,7 +416,9 @@ def run_fault_probe(
                     "case_family": "Q05",
                     "case": case,
                     "fixture_kind": (
-                        "PHYSICAL_EXIT_EXECUTION_FIXTURE"
+                        "PHYSICAL_EXIT_CORRUPTION_FIXTURE"
+                        if window.corruption
+                        else "PHYSICAL_EXIT_EXECUTION_FIXTURE"
                         if window.native_execution
                         else "PHYSICAL_EXIT_ADMISSION_FIXTURE"
                     ),
@@ -377,7 +445,7 @@ def run_fault_probe(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile-hash", required=True)
-    parser.add_argument("--case", required=True, choices=tuple(HOSTED_FAULT_WINDOWS))
+    parser.add_argument("--case", required=True, choices=tuple(MANAGEMENT_FAULT_WINDOWS))
     args = parser.parse_args()
     run_fault_probe(args.profile_hash, args.case)
 

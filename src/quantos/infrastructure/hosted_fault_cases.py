@@ -10,6 +10,7 @@ class HostedFaultWindow:
     point: str
     occurrence: int = 1
     native_execution: bool = False
+    corruption: bool = False
 
 
 PROTOCOL_FAULT_WINDOWS = {
@@ -68,4 +69,16 @@ HOSTED_FAULT_WINDOWS = {
     **ADMISSION_FAULT_WINDOWS,
     **EXECUTION_FAULT_WINDOWS,
 }
+CORRUPTION_FAULT_WINDOWS = {
+    f"corruption-{kind}": HostedFaultWindow("corrupt", None, kind, corruption=True)
+    for kind in (
+        "journal_fragment",
+        "wrong_sequence",
+        "double_pending",
+        "orphan_artifact",
+        "changed_artifact",
+    )
+}
+# Keep the durable-only matrix separately identifiable for retained diagnostics.
+MANAGEMENT_FAULT_WINDOWS = {**HOSTED_FAULT_WINDOWS, **CORRUPTION_FAULT_WINDOWS}
 FAULT_SNAPSHOT_PHASES = ("before", "crashed", "recovered", "after")

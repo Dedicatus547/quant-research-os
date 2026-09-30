@@ -10,6 +10,7 @@ from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes, 
 from quantos.contracts.hosted_deployment import HostedServiceConfiguration
 from quantos.infrastructure.hosted_deployment import private_memory_fd
 from quantos.infrastructure.hosted_verification import (
+    directory_inventory,
     raw_inventory,
     read_relative,
     verify_raw_inventory,
@@ -18,12 +19,18 @@ from quantos.infrastructure.hosted_verification import (
 
 def snapshot_management_authority(phase: str, authority: Path, channel: Path) -> None:
     inventory = raw_inventory(authority)
+    directories = directory_inventory(authority)
     target = channel / "snapshots" / phase / "authority"
     with opened_directory(target, create=True):
         pass
+    for logical in directories:
+        with opened_directory(target / logical, create=True):
+            pass
     for item in inventory.files:
         atomic_write_bytes(target / item.logical_path, read_relative(authority, item.logical_path))
     verify_raw_inventory(target, inventory)
+    if directory_inventory(authority) != directories or directory_inventory(target) != directories:
+        raise ArtifactIntegrityError("management snapshot directories differ")
 
 
 def management_python_flags() -> dict[str, object]:

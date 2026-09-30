@@ -284,6 +284,7 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
     from quantos.infrastructure.hosted_fault_cases import (
         FAULT_SNAPSHOT_PHASES,
         HOSTED_FAULT_WINDOWS,
+        MANAGEMENT_FAULT_WINDOWS,
     )
     from quantos.infrastructure.hosted_fault_verification import verify_fault_recovery_scenario
 
@@ -306,6 +307,8 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             protocol_fault_hook=protocol_fault_hook,
             business_fault_hook=business_fault_hook,
         )
+        if (authority_root / "protocol/campaigns" / campaign.content_hash).exists():
+            application.protocol.store.snapshot(campaign.content_hash, recover=True)
         return SimpleNamespace(application=application)
 
     def fault_hydrate(_profile: str) -> None:
@@ -336,7 +339,7 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             "read_hashed_configuration",
             lambda _root, _hash, cls: fault_inputs[cls.__name__],
         )
-        for window in HOSTED_FAULT_WINDOWS:
+        for window in MANAGEMENT_FAULT_WINDOWS:
             target = tmp_path / "physical-native-faults" / window
             local_authority, local_channel = target / "authority", target / "channel"
             local_authority.mkdir(parents=True)
@@ -388,6 +391,79 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             assert phase_inventories == {
                 phase: raw_inventory(root) for phase, root in roots.items()
             }
+            if MANAGEMENT_FAULT_WINDOWS[window].corruption:
+                assert [item["exit_code"] for item in observation["process_exits"]] == [73, 74, 74]
+                bad_records = deepcopy(records)
+                wrong_result = {"outcome": "REJECTED_CORRUPT_AUTHORITY", "error_type": "OSError"}
+                for phase in ("recovery-1", "recovery-2"):
+                    bad_records[phase]["result_json"] = wrong_result
+                    bad_records[phase]["result_hash"] = sha256_bytes(
+                        canonical_json_bytes(wrong_result)
+                    )
+                with pytest.raises(HostedQualificationError, match="did not reject"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        roots,
+                        bad_records,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+                bad_directories = deepcopy(records)
+                for phase in ("recovery-1", "recovery-2"):
+                    bad_directories[phase]["before_directories"] = []
+                    bad_directories[phase]["after_directories"] = []
+                with pytest.raises(HostedQualificationError, match="did not reject"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        roots,
+                        bad_directories,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+                bad_observation = deepcopy(observation)
+                bad_observation["process_exits"][1]["exit_code"] = 0
+                with pytest.raises(HostedQualificationError, match="waitpid"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        roots,
+                        records,
+                        bad_observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+                # Self-consistent inventory rewrites still cannot hide extra disk
+                # damage outside the exact fixed plan. Mutate copies only.
+                copied_roots = {}
+                for phase, root in roots.items():
+                    copied = tmp_path / "corruption-extra-negative" / window / phase
+                    shutil.copytree(root, copied)
+                    copied_roots[phase] = copied
+                    if phase != "before":
+                        (copied / "unrelated-corruption.json").write_bytes(b"{}")
+                with pytest.raises(HostedQualificationError, match="unrelated bytes"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        copied_roots,
+                        records,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+                for phase in ("crashed", "recovered", "after"):
+                    (copied_roots[phase] / "unrelated-corruption.json").unlink()
+                for phase in ("recovered", "after"):
+                    (copied_roots[phase] / "unobserved-empty-directory").mkdir()
+                with pytest.raises(HostedQualificationError, match="actual directories"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        copied_roots,
+                        records,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
             # Actual original disk bytes stay unchanged; these are mutated uploaded
             # observation arguments to the core, not new trusted manager evidence.
             if window == next(iter(HOSTED_FAULT_WINDOWS)):
@@ -586,7 +662,7 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
                     verify_native_authority_file_closure(
                         altered, bundle, checkpoint, native_o, native_events
                     )
-            if not HOSTED_FAULT_WINDOWS[window].native_execution:
+            if not MANAGEMENT_FAULT_WINDOWS[window].native_execution:
                 continue
             facts = verification.verify_hosted_business_root(
                 local_authority,

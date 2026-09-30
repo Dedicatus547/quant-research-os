@@ -154,10 +154,22 @@ class HostedProtocolStore:
         if self._fault_hook is not None:
             self._fault_hook(point)
 
+    @staticmethod
+    def _require_spec_names(directory_fd: int) -> None:
+        # A process can exit after fsync but before link/unlink. Such temporary
+        # files are evidence of an unfinished publication, never silent cleanup
+        # candidates or a reason to create a second authoritative spec.
+        if any(
+            not name.endswith(".json") or _HASH.fullmatch(name[:-5]) is None
+            for name in _names(directory_fd)
+        ):
+            raise ArtifactIntegrityError("unexpected hosted spec artifact")
+
     def register_spec(self, spec: HostedCampaignSpec) -> str:
         with opened_directory(self._root) as root_fd, _child(root_fd, "specs") as specs_fd:
             flock(specs_fd, LOCK_EX)
             try:
+                self._require_spec_names(specs_fd)
                 atomic_write_bytes_at(
                     specs_fd,
                     f"{spec.content_hash}.json",
@@ -172,6 +184,7 @@ class HostedProtocolStore:
         with opened_directory(self._root) as root_fd, _child(root_fd, "specs") as specs_fd:
             flock(specs_fd, LOCK_EX)
             try:
+                self._require_spec_names(specs_fd)
                 data = read_regular_bytes_at(
                     specs_fd, f"{_hash(spec_hash)}.json", max_bytes=REQUEST_BYTE_CAP
                 )
@@ -290,6 +303,33 @@ class HostedProtocolStore:
 
     def recover_locked(self, campaign_fd: int) -> None:
         journal = self._journal(campaign_fd)
+        if not journal or journal[-1].phase == "INTENT":
+            # Reconcile every existing object before completing an INTENT. An
+            # orphan temporary file or changed publication must not be detected
+            # only after recovery has already written objects and a completion.
+            expected = {
+                publication.artifact_hash: publication.canonical_json.encode("utf-8")
+                for entry in journal
+                for publication in entry.publications
+            }
+            required = {
+                digest
+                for entry in journal
+                if entry.phase == "COMPLETE"
+                for digest in entry.artifact_hashes
+            }
+            existing: set[str] = set()
+            with _child(campaign_fd, "objects") as objects_fd:
+                for name in _names(objects_fd):
+                    if not name.endswith(".json") or _HASH.fullmatch(name[:-5]) is None:
+                        raise ArtifactIntegrityError("unexpected hosted authority artifact")
+                    data = read_regular_bytes_at(objects_fd, name, max_bytes=AUTHORITY_BYTE_CAP)
+                    digest = name[:-5]
+                    if sha256_bytes(data) != digest or expected.get(digest) != data:
+                        raise ArtifactIntegrityError("hosted artifact hash or publication mismatch")
+                    existing.add(digest)
+            if not required.issubset(existing):
+                raise ArtifactIntegrityError("hosted completed publication is missing")
         if journal and journal[-1].phase == "INTENT":
             if self._verify_journal_entry is not None:
                 self._verify_journal_entry(journal[-1])

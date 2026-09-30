@@ -11,7 +11,8 @@ from typing import cast
 
 from quantos.application.hosted_campaign import HostedCampaignApplicationService
 from quantos.application.hosted_protocol import HostedProtocolService
-from quantos.contracts.base import sha256_bytes
+from quantos.artifacts.store import ArtifactIntegrityError
+from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.hosted import (
     HostedCampaignStatus,
     HostedJournalEntry,
@@ -32,11 +33,21 @@ from quantos.infrastructure.hosted_business_verification import (
     verify_native_business_budgets,
     verify_native_business_steps,
 )
-from quantos.infrastructure.hosted_fault_cases import FAULT_SNAPSHOT_PHASES, HOSTED_FAULT_WINDOWS
+from quantos.infrastructure.hosted_fault_cases import (
+    CORRUPTION_FAULT_WINDOWS,
+    FAULT_SNAPSHOT_PHASES,
+    HOSTED_FAULT_WINDOWS,
+    MANAGEMENT_FAULT_WINDOWS,
+)
+from quantos.infrastructure.hosted_fault_corruption import (
+    corruption_plan,
+    expected_corruption_error,
+)
 from quantos.infrastructure.hosted_negative_origin import require, verify_managed_fixture_source
 from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 from quantos.infrastructure.hosted_store import HostedProtocolStore
 from quantos.infrastructure.hosted_verification import (
+    directory_inventory,
     raw_inventory,
     read_relative,
     verify_protocol_root,
@@ -54,11 +65,26 @@ def verify_q05_durable_subset(
     This is a diagnostic subset, never wired as a full Q05 PASS: file/directory
     fsync and corruption cases still require their own original-source predicates.
     """
+    return _verify_q05_windows(bundle_root, case, sources, tuple(HOSTED_FAULT_WINDOWS))
+
+
+def verify_q05_corruption_subset(
+    bundle_root: Path, case: HostedQualificationCase, sources: HostedVerifiedSources
+) -> tuple[str, ...]:
+    """Require all five original corruption workers; still not the full Q05 gate."""
+    return _verify_q05_windows(bundle_root, case, sources, tuple(CORRUPTION_FAULT_WINDOWS))
+
+
+def _verify_q05_windows(
+    bundle_root: Path,
+    case: HostedQualificationCase,
+    sources: HostedVerifiedSources,
+    windows: tuple[str, ...],
+) -> tuple[str, ...]:
     require(case.case_id == "Q05", "Q05 case identity differs")
     indexed = {root.name: root for root in case.roots}
     require(
-        set(indexed)
-        == {f"{name}-{phase}" for name in HOSTED_FAULT_WINDOWS for phase in FAULT_SNAPSHOT_PHASES},
+        set(indexed) == {f"{name}-{phase}" for name in windows for phase in FAULT_SNAPSHOT_PHASES},
         "Q05 complete durable matrix is absent",
     )
     evidence: list[tuple[str, dict[str, object], bytes]] = []
@@ -71,7 +97,7 @@ def verify_q05_durable_subset(
         evidence.append((path, payload, data))
     deployment = sources.deployment
     checked: set[str] = set()
-    for name in HOSTED_FAULT_WINDOWS:
+    for name in windows:
         prefix = f"qualification-cases/Q05/{name}"
         target = deployment.root / prefix
         roots: dict[str, Path] = {}
@@ -102,6 +128,10 @@ def verify_q05_durable_subset(
                 )
             exported = bundle_root / root.logical_path
             verify_raw_inventory(exported, inventory)
+            require(
+                directory_inventory(exported) == directory_inventory(original),
+                "Q05 exported directories differ from original phase",
+            )
             roots[phase], inventories[phase] = exported, inventory
             checked.add(sha256_bytes(sidecar))
         observations = [
@@ -212,10 +242,12 @@ def verify_fault_recovery_scenario(
     Callers must first bind these paths and all observations to the independent
     original manager export and actual fixed installed/kernel invocation.
     """
-    require(name in HOSTED_FAULT_WINDOWS, "unknown fixed durable fault window")
+    require(name in MANAGEMENT_FAULT_WINDOWS, "unknown fixed durable fault window")
     require(set(roots) == set(FAULT_SNAPSHOT_PHASES), "Q05 phase roots are incomplete")
     require(set(records) == set(FAULT_PROCESS_PHASES), "Q05 child records are incomplete")
-    window = HOSTED_FAULT_WINDOWS[name]
+    window = MANAGEMENT_FAULT_WINDOWS[name]
+    if window.corruption:
+        return _verify_corruption_recovery(name, roots, records, observation, parent_pid, sources)
     deployment = sources.deployment
     bundle = deployment.bundle
     campaign = bundle.campaign.content_hash
@@ -549,4 +581,140 @@ def verify_fault_recovery_scenario(
             )
     for phase, root in roots.items():
         verify_raw_inventory(root, inventories[phase])
+    return tuple(sorted(checked))
+
+
+def _verify_corruption_recovery(
+    name: str,
+    roots: dict[str, Path],
+    records: dict[str, dict[str, object]],
+    observation: dict[str, object],
+    parent_pid: int,
+    sources: HostedVerifiedSources,
+) -> tuple[str, ...]:
+    """Bind exact malformed bytes and rejection facts without any repair call."""
+    deployment = sources.deployment
+    bundle = deployment.bundle
+    campaign = bundle.campaign.content_hash
+    inventories = {phase: raw_inventory(path) for phase, path in roots.items()}
+    directories = {phase: directory_inventory(path) for phase, path in roots.items()}
+    require(
+        all(value == directories["before"] for value in directories.values()),
+        "Q05 corruption changed actual directories",
+    )
+    checked = set(verify_protocol_root(roots["before"] / "protocol", campaign))
+    state, orchestrator, events = build_verified_business_orchestrator(
+        roots["before"],
+        bundle,
+        deployment_profile_hash=deployment.profile.content_hash,
+        input_root=deployment.paths.offline_inputs,
+        provenance_workspace=deployment.paths.provenance,
+    )
+    native = HostedCampaignApplicationService.verify_research_facts(state)
+    require(
+        events == bundle.initial_events
+        and not native.steps
+        and not native.reports
+        and len(native.budgets) == 1
+        and len(state.requests) == 1
+        and state.requests[0].issued_at == bundle.hosted_recipe.started_at
+        and state.budget.used_requests == 1
+        and state.budget.used_unique_submissions == 0,
+        "Q05 corruption starting business/protocol facts differ",
+    )
+    latest, _, _ = verify_native_business_steps(state, orchestrator, events, native.steps)
+    verify_native_business_budgets(
+        state,
+        orchestrator,
+        events,
+        bundle.initial_events,
+        native.budgets,
+        native.steps,
+        latest,
+        None,
+    )
+    verify_native_authority_file_closure(roots["before"], bundle, state, orchestrator, events)
+    expected_files = {
+        item.logical_path: (item.size_bytes, item.sha256) for item in inventories["before"].files
+    }
+    for logical, data in corruption_plan(name, state):
+        expected_files[logical] = (len(data), sha256_bytes(data))
+        require(read_relative(roots["crashed"], logical) == data, "Q05 corruption bytes differ")
+        checked.add(sha256_bytes(data))
+    for phase in ("crashed", "recovered", "after"):
+        require(
+            {item.logical_path: (item.size_bytes, item.sha256) for item in inventories[phase].files}
+            == expected_files,
+            "Q05 corruption mutated unrelated bytes or was repaired",
+        )
+    # The independently derived damage must actually fail the production store's
+    # read-only parser. Calling recover=True here would destroy this evidence.
+    try:
+        HostedProtocolStore(roots["crashed"] / "protocol").snapshot(campaign, recover=False)
+    except (ArtifactIntegrityError, ValueError) as error:
+        require(
+            type(error).__name__ == expected_corruption_error(name), "Q05 damage reason differs"
+        )
+    else:
+        require(False, "Q05 supposed corruption is valid authority")
+    result_json = {
+        "outcome": "REJECTED_CORRUPT_AUTHORITY",
+        "error_type": expected_corruption_error(name),
+    }
+    exits: list[dict[str, object]] = []
+    pids: set[int] = set()
+    for phase in FAULT_PROCESS_PHASES:
+        record = records[phase]
+        pid = record.get("pid")
+        require(
+            type(pid) is int and pid > parent_pid and pid not in pids,
+            "Q05 corrupt recovery processes are not distinct",
+        )
+        pid = cast(int, pid)
+        pids.add(pid)
+        exits.append({"phase": phase, "pid": pid, "exit_code": 73 if phase == "crash" else 74})
+        require(
+            record.get("case") == name
+            and record.get("phase") == phase
+            and record.get("parent_pid") == parent_pid
+            and record.get("fresh_application_bootstrap") is True
+            and record.get("clock") == bundle.hosted_recipe.started_at.isoformat()
+            and record.get("python_executable") == observation.get("python_executable")
+            and record.get("python_flags") == observation.get("python_flags")
+            and record.get("execute_calls")
+            == record.get("workflow_calls")
+            == record.get("network_attempts")
+            == [],
+            "Q05 corrupt recovery source/bootstrap/clock/calls differ",
+        )
+        if phase == "crash":
+            require(
+                record.get("point") == CORRUPTION_FAULT_WINDOWS[name].point
+                and record.get("occurrence") == 1
+                and record.get("journal_entry") is None
+                and record.get("inventory") == inventories["crashed"].model_dump(mode="json"),
+                "Q05 corruption physical exit differs",
+            )
+        else:
+            require(
+                record.get("before_inventory")
+                == record.get("after_inventory")
+                == inventories["after"].model_dump(mode="json")
+                and record.get("result_json") == result_json
+                and record.get("result_hash") == sha256_bytes(canonical_json_bytes(result_json))
+                and record.get("before_directories")
+                == record.get("after_directories")
+                == list(directories["after"]),
+                "Q05 corrupt recovery did not reject without mutation",
+            )
+    require(observation.get("process_exits") == exits, "Q05 corruption waitpid accounting differs")
+    require(
+        records["recovery-1"].get("after_directories")
+        == records["recovery-2"].get("before_directories"),
+        "Q05 corruption restart changed directory facts",
+    )
+    for phase, inventory in inventories.items():
+        verify_raw_inventory(roots[phase], inventory)
+        require(directory_inventory(roots[phase]) == directories[phase], "Q05 directories changed")
+        checked.add(inventory.content_hash)
     return tuple(sorted(checked))

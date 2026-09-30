@@ -439,3 +439,57 @@ header/每条record扫描解码字段，并用重叠1MiB窗口覆盖全部raw by
 gpt-6.1-sol/high、attempt1、usage unavailable；独立4测试及短转义/最长Unicode跨窗口
 canary均通过，无P1。该改动属于另行记录身份的后继管理诊断producer，未改变attempt16的
 冻结源码/安装或原件，不能宣称1122922安装已包含它，不能据此授Q05或MVP资格。
+
+### 2026-10-01：损坏矩阵与 fsync 恢复预检后继
+
+新增五项固定管理损坏窗口：journal碎片、错误sequence、双pending、孤立artifact、
+改写request bytes。损坏字节由完整原生起点推导；原始before保留，crash子进程exit73，
+两次fresh生产bootstrap尝试均拒绝exit74，execute/Workflow/network为0。固定研究CLI/RPC
+没有开放注入参数。44项durable矩阵独立保持；corruption subset不授完整Q05。
+第一轮功能组件误把ISSUE预发布EXHAUSTED receipt当作已提交而失败，根与日志保留；
+第02轮5 passed（12.87s）。原生业务输入集中检查第01轮第一个窗口通过后，测试残余44项
+索引KeyError，原根保留；第02轮五窗口及error_type/waitpid/额外损坏负例通过。
+
+[独立原审](../reviews/hm-q05-corruption-narrow-review.md)，hash
+`6eb9a73384056fd7668e3ec0c4ad56f0e449dd0860c7612673b2f5edb1d79e99`，发现目录P1：
+records两侧自比不能证明真实树不变；新增空目录或把records目录数组改成空仍被core接受。
+后继增加descriptor-anchored、O_NOFOLLOW安全目录清单，包含空目录并拒绝symlink、special、
+hardlink，有100000 entry cap；snapshot完整保留目录；worker/parser与core核对实际四阶段
+目录和records，source wrapper核对exported与original目录。
+[后继关闭审](../reviews/hm-q05-corruption-directory-closure-review.md)，hash
+`2e10aa8287658a6557425c632e3c33d8e3819fa9dd367b10d37f829e0ed2732b`，原两个反例拒绝、
+独立5原生输入窗口与6目录安全测试通过。主agent集中第04轮五窗口和五组负例通过，日志
+`/tmp/hm-q05-corruption-native-components04.txt`；第03轮正例也通过，但没有后来新增的
+两个目录负例，不追认。目录/物理/FD组件59 passed（126.91s）。共同origin及Q02/Q03/Q04/
+Q08相关回归133 passed（208.27s）；初始误列不存在test文件的两次no-tests日志保留。
+
+fsync物理控制复现spec file_fsynced后孤立`.publish-*`被fresh registration忽略的缺陷。
+后继在spec flock内检查完整spec目录名字与原有单链接规则，拒绝未完成publication。
+before-fix01为2 failed/2 passed；file_linked实际已拒绝，第二失败是test regex漏了
+`one link`，不能称第二生产漏洞。spec/协议回归83 passed（569.58s）。
+随后journal/object八个native store断点复现object file_fsynced后先补objects/COMPLETE、
+再拒绝孤立临时文件的问题；原根与日志保留，1 failed/7 passed（6.96s）。后继恢复写前
+先核对existing object格式、hash与全部journal publication bytes，合法pending缺项允许。
+[独立fsync原审](../reviews/hm-q05-fsync-recovery-narrow-review.md)，hash
+`b33257bfa13e52886f74b1019993eca78a1a2cb6566e6c3d5bb4075ead48d888`，确认spec缺陷关闭，
+另复现旧COMPLETE object缺失时先补新SUBMIT对象与COMPLETE才拒绝。修复再要求existing
+包含所有旧COMPLETE必需hash，共享pending hash也不能缺。
+[后继关闭审](../reviews/hm-q05-fsync-required-complete-closure-review.md)，hash
+`4cb05821dd29b4816e711a94bad28945ee155f8145a304c6580e7b27975d835b`，原反例提前拒绝，
+文件/目录/inode/link/hash不变，publication/verify callbacks为0；独立19controls通过。
+上述必要独立审查均gpt-6.1-sol/high、usage unavailable；原失败报告不改写。
+
+最终19 fsync/缺旧完成对象控制通过（11.87s），其中共享hashBUSINESS例是store-only受控
+负例，不冒充原生业务资格。最新目录/物理/FD/fsync兼容回归73 passed（134.14s），日志
+`/tmp/hm-q05-required-complete-compatible01.txt`。最新partial预检下三物理原生窗口
+（SUBMIT artifact2、business completed_intent、execution receipt）的真实Qlib/receipt复用
+检查通过，日志`/tmp/hm-q05-required-complete-native-smoke01.txt`，固定原根保留。
+完整49物理窗口+原生业务/C11回归1 passed/232 warnings（659.51s），日志
+`/tmp/hm-q05-native-corruption-full-regression01.txt`；该进程加载的是spec修复后、partial
+objects预检前store，不能当作后者完整49实跑。后继44旧组件原根只读复查全部通过，
+日志`/tmp/hm-q05-all-retained-readonly-recheck02.txt`，执行/Workflow/network 0，文件目录不变。
+ruff/format、pyright、diff-check通过；这些仍不是Q12 coverage≥85%的证明。
+
+attempt16继续使用冻结1122922原安装捕获，不包含上述corruption、目录或fsync修复。
+完整fsync forensic/source-bound原件、完整Q05正式dispatch、Q06最小预算/竞争矩阵、Q12、
+真实Q11/Q09/Q10、失败attempt ledger与HM09–11仍待完成。没有模型认证/provider调用。

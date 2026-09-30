@@ -16,13 +16,19 @@ from quantos.infrastructure.hosted_client import consume_capability_fd
 from quantos.infrastructure.hosted_deployment import private_memory_fd
 from quantos.infrastructure.hosted_fault_cases import (
     ADMISSION_FAULT_WINDOWS,
-    HOSTED_FAULT_WINDOWS,
+    CORRUPTION_FAULT_WINDOWS,
+    MANAGEMENT_FAULT_WINDOWS,
     PROTOCOL_FAULT_WINDOWS,
 )
 from quantos.infrastructure.hosted_verification import raw_inventory, verify_protocol_root
 
 
-@pytest.mark.parametrize("case", tuple(PROTOCOL_FAULT_WINDOWS) + tuple(ADMISSION_FAULT_WINDOWS))
+@pytest.mark.parametrize(
+    "case",
+    tuple(PROTOCOL_FAULT_WINDOWS)
+    + tuple(ADMISSION_FAULT_WINDOWS)
+    + tuple(CORRUPTION_FAULT_WINDOWS),
+)
 def test_fixed_window_physically_exits_and_two_fresh_boots_are_idempotent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
 ) -> None:
@@ -53,6 +59,10 @@ def test_fixed_window_physically_exits_and_two_fresh_boots_are_idempotent(
         service.protocol.store._verify_journal_entry = verify_journal_entry
         service.protocol.store._fault_hook = protocol_fault_hook
         service._fault_hook = business_fault_hook
+        if (authority / "protocol/campaigns" / spec.campaign_hash).exists():
+            # Production bootstrap rejects malformed authority before constructing
+            # its application. Exercise that same store parser in this factory.
+            service.protocol.store.snapshot(spec.campaign_hash, recover=True)
         return SimpleNamespace(application=service)
 
     values = {
@@ -86,7 +96,8 @@ def test_fixed_window_physically_exits_and_two_fresh_boots_are_idempotent(
     observation = json.loads((channel / "negative-observation.json").read_bytes())
     exits = observation["process_exits"]
     assert [item["phase"] for item in exits] == ["crash", "recovery-1", "recovery-2"]
-    assert [item["exit_code"] for item in exits] == [73, 0, 0]
+    corrupt = MANAGEMENT_FAULT_WINDOWS[case].corruption
+    assert [item["exit_code"] for item in exits] == ([73, 74, 74] if corrupt else [73, 0, 0])
     assert len({item["pid"] for item in exits}) == 3
     records = {
         phase: json.loads((channel / "process-records" / f"{phase}.json").read_bytes())
@@ -100,8 +111,8 @@ def test_fixed_window_physically_exits_and_two_fresh_boots_are_idempotent(
         assert (
             record["execute_calls"] == record["workflow_calls"] == record["network_attempts"] == []
         )
-    assert records["crash"]["point"] == HOSTED_FAULT_WINDOWS[case].point
-    assert records["crash"]["occurrence"] == HOSTED_FAULT_WINDOWS[case].occurrence
+    assert records["crash"]["point"] == MANAGEMENT_FAULT_WINDOWS[case].point
+    assert records["crash"]["occurrence"] == MANAGEMENT_FAULT_WINDOWS[case].occurrence
     assert records["crash"]["inventory"] == raw_inventory(
         channel / "snapshots/crashed/authority"
     ).model_dump(mode="json")
@@ -110,7 +121,15 @@ def test_fixed_window_physically_exits_and_two_fresh_boots_are_idempotent(
     assert records["recovery-2"]["before_inventory"] == records["recovery-2"]["after_inventory"]
     assert raw_inventory(authority) == raw_inventory(channel / "snapshots/recovered/authority")
     assert raw_inventory(authority) == raw_inventory(channel / "snapshots/after/authority")
-    verify_protocol_root(authority / "protocol", spec.campaign_hash)
+    if corrupt:
+        assert records["recovery-1"]["result_json"]["outcome"] == "REJECTED_CORRUPT_AUTHORITY"
+        assert (
+            records["recovery-1"]["before_directories"]
+            == records["recovery-2"]["after_directories"]
+        )
+        assert raw_inventory(authority) == raw_inventory(channel / "snapshots/crashed/authority")
+    else:
+        verify_protocol_root(authority / "protocol", spec.campaign_hash)
     assert observation["qualification_eligibility"] == "NOT_QUALIFIED"
 
 

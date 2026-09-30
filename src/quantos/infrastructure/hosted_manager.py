@@ -1035,7 +1035,7 @@ def run_managed_fault_case(deployment: HostedManagedDeployment, case: str) -> Pa
 def _run_managed_transport_fixture(
     deployment: HostedManagedDeployment, case: str, family: str
 ) -> Path:
-    from quantos.infrastructure.hosted_fault_cases import HOSTED_FAULT_WINDOWS
+    from quantos.infrastructure.hosted_fault_cases import MANAGEMENT_FAULT_WINDOWS
     from quantos.infrastructure.hosted_fixture_frames import (
         BUSINESS_REJECTION_CASES,
         DUPLICATE_SUBMISSION_CASES,
@@ -1051,7 +1051,7 @@ def _run_managed_transport_fixture(
         "Q02": DUPLICATE_SUBMISSION_CASES,
         "Q03": NEGATIVE_CASES,
         "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES),
-        "Q05": tuple(HOSTED_FAULT_WINDOWS),
+        "Q05": tuple(MANAGEMENT_FAULT_WINDOWS),
         "Q08": HOST_OBSERVATION_CASES,
     }
     if family not in allowed or case not in allowed[family]:

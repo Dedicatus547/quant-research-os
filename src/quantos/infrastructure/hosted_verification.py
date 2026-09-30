@@ -197,6 +197,42 @@ def digest_relative(root: Path, logical_path: str) -> tuple[str, int]:
             os.close(parent)
 
 
+def directory_inventory(root: Path) -> tuple[str, ...]:
+    """Include empty directories through pinned descriptors; reject unsafe entries."""
+    directories: list[str] = []
+    entries = 0
+
+    def walk(directory_fd: int, prefix: str) -> None:
+        nonlocal entries
+        with os.scandir(directory_fd) as iterator:
+            names = sorted(item.name for item in iterator)
+        for name in names:
+            entries += 1
+            if entries > MAX_BUNDLE_FILES:
+                raise HostedQualificationError("directory inventory entry cap exceeded")
+            logical = f"{prefix}/{name}" if prefix else name
+            validate_logical_path(logical)
+            metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISDIR(metadata.st_mode):
+                child = os.open(
+                    name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory_fd
+                )
+                try:
+                    opened = os.fstat(child)
+                    if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
+                        raise HostedQualificationError("directory changed during inventory")
+                    directories.append(logical)
+                    walk(child, logical)
+                finally:
+                    os.close(child)
+            elif not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise HostedQualificationError("directory inventory has an unsafe entry")
+
+    with opened_directory(root) as descriptor:
+        walk(descriptor, "")
+    return tuple(sorted(directories))
+
+
 def raw_inventory(root: Path) -> HostedRawInventory:
     """Inventory every file using descriptor-anchored traversal; no symlink follow."""
     files: list[HostedQualificationFile] = []
