@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,8 +13,11 @@ from test_autonomous_campaign import NOW, _inputs
 from test_hosted_campaign import _service, _spec
 
 from quantos.application.hosted_protocol import HostedProtocolService
+from quantos.artifacts.store import ArtifactIntegrityError
 from quantos.contracts.hosted import HostedSubmissionReceipt
 from quantos.infrastructure import hosted_duplicate_probe as probe
+from quantos.infrastructure.hosted_client import consume_capability_fd
+from quantos.infrastructure.hosted_deployment import private_memory_fd
 from quantos.infrastructure.hosted_store import HostedProtocolStore
 from quantos.infrastructure.hosted_verification import raw_inventory
 
@@ -34,6 +38,7 @@ def test_actual_barrier_receipt_resume_and_cap_reuse(
 
     def boot(_profile: str, *, protocol_clock, authority_root: Path, channel_root: Path):
         assert authority_root == authority and channel_root == channel
+        assert consume_capability_fd(100) == b"S" * 32
         service = _service(authority, inputs, spec)
         service.protocol = HostedProtocolService(
             service.protocol.store,
@@ -44,12 +49,27 @@ def test_actual_barrier_receipt_resume_and_cap_reuse(
 
     values = {
         "HostedDeploymentProfile": SimpleNamespace(configuration_hash="a" * 64),
-        "HostedServiceConfiguration": SimpleNamespace(business_configuration_hash="b" * 64),
+        "HostedServiceConfiguration": SimpleNamespace(
+            business_configuration_hash="b" * 64,
+            principals=(SimpleNamespace(capability_fd=100),),
+        ),
         "HostedBusinessLoaderConfiguration": SimpleNamespace(business_inputs_hash="c" * 64),
         "HostedFrozenBusinessInputs": bundle,
     }
     monkeypatch.setattr(probe, "bootstrap_hosted_service", boot)
-    monkeypatch.setattr(probe, "hydrate_service_capabilities", lambda _: None)
+
+    def hydrate(_profile: str) -> None:
+        descriptor = private_memory_fd("synthetic-test-service-capability")
+        try:
+            os.write(descriptor, b"S" * 32)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            if descriptor != 100:
+                os.dup2(descriptor, 100, inheritable=False)
+        finally:
+            if descriptor != 100:
+                os.close(descriptor)
+
+    monkeypatch.setattr(probe, "hydrate_service_capabilities", hydrate)
     monkeypatch.setattr(probe, "derive_hosted_campaign_spec", lambda *_args, **_kwargs: spec)
     monkeypatch.setattr(
         probe, "read_hashed_configuration", lambda _root, _hash, cls: values[cls.__name__]
@@ -105,3 +125,53 @@ def test_actual_barrier_receipt_resume_and_cap_reuse(
     original = raw_inventory(authority)
     assert probe._snapshot("late-copy", authority, channel) is None
     assert raw_inventory(authority) == original
+
+
+@dataclass(frozen=True)
+class _PrivateFixturePrincipal:
+    capability_fd: int
+
+
+def test_private_restart_fd_reuses_ram_after_descriptor_consumption() -> None:
+    descriptor = private_memory_fd("synthetic-private-restart-test")
+    try:
+        os.write(descriptor, b"S" * 32)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.dup2(descriptor, 100, inheritable=False)
+        configuration = SimpleNamespace(principals=(_PrivateFixturePrincipal(100),))
+        values = probe._capture_restart_capabilities(configuration)
+        assert os.lseek(100, 0, os.SEEK_CUR) == 0
+        assert consume_capability_fd(100) == b"S" * 32
+        for _ in range(3):
+            probe._restore_restart_capabilities(values)
+            assert os.get_inheritable(100) is False
+            assert os.lseek(100, 0, os.SEEK_CUR) == 0
+            assert consume_capability_fd(100) == b"S" * 32
+            with pytest.raises(OSError):
+                os.fstat(100)
+    finally:
+        os.close(descriptor)
+
+
+@pytest.mark.parametrize("size", (0, 31, 33))
+def test_restart_capture_rejects_nonexact_private_descriptor(size: int) -> None:
+    descriptor = private_memory_fd("synthetic-invalid-restart-test")
+    try:
+        os.write(descriptor, b"S" * size)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.dup2(descriptor, 100, inheritable=False)
+        with pytest.raises(ArtifactIntegrityError, match="length"):
+            probe._capture_restart_capabilities(
+                SimpleNamespace(principals=(_PrivateFixturePrincipal(100),))
+            )
+        assert os.lseek(100, 0, os.SEEK_CUR) == 0
+    finally:
+        os.close(100)
+        os.close(descriptor)
+
+
+def test_restart_capture_rejects_changed_frozen_private_slot() -> None:
+    with pytest.raises(ArtifactIntegrityError, match="descriptor"):
+        probe._capture_restart_capabilities(
+            SimpleNamespace(principals=(_PrivateFixturePrincipal(101),))
+        )

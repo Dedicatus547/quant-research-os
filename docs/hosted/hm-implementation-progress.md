@@ -303,3 +303,27 @@ Q02 后继固定入口和只读谓词已接线，研究 RPC 不开放测试入�
 当前缺项仍包含实际新安装 Q02、完整 Q05/Q06、修复后的 Q04 新安装原件、Q12 coverage≥85%，
 以及真实 Q11／Q09／Q10、完整失败记录、HM09、HM10（gpt-6-luna/medium）和 HM11。
 HM-MVP 未完成；没有启动真实模型认证、provider 调用、正式发布或资格 tag。
+
+### 2026-09-30：attempt14 Q02 原失败与私有 FD 生命周期修正
+
+固定提交 `53bb908ed45388dee05e0df6952997246f9b9aca` 的实际新安装保留于
+`/tmp/hm-stage-53bb908-attempt14`，B
+`1454952928c31cc3426ae5e1ef4b675d4da0cf07f97a985967f9fd56b3a7a64d`，D
+`d90c99e1d86415cb67aa2f72460c70bc0335bd775717200e32ead56c80d55763`。
+Q07 原探针重算通过；Q02 accepted 用例的两个 barrier 子进程及第三次提交返回同一
+ACCEPTED receipt，unique submission=1，但首次 resume 新子进程发生 OSError、exit=1，
+manager observation=null。原始 manager completion、child failure、protocol、authority 和
+channel inventory 保留；rejected 和后续 Q04 尚未启动，不能授 Q02 PASS。
+
+[53bb 独立审查](../reviews/hm-q02-implementation-review-53bb908.md) 与原实际失败一致：
+首次 bootstrap 的 consume_capability_fd 关闭 slot 100，已 unlink 的 staging 不能再 hydrate；
+旧功能 factory 没有消费这个 FD，因而漏掉真实生命周期。后继管理 worker 在首次 hydrate
+之后、bootstrap 之前按冻结 slots 用 pread33 检查精确32字节，只存 RAM；每次固定 bootstrap
+前用 private memfd、位置0、CLOEXEC 重建同 slots。字节不进入 argv/env/disk/日志/证据，也
+不扩大研究 RPC。新功能 factory 真正 consume/close FD；三个长度拒绝、错 slot 和重复
+重建测试加入，合计7 passed / 16.81s，ruff/format/pyright/diff检查通过。
+
+[FD 独立关闭审](../reviews/hm-q02-private-fd-corrective-review.md) 独立7测试通过，并只读
+核对 actual14 的安装、provenance、原程序/kernel 身份、完整 inventories 与失败记录，
+原件未变；只关闭后继实施 P1，不追认53bb或attempt14。必要审查模型为gpt-6.1-sol/high，
+usage unavailable。后继 profile 的 Q02 实际矩阵和完整原件谓词仍待运行。

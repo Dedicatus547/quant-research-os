@@ -27,6 +27,7 @@ from quantos.contracts.hosted_inputs import (
     HostedFrozenBusinessInputs,
     derive_hosted_campaign_spec,
 )
+from quantos.infrastructure.hosted_deployment import private_memory_fd
 from quantos.infrastructure.hosted_fixture_frames import DUPLICATE_SUBMISSION_CASES, duplicate_frame
 from quantos.infrastructure.hosted_service import (
     bootstrap_hosted_service,
@@ -60,6 +61,35 @@ def _flags() -> dict[str, object]:
             "hash_randomization",
         )
     }
+
+
+def _capture_restart_capabilities(
+    configuration: HostedServiceConfiguration,
+) -> tuple[tuple[int, bytes], ...]:
+    """Capture one-use service descriptors into RAM, never into evidence or logs."""
+    values: list[tuple[int, bytes]] = []
+    for index, principal in enumerate(configuration.principals):
+        if principal.capability_fd != 100 + index:
+            raise ArtifactIntegrityError("fixed private service descriptor differs")
+        value = os.pread(principal.capability_fd, 33, 0)
+        if len(value) != 32:
+            raise ArtifactIntegrityError("fixed private service capability length differs")
+        values.append((principal.capability_fd, value))
+    return tuple(values)
+
+
+def _restore_restart_capabilities(values: tuple[tuple[int, bytes], ...]) -> None:
+    """Recreate only the configured private slots before a fresh fixed bootstrap."""
+    for target, value in values:
+        descriptor = private_memory_fd("duplicate-service-capability")
+        try:
+            os.write(descriptor, value)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            if descriptor != target:
+                os.dup2(descriptor, target, inheritable=False)
+        finally:
+            if descriptor != target:
+                os.close(descriptor)
 
 
 def run_duplicate_probe(
@@ -96,6 +126,7 @@ def run_duplicate_probe(
     execute_calls: list[str] = []
     workflow_calls: list[str] = []
     network_attempts: list[str] = []
+    restart_capabilities: tuple[tuple[int, bytes], ...] = ()
 
     def denied_execute(self: QuantosResearchExecutionAdapter, request: Any) -> Any:
         execute_calls.append(request.execution_identity)
@@ -112,6 +143,7 @@ def run_duplicate_probe(
         raise ArtifactIntegrityError("duplicate fixture attempted network")
 
     def boot() -> HostedCampaignApplicationService:
+        _restore_restart_capabilities(restart_capabilities)
         application = bootstrap_hosted_service(
             profile_hash,
             protocol_clock=lambda: clock[0],
@@ -130,6 +162,7 @@ def run_duplicate_probe(
         patch.object(socket, "create_connection", denied_network),
     ):
         hydrate_service_capabilities(profile_hash)
+        restart_capabilities = _capture_restart_capabilities(configuration)
         application = boot()
         application.start(
             derive_hosted_campaign_spec(bundle, deployment_profile_hash=profile_hash).content_hash
