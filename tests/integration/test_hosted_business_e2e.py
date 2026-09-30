@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+from copy import deepcopy
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
@@ -45,8 +47,12 @@ from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import CampaignTrial
 from quantos.contracts.hosted import (
     HostedAgentResponse,
+    HostedBudgetJournalFact,
     HostedBudgetPolicy,
+    HostedCampaignStatus,
     HostedResearchBudgetFact,
+    HostedResearchStepIntent,
+    HostedSubmissionReceipt,
     HostObservation,
     HostReportedUsage,
 )
@@ -57,9 +63,11 @@ from quantos.contracts.hosted_inputs import (
     derive_hosted_campaign_spec,
 )
 from quantos.contracts.hosted_qualification import HOSTED_ACCEPTANCE_SHA256, HOSTED_CONTRACT_SHA256
+from quantos.contracts.ledger import ResearchLedgerEventV2
 from quantos.contracts.status import ReasonCode
 from quantos.data import verify_qlib_view, verify_snapshot
 from quantos.infrastructure import hosted_business_verification as verification
+from quantos.infrastructure.hosted_business_file_closure import verify_native_authority_file_closure
 from quantos.infrastructure.hosted_replay import SavedHostedProtocol
 from quantos.infrastructure.hosted_replay_evidence import (
     capture_replay_comparison,
@@ -73,6 +81,7 @@ from quantos.infrastructure.hosted_verification import (
     compare_verified_principal_roots,
     raw_inventory,
     read_relative,
+    verify_protocol_root,
     verify_raw_inventory,
 )
 from quantos.research.qlib import QlibResearchError
@@ -184,11 +193,23 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
     )
     profile_hash = "d" * 64
     spec = derive_hosted_campaign_spec(bundle, deployment_profile_hash=profile_hash)
+    # Preserve the exact synthetic input contracts beside retained component roots
+    # so failed checks can be re-inspected without rerunning Qlib or rebuilding input.
+    atomic_write_bytes(tmp_path / "synthetic-frozen-business-inputs.json", bundle.canonical_bytes())
 
-    def build_component(authority: Path, saved: Any = None):
+    def build_component(
+        authority: Path,
+        saved: Any = None,
+        *,
+        protocol_clock: Any = None,
+        protocol_fault_hook: Any = None,
+        business_fault_hook: Any = None,
+        journal_observer: Any = None,
+    ):
         runtime = authority / "business" / campaign.content_hash
-        runtime.mkdir(parents=True)
-        shutil.copytree(tmp_path / "ledger", runtime / "ledger")
+        runtime.mkdir(parents=True, exist_ok=True)
+        if not (runtime / "ledger").exists():
+            shutil.copytree(tmp_path / "ledger", runtime / "ledger")
         local_args = {**adapter_args, "output_root": runtime / "execution"}
         execution = QuantosResearchExecutionAdapter(**local_args)
         selection = type(original_selection)(
@@ -229,12 +250,16 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             HostedProtocolService(
                 HostedProtocolStore(
                     authority / "protocol",
-                    verify_journal_entry=saved.verify_entry if saved else None,
+                    verify_journal_entry=saved.verify_entry if saved else journal_observer,
+                    fault_hook=protocol_fault_hook,
                 ),
-                clock=saved.clock if saved else lambda: NOW + timedelta(seconds=30),
+                clock=saved.clock
+                if saved
+                else protocol_clock or (lambda: NOW + timedelta(seconds=30)),
                 verify_inputs=lambda value: service.verify_registered_inputs(value),
             ),
             business_lock_root=authority / "business-locks",
+            fault_hook=business_fault_hook,
         )
         # Synthetic data deliberately cannot pass the production p14dq loader. Here only
         # the real native adapter constructor is supplied, with its canonical gates intact.
@@ -243,6 +268,391 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
         )
         return service, execution
 
+    monkeypatch.setattr(
+        verification,
+        "build_hosted_execution_adapter",
+        lambda *args, **kwargs: QuantosResearchExecutionAdapter(
+            **{**adapter_args, "output_root": kwargs["runtime_root"] / "execution"}
+        ),
+    )
+    # Literal physical exits use fresh service/adapter objects in each child.
+    # Only the component factory replaces the production p14dq input loader;
+    # execution, native receipts/gates/Ledger and full read-only verification are real.
+    from quantos.infrastructure import hosted_fault_probe as fault_probe
+    from quantos.infrastructure.hosted_client import consume_capability_fd
+    from quantos.infrastructure.hosted_deployment import private_memory_fd
+    from quantos.infrastructure.hosted_fault_cases import (
+        FAULT_SNAPSHOT_PHASES,
+        HOSTED_FAULT_WINDOWS,
+    )
+    from quantos.infrastructure.hosted_fault_verification import verify_fault_recovery_scenario
+
+    def fault_boot(
+        _profile: str,
+        *,
+        protocol_clock,
+        authority_root,
+        channel_root,
+        verify_journal_entry,
+        protocol_fault_hook,
+        business_fault_hook,
+    ):
+        assert channel_root.is_dir()
+        assert consume_capability_fd(100) == b"S" * 32
+        application, _ = build_component(
+            authority_root,
+            protocol_clock=protocol_clock,
+            journal_observer=verify_journal_entry,
+            protocol_fault_hook=protocol_fault_hook,
+            business_fault_hook=business_fault_hook,
+        )
+        return SimpleNamespace(application=application)
+
+    def fault_hydrate(_profile: str) -> None:
+        descriptor = private_memory_fd("synthetic-native-fault-capability")
+        try:
+            os.write(descriptor, b"S" * 32)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            if descriptor != 100:
+                os.dup2(descriptor, 100, inheritable=False)
+        finally:
+            if descriptor != 100:
+                os.close(descriptor)
+
+    fault_inputs = {
+        "HostedDeploymentProfile": SimpleNamespace(configuration_hash="a" * 64),
+        "HostedServiceConfiguration": SimpleNamespace(
+            business_configuration_hash="b" * 64,
+            principals=(SimpleNamespace(capability_fd=100),),
+        ),
+        "HostedBusinessLoaderConfiguration": SimpleNamespace(business_inputs_hash="c" * 64),
+        "HostedFrozenBusinessInputs": bundle,
+    }
+    with monkeypatch.context() as fault_factory:
+        fault_factory.setattr(fault_probe, "bootstrap_hosted_service", fault_boot)
+        fault_factory.setattr(fault_probe, "hydrate_service_capabilities", fault_hydrate)
+        fault_factory.setattr(
+            fault_probe,
+            "read_hashed_configuration",
+            lambda _root, _hash, cls: fault_inputs[cls.__name__],
+        )
+        for window in HOSTED_FAULT_WINDOWS:
+            target = tmp_path / "physical-native-faults" / window
+            local_authority, local_channel = target / "authority", target / "channel"
+            local_authority.mkdir(parents=True)
+            local_channel.mkdir()
+            fault_probe.run_fault_probe(
+                profile_hash, window, authority_root=local_authority, channel_root=local_channel
+            )
+            original_inventory = raw_inventory(local_authority)
+            records = {
+                phase: json.loads(
+                    (local_channel / "process-records" / f"{phase}.json").read_bytes()
+                )
+                for phase in ("crash", "recovery-1", "recovery-2")
+            }
+            assert len({record["pid"] for record in records.values()}) == 3
+            assert records["recovery-2"]["execute_calls"] == []
+            assert records["recovery-2"]["workflow_calls"] == []
+            assert (
+                records["recovery-2"]["before_inventory"]
+                == records["recovery-2"]["after_inventory"]
+            )
+            assert all(record["network_attempts"] == [] for record in records.values())
+            observation = json.loads((local_channel / "negative-observation.json").read_bytes())
+            roots = {
+                phase: local_authority
+                if phase == "after"
+                else local_channel / "snapshots" / phase / "authority"
+                for phase in FAULT_SNAPSHOT_PHASES
+            }
+            component_sources = SimpleNamespace(
+                deployment=SimpleNamespace(
+                    bundle=bundle,
+                    profile=SimpleNamespace(content_hash=profile_hash),
+                    paths=SimpleNamespace(
+                        offline_inputs=tmp_path, provenance=tmp_path / "provenance"
+                    ),
+                )
+            )
+            phase_inventories = {phase: raw_inventory(root) for phase, root in roots.items()}
+            checked = verify_fault_recovery_scenario(
+                window,
+                roots,
+                records,
+                observation,
+                parent_pid=os.getpid(),
+                sources=component_sources,
+            )
+            assert checked
+            assert phase_inventories == {
+                phase: raw_inventory(root) for phase, root in roots.items()
+            }
+            # Actual original disk bytes stay unchanged; these are mutated uploaded
+            # observation arguments to the core, not new trusted manager evidence.
+            if window == next(iter(HOSTED_FAULT_WINDOWS)):
+                # Recomputed observation hashes cannot authorize unknown files or
+                # replace native status with another schema-valid state.
+                altered_records = deepcopy(records)
+                additions = []
+                for phase in ("recovered", "after"):
+                    path = roots[phase] / "unpublished-q05-review.json"
+                    path.write_bytes(b'{"unrelated":true}')
+                    additions.append(path)
+                altered_records["recovery-1"]["after_inventory"] = raw_inventory(
+                    roots["recovered"]
+                ).model_dump(mode="json")
+                for key in ("before_inventory", "after_inventory"):
+                    altered_records["recovery-2"][key] = raw_inventory(roots["after"]).model_dump(
+                        mode="json"
+                    )
+                changed_inventories = {phase: raw_inventory(root) for phase, root in roots.items()}
+                with pytest.raises(HostedQualificationError, match="unattributed raw file"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        roots,
+                        altered_records,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+                assert changed_inventories == {
+                    phase: raw_inventory(root) for phase, root in roots.items()
+                }
+                for path in additions:
+                    path.unlink()
+                altered_records = deepcopy(records)
+                original_status = HostedCampaignStatus.model_validate(
+                    records["recovery-1"]["result_json"]
+                )
+                altered_status = HostedCampaignStatus.model_validate(
+                    {**original_status.model_dump(mode="json"), "state": "RECOVERY_REQUIRED"}
+                )
+                assert altered_status != original_status
+                for phase in ("recovery-1", "recovery-2"):
+                    altered_records[phase]["result_json"] = altered_status.model_dump(mode="json")
+                    altered_records[phase]["result_hash"] = altered_status.content_hash
+                with pytest.raises(HostedQualificationError, match="status differs from native"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        roots,
+                        altered_records,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+                orphan_roots = {}
+                for phase, root in roots.items():
+                    copied = tmp_path / "orphan-register-negative" / phase
+                    shutil.copytree(root, copied)
+                    orphan_roots[phase] = copied
+                for phase in ("recovered", "after"):
+                    store = HostedProtocolStore(orphan_roots[phase] / "protocol")
+                    native_state = store.snapshot(campaign.content_hash, recover=False)
+                    registration = native_state.journal[0]
+                    publications = (
+                        native_state.spec,
+                        native_state.artifact(
+                            registration.publications[1].artifact_hash, HostedBudgetJournalFact
+                        ),
+                        native_state.artifact(
+                            registration.publications[2].artifact_hash, HostedSubmissionReceipt
+                        ),
+                    )
+                    with store.campaign_lock(campaign.content_hash) as descriptor:
+                        store.commit_locked(
+                            descriptor,
+                            campaign_hash=campaign.content_hash,
+                            operation_id="0" * 64,
+                            operation_kind="REGISTER",
+                            recorded_at=native_state.spec.started_at,
+                            artifacts=publications,
+                        )
+                    verify_protocol_root(orphan_roots[phase] / "protocol", campaign.content_hash)
+                changed = deepcopy(records)
+                state = HostedProtocolStore(orphan_roots["recovered"] / "protocol").snapshot(
+                    campaign.content_hash, recover=False
+                )
+                updated_status = HostedCampaignApplicationService.project_status(
+                    state, HostedProtocolService.project_status(state, NOW)
+                )
+                changed["recovery-1"]["after_inventory"] = raw_inventory(
+                    orphan_roots["recovered"]
+                ).model_dump(mode="json")
+                for key in ("before_inventory", "after_inventory"):
+                    changed["recovery-2"][key] = raw_inventory(orphan_roots["after"]).model_dump(
+                        mode="json"
+                    )
+                for phase in ("recovery-1", "recovery-2"):
+                    changed[phase]["result_json"] = updated_status.model_dump(mode="json")
+                    changed[phase]["result_hash"] = updated_status.content_hash
+                with pytest.raises(HostedQualificationError, match="operation chronology"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        orphan_roots,
+                        changed,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+                bad_observation = json.loads(json.dumps(observation))
+                bad_observation["process_exits"][0]["exit_code"] = 0
+                with pytest.raises(HostedQualificationError, match="waitpid"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        roots,
+                        records,
+                        bad_observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+            if window == "expire-intent_published-1":
+                malformed = tmp_path / "missing-before-specs"
+                shutil.copytree(roots["before"], malformed)
+                specs = malformed / "protocol/specs"
+                shutil.rmtree(specs)
+                before_paths = tuple(
+                    sorted(path.relative_to(malformed) for path in malformed.rglob("*"))
+                )
+                with pytest.raises(HostedQualificationError, match="authority is incomplete"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        {**roots, "before": malformed},
+                        records,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+                assert not specs.exists()
+                assert before_paths == tuple(
+                    sorted(path.relative_to(malformed) for path in malformed.rglob("*"))
+                )
+                bad_records = json.loads(json.dumps(records))
+                bad_records["recovery-2"]["pid"] = bad_records["recovery-1"]["pid"]
+                with pytest.raises(HostedQualificationError, match="not distinct"):
+                    verify_fault_recovery_scenario(
+                        window,
+                        roots,
+                        bad_records,
+                        observation,
+                        parent_pid=os.getpid(),
+                        sources=component_sources,
+                    )
+            assert raw_inventory(local_authority) == original_inventory
+            if window == "business-prepared":
+                altered = tmp_path / "typed-ledger-negative"
+                shutil.copytree(local_authority, altered)
+                ledger_root = altered / "business" / campaign.content_hash / "ledger"
+                event_path = sorted((ledger_root / "events" / bundle.ledger_id).iterdir())[-1]
+                event = ResearchLedgerEventV2.model_validate_json(event_path.read_bytes())
+                assert event.node_kind.value == "CAMPAIGN_TRIAL"
+                data = {**event.model_dump(mode="python"), "node_kind": "EXPERIMENT"}
+                data["event_id"] = ResearchLedgerService._event_identity(
+                    **{
+                        key: data[key]
+                        for key in (
+                            "ledger_id",
+                            "node_id",
+                            "node_kind",
+                            "object_ref",
+                            "authority",
+                            "parent_object_hashes",
+                            "agent_run_hash",
+                            "human_review_evidence_hash",
+                            "verdict_report_hash",
+                            "occurred_at",
+                        )
+                    }
+                )
+                changed_event = ResearchLedgerEventV2.model_validate(data)
+                event_path.unlink()
+                (
+                    event_path.parent
+                    / f"{changed_event.sequence:020d}-{changed_event.event_id}.json"
+                ).write_bytes(changed_event.canonical_bytes())
+                ResearchLedgerService(ledger_root).verify(
+                    bundle.ledger_id, created_at=event.occurred_at
+                )
+                checkpoint, native_o, native_events = (
+                    verification.build_verified_business_orchestrator(
+                        altered,
+                        bundle,
+                        deployment_profile_hash=profile_hash,
+                        input_root=tmp_path,
+                        provenance_workspace=tmp_path / "provenance",
+                    )
+                )
+                with pytest.raises(HostedQualificationError, match="Ledger event is unrelated"):
+                    verify_native_authority_file_closure(
+                        altered, bundle, checkpoint, native_o, native_events
+                    )
+            if not HOSTED_FAULT_WINDOWS[window].native_execution:
+                continue
+            facts = verification.verify_hosted_business_root(
+                local_authority,
+                bundle,
+                deployment_profile_hash=profile_hash,
+                input_root=tmp_path,
+                provenance_workspace=tmp_path / "provenance",
+            )
+            crash_calls = records["crash"]["execute_calls"]
+            recovery_calls = records["recovery-1"]["execute_calls"]
+            assert not set(crash_calls).intersection(recovery_calls)
+            if window == "execution-started":
+                assert crash_calls == recovery_calls == []
+                assert facts.report.state == "RECOVERY_REQUIRED"
+                assert facts.report.reason == "EXECUTION_UNCERTAIN"
+                assert facts.report.trial_hashes == ()
+                assert facts.execution_identities == ()
+                checkpoint, native_o, native_events = (
+                    verification.build_verified_business_orchestrator(
+                        local_authority,
+                        bundle,
+                        deployment_profile_hash=profile_hash,
+                        input_root=tmp_path,
+                        provenance_workspace=tmp_path / "provenance",
+                    )
+                )
+                native_facts = HostedCampaignApplicationService.verify_research_facts(checkpoint)
+                bad_prepared = HostedResearchStepIntent.model_validate(
+                    {
+                        **native_facts.steps[0].model_dump(mode="json"),
+                        "event_time": (
+                            native_facts.steps[0].event_time + timedelta(seconds=1)
+                        ).isoformat(),
+                    }
+                )
+                with pytest.raises(HostedQualificationError, match="proposal/trial/execution"):
+                    verification.verify_native_business_steps(
+                        checkpoint,
+                        native_o,
+                        native_events,
+                        (bad_prepared,),
+                    )
+                bad_initial = HostedResearchBudgetFact.model_validate(
+                    {
+                        **native_facts.budgets[0].model_dump(mode="json"),
+                        "operation_id": "0" * 64,
+                    }
+                )
+                with pytest.raises(HostedQualificationError, match="native budget operation"):
+                    verification.verify_native_business_budgets(
+                        checkpoint,
+                        native_o,
+                        bundle.initial_events,
+                        bundle.initial_events,
+                        (bad_initial,),
+                        (),
+                        {},
+                        None,
+                    )
+                assert raw_inventory(local_authority) == original_inventory
+            else:
+                assert len(crash_calls) + len(recovery_calls) == 2
+                assert tuple(sorted(crash_calls + recovery_calls)) == facts.execution_identities
+                assert len(facts.report.trial_hashes) == 2
+                assert len(facts.validation_reports) == 2
+                assert facts.selection is not None
     authority = tmp_path / "authority"
     service, execution = build_component(authority)
     status = service.start(spec.content_hash)
@@ -284,13 +694,6 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
         receipts.append(receipt)
         status = service.resume(campaign.content_hash)
     assert status.state != "WAITING_FOR_AGENT"
-    monkeypatch.setattr(
-        verification,
-        "build_hosted_execution_adapter",
-        lambda *args, **kwargs: QuantosResearchExecutionAdapter(
-            **{**adapter_args, "output_root": kwargs["runtime_root"] / "execution"}
-        ),
-    )
     from quantos.infrastructure.hosted_admission_verification import (
         verify_business_admission_fixture,
     )
@@ -547,6 +950,36 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
     )
     assert len(facts.execution_identities) == len(facts.validation_reports) == 2
     assert all(receipt.content_hash in facts.artifact_hashes for receipt in receipts)
+    extra_trial_root = tmp_path / "extra-native-trial-publication"
+    shutil.copytree(authority, extra_trial_root)
+    extra_store = HostedProtocolStore(extra_trial_root / "protocol")
+    extra_state = extra_store.snapshot(campaign.content_hash, recover=False)
+    original_trial = extra_state.artifact(facts.report.trial_hashes[0], CampaignTrial)
+    unreferenced_trial = CampaignTrial.model_validate(
+        {
+            **original_trial.model_dump(mode="json"),
+            "trial_id": "unreferenced-native-trial",
+            "idempotency_key": "0" * 64,
+        }
+    )
+    HostedProtocolService(extra_store).publish_business(
+        campaign.content_hash,
+        operation_id=sha256_bytes(b"unreferenced-native-trial-publication"),
+        recorded_at=facts.report.recorded_at,
+        artifacts=(unreferenced_trial,),
+        expected_journal_head_hash=extra_state.journal_head_hash,
+    )
+    altered_inventory = raw_inventory(extra_trial_root)
+    with pytest.raises(HostedQualificationError, match="unreferenced or unpublished trial"):
+        verification.verify_hosted_business_root(
+            extra_trial_root,
+            bundle,
+            deployment_profile_hash=profile_hash,
+            input_root=tmp_path,
+            provenance_workspace=tmp_path / "provenance",
+        )
+    verify_raw_inventory(extra_trial_root, altered_inventory)
+    verify_raw_inventory(authority, before)
     principal, observations = verification.principal_business_inventory(authority, facts)
     assert set(principal.files).isdisjoint(observations.files)
     assert len(principal.files) + len(observations.files) == len(before.files)

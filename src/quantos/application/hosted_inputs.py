@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from quantos.application.autonomous import AutonomousCampaignOrchestrator
@@ -189,6 +190,7 @@ def load_hosted_campaign_application(
     business_lock_root: Path,
     *,
     deployment_profile_hash: str,
+    fault_hook: Callable[[str], None] | None = None,
 ) -> HostedCampaignApplicationService:
     """Load one frozen MVP registration from management-owned configuration.
 
@@ -271,7 +273,9 @@ def load_hosted_campaign_application(
         execution_bindings=bundle.execution_bindings,
         selection_finalization_profile=bundle.selection_finalization_profile,
     )
-    service = HostedCampaignApplicationService(protocol, business_lock_root=business_lock_root)
+    service = HostedCampaignApplicationService(
+        protocol, business_lock_root=business_lock_root, fault_hook=fault_hook
+    )
 
     frozen_spec = spec
 

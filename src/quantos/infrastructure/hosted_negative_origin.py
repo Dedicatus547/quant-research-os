@@ -212,225 +212,21 @@ def _verify_transport_matrix(
         )
         observation_path, observation, observation_bytes = observations[0]
         run_path, run, run_bytes = runs[0]
-        require(
-            sources.files[observation_path].source_path
-            == f"qualification-cases/{family}/{name}/channel/negative-observation.json",
-            "Q03 observation origin differs",
+        child_fact, origin_hashes = verify_managed_fixture_source(
+            records,
+            sources,
+            family=family,
+            name=name,
+            observation_path=observation_path,
+            observation=observation,
+            observation_bytes=observation_bytes,
+            run_path=run_path,
+            run=run,
+            run_bytes=run_bytes,
+            before_inventory=snapshots[0][1],
+            after_inventory=snapshots[1][1],
         )
-        require(
-            sources.files[run_path].source_path
-            == f"evidence/negative-run-{sha256_bytes(run_bytes)}.json",
-            "Q03 completion is not original management evidence",
-        )
-        require(
-            type(run.get("return_code")) is int
-            and run["return_code"] == 0
-            and run.get("observation_failure_type") is None
-            and run.get("observation_hash") == sha256_bytes(observation_bytes),
-            "Q03 invocation did not complete with safe original observation",
-        )
-        for fact in (run, observation):
-            require(
-                fact.get("deployment_profile_hash") == deployment.profile.content_hash
-                and fact.get("campaign_hash") == deployment.bundle.campaign.content_hash,
-                "Q03 deployment/campaign bindings differ",
-            )
-        require(
-            run.get("authority_root") == str(target / "authority"),
-            "Q03 worker did not use its fresh authority",
-        )
-        require(
-            HostedRawInventory.model_validate(run["authority_after_inventory"]) == snapshots[1][1],
-            "Q03 completion raw authority differs",
-        )
-        require(
-            HostedRawInventory.model_validate(run["channel_inventory"])
-            == raw_inventory(target / "channel"),
-            "Q03 original channel inventory differs",
-        )
-        require(
-            HostedRawInventory.model_validate(observation["before_inventory"]) == snapshots[0][1]
-            and HostedRawInventory.model_validate(observation["after_inventory"])
-            == snapshots[1][1],
-            "Q03 observation snapshots differ",
-        )
-        prelaunch_hash = run.get("prelaunch_hash")
-        prelaunches = [
-            (path, fact, data)
-            for path, fact, data in records
-            if fact.get("schema_version") == "hosted-manager-negative-prelaunch/v1"
-            and sha256_bytes(data) == prelaunch_hash
-        ]
-        require(len(prelaunches) == 1, "Q03 durable prelaunch is missing or ambiguous")
-        prelaunch_path, prelaunch, prelaunch_bytes = prelaunches[0]
-        require(
-            sources.files[prelaunch_path].source_path
-            == f"evidence/negative-prelaunch-{sha256_bytes(prelaunch_bytes)}.json",
-            "Q03 prelaunch origin differs",
-        )
-        require(
-            not HostedRawInventory.model_validate(prelaunch["authority_before_inventory"]).files,
-            "Q03 worker authority was not fresh",
-        )
-        for field in ("case", "deployment_profile_hash", "authority_root", "argv", "program_hash"):
-            require(
-                prelaunch.get(field) == run.get(field), "Q03 prelaunch/completion binding differs"
-            )
-        program = next(
-            item.bytes_hash
-            for item in deployment.install.files
-            if item.relative_path
-            == "python/lib/python3.11/site-packages/quantos/infrastructure/"
-            + {
-                "Q02": "hosted_duplicate_probe.py",
-                "Q03": "hosted_negative_probe.py",
-                "Q04": "hosted_admission_probe.py",
-                "Q08": "hosted_observation_probe.py",
-            }[family]
-        )
-        native = next(
-            item.bytes_hash
-            for item in deployment.install.files
-            if item.relative_path == "python-seeded"
-        )
-        require(run.get("program_hash") == program, "Q03 worker differs from frozen installation")
-        argv = run.get("argv")
-        require(
-            isinstance(argv, list)
-            and all(isinstance(arg, str) for arg in cast(list[object], argv)),
-            "Q03 actual namespace argv is absent",
-        )
-        arguments = cast(list[str], argv)
-        require(
-            arguments.count("--file") == arguments.count("--info-fd") == 1,
-            "Q03 private descriptors differ",
-        )
-        capability_fd = int(arguments[arguments.index("--file") + 1])
-        info_fd = int(arguments[arguments.index("--info-fd") + 1])
-        require(
-            capability_fd >= 3 and info_fd >= 3 and capability_fd != info_fd,
-            "Q03 private descriptors are invalid",
-        )
-        command = (
-            "/install/python-seeded",
-            "-m",
-            "quantos.infrastructure."
-            + {
-                "Q02": "hosted_duplicate_probe",
-                "Q03": "hosted_negative_probe",
-                "Q04": "hosted_admission_probe",
-                "Q08": "hosted_observation_probe",
-            }[family],
-            "--profile-hash",
-            deployment.profile.content_hash,
-            "--case",
-            name,
-        )
-        paths = replace(
-            deployment.paths, authority=target / "authority", channel=target / "channel"
-        )
-        require(
-            tuple(arguments)
-            == namespace_command(
-                "service", paths, command, service_capability_fds=(capability_fd,), info_fd=info_fd
-            ),
-            "Q03 fixed namespace argv differs",
-        )
-        child = run.get("manager_child_observation")
-        require(isinstance(child, dict), "Q03 actual kernel child binding is absent")
-        child_fact = cast(dict[str, object], child)
-        require(
-            child_fact.get("service_command") == list(command)
-            and child_fact.get("service_executable_hash") == native,
-            "Q03 running executable/command differs",
-        )
-        require(
-            all(
-                type(child_fact.get(field)) is int and cast(int, child_fact[field]) > 1
-                for field in ("wrapper_pid", "init_pid", "service_pid")
-            )
-            and len({child_fact.get(field) for field in ("wrapper_pid", "init_pid", "service_pid")})
-            == 3,
-            "Q03 actual process chain is absent",
-        )
-        namespaces, manager_namespaces = (
-            child_fact.get("service_namespace_identities"),
-            run.get("manager_namespace_identities"),
-        )
-        require(
-            isinstance(namespaces, dict) and isinstance(manager_namespaces, dict),
-            "Q03 actual namespace identities are absent",
-        )
-        child_namespaces = cast(dict[str, object], namespaces)
-        parent_namespaces = cast(dict[str, object], manager_namespaces)
-        information = child_fact.get("container_information")
-        require(isinstance(information, dict), "Q03 container information is absent")
-        container = cast(dict[str, object], information)
-        require(
-            type(container.get("child-pid")) is int
-            and container.get("child-pid") == child_fact["init_pid"]
-            and all(
-                type(container.get(field + "-namespace")) is int
-                and child_namespaces.get(field) == f"{field}:[{container[field + '-namespace']}]"
-                for field in ("net", "pid", "mnt")
-            ),
-            "Q03 container information differs from actual kernel namespaces",
-        )
-        require(
-            all(
-                isinstance(child_namespaces.get(field), str)
-                and isinstance(parent_namespaces.get(field), str)
-                and child_namespaces.get(field) != parent_namespaces.get(field)
-                for field in ("net", "pid", "mnt", "user")
-            ),
-            "Q03 worker inherited a management namespace",
-        )
-        security = child_fact.get("service_process_security")
-        require(
-            isinstance(security, list)
-            and all(isinstance(line, str) for line in cast(list[object], security)),
-            "Q03 kernel credentials are absent",
-        )
-        credentials = {
-            line.split(":", 1)[0]: line.split(":", 1)[1].strip()
-            for line in cast(list[str], security)
-            if ":" in line
-        }
-        principal = deployment.configuration.principals[0]
-        require(
-            credentials.get("CapEff") == "0000000000000000"
-            and credentials.get("Uid", "").split() == [str(principal.uid)] * 4
-            and credentials.get("Gid", "").split() == [str(principal.gid)] * 4,
-            "Q03 actual worker principal differs",
-        )
-        require(
-            observation.get("fixture_kind")
-            == ("DUPLICATE_SUBMISSION_FIXTURE" if family == "Q02" else "TRANSPORT_NEGATIVE_FIXTURE")
-            and observation.get("execute_calls")
-            == observation.get("workflow_calls")
-            == observation.get("network_attempts")
-            == [],
-            "Q03 fixture executed a deterministic or network call",
-        )
-        flags = observation.get("python_flags")
-        require(isinstance(flags, dict), "Q03 native interpreter flags are absent")
-        flag_values = cast(dict[str, object], flags)
-        expected_flags = {
-            "isolated": 1,
-            "ignore_environment": 1,
-            "no_user_site": 1,
-            "safe_path": True,
-            "hash_randomization": 0,
-        }
-        require(
-            observation.get("python_executable") == "/install/python-seeded"
-            and set(flag_values) == set(expected_flags)
-            and all(
-                type(flag_values.get(name)) is type(value) and flag_values.get(name) == value
-                for name, value in expected_flags.items()
-            ),
-            "Q03 native interpreter flags differ",
-        )
+        checked.update(origin_hashes)
         state = HostedProtocolStore(snapshots[0][0] / "protocol").snapshot(
             deployment.bundle.campaign.content_hash, recover=False
         )
@@ -468,7 +264,7 @@ def _verify_transport_matrix(
             require(
                 observation.get("response_json") is None
                 and observation.get("case_family") == family
-                and run.get("case_family") == prelaunch.get("case_family") == family,
+                and run.get("case_family") == family,
                 "Q04 raw negative bytes were exported or fixture family differs",
             )
             submitted = (
@@ -600,13 +396,276 @@ def _verify_transport_matrix(
                     request, submitted, name, observation.get("source_conflict_rejected"), sources
                 )
             )
-        checked.update(
-            (
+    return tuple(sorted(checked))
+
+
+def verify_managed_fixture_source(
+    records: list[tuple[str, dict[str, object], bytes]],
+    sources: HostedVerifiedSources,
+    *,
+    family: str,
+    name: str,
+    observation_path: str,
+    observation: dict[str, object],
+    observation_bytes: bytes,
+    run_path: str,
+    run: dict[str, object],
+    run_bytes: bytes,
+    before_inventory: HostedRawInventory,
+    after_inventory: HostedRawInventory,
+) -> tuple[dict[str, object], tuple[str, ...]]:
+    """Verify original fixed invocation, installed code and kernel process evidence.
+
+    Scenario roots must separately bind their exact original snapshot paths. This
+    shared gate does not accept a producer's verdict or grant any Q-case by itself.
+    """
+    from quantos.infrastructure.hosted_fault_cases import HOSTED_FAULT_WINDOWS
+
+    require(family in ("Q02", "Q03", "Q04", "Q05", "Q08"), "unknown management fixture family")
+    require(family != "Q05" or name in HOSTED_FAULT_WINDOWS, "unknown fixed fault fixture")
+    deployment = sources.deployment
+    target = deployment.root / "qualification-cases" / family / name
+    require(
+        sources.files[observation_path].source_path
+        == f"qualification-cases/{family}/{name}/channel/negative-observation.json",
+        "Q03 observation origin differs",
+    )
+    require(
+        sources.files[run_path].source_path
+        == f"evidence/negative-run-{sha256_bytes(run_bytes)}.json",
+        "Q03 completion is not original management evidence",
+    )
+    require(
+        type(run.get("return_code")) is int
+        and run["return_code"] == 0
+        and run.get("observation_failure_type") is None
+        and run.get("observation_hash") == sha256_bytes(observation_bytes),
+        "Q03 invocation did not complete with safe original observation",
+    )
+    for fact in (run, observation):
+        require(
+            fact.get("deployment_profile_hash") == deployment.profile.content_hash
+            and fact.get("campaign_hash") == deployment.bundle.campaign.content_hash,
+            "Q03 deployment/campaign bindings differ",
+        )
+    require(
+        run.get("authority_root") == str(target / "authority"),
+        "Q03 worker did not use its fresh authority",
+    )
+    require(
+        HostedRawInventory.model_validate(run["authority_after_inventory"]) == after_inventory,
+        "Q03 completion raw authority differs",
+    )
+    require(
+        HostedRawInventory.model_validate(run["channel_inventory"])
+        == raw_inventory(target / "channel"),
+        "Q03 original channel inventory differs",
+    )
+    require(
+        HostedRawInventory.model_validate(observation["before_inventory"]) == before_inventory
+        and HostedRawInventory.model_validate(observation["after_inventory"]) == after_inventory,
+        "Q03 observation snapshots differ",
+    )
+    prelaunch_hash = run.get("prelaunch_hash")
+    prelaunches = [
+        (path, fact, data)
+        for path, fact, data in records
+        if fact.get("schema_version") == "hosted-manager-negative-prelaunch/v1"
+        and sha256_bytes(data) == prelaunch_hash
+    ]
+    require(len(prelaunches) == 1, "Q03 durable prelaunch is missing or ambiguous")
+    prelaunch_path, prelaunch, prelaunch_bytes = prelaunches[0]
+    require(
+        sources.files[prelaunch_path].source_path
+        == f"evidence/negative-prelaunch-{sha256_bytes(prelaunch_bytes)}.json",
+        "Q03 prelaunch origin differs",
+    )
+    require(
+        not HostedRawInventory.model_validate(prelaunch["authority_before_inventory"]).files,
+        "Q03 worker authority was not fresh",
+    )
+    for field in ("case", "deployment_profile_hash", "authority_root", "argv", "program_hash"):
+        require(prelaunch.get(field) == run.get(field), "Q03 prelaunch/completion binding differs")
+    if family != "Q03":
+        require(
+            observation.get("case_family")
+            == run.get("case_family")
+            == prelaunch.get("case_family")
+            == family,
+            "Q04 raw negative bytes were exported or fixture family differs",
+        )
+    program = next(
+        item.bytes_hash
+        for item in deployment.install.files
+        if item.relative_path
+        == "python/lib/python3.11/site-packages/quantos/infrastructure/"
+        + {
+            "Q02": "hosted_duplicate_probe.py",
+            "Q03": "hosted_negative_probe.py",
+            "Q04": "hosted_admission_probe.py",
+            "Q05": "hosted_fault_probe.py",
+            "Q08": "hosted_observation_probe.py",
+        }[family]
+    )
+    native = next(
+        item.bytes_hash
+        for item in deployment.install.files
+        if item.relative_path == "python-seeded"
+    )
+    require(run.get("program_hash") == program, "Q03 worker differs from frozen installation")
+    argv = run.get("argv")
+    require(
+        isinstance(argv, list) and all(isinstance(arg, str) for arg in cast(list[object], argv)),
+        "Q03 actual namespace argv is absent",
+    )
+    arguments = cast(list[str], argv)
+    require(
+        arguments.count("--file") == arguments.count("--info-fd") == 1,
+        "Q03 private descriptors differ",
+    )
+    capability_fd = int(arguments[arguments.index("--file") + 1])
+    info_fd = int(arguments[arguments.index("--info-fd") + 1])
+    require(
+        capability_fd >= 3 and info_fd >= 3 and capability_fd != info_fd,
+        "Q03 private descriptors are invalid",
+    )
+    command = (
+        "/install/python-seeded",
+        "-m",
+        "quantos.infrastructure."
+        + {
+            "Q02": "hosted_duplicate_probe",
+            "Q03": "hosted_negative_probe",
+            "Q04": "hosted_admission_probe",
+            "Q05": "hosted_fault_probe",
+            "Q08": "hosted_observation_probe",
+        }[family],
+        "--profile-hash",
+        deployment.profile.content_hash,
+        "--case",
+        name,
+    )
+    paths = replace(deployment.paths, authority=target / "authority", channel=target / "channel")
+    require(
+        tuple(arguments)
+        == namespace_command(
+            "service", paths, command, service_capability_fds=(capability_fd,), info_fd=info_fd
+        ),
+        "Q03 fixed namespace argv differs",
+    )
+    child = run.get("manager_child_observation")
+    require(isinstance(child, dict), "Q03 actual kernel child binding is absent")
+    child_fact = cast(dict[str, object], child)
+    require(
+        child_fact.get("service_command") == list(command)
+        and child_fact.get("service_executable_hash") == native,
+        "Q03 running executable/command differs",
+    )
+    require(
+        all(
+            type(child_fact.get(field)) is int and cast(int, child_fact[field]) > 1
+            for field in ("wrapper_pid", "init_pid", "service_pid")
+        )
+        and len({child_fact.get(field) for field in ("wrapper_pid", "init_pid", "service_pid")})
+        == 3,
+        "Q03 actual process chain is absent",
+    )
+    namespaces, manager_namespaces = (
+        child_fact.get("service_namespace_identities"),
+        run.get("manager_namespace_identities"),
+    )
+    require(
+        isinstance(namespaces, dict) and isinstance(manager_namespaces, dict),
+        "Q03 actual namespace identities are absent",
+    )
+    child_namespaces = cast(dict[str, object], namespaces)
+    parent_namespaces = cast(dict[str, object], manager_namespaces)
+    information = child_fact.get("container_information")
+    require(isinstance(information, dict), "Q03 container information is absent")
+    container = cast(dict[str, object], information)
+    require(
+        type(container.get("child-pid")) is int
+        and container.get("child-pid") == child_fact["init_pid"]
+        and all(
+            type(container.get(field + "-namespace")) is int
+            and child_namespaces.get(field) == f"{field}:[{container[field + '-namespace']}]"
+            for field in ("net", "pid", "mnt")
+        ),
+        "Q03 container information differs from actual kernel namespaces",
+    )
+    require(
+        all(
+            isinstance(child_namespaces.get(field), str)
+            and isinstance(parent_namespaces.get(field), str)
+            and child_namespaces.get(field) != parent_namespaces.get(field)
+            for field in ("net", "pid", "mnt", "user")
+        ),
+        "Q03 worker inherited a management namespace",
+    )
+    security = child_fact.get("service_process_security")
+    require(
+        isinstance(security, list)
+        and all(isinstance(line, str) for line in cast(list[object], security)),
+        "Q03 kernel credentials are absent",
+    )
+    credentials = {
+        line.split(":", 1)[0]: line.split(":", 1)[1].strip()
+        for line in cast(list[str], security)
+        if ":" in line
+    }
+    principal = deployment.configuration.principals[0]
+    require(
+        credentials.get("CapEff") == "0000000000000000"
+        and credentials.get("Uid", "").split() == [str(principal.uid)] * 4
+        and credentials.get("Gid", "").split() == [str(principal.gid)] * 4,
+        "Q03 actual worker principal differs",
+    )
+    require(
+        observation.get("fixture_kind")
+        == (
+            "DUPLICATE_SUBMISSION_FIXTURE"
+            if family == "Q02"
+            else (
+                "PHYSICAL_EXIT_EXECUTION_FIXTURE"
+                if HOSTED_FAULT_WINDOWS[name].native_execution
+                else "PHYSICAL_EXIT_ADMISSION_FIXTURE"
+            )
+            if family == "Q05"
+            else "TRANSPORT_NEGATIVE_FIXTURE"
+        )
+        and observation.get("execute_calls")
+        == observation.get("workflow_calls")
+        == observation.get("network_attempts")
+        == [],
+        "Q03 fixture executed a deterministic or network call",
+    )
+    flags = observation.get("python_flags")
+    require(isinstance(flags, dict), "Q03 native interpreter flags are absent")
+    flag_values = cast(dict[str, object], flags)
+    expected_flags = {
+        "isolated": 1,
+        "ignore_environment": 1,
+        "no_user_site": 1,
+        "safe_path": True,
+        "hash_randomization": 0,
+    }
+    require(
+        observation.get("python_executable") == "/install/python-seeded"
+        and set(flag_values) == set(expected_flags)
+        and all(
+            type(flag_values.get(name)) is type(value) and flag_values.get(name) == value
+            for name, value in expected_flags.items()
+        ),
+        "Q03 native interpreter flags differ",
+    )
+    return child_fact, tuple(
+        sorted(
+            {
                 sha256_bytes(observation_bytes),
                 sha256_bytes(run_bytes),
                 sha256_bytes(prelaunch_bytes),
                 program,
                 native,
-            )
+            }
         )
-    return tuple(sorted(checked))
+    )

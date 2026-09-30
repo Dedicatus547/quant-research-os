@@ -78,6 +78,38 @@ def transport_fixture_response(request: HostedAgentRequest) -> HostedAgentRespon
     )
 
 
+def deterministic_candidate_frame(
+    request: HostedAgentRequest, *, candidate_hash: str | None = None
+) -> bytes:
+    """A typed offline fault fixture from the frozen candidate; never live evidence."""
+    candidate = next(
+        (
+            option
+            for option in request.business_request.candidate_options
+            if candidate_hash is None or option.content_hash == candidate_hash
+        ),
+        None,
+    )
+    if candidate is None:
+        raise ValueError("fault candidate is outside the frozen request options")
+    proposal = AutonomousCandidateProposal(
+        campaign_hash=request.campaign_hash,
+        candidate_hash=candidate.content_hash,
+        parameters=candidate.parameters,
+        expression=candidate.expression,
+        exact_expression_hash=candidate.exact_expression_hash,
+        structural_expression_hash=candidate.structural_expression_hash,
+        rationale="SYNTHETIC_PHYSICAL_EXECUTION_FAULT_FIXTURE",
+    ).canonical_bytes()
+    return (
+        transport_fixture_response(request)
+        .model_copy(
+            update={"proposal_json": proposal.decode(), "proposal_hash": sha256_bytes(proposal)}
+        )
+        .canonical_bytes()
+    )
+
+
 def bounded_rejection_frame(request: HostedAgentRequest, case: str) -> bytes:
     if case not in BOUNDED_REJECTION_CASES:
         raise ValueError("unknown fixed bounded rejection case")

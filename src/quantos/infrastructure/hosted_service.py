@@ -335,6 +335,8 @@ def bootstrap_hosted_service(
     channel_root: Path = Path("/channel"),
     protocol_clock: Callable[[], datetime] | None = None,
     verify_journal_entry: Callable[[object], None] | None = None,
+    protocol_fault_hook: Callable[[str], None] | None = None,
+    business_fault_hook: Callable[[str], None] | None = None,
 ) -> HostedUnixService:
     """Rebuild the single fixed production registration before exposing a socket.
 
@@ -472,7 +474,9 @@ def bootstrap_hosted_service(
 
     derived_spec = derive_hosted_campaign_spec(bundle, deployment_profile_hash=profile.content_hash)
     store = HostedProtocolStore(
-        authority_root / "protocol", verify_journal_entry=verify_journal_entry
+        authority_root / "protocol",
+        verify_journal_entry=verify_journal_entry,
+        fault_hook=protocol_fault_hook,
     )
     campaign_directory = authority_root / "protocol/campaigns" / campaign_hash
     existing_requests: dict[str, str] = {}
@@ -508,6 +512,7 @@ def bootstrap_hosted_service(
         protocol,
         authority_root / "business-locks",
         deployment_profile_hash=profile.content_hash,
+        fault_hook=business_fault_hook,
     )
     holder["application"] = application
     registered_spec = application.registered_spec(campaign_hash)

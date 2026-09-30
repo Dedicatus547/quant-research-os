@@ -31,6 +31,7 @@ from quantos.contracts.hosted import (
     HostedCampaignReport,
     HostedCampaignSpec,
     HostedCampaignStatus,
+    HostedProtocolStatus,
     HostedRequestTerminalReceipt,
     HostedResearchBudgetFact,
     HostedResearchStepIntent,
@@ -65,7 +66,7 @@ class HostedCampaignInputs:
 
 
 @dataclass(frozen=True)
-class _Facts:
+class HostedResearchFacts:
     budgets: tuple[HostedResearchBudgetFact, ...]
     steps: tuple[HostedResearchStepIntent, ...]
     reports: tuple[HostedCampaignReport, ...]
@@ -220,8 +221,14 @@ class HostedCampaignApplicationService:
     def status(self, campaign_hash: str) -> HostedCampaignStatus:
         self._registered(campaign_hash)
         state = self.protocol.store.snapshot(campaign_hash)
-        facts = self._facts(state)
-        protocol = self.protocol.status(campaign_hash)
+        return self.project_status(state, self.protocol.status(campaign_hash))
+
+    @staticmethod
+    def project_status(
+        state: HostedStoreSnapshot, protocol: HostedProtocolStatus
+    ) -> HostedCampaignStatus:
+        """Pure projection shared by status and read-only evidence verification."""
+        facts = HostedCampaignApplicationService.verify_research_facts(state)
         report = facts.reports[-1] if facts.reports else None
         status: str = (
             report.state
@@ -235,7 +242,7 @@ class HostedCampaignApplicationService:
             )
         )
         return HostedCampaignStatus(
-            campaign_hash=campaign_hash,
+            campaign_hash=state.spec.campaign_hash,
             hosted_spec_hash=state.spec.content_hash,
             protocol=protocol,
             state=status,
@@ -244,7 +251,8 @@ class HostedCampaignApplicationService:
             reason=report.reason if report else None,
         )
 
-    def _facts(self, state: HostedStoreSnapshot) -> _Facts:
+    @staticmethod
+    def verify_research_facts(state: HostedStoreSnapshot) -> HostedResearchFacts:
         budgets: list[HostedResearchBudgetFact] = []
         steps: list[HostedResearchStepIntent] = []
         reports: list[HostedCampaignReport] = []
@@ -405,7 +413,7 @@ class HostedCampaignApplicationService:
             ):
                 raise ArtifactIntegrityError("hosted final report binding conflicts")
             state.artifact(report.research_budget_hash, HostedResearchBudgetFact)
-        return _Facts(tuple(budgets), tuple(steps), tuple(reports))
+        return HostedResearchFacts(tuple(budgets), tuple(steps), tuple(reports))
 
     def _publish(
         self,
@@ -449,7 +457,7 @@ class HostedCampaignApplicationService:
         o = inputs.orchestrator
         state = self.protocol.store.snapshot(campaign_hash, recover=True)
         self.verify_registered_inputs(state.spec)
-        facts = self._facts(state)
+        facts = self.verify_research_facts(state)
         if facts.reports:
             self._verify_report(state, facts.reports[-1], inputs)
             return self.status(campaign_hash)
@@ -496,13 +504,13 @@ class HostedCampaignApplicationService:
                 (initial,),
             )
             self._fault("research_initial")
-            facts = self._facts(state)
+            facts = self.verify_research_facts(state)
         request = state.active_request
         if request is not None and state.accepted_receipt(request.content_hash) is not None:
             if not self._consume(state, facts, inputs, events, request):
                 return self.status(campaign_hash)
             state = self.protocol.store.snapshot(campaign_hash)
-            facts = self._facts(state)
+            facts = self.verify_research_facts(state)
             events = self._events(inputs)
         stop = o.stopping_reason(o.governor.project(o.campaign, o.budget, events), events)
         protocol_status = self.protocol.status(campaign_hash)
@@ -592,7 +600,7 @@ class HostedCampaignApplicationService:
     def _consume(
         self,
         state: HostedStoreSnapshot,
-        facts: _Facts,
+        facts: HostedResearchFacts,
         inputs: HostedCampaignInputs,
         events: tuple[CampaignChainEvent, ...],
         request: HostedAgentRequest,
@@ -716,7 +724,7 @@ class HostedCampaignApplicationService:
                 if prior.phase == "STARTED":
                     result = self._execution_port(o).verified_completed_execution(execution)
                     if result is None:
-                        before = self._facts(state).budgets[-1]
+                        before = self.verify_research_facts(state).budgets[-1]
                         uncertain = before.model_copy(
                             update={
                                 "previous_hash": before.content_hash,
@@ -749,7 +757,7 @@ class HostedCampaignApplicationService:
                         "hosted execution lacks a verified completion receipt"
                     )
             trial = o.finish_trial(prepared, result, events=prefix)
-            before = self._facts(state).budgets[-1]
+            before = self.verify_research_facts(state).budgets[-1]
             reserved = state.artifact(prior.budget_reservation_hash, HostedResearchBudgetFact)
             baseline = state.artifact(cast(str, reserved.previous_hash), HostedResearchBudgetFact)
             settled = before.model_copy(
@@ -850,7 +858,7 @@ class HostedCampaignApplicationService:
             self._fault("selection_ledger")
         else:
             ledger = o.current_ledger_snapshot(state.spec.started_at, events)
-        budget = self._facts(state).budgets[-1]
+        budget = self.verify_research_facts(state).budgets[-1]
         trials = tuple(
             event.trial
             for event in events
@@ -911,7 +919,7 @@ class HostedCampaignApplicationService:
         if report.trial_hashes != tuple(trial.content_hash for trial in trials):
             raise ArtifactIntegrityError("final report trial inventory differs")
         evidence_by_run = {item.agent_run_hash: item for item in self._evidence(state)}
-        for step in self._facts(state).steps:
+        for step in self.verify_research_facts(state).steps:
             if step.phase != "COMPLETED":
                 continue
             trial = state.artifact(cast(str, step.trial_hash), CampaignTrial)

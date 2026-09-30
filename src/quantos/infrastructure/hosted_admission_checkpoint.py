@@ -21,7 +21,11 @@ from quantos.infrastructure.hosted_verification import HostedQualificationError
 
 
 def verify_native_admission_checkpoint(
-    authority: Path, request: HostedAgentRequest, sources: HostedVerifiedSources
+    authority: Path,
+    request: HostedAgentRequest,
+    sources: HostedVerifiedSources,
+    *,
+    allow_pending_successor: bool = False,
 ) -> tuple[CampaignTrial, HostedResearchBudgetFact, tuple[str, ...]]:
     deployment = sources.deployment
     bundle = deployment.bundle
@@ -233,7 +237,13 @@ def verify_native_admission_checkpoint(
         ("BUSINESS", ("hosted-request-terminal-receipt/v1",)),
     )
     if len(state.requests) == 2:
-        shapes += (shapes[2], ("TERMINATE", ("hosted-request-terminal-receipt/v1",)))
+        successor = state.requests[-1]
+        if state.terminal(successor.content_hash) is None and allow_pending_successor:
+            if state.active_request != successor or state.accepted_receipt(successor.content_hash):
+                raise HostedQualificationError("admission checkpoint pending successor differs")
+            shapes += (shapes[2],)
+        else:
+            shapes += (shapes[2], ("TERMINATE", ("hosted-request-terminal-receipt/v1",)))
     actual_shapes = tuple(
         (
             entry.operation_kind,

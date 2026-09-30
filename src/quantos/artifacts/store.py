@@ -7,7 +7,7 @@ import json
 import os
 import stat
 import tempfile
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
@@ -87,7 +87,13 @@ def read_regular_bytes_at(directory_fd: int, name: str, *, max_bytes: int) -> by
         os.close(descriptor)
 
 
-def atomic_write_bytes_at(directory_fd: int, name: str, data: bytes) -> str:
+def atomic_write_bytes_at(
+    directory_fd: int,
+    name: str,
+    data: bytes,
+    *,
+    fault_hook: Callable[[str], None] | None = None,
+) -> str:
     """The immutable create-if-absent/fsync primitive, using only anchored openat calls."""
     _safe_segment(name)
     digest = sha256_bytes(data)
@@ -111,6 +117,8 @@ def atomic_write_bytes_at(directory_fd: int, name: str, data: bytes) -> str:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
+            if fault_hook is not None:
+                fault_hook("file_fsynced")
         try:
             os.link(
                 temporary_name,
@@ -122,8 +130,14 @@ def atomic_write_bytes_at(directory_fd: int, name: str, data: bytes) -> str:
         except FileExistsError:
             if read_regular_bytes_at(directory_fd, name, max_bytes=len(data)) != data:
                 raise ArtifactConflictError("immutable authority target conflicts") from None
+        if fault_hook is not None:
+            fault_hook("file_linked")
         os.unlink(temporary_name, dir_fd=directory_fd)
+        if fault_hook is not None:
+            fault_hook("file_published")
         os.fsync(directory_fd)
+        if fault_hook is not None:
+            fault_hook("directory_fsynced")
     finally:
         try:
             os.unlink(temporary_name, dir_fd=directory_fd)

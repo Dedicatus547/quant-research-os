@@ -10,10 +10,15 @@ from quantos.application.autonomous import (
     AutonomousCampaignOrchestrator,
     AutonomousProposalEvidence,
     CampaignEventStore,
+    autonomous_trial_event_id,
 )
 from quantos.application.autonomous_execution import QuantosResearchExecutionAdapter
 from quantos.application.campaign_selection import CampaignSelectionService
 from quantos.application.campaigns import ResearchCampaignGovernor
+from quantos.application.hosted_campaign import (
+    HostedCampaignApplicationService,
+    hosted_business_operation_id,
+)
 from quantos.application.hosted_inputs import (
     HostedProposalOnlyDriver,
     build_hosted_execution_adapter,
@@ -262,76 +267,15 @@ def build_verified_business_orchestrator(
     return state, orchestrator, events
 
 
-def verify_hosted_business_root(
-    authority: Path,
-    bundle: HostedFrozenBusinessInputs,
-    *,
-    deployment_profile_hash: str,
-    input_root: Path,
-    provenance_workspace: Path,
-) -> HostedVerifiedBusiness:
-    """Verify complete authority without creating, repairing, executing or accepting it."""
-    inventory = raw_inventory(authority)
-    campaign = bundle.campaign.content_hash
-    runtime = authority / "business" / campaign
-    state, orchestrator, events = build_verified_business_orchestrator(
-        authority,
-        bundle,
-        deployment_profile_hash=deployment_profile_hash,
-        input_root=input_root,
-        provenance_workspace=provenance_workspace,
-    )
+def verify_native_business_steps(
+    state: HostedStoreSnapshot,
+    orchestrator: AutonomousCampaignOrchestrator,
+    events: tuple[ResearchCampaignEvent | CampaignSelectionEvent, ...],
+    steps: tuple[HostedResearchStepIntent, ...],
+) -> tuple[dict[str, HostedResearchStepIntent], tuple[ValidationReport, ...], tuple[str, ...]]:
+    """Inspect native completion receipts without resume, publication or execution."""
+    campaign = state.spec.campaign_hash
     execution = cast(QuantosResearchExecutionAdapter, orchestrator.execution_port)
-    governor, selection, ledger = (
-        orchestrator.governor,
-        orchestrator.selection_service,
-        orchestrator.ledger_service,
-    )
-    publications = dict.fromkeys(
-        publication.artifact_hash for entry in state.journal for publication in entry.publications
-    )
-    # Publication order is authority; hash-sorted object filenames are not chronology.
-    budgets: list[HostedResearchBudgetFact] = []
-    steps: list[HostedResearchStepIntent] = []
-    reports: list[HostedCampaignReport] = []
-    for digest in publications:
-        data = state.artifacts[digest]
-        schema = strict_json_object(data, max_bytes=16_777_216).get("schema_version")
-        if schema == "hosted-research-budget-fact/v1":
-            budgets.append(state.artifact(digest, HostedResearchBudgetFact))
-        elif schema == "hosted-research-step-intent/v1":
-            steps.append(state.artifact(digest, HostedResearchStepIntent))
-        elif schema == "hosted-campaign-report/v1":
-            reports.append(state.artifact(digest, HostedCampaignReport))
-    if len(reports) != 1 or not budgets or budgets[0].phase != "INITIAL":
-        raise HostedQualificationError("business final report or initial budget is absent")
-    report = reports[0]
-    if (
-        report.hosted_spec_hash != state.spec.content_hash
-        or report.campaign_hash != campaign
-        or report.protocol_budget_hash != state.budget.content_hash
-        or report.research_budget_hash != budgets[-1].content_hash
-        or report.request_hashes != tuple(request.content_hash for request in state.requests)
-        or report.campaign_event_hashes != tuple(event.content_hash for event in events)
-        or report.initial_ledger_snapshot_hash != bundle.initial_ledger_snapshot.content_hash
-        or report.candidate_manifest_hash != bundle.manifest.content_hash
-        or report.candidate_hashes
-        != tuple(sorted(candidate.content_hash for candidate in bundle.manifest.candidates))
-    ):
-        raise HostedQualificationError("business final report bindings disagree")
-    final_ledger = ledger.verify(bundle.ledger_id, created_at=report.recorded_at)
-    orchestrator.require_initial_snapshot_prefix(final_ledger)
-    if final_ledger.content_hash != report.final_ledger_snapshot_hash:
-        raise HostedQualificationError("business final Ledger differs")
-    trials = tuple(
-        event.trial
-        for event in events
-        if isinstance(event, ResearchCampaignEvent) and event.trial is not None
-    )
-    if report.trial_hashes != tuple(trial.content_hash for trial in trials):
-        raise HostedQualificationError("business trial denominator differs")
-    if report.attempted_candidate_hashes != tuple(sorted({t.candidate_hash for t in trials})):
-        raise HostedQualificationError("business attempted candidate denominator differs")
     by_request = {request.content_hash: request for request in state.requests}
     latest: dict[str, HostedResearchStepIntent] = {}
     validations: list[ValidationReport] = []
@@ -369,17 +313,14 @@ def verify_hosted_business_root(
         ):
             raise HostedQualificationError("business step immutable bindings changed")
         latest[step.request_hash] = step
-        if step.phase != "COMPLETED":
-            continue
-        if step.trial_hash is None:
-            raise HostedQualificationError("completed step lacks trial identity")
-        trial = state.artifact(step.trial_hash, CampaignTrial)
         indexes = [
             index
             for index, event in enumerate(events)
-            if isinstance(event, ResearchCampaignEvent) and event.trial == trial
+            if isinstance(event, ResearchCampaignEvent)
+            and event.trial is not None
+            and event.trial.agent_run_hash == step.hosted_exchange_hash
         ]
-        if len(indexes) != 1:
+        if len(indexes) > 1 or (step.phase == "COMPLETED" and len(indexes) != 1):
             raise HostedQualificationError("completed step lacks one trial event")
         exchange = state.artifact(step.hosted_exchange_hash, HostedAgentExchange)
         response = state.artifact(exchange.response_hash, HostedAgentResponse)
@@ -391,14 +332,30 @@ def verify_hosted_business_root(
             exchange.content_hash,
             "HOSTED_EXCHANGE",
         )
-        prefix = events[: indexes[0]]
+        prefix = events[: indexes[0]] if indexes else events
         prepared = orchestrator.prepare_trial(evidence, events=prefix, event_time=step.event_time)
         if (
             prepared.execution_request != step.execution_request
             or prepared.idempotency_key != step.trial_idempotency_key
             or prepared.candidate.content_hash != step.candidate_hash
+            or step.event_time
+            != orchestrator.next_event_time(
+                state.spec.started_at, prefix, orchestrator.initial_ledger_snapshot
+            )
         ):
             raise HostedQualificationError("business proposal/trial/execution binding differs")
+        if step.phase != "COMPLETED":
+            continue
+        if step.trial_hash is None:
+            raise HostedQualificationError("completed step lacks trial identity")
+        trial = state.artifact(step.trial_hash, CampaignTrial)
+        event = cast(ResearchCampaignEvent, events[indexes[0]])
+        if (
+            event.trial != trial
+            or event.event_id != autonomous_trial_event_id(trial)
+            or event.occurred_at != step.event_time
+        ):
+            raise HostedQualificationError("business trial native event identity/time differs")
         outcome = None
         if step.execution_request is not None:
             outcome = execution.inspect_completed_execution(step.execution_request)
@@ -415,14 +372,55 @@ def verify_hosted_business_root(
                 )
         if trial != orchestrator.finish_trial(prepared, outcome, events=prefix):
             raise HostedQualificationError("business trial differs from verified native outcome")
-    projection = governor.project(bundle.campaign, bundle.research_budget, events)
+    published_trials = {
+        digest
+        for digest, data in state.artifacts.items()
+        if strict_json_object(data, max_bytes=16_777_216).get("schema_version")
+        == "campaign-trial/v1"
+    }
+    recorded_trials = {
+        event.trial.content_hash
+        for event in events
+        if isinstance(event, ResearchCampaignEvent) and event.trial is not None
+    }
+    if published_trials != recorded_trials:
+        raise HostedQualificationError("business has an unreferenced or unpublished trial")
+    return latest, tuple(validations), tuple(executions)
+
+
+def verify_native_business_budgets(
+    state: HostedStoreSnapshot,
+    orchestrator: AutonomousCampaignOrchestrator,
+    events: tuple[ResearchCampaignEvent | CampaignSelectionEvent, ...],
+    initial_events: tuple[ResearchCampaignEvent | CampaignSelectionEvent, ...],
+    budgets: tuple[HostedResearchBudgetFact, ...],
+    steps: tuple[HostedResearchStepIntent, ...],
+    latest: dict[str, HostedResearchStepIntent],
+    report: HostedCampaignReport | None,
+) -> HostedResearchBudgetFact:
+    """Inspect the existing native reservations/settlements at a checkpoint or report."""
+    if not budgets:
+        raise HostedQualificationError("business checkpoint has no initial budget")
+    campaign = state.spec.campaign_hash
+    execution = cast(QuantosResearchExecutionAdapter, orchestrator.execution_port)
+    governor = orchestrator.governor
+    projection = governor.project(orchestrator.campaign, orchestrator.budget, events)
     final_budget = budgets[-1]
     if final_budget.phase != "UNCERTAIN" and (
         final_budget.used_trials != projection.trial_count
         or final_budget.used_executions != projection.execution_count
         or final_budget.used_validation_rounds != projection.validation_round_count
         or final_budget.used_compute_units != projection.compute_seconds
-        or final_budget.candidate_hashes != report.attempted_candidate_hashes
+        or final_budget.candidate_hashes
+        != tuple(
+            sorted(
+                {
+                    event.trial.candidate_hash
+                    for event in events
+                    if isinstance(event, ResearchCampaignEvent) and event.trial is not None
+                }
+            )
+        )
     ):
         raise HostedQualificationError("business final reservation/event accounting differs")
     previous_budget: HostedResearchBudgetFact | None = None
@@ -432,17 +430,40 @@ def verify_hosted_business_root(
             budget.campaign_hash != campaign
             or budget.hosted_spec_hash != state.spec.content_hash
             or budget.previous_hash != (previous_budget.content_hash if previous_budget else None)
-            or budget.used_trials > bundle.research_budget.max_trials
-            or budget.used_executions > bundle.research_budget.max_executions
-            or budget.used_compute_units > bundle.research_budget.max_compute_seconds
-            or budget.used_validation_rounds > bundle.research_budget.max_validation_rounds
-            or len(budget.candidate_hashes) > bundle.research_budget.max_distinct_candidates
+            or budget.used_trials > orchestrator.budget.max_trials
+            or budget.used_executions > orchestrator.budget.max_executions
+            or budget.used_compute_units > orchestrator.budget.max_compute_seconds
+            or budget.used_validation_rounds > orchestrator.budget.max_validation_rounds
+            or len(budget.candidate_hashes) > orchestrator.budget.max_distinct_candidates
         ):
             raise HostedQualificationError("business budget chain or cap differs")
-        if previous_budget is None:
-            initial = governor.project(
-                bundle.campaign, bundle.research_budget, bundle.initial_events
+        budget_step = latest.get(str(budget.request_hash))
+        native_kind = {
+            "INITIAL": "RESEARCH_INITIAL",
+            "RESERVED": "RESERVE",
+            "SETTLED": "SETTLE",
+            "UNCERTAIN": "UNCERTAIN",
+        }.get(budget.phase)
+        if (
+            native_kind is None
+            or budget.operation_id
+            != hosted_business_operation_id(
+                campaign,
+                native_kind,
+                state.spec.content_hash if budget.phase == "INITIAL" else budget.request_hash,
             )
+            or budget.recorded_at
+            != (
+                state.spec.started_at
+                if budget.phase == "INITIAL"
+                else budget_step.event_time
+                if budget_step is not None
+                else None
+            )
+        ):
+            raise HostedQualificationError("business native budget operation/time differs")
+        if previous_budget is None:
+            initial = governor.project(orchestrator.campaign, orchestrator.budget, initial_events)
             if (
                 budget.phase != "INITIAL"
                 or budget.request_hash is not None
@@ -479,7 +500,7 @@ def verify_hosted_business_root(
                 != previous_budget.used_executions + int(prepared.execution_request is not None)
                 or budget.used_validation_rounds
                 != previous_budget.used_validation_rounds
-                + int(bundle.campaign_policy.trial_segment is CampaignSegment.VALIDATION)
+                + int(orchestrator.campaign_policy.trial_segment is CampaignSegment.VALIDATION)
                 or budget.used_compute_units != previous_budget.used_compute_units + charge
             ):
                 raise HostedQualificationError("business reserved workload/denominator differs")
@@ -498,6 +519,7 @@ def verify_hosted_business_root(
                 if (
                     budget.used_executions != previous_budget.used_executions
                     or budget.used_compute_units != previous_budget.used_compute_units
+                    or report is None
                     or report.state != "RECOVERY_REQUIRED"
                     or report.reason != "EXECUTION_UNCERTAIN"
                 ):
@@ -524,6 +546,78 @@ def verify_hosted_business_root(
         else:
             raise HostedQualificationError("business budget phase/order is invalid")
         previous_budget = budget
+    return final_budget
+
+
+def verify_hosted_business_root(
+    authority: Path,
+    bundle: HostedFrozenBusinessInputs,
+    *,
+    deployment_profile_hash: str,
+    input_root: Path,
+    provenance_workspace: Path,
+) -> HostedVerifiedBusiness:
+    """Verify complete authority without creating, repairing, executing or accepting it."""
+    inventory = raw_inventory(authority)
+    campaign = bundle.campaign.content_hash
+    runtime = authority / "business" / campaign
+    state, orchestrator, events = build_verified_business_orchestrator(
+        authority,
+        bundle,
+        deployment_profile_hash=deployment_profile_hash,
+        input_root=input_root,
+        provenance_workspace=provenance_workspace,
+    )
+    selection, ledger = (
+        orchestrator.selection_service,
+        orchestrator.ledger_service,
+    )
+    # Reuse the application's pure chronology/accepted-exchange/reservation
+    # checker before native inspection, including non-completed recovery steps.
+    research = HostedCampaignApplicationService.verify_research_facts(state)
+    budgets, steps, reports = research.budgets, research.steps, research.reports
+    if len(reports) != 1 or not budgets or budgets[0].phase != "INITIAL":
+        raise HostedQualificationError("business final report or initial budget is absent")
+    report = reports[0]
+    if (
+        report.hosted_spec_hash != state.spec.content_hash
+        or report.campaign_hash != campaign
+        or report.protocol_budget_hash != state.budget.content_hash
+        or report.research_budget_hash != budgets[-1].content_hash
+        or report.request_hashes != tuple(request.content_hash for request in state.requests)
+        or report.campaign_event_hashes != tuple(event.content_hash for event in events)
+        or report.initial_ledger_snapshot_hash != bundle.initial_ledger_snapshot.content_hash
+        or report.candidate_manifest_hash != bundle.manifest.content_hash
+        or report.candidate_hashes
+        != tuple(sorted(candidate.content_hash for candidate in bundle.manifest.candidates))
+    ):
+        raise HostedQualificationError("business final report bindings disagree")
+    final_ledger = ledger.verify(bundle.ledger_id, created_at=report.recorded_at)
+    orchestrator.require_initial_snapshot_prefix(final_ledger)
+    if final_ledger.content_hash != report.final_ledger_snapshot_hash:
+        raise HostedQualificationError("business final Ledger differs")
+    trials = tuple(
+        event.trial
+        for event in events
+        if isinstance(event, ResearchCampaignEvent) and event.trial is not None
+    )
+    if report.trial_hashes != tuple(trial.content_hash for trial in trials):
+        raise HostedQualificationError("business trial denominator differs")
+    if report.attempted_candidate_hashes != tuple(sorted({t.candidate_hash for t in trials})):
+        raise HostedQualificationError("business attempted candidate denominator differs")
+    latest, validations, executions = verify_native_business_steps(
+        state, orchestrator, events, tuple(steps)
+    )
+    verify_native_business_budgets(
+        state,
+        orchestrator,
+        events,
+        bundle.initial_events,
+        tuple(budgets),
+        tuple(steps),
+        latest,
+        report,
+    )
     p14c = None
     if report.selection_report_hash is not None:
         prefix = events

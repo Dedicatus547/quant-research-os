@@ -1027,9 +1027,15 @@ def run_managed_duplicate_case(deployment: HostedManagedDeployment, case: str) -
     return _run_managed_transport_fixture(deployment, case, "Q02")
 
 
+def run_managed_fault_case(deployment: HostedManagedDeployment, case: str) -> Path:
+    """Retain one fixed physical-exit window; this subset does not grant Q05."""
+    return _run_managed_transport_fixture(deployment, case, "Q05")
+
+
 def _run_managed_transport_fixture(
     deployment: HostedManagedDeployment, case: str, family: str
 ) -> Path:
+    from quantos.infrastructure.hosted_fault_cases import HOSTED_FAULT_WINDOWS
     from quantos.infrastructure.hosted_fixture_frames import (
         BUSINESS_REJECTION_CASES,
         DUPLICATE_SUBMISSION_CASES,
@@ -1045,6 +1051,7 @@ def _run_managed_transport_fixture(
         "Q02": DUPLICATE_SUBMISSION_CASES,
         "Q03": NEGATIVE_CASES,
         "Q04": (*BOUNDED_REJECTION_CASES, *BUSINESS_REJECTION_CASES),
+        "Q05": tuple(HOSTED_FAULT_WINDOWS),
         "Q08": HOST_OBSERVATION_CASES,
     }
     if family not in allowed or case not in allowed[family]:
@@ -1062,6 +1069,7 @@ def _run_managed_transport_fixture(
         "Q02": "hosted_duplicate_probe",
         "Q03": "hosted_negative_probe",
         "Q04": "hosted_admission_probe",
+        "Q05": "hosted_fault_probe",
         "Q08": "hosted_observation_probe",
     }[family]
     program_path = f"python/lib/python3.11/site-packages/quantos/infrastructure/{module}.py"
@@ -1125,7 +1133,9 @@ def _run_managed_transport_fixture(
                 break
             except (ArtifactIntegrityError, OSError, ValueError):
                 time.sleep(0.05)
-        return_code = process.wait(timeout=600 if family == "Q02" else 300)
+        return_code = process.wait(
+            timeout=7200 if family == "Q05" else 600 if family == "Q02" else 300
+        )
         observation_hash: str | None = None
         observation_failure_type: str | None = None
         if return_code == 0:

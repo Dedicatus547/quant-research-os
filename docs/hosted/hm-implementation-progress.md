@@ -327,3 +327,90 @@ channel inventory 保留；rejected 和后续 Q04 尚未启动，不能授 Q02 P
 核对 actual14 的安装、provenance、原程序/kernel 身份、完整 inventories 与失败记录，
 原件未变；只关闭后继实施 P1，不追认53bb或attempt14。必要审查模型为gpt-6.1-sol/high，
 usage unavailable。后继 profile 的 Q02 实际矩阵和完整原件谓词仍待运行。
+
+
+### 2026-10-01：attempt15 Q02 原件与 Q05 实施进展
+
+冻结提交 `81638bbd1abb53123a3da30010c2b8064dbd0657` 的实际新安装保留于
+`/tmp/hm-stage-81638bb-attempt15`，B
+`eab6752191c6e297245980a5a0751069f8d4985852cf7573b44c659cc90df0b3`，D
+`1c5041d717022ff0dce5976763fee552f7e711436a3a1fe3e7e40b74504d985f`。
+accepted/rejected 两个 Q02 fixed workers 均 exit0；独立只读原件复算核对完整427个 source files、
+六个实际子进程的 waitpid/退出/锁 inode/barrier/fresh bootstrap 与全部阶段清单，Q02核59hash。
+[独立原件审查](../reviews/hm-q02-origin-review-attempt15.md) 未发现新 Q02 P1；PID、exit、
+inode、阶段、原生 budget charge 和额外合法 BUSINESS trial 的复制件负例均拒绝、原件不变。
+审查模型 gpt-6.1-sol/high，attempt1，usage unavailable。
+
+只读诊断 `/tmp/hm-q02-81638bb-attempt15-diagnostic` manifest
+`3253382d69dfbffb767abdec503a16abd23c5c3bf6121d523f15a5f846f9e079`，result
+`2fb3559ebbafe5c99b736b3993390ce8e592cec06c9656a228fd2b92b9e97ffe`，manager export
+`ec280ddc58c650097786c03922073c8ab4c6c94c6cc68bc33b01ef10304aa810`。
+结果为 Q02 PASS、其余11门 NOT_EVALUATED、整体 NOT_QUALIFIED；没有授 Q11/HM09，
+没有把 schema-invalid trial 当作成功执行。该安装单项 Q04 known-schema-invalid checkpoint
+exit0，精确 installed-commit 只读 component 检查26hash；完整 Q04矩阵仍待新安装核验。
+
+Q05 主 agent 开发中：atomic publication 增加显式 file fsync/link/unlink/directory fsync hook，
+通过管理 bootstrap 向 store/application 接线，研究 CLI/RPC 不开放 hook。五项物理退出测试
+通过（4.68s），hard-link中间态仍拒绝；协议/inputs回归76 passed（542.43s）。原生 step/budget
+只读核验抽取为可复用函数，额外未引用 trial 明确拒绝；native Qlib回归1 passed（144.93s）。
+固定管理 worker 已实现28协议发布及7schema-invalid业务窗口，三个不同子进程分别物理
+exit73、fresh bootstrap恢复、再次fresh bootstrap；空before快照创建缺口已修正。
+functional physical+Q02 FD回归43 passed（100.28s），不授实际部署 Q05。
+
+执行窗口还在验证。native component 首轮 recovery 子进程 SIGSEGV（exit-11），原始退出记录
+当时生成于 `/tmp/pytest-of-zjw/pytest-402/test_actual_qlib_receipts_even0/physical-native-faults/`，
+不当作通过。该组件目录后来被 pytest 默认轮次保留策略清理，不能再宣称其原始退出文件仍保留；
+失败日志 `/tmp/hm-q05-native-physical-execution-regression01.txt` 仍在。实际安装的失败 attempt
+原件不在 pytest 临时目录，保持不变。该轮父进程已先运行 LightGBM，后继测试调整为训练前启动独立 worker子进程，
+与实际管理 worker 的cold parent顺序一致；不以stub execution替代原生链。STARTED不确定、
+原生receipt复用、事件/Ledger/report、fsync和损坏窗口完整source-bound谓词仍待补齐。
+当前仍缺完整 Q05/Q06、Q12 coverage≥85%、真实Q11/Q09/Q10、失败attempt ledger、
+HM09/HM10（gpt-6-luna/medium）/HM11；没有读取模型认证、调用provider或发布资格。
+
+后续增加9个原生执行窗口，固定 durable 矩阵共44项。纯组件全矩阵与原生 Qlib 业务回归
+第06轮 `1 passed / 232 warnings / 627.08s`，日志
+`/tmp/hm-q05-native-durable-scenario-regression06.txt`；该次加载的是后继 P1 修复前代码。
+独立 gpt-6.1-sol/high 窄审确认三个 P1：额外未归属文件未拒绝、合法返回状态未绑定原生事实、
+校验缺失的 before/specs 时重建空目录。原审报告
+`/tmp/hm-q05-durable-implementation-review.md`，hash
+`18030eabd8d97e5b843b41812d65ae3eccdeb9745098bd5a5409ee3d74e30a87`。
+尚未提交、构建或运行 attempt16；不能把上述组件通过当作完整 Q05。
+
+主 agent 正在补精确原生文件引用闭包和只读状态投影。修复后原两项反例日志
+`/tmp/hm-q05-core-closure-fixed01.log` 均为拒绝；缺目录反例日志
+`/tmp/hm-q05-before-readonly-fixed01.log` 为拒绝，且不创建目录。后继44窗口回归第07轮
+使用固定 `/tmp/hm-q05-native-closure-regression07-root` 保存组件证据，仍在运行；
+三个 P1 的独立后继关闭审查尚未完成。
+
+后继窄审继续发现合法孤立 REGISTER pair、trial 被自洽改类为 EXPERIMENT，以及取消被
+自洽改写为提前 TTL 的 EXPIRED；每次都保留原报告，不把后继修复追认为原版本通过。
+原审及前两后继报告已归档至 `docs/reviews/hm-q05-durable-*.md`。主 agent 后续补原生
+protocol operation/publication tuple、固定场景次数/时钟、完整 Ledger 节点类型/时间/父引用/
+authority/provenance，以及按固定 action/request/clock 构造取消/过期 receipt。
+
+第07轮因 execution-result schema字面v1（原生v2）失败148.23s；第08轮因完整ValidationReport
+mode=json与原生mode=python日期序列化差异失败147.98s；两次固定根和日志均保留。
+原生 validation-event execution-ID路径、signal variant引用、selection closing前时间也已按
+现存原生 verifier/selection handoff 核对。保留第08轮原根的两次执行完整文件归属核对PASS，
+不把第08轮失败改写为通过。第09轮完整44物理窗口+原生业务回归
+`1 passed / 232 warnings / 599.73s`，日志 `/tmp/hm-q05-native-closure-regression09.txt`，
+原件 `/tmp/hm-q05-native-closure-regression09-root`；该轮加载的是TERMINATE补强前代码。
+最新补强对上述44原根重新只读核验全部PASS，execute/Workflow/socket均阻断且调用为0，
+全文件和目录清单前后不变，日志 `/tmp/hm-q05-all-retained-readonly-recheck01.txt`。
+
+新增仓库自动反例（孤立REGISTER和合法错误Ledger类型）集中两物理窗口短跑PASS，日志
+`/tmp/hm-q05-repository-closure-negatives02.txt`；管理短跑driver第01轮误用Store.root而失败，
+根和日志保留，第02轮用真实_root属性，未修理第01轮根。
+物理/fsync/私有FD三组回归48 passed（111.01s），日志
+`/tmp/hm-q05-tuple-components05.txt`。ruff/format、pyright及diff-check通过；这不是
+Q12 coverage≥85%的证明。
+
+第三后继独立审查已归档：[精确修复边界](../reviews/hm-q05-durable-p1-closure-review03.md)，
+hash `70871c25f574982cf6495cf556ba85ff46f8a735614f16c7317510482195340e`。
+独立机械反例确认原三项P1及后续孤立REGISTER、合法错误Ledger分类、提前TTL终结均被拒绝，
+保留原生两执行320文件的完整业务/引用闭包及目录/文件只读核验PASS；该窄审范围内没有
+未关闭的已复现P1。没有将第07/08轮或任何历史失败改写为通过。TERMINATE语义负例同时
+在固定场景core与底层native file closure被独立拒绝。protocol/inputs回归45 passed（27.45s），
+日志 `/tmp/hm-q05-public-projections-regression02.txt`。
+冻结这一durable子集实现用于新安装实际核验；完整fsync/损坏source-bound窗口、Q05正式
+dispatch、Q06、Q12 coverage、真实Q11/Q09/Q10和HM09–11仍未完成，不授完整MVP资格。

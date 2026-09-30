@@ -158,7 +158,12 @@ class HostedProtocolStore:
         with opened_directory(self._root) as root_fd, _child(root_fd, "specs") as specs_fd:
             flock(specs_fd, LOCK_EX)
             try:
-                atomic_write_bytes_at(specs_fd, f"{spec.content_hash}.json", spec.canonical_bytes())
+                atomic_write_bytes_at(
+                    specs_fd,
+                    f"{spec.content_hash}.json",
+                    spec.canonical_bytes(),
+                    fault_hook=lambda point: self._fault("spec_" + point),
+                )
             finally:
                 flock(specs_fd, LOCK_UN)
         return spec.content_hash
@@ -252,6 +257,7 @@ class HostedProtocolStore:
                 journal_fd,
                 f"{entry.sequence:08d}-{entry.content_hash}.json",
                 entry.canonical_bytes(),
+                fault_hook=lambda point: self._fault("journal_" + point),
             )
 
     def _publish(self, campaign_fd: int, publication: HostedPublication) -> None:
@@ -260,6 +266,7 @@ class HostedProtocolStore:
                 objects_fd,
                 f"{publication.artifact_hash}.json",
                 publication.canonical_json.encode("utf-8"),
+                fault_hook=lambda point: self._fault("object_" + point),
             )
 
     def _finish(self, campaign_fd: int, intent: HostedJournalEntry) -> None:

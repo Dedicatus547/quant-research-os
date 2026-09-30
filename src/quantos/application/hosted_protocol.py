@@ -40,7 +40,7 @@ def _identity(value: str) -> str:
     return value
 
 
-def _operation(campaign: str, kind: str, identity: object) -> str:
+def hosted_protocol_operation_id(campaign: str, kind: str, identity: object) -> str:
     return sha256_bytes(canonical_json_bytes((campaign, kind, identity)))
 
 
@@ -177,7 +177,7 @@ class HostedProtocolService:
                 if self.store.has_journal_locked(campaign_fd):
                     raise
                 now = spec.started_at
-                op = _operation(spec.campaign_hash, "REGISTER", spec_hash)
+                op = hosted_protocol_operation_id(spec.campaign_hash, "REGISTER", spec_hash)
                 budget = HostedBudgetJournalFact(
                     campaign_hash=spec.campaign_hash,
                     hosted_spec_hash=spec_hash,
@@ -188,7 +188,7 @@ class HostedProtocolService:
                     request_submissions=(),
                     recorded_at=now,
                 )
-                exhausted = self._exhaustion(spec, budget, None, now)
+                exhausted = self.project_exhaustion_receipt(spec, budget, None, now)
                 self.store.commit_locked(
                     campaign_fd,
                     campaign_hash=spec.campaign_hash,
@@ -200,10 +200,10 @@ class HostedProtocolService:
                 state = self.store.snapshot_locked(campaign_fd)
             if state.spec.content_hash != spec_hash:
                 raise ArtifactIntegrityError("campaign is already bound to another hosted spec")
-            return self._status(state, self._clock())
+            return self.project_status(state, self._clock())
 
     @staticmethod
-    def _exhaustion(
+    def project_exhaustion_receipt(
         spec: HostedCampaignSpec,
         budget: HostedBudgetJournalFact,
         request: HostedAgentRequest | None,
@@ -260,7 +260,7 @@ class HostedProtocolService:
                 raise ArtifactIntegrityError("hosted business request frozen bindings disagree")
             now = self._clock()
             ordinal = before.used_requests + 1
-            op = _operation(spec.campaign_hash, "ISSUE", ordinal)
+            op = hosted_protocol_operation_id(spec.campaign_hash, "ISSUE", ordinal)
             after = HostedBudgetJournalFact(
                 campaign_hash=spec.campaign_hash,
                 hosted_spec_hash=spec_hash,
@@ -298,7 +298,9 @@ class HostedProtocolService:
                 max_request_bytes=spec.hosted_budget.max_request_bytes,
                 max_response_bytes=spec.hosted_budget.max_response_bytes,
                 max_proposal_bytes=spec.hosted_budget.max_proposal_bytes,
-                attempt_identity=_operation(spec.campaign_hash, "ATTEMPT", ordinal),
+                attempt_identity=hosted_protocol_operation_id(
+                    spec.campaign_hash, "ATTEMPT", ordinal
+                ),
                 projection_object_hashes=projection_object_hashes,
                 issued_at=now,
                 expires_at=now + timedelta(seconds=spec.hosted_budget.request_ttl_seconds),
@@ -312,7 +314,7 @@ class HostedProtocolService:
                 transport_ordinal=ordinal,
                 recorded_at=now,
             )
-            exhausted = self._exhaustion(spec, after, request, now)
+            exhausted = self.project_exhaustion_receipt(spec, after, request, now)
             self.store.commit_locked(
                 campaign_fd,
                 campaign_hash=spec.campaign_hash,
@@ -327,10 +329,10 @@ class HostedProtocolService:
         return self.store.snapshot(campaign_hash).active_request
 
     def status(self, campaign_hash: str) -> HostedProtocolStatus:
-        return self._status(self.store.snapshot(campaign_hash), self._clock())
+        return self.project_status(self.store.snapshot(campaign_hash), self._clock())
 
     @staticmethod
-    def _status(state: HostedStoreSnapshot, now: datetime) -> HostedProtocolStatus:
+    def project_status(state: HostedStoreSnapshot, now: datetime) -> HostedProtocolStatus:
         request = state.active_request
         projected = bool(
             request
@@ -424,7 +426,7 @@ class HostedProtocolService:
                     if x.request_hash == request_hash and x.outcome == "EXHAUSTED"
                 )
             now = self._clock()
-            op = _operation(campaign, "SUBMIT", (request_hash, complete, digest))
+            op = hosted_protocol_operation_id(campaign, "SUBMIT", (request_hash, complete, digest))
             after = HostedBudgetJournalFact(
                 campaign_hash=campaign,
                 hosted_spec_hash=state.spec.content_hash,
@@ -584,7 +586,7 @@ class HostedProtocolService:
             self.store.commit_locked(
                 campaign_fd,
                 campaign_hash=campaign,
-                operation_id=_operation(campaign, "CANCEL", request_hash),
+                operation_id=hosted_protocol_operation_id(campaign, "CANCEL", request_hash),
                 operation_kind="TERMINATE",
                 recorded_at=now,
                 artifacts=(receipt,),
@@ -616,13 +618,15 @@ class HostedProtocolService:
                 self.store.commit_locked(
                     campaign_fd,
                     campaign_hash=campaign_hash,
-                    operation_id=_operation(campaign_hash, "EXPIRE", request.content_hash),
+                    operation_id=hosted_protocol_operation_id(
+                        campaign_hash, "EXPIRE", request.content_hash
+                    ),
                     operation_kind="TERMINATE",
                     recorded_at=now,
                     artifacts=(receipt,),
                 )
                 state = self.store.snapshot_locked(campaign_fd)
-            return self._status(state, now)
+            return self.project_status(state, now)
 
     def accepted_exchange(
         self,
