@@ -67,7 +67,10 @@ def run_offline(profile_hash: str, mode: str, source_inventory_hash: str) -> Non
     original_protocol = SavedHostedProtocol.load(
         model_source / "protocol", bundle.campaign.content_hash
     )
-    if original_protocol.source != saved.source:
+    if (
+        original_protocol.source != saved.source
+        or raw_inventory(model_source / "protocol") != source_before
+    ):
         raise ArtifactIntegrityError("offline imported protocol differs from original model source")
     evidence = TrustedLauncherEvidenceStore(model_source / "evidence", guard=KnownValueGuard(()))
     initial = read_hashed_configuration(

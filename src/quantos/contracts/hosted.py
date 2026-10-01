@@ -31,7 +31,8 @@ REQUEST_BYTE_CAP = 1_048_576
 RESPONSE_BYTE_CAP = 262_144
 
 
-def _pairs(items: list[tuple[str, object]]) -> dict[str, object]:
+def unique_json_object_pairs(items: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject duplicate keys before any management or protocol normalization."""
     result: dict[str, object] = {}
     for key, value in items:
         if key in result:
@@ -51,7 +52,7 @@ def strict_json_object(data: bytes, *, max_bytes: int) -> dict[str, object]:
     try:
         value: object = json.loads(
             data.decode("utf-8", errors="strict"),
-            object_pairs_hook=_pairs,
+            object_pairs_hook=unique_json_object_pairs,
             parse_constant=_nonfinite,
         )
         if not isinstance(value, dict):

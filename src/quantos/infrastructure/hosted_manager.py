@@ -26,7 +26,11 @@ from quantos.artifacts.store import (
     sha256_file,
 )
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
-from quantos.contracts.hosted import HostedCampaignSpec, strict_json_object
+from quantos.contracts.hosted import (
+    HostedCampaignSpec,
+    strict_json_object,
+    unique_json_object_pairs,
+)
 from quantos.contracts.hosted_deployment import (
     HostedCampaignAuthorization,
     HostedChannelPolicy,
@@ -521,7 +525,12 @@ def _observe_namespace_child(
     if len(data) > 4096:
         raise ArtifactIntegrityError("container information exceeded its bound")
     # bubblewrap emits pretty JSON, not our canonical contract serialization.
-    info = strict_json_object(canonical_json_bytes(json.loads(data)), max_bytes=4096)
+    info = strict_json_object(
+        canonical_json_bytes(
+            json.loads(data.decode("utf-8"), object_pairs_hook=unique_json_object_pairs)
+        ),
+        max_bytes=4096,
+    )
     init_pid = info.get("child-pid")
     if type(init_pid) is not int or init_pid <= 1:
         raise ArtifactIntegrityError("container manager did not supply a child PID")
@@ -690,7 +699,9 @@ def restricted_client_call(
             raise ArtifactIntegrityError("restricted host CLI operation failed")
         if len(result.stdout) > 1_052_672:
             raise ArtifactIntegrityError("restricted host CLI reply exceeds its byte cap")
-        value = json.loads(result.stdout)
+        value = json.loads(
+            result.stdout.decode("utf-8"), object_pairs_hook=unique_json_object_pairs
+        )
         if not isinstance(value, dict):
             raise ArtifactIntegrityError("restricted host CLI reply is not an object")
         return strict_json_object(
@@ -1219,7 +1230,7 @@ def _run_managed_transport_fixture(
                     and HOSTED_BUDGET_CASES[case].native_execution
                 )
                 else 600
-                if family == "Q02"
+                if family in ("Q02", "Q06")
                 else 300
             )
         )

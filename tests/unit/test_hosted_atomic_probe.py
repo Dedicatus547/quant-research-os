@@ -11,16 +11,24 @@ import pytest
 from test_autonomous_campaign import _inputs, _proposal
 from test_hosted_campaign import _DiskExecution, _spec
 
+from quantos.application.campaign_selection import publish_selection_plan
 from quantos.application.hosted_campaign import (
     HostedCampaignApplicationService,
     HostedCampaignInputs,
 )
 from quantos.application.hosted_protocol import HostedProtocolService
 from quantos.infrastructure import hosted_atomic_probe as probe
+from quantos.infrastructure.hosted_atomic_forensics import HostedAtomicForensicInventory
+from quantos.infrastructure.hosted_atomic_verification import verify_atomic_recovery_scenario
 from quantos.infrastructure.hosted_client import consume_capability_fd
 from quantos.infrastructure.hosted_deployment import private_memory_fd
+from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 from quantos.infrastructure.hosted_store import HostedProtocolStore
-from quantos.infrastructure.hosted_verification import raw_inventory, verify_protocol_root
+from quantos.infrastructure.hosted_verification import (
+    HostedQualificationError,
+    raw_inventory,
+    verify_protocol_root,
+)
 
 
 @pytest.mark.parametrize("case", tuple(probe.ATOMIC_FAULT_WINDOWS))
@@ -58,6 +66,9 @@ def test_native_atomic_exit_and_two_fresh_boots_retain_originals(
             authority,
             (_proposal(inputs, 0),),
             execution=_DiskExecution(authority / "executions"),
+        )
+        publish_selection_plan(
+            inputs.selection.plan, authority / "business" / spec.campaign_hash / "selection-plans"
         )
         service.register_inputs(
             spec, HostedCampaignInputs(orchestrator, inputs.initial_events, lambda _: None)
@@ -132,6 +143,53 @@ def test_native_atomic_exit_and_two_fresh_boots_retain_originals(
             records["crash"]["forensic_inventory"]
             == observation["authority_after_forensic_inventory"]
         )
+        phase_roots = {
+            phase: channel / "snapshots" / phase / "authority"
+            for phase in ("before", "crashed", "recovered", "after")
+        }
+        physical = {
+            phase: HostedAtomicForensicInventory.model_validate_json(
+                (channel / "phase-forensics" / f"{phase}.json").read_bytes()
+            )
+            for phase in ("crashed", "recovered", "after")
+        }
+        sources = HostedVerifiedSources(
+            SimpleNamespace(
+                spec=spec,
+                bundle=SimpleNamespace(
+                    initial_ledger_files=(), selection_plan=inputs.selection.plan
+                ),
+            ),
+            {},
+            "a" * 64,
+        )
+        assert verify_atomic_recovery_scenario(
+            case,
+            phase_roots,
+            physical,
+            records,
+            observation,
+            parent_pid=os.getpid(),
+            sources=sources,
+        )
+        for field, value in (
+            ("pid", os.getpid()),
+            ("parent_pid", 0),
+            ("fresh_application_bootstrap", False),
+            ("network_attempts", ["UNAUTHORIZED"]),
+            ("result_hash", "0" * 64),
+        ):
+            changed = {**records, "recovery-1": {**records["recovery-1"], field: value}}
+            with pytest.raises(HostedQualificationError):
+                verify_atomic_recovery_scenario(
+                    case,
+                    phase_roots,
+                    physical,
+                    changed,
+                    observation,
+                    parent_pid=os.getpid(),
+                    sources=sources,
+                )
     else:
         verify_protocol_root(authority / "protocol", spec.campaign_hash)
 

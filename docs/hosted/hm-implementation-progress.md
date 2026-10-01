@@ -944,3 +944,260 @@ main readiness接线和一天后才业务start签发请求。初始policy无默�
 下一新attempt23将重新冻结全部已审修复、完整离线资产、wheel、D及root，实际service先
 创建零请求REGISTER，随后运行Q12完整安装CI与原85%门。正式矩阵、live/Q09/Q10/HM09、
 Luna HM10及HM11仍未完成；没有读取认证、调用provider或改写旧根。
+
+### 2026-10-01：attempt23 原 CI 与 native Ruff 后继修复
+
+新完整 clean worktree06 绑定 `5026a64171eb95180ffeffc2f27fd74d397ebc8e`，三个冻结
+离线资产均按原完整名称复制，wheel SHA256
+`86bd6dc460b1af1c49f3d07f27c1e37aa66975eb9953617873dee5db5a0fad37`。
+原管理根 `/tmp/hm-stage-5026a64-attempt23`，B
+`37e41f8651fd32efeaa203c8079d3d5b0327ed2b575ff80b50c68c2bdfc45f55`，D
+`031f62c214fb8f4b88d6b0c9cfbcdc09e810e2f95ed6972788a81937e20f884e`。
+实际固定 service main 初始化两条 REGISTER journal；请求、terminal、已用请求和提交均为零。
+只读 startup 审计另保存在 `/tmp/hm-attempt23-startup-audit01`；完整 raw/directory 前后
+不变。它不替代要求实际业务 start 的 Q07，也没有消耗或重置 live 请求 TTL。
+
+Q12 已按真实固定安装依次运行：ruff-format 和 ruff 原退出均失败，pyright 原退出为零；
+完整 pytest/coverage 仍在采集中。原 Ruff 失败是冻结前缀未复制 wheel RECORD 指向的
+native `bin/ruff`，不是缺少 Python module。失败前缀与原件没有补写或重跑；本轮完整 CI
+不能取得 Q12，即便后续 pytest 通过，也不能继承到新源码。
+
+后继 `freeze_python_install` 从已复制前缀内唯一 Ruff metadata/RECORD 取得固定
+`../../../bin/ruff` 的哈希和大小，anchored 读取原安装唯一 regular ELF，在 64MiB 内
+逐字节匹配后 immutable 发布为 mode 0500。RECORD 上限为 1MiB；没有 metadata 时保持
+原 optional 行为。原 I0、派生 Q12 prefix、source-only interpreter 与 85% 覆盖门不放宽。
+第一版从外部 RECORD 读取的独立反例保留在
+[OPEN 审查](../reviews/hm-native-ruff-record-review.md)；后继改用已冻结 RECORD，由
+[独立限定关闭审查](../reviews/hm-native-ruff-record-closure-review.md)关闭该具体缺口。
+两份审查均为 gpt-6.1-sol/high；旧 OPEN 原件不改写。新增八项单测通过，相关组件
+30 passed/11.64s，严格 src pyright 零错误。独立完整 freeze 反例、十项 alias/格式/容量
+负例均拒绝；新私有 ELF 的实际 `--version` 为 Ruff 0.16.5，原 binary SHA256
+`024cdfbba8627539cc951908267077e3fd8e710add19f0b31d6cc606d19ddc32`。
+
+两个独立新组件根 `/tmp/hm-native-ruff-component01`、`component02` 的实际隔离 Ruff
+format/check 均 exit0，复制 prefix 与借用的原前缀不变。这些不是新 D/Q12：组件01在
+源码变化后才读取实现 hash，已另存来源限制而未修改原结果；组件02在 import 后读取并
+检查文件稳定性，也不证明已执行 module 的来源身份。限定关闭审查不依赖这两者授资格。
+
+完整 qualification 导出 driver 仅准备，尚未执行；必要独立静态预审确认修正 Q05
+非 atomic after 来源、Q06 单一 parent declaration/canonical evidence、失败 index
+anchored/full scan 后发布以及输出根独立性前置检查。driver SHA256
+`467982d131926d29384a71bb8891494a90af3d6fdf8f70c40026b525deaeef03`；这是临时管理流程
+shape 审查，非 HM09。已定位 staging 01–23 原路径，其中 10、20 在部署根创建前失败，
+原日志仍保留。失败总账、完整原件矩阵、新安装全部 CI、实际 live/replay、HM09、
+Luna HM10 和 HM11 仍待完成；未读取模型认证或调用 provider。
+
+失败索引准备02另存 `/tmp/hm-failed-attempt-index-preparation02.json`，SHA256
+`15b0a3e271c0e35fb5cde25f42073d09275e23c7e723c483c8b89cc0b0e492f9`，绑定23次 staging、
+各根已留 native failure 和进度历史引用的6份独立完整 CI 原报告。19、23采集尚未结束，
+因此 `complete=false`，不能作为最终完整失败 ledger。原 growing 日志不被伪装成 terminal
+record；索引不包含认证、私有 capability 或原日志内容。普通开发临时 fixture 不在此资格
+索引范围。最新修复的全树 Ruff 格式与静态检查通过（534 files），严格 src pyright
+`/tmp/hm-native-ruff-type02.txt` 零错误；不把这些替代尚未结束的完整安装 CI。
+
+基于旧359338d完整coverage中部署安全来源校验的未覆盖项，补充19项只读观察篡改控制，
+覆盖安装/配置/权威 Ledger/trusted source 替换、错误程序身份、同一网络 namespace、
+UID、错误 capability 获准、权威写入、race缺分母、管理reply、child executable/PID、
+有效 capabilities、可写install、继承Python flags、网络连通以及缺原service-start。
+各项调用前后的完整raw清单不变；正常控制只重算返回证据hash，不授Q07。
+fixture为明确标识的合成管理观察，未执行其中的synthetic binary，不能证明实际权限。
+最终19 passed/6.88s，原日志 `/tmp/hm-security-origin-tamper-unit02.txt` SHA256
+`db71d1c6bcd7c3014702c77c3a84d6fb4d51fbe3dfc31cdb651b9f779f5ee48e`；测试源码 SHA256
+`bf948b37a71a6bd76189abf16f22055ead090947ac409481111fcdf596d6454f`。
+生产security predicate未变；全树Ruff/format通过（535 files）。
+
+attempt19离线driver随后在 Q06 `ttl_seen_response` 触发原管理 `TimeoutExpired`，根和
+failure原件保留。Q05非native/atomic已捕获，Q06仅前三项生命周期完整；第四项没有安全
+negative observation/第二恢复完成，七项budget子部署未开始，不能记成完整Q06。
+第四项原 `seen`、`seen-repeat`、`late`、`response-repeat` 和 recovery-1 exit0已保存，
+after-recovery inventory为32文件；manager全调用300秒限到达。它使用非法`{}`的已有
+拒绝回执而不执行Qlib，不属于科学大文件cap失败或需重置TTL的live请求。
+后继管理等待只将Q06非native场景与既有Q02一样设为600秒；Q06 native budget仍7200秒，
+Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicates和失败语义未改。
+相关部署/预算组件 `/tmp/hm-q06-manager-wait-components01.txt` 76 passed/7.47s，
+`/tmp/hm-q06-manager-wait-type01.txt` 严格src pyright零错误；没有重跑或补写旧case。
+失败索引准备03明确只剩23采集pending，SHA256
+`35a1fce2c89708754fb00661cc270f09d848fd2a12b431a59e2a6d1e28751f6f`，仍complete=false。
+导出driver后继增加失败index版本/空pending/显式SHA256格式的发布前验证，当前SHA256
+`4861c4e12675dad50ce4b500af47fa46ac14adc79ab306d9c2d844d6ace66ca0`；此前静态预审绑定
+的是原467982d1版本，未将该后继管理脚本或新组件当作HM09接受。
+
+### 2026-10-01：完整 CI 23 原始失败及后继临时目录关闭
+
+- `5026a64171eb95180ffeffc2f27fd74d397ebc8e` 的新安装 23 已完整结束，
+  原根 `/tmp/hm-stage-5026a64-attempt23`，D
+  `031f62c214fb8f4b88d6b0c9cfbcdc09e810e2f95ed6972788a81937e20f884e`。
+  REGISTER-only 启动保留零请求／提交／终止／业务执行；不能替代 Q07。
+  pyright、diff-check 返回 0；原 Ruff 两项因缺失独立 ELF 工具返回 1。
+  原 pytest **1495 passed / 7 failed / 0 skipped**，7114.66 秒；
+  coverage **78.46357541269931%**，低于固定 85% 门。
+  这是完整原始失败，后继组件不改写其退出值或授予 Q12。
+- 七项失败包含：D05 临时 workspace 的 `/tmp` 写入被只读挂载拒绝；
+  五个 AF_UNIX 服务测试因长 fixture pathname 无法就绪；
+  旧缓存正控制受继承 `PYTHONPYCACHEPREFIX` 影响而没有生成标准缓存。
+  后继 CI 固定 argv 创建私有 tmpfs `/tmp` 及内部 `/tmp/pt`，pytest 使用
+  可删除子目录 `/tmp/pt/b`；缓存控制明确生成标准 `__pycache__` 文件。
+  Python/Node prefix 继续只读，stdout/JUnit/coverage/exit/kernel/prelaunch 仍保留在原 target。
+- 中间外部 pytest-root bind 存在别名写入反例，已完整删除；
+  私有 tmpfs 不再接受额外外部测试目录源。
+  [初版 OPEN](../reviews/hm-q12-private-tmp-review.md)及真实失败根保留；
+  [独立后继关闭](../reviews/hm-q12-private-tmp-closure-review.md)，报告哈希
+  `6bcceea8157bd3cb769dc78f571dba89b8239e3939e41967b6303c3621b2a806`，
+  仅关闭此范围。审查仍采用用户指定 `gpt-6.1-sol / high`。
+- `/tmp/hm-q12-private-tmp-native-component01` 七节点执行因缺失 basetemp 父目录
+  有 7 setup errors，原输出保留。新增固定 `--dir /tmp/pt` 后，在独立新根
+  `/tmp/hm-q12-private-tmp-native-component02` 中实际七节点 **7 passed / 16.55 秒**，
+  return 0、无 capture failure、原生 kernel bridge、隔离网络／PID 与 namespace 退出均观测。
+  原输出 SHA-256 `b6954159c2c6db2411b962adf9af9b5c910fb58671763fa97b9102f6deebaead`。
+  此组件使用复制前缀和当前 source workspace；文件区间稳定不等于完整已执行模块身份，
+  不授予新 D/Q12/HM09 资格。
+- 独立临时目录控制：真实 tmp_path／短 socket，Python prefix 与 Node 直接及链接四项
+  写入均 EROFS；旧 pytest-root 别名未写 prefix；宿主临时 canary 未产生；
+  target 报告与 JUnit 持久。独立 59 项组件通过，范围限制详见关闭报告。
+- 新安全来源篡改组件 19 项通过；新增 Q05 corruption/Q06 lifecycle 组合组件
+  `/tmp/hm-matrix-source-binding-unit03.txt` **34 passed / 54.41 秒**。
+  组合组件实际检查复制文件、sidecar、原根、目录闭包和进程记录的绑定；
+  kernel/native 场景谓词为明确测试替身，不能作为安装、业务或正式资格证据。
+  前两次测试开发失败输出分别保留；不将它们改写为 PASS。
+- Transport probe 和 offline runner 新测试仍在验证，覆盖率门维持 85%，
+  尚无后继完整 CI、新安装 24、完整本机矩阵、live Q11 或接受 bundle。
+  HM-08/HM-09/HM-10/HM-11 尚未完成，MVP **NOT_QUALIFIED**。
+
+- 后续只读核对补充：安装 23 的五个 CLI 均有原始 exit/output，但最终
+  `qualification-checks/Q12/run.json` **不存在**，不得称为完整封存的 Q12 capture。
+  原 manager return 1， traceback 定位于 `verify_code_provenance` →
+  `capture_code_provenance`：冻结 worktree 内出现 208 个未跟踪 `tmp*` 目录，
+  样本含 Qlib `pred.pkl`／`ric.pkl`。只读 `/tmp` 导致第三方临时存储回退到 cwd，
+  最终 clean-worktree guard 正确拒绝；未删除、忽略或补录这些原始失败文件。
+  私有可写 `/tmp` 是后继环境修复，仍须新完整运行证明 clean guard。
+  原 `negative-staging-failure.json` SHA-256
+  `f88d8180e397d8596322cd1b11472f95a12c063bb1b8287513ef2f535f4a42ac`。
+  预备 failed-Q12 export 驱动要求完整 run.json，因此不能用于此未完成 capture。
+
+- 后继来源组合组件扩展到七个独立预算子部署：
+  `/tmp/hm-matrix-source-binding-unit04.txt` **47 passed / 92.04 秒**。
+  它检查每个父声明、子 profile、嵌套 source prefix、原始 phase 和 waitpid 来源；
+  不执行 staging/kernel/native 场景，真实门仍是正式完整原始矩阵。
+- Transport fixture 新组件 `/tmp/hm-transport-probe-unit02.txt`
+  **35 passed / 517.65 秒**，真实应用协议留存固定 Q03/Q04/Q08 拒绝／接受、
+  同字节重复回执与零确定性执行。此子集 coverage 为 29.04%，固定 85% 门拒绝，
+  进程返回 1；不得将子集测试通过写成覆盖率或完整 CI 通过。
+  其 coverage XML `/tmp/hm-transport-probe-coverage-unit02.xml` 仅作诊断。
+  第一版组件有 6 个测试断言错误（PREPARED/COMPLETED 两个事实被误算一步），
+  原失败日志保留，后继按完成步骤与原生 checkpoint 语义修正断言。
+
+### 继续：窄审 closure 与新增组件验证（2026-10-01）
+
+- 独立 `gpt-6.1-sol / high` JSON 两入口重复键窄审限定 CLOSED，报告
+  `docs/reviews/hm-manager-json-duplicate-key-review.md`，SHA256
+  `8f94a6de016df094b504f6a3ea1b73d53faea0a77db0604d023a1caf69327041`。
+  20 个独立控制与该审查的 49 项组件通过，不授予资格。
+- `/tmp/hm-new-hosted-behavior-unit01.txt`：105 passed / 783.73s；实际子集
+  coverage 35.10%，原 85% 门返回失败（exit 1），不是完整 CI PASS。
+  `/tmp/hm-manager-client-capture-unit04.txt`：106 passed / 31.11s。
+  `/tmp/hm-manager-json-parse-type02.txt`：0 errors / warnings。
+- 新启动器组合测试01缺 schema（8 failed / 3 passed），02投影哈希未排序
+  （11 failed），03修正夹具后仍有真实非零 CLI 退出记录缺陷
+  （1 failed / 29 passed）。原日志均保留。生产 `capture` 对完整读取但非零退出
+  明确转为 REJECTED，再发布有界拒绝记录；不改变 timeout/output-limit 状态。
+  `/tmp/hm-manager-launcher-capture-unit04.txt`：启动器与停止管理端离线来源导出/
+  重执行捕获组合及原启动器共 41 passed / 13.18s；mount/process 为明确 double，
+  不属于 native/live/replay 资格。该缺陷修复另交独立窄审。
+- 新停止管理端组件01：changed-source 两项因异常类型断言过窄失败；源原始清单
+  检查实际正确拒绝；在03/04纳入真实 HostedQualificationError 后通过。
+  新预算/重复语义来源组件仍在验证，不能提前登记为 PASS。
+- 尚未创建新冻结部署或执行真实宿主 campaign；Q09/Q10/Q11/Q12、HM09–HM11
+  仍未接受，MVP 未完成，85% 门及所有原失败根保持不变。
+
+### 继续：停止端、预算、原子与输入启动组件（2026-10-01）
+
+- 启动器非零退出独立 `gpt-6.1-sol / high` 窄审限定 CLOSED：
+  `docs/reviews/hm-launcher-nonzero-exit-review.md`，SHA256
+  `66e36e80d05893845d151b09df37e57bd7c4736865551f8d403216c6bc797b40`。
+  9 个独立控制及22项组件通过；真实无模型 exit 7、timeout/output-limit
+  与明确 process double 各自保留范围，未作为真实 Codex 或部署隔离资格。
+- `/tmp/hm-budget-probe-unit01.txt` 初次夹具在构造 campaign 后修改 budget id，
+  原冻结绑定正确拒绝；删除该夹具修改后的02为1 passed /64.27s，逐个执行五个
+  非研究执行固定预算 recipe、真实 fork 与两次恢复、32 次超额提交复用。
+  配置/bootstrap 为明确 double；native execution/compute recipe不由此代替。
+- Q02 新来源语义组件01存在导入函数被 pytest 重复采集、evidence paths
+  未排序；02的正控制采用旧功能夹具 global cap 2，与 Q02 global cap 4 不同，
+  verifier 正确拒绝；03负例异常类型断言过窄。均保留原日志，不改生产逻辑。
+  04 `/tmp/hm-duplicate-source-unit04.txt`：1 passed /39.38s，两个结果与多项
+  篡改控制；新 synthetic-manager 中明确规范化可执行路径，kernel/admission
+  predicate double，不作为原始已安装观察。
+- 原子来源组合01对包含原子 hardlink 的原 authority 误用 unique raw reader，
+  正确拒绝；改用副本 channel 的 unique inventories，原 authority 仍由真实
+  forensic reader比较。`/tmp/hm-duplicate-atomic-source-unit03.txt` 原子项 PASS，
+  Q02该次异常断言失败仍保留。完整12个原子窗口的48个来源相位及16类篡改控制
+  使用真实 fork/fsync/forensic bytes，kernel/recovery predicates 为明确double。
+- 增强原原子探针夹具，在注册前发布原生selection plan；六个unsafe中间窗口
+  另外调用真实 recovery scenario verifier及错PID/父PID/重启/网络/结果负例。
+  `/tmp/hm-atomic-recovery-native-unit01.txt`：13 passed /116.22s。
+- CI捕获组合01 source mutation 触发正确 ProvenanceError，初次断言类型过窄；
+  修正后输入/CI组合01、02中CI9项均PASS，工具/kernel明确double，不授Q12。
+- 输入加载组件01实际生产adapter拒绝合成家族（原P14-DQ gate保留）；使用既有
+  合成adapter配置仅做loader组合。02在status期待重新验证错误，status只读语义
+  保留，改为resume。03 PASS后04加入8类原始输入/家族/模型/seed篡改：
+  `/tmp/hm-input-bootstrap-unit04.txt`：1 passed /7.50s。
+  原Parquet/view/Ledger/plan/provenance检查实际执行；生产家族/upstream identity
+  仅在此组件显式替换，不能代表生产输入资格，未执行研究或模型请求。
+- 当前全量Ruff check/format为PASS（324文件），pyright 0 errors/warnings。
+  第二组子集覆盖率诊断仍在执行；没有用诊断合并或历史失败结果授予完整CI资格。
+
+### 继续：第二组覆盖率诊断完成，核对 fork 采集（2026-10-01）
+
+- `/tmp/hm-new-hosted-behavior-unit02.txt`：130 passed /456.88s；子集coverage
+  37.17%，原85%门返回exit1，不是完整CI PASS。
+- Q09/Q10来源组合夹具01缺少typed raw inventory的files字段，18项构造失败；
+  修正后的02为18 passed /7.77s；进一步增加复用原根、C11范围、principal bytes
+  和tamper矩阵负例，`/tmp/hm-replay-source-coverage-unit02.txt`为26 passed /23.84s，
+  子集coverage22.50%仍exit1。业务/已安装执行/typed corruption predicate为明确
+  double，原来源路径、raw inventory、实际cross-root comparison保留，不授Q09/Q10。
+- 三个诊断子集对当前HEAD中逐文件SHA相同的源码，有976条新增被测语句；没有合并
+  数据或覆盖旧根用于资格。涉及已修改源码的行号不混用为新源码的完整CI证明。
+- 原子/budget/fault探针的实际fork内联路径虽执行但部分未进入报告。coverage实际
+  锁定包自动启用parallel=True且有a1_coverage.pth，排除“没有parallel/启动hook”的
+  假设，未据此修改配置。官方
+  [coverage配置说明](https://coverage.readthedocs.io/en/latest/config.html)指出通常fork
+  继承测量，额外fork patch用于默认处理不够的情况。正在以保留85%门的独立tmp
+  配置比较是否因额外reset丢失当前fork frame；尚无结论，不提前登记修复或资格。
+
+### 继续：部署图、安装冻结、bundle 外层与 fork 独立对照（2026-10-01）
+
+- `/tmp/hm-stage-graph-unit01.txt`：8 passed /15.75s。实际干净Git checkout、
+  Parquet/view/seed、wheel源字节核对、原生GCC启动器构建及管理部署重读绑定；
+  Python/CLI安装为明确tiny copy double，不执行其字节，不授安装或live资格。
+  `/tmp/hm-budget-stage-capture-unit01.txt`：10 passed /5.76s，实际fork/cwd inode/
+  子进程reap与timeout kill，检查19个子profile绑定及实际声明清单；构造冻结安装
+  明确double。两者覆盖率子集 `/tmp/hm-stage-behavior-unit01.txt`为18 passed /
+  35.20s，25.92%低于85%，exit1；阈值保持不变。
+- `/tmp/hm-install-freeze-unit01.txt`与02分别7项构造失败：先遗漏client policy，
+  后policy缺少其必需字段；日志保留。复用既有完整policy夹具后的03为7 passed /
+  19.91s，实际文件复制/zip解析，拒绝路径穿越、绝对路径、symlink、错误channel，
+  并移除旧base import hook/依赖pth/editable QuantOS；不执行合成Python/CLI。
+  子集18.76%仍exit1，不是完整CI通过。
+- `/tmp/hm-bundle-integrity-unit01.txt`：12 passed /19.76s。实际bundle清单/
+  canonical bytes/path、完整文件集、长度/哈希、runtime、冻结契约及独立派生gate
+  检查；合成缺来源bundle仅有NOT_EVALUATED，重写外层哈希仍不能将其升级PASS。
+  verifier前后raw bytes不变；无来源原根控制正确拒绝。子集19.01%仍exit1。
+- `/tmp/hm-fork-inheritance-unit03.txt`：15 passed /384.31s，包含原子12窗口/
+  unsafe recovery、预算及重复来源；子集33.21%低于85%，仍exit1。
+  正在进一步验证既有fault/lifecycle组件在继承配置中的完整结果。
+- 配置仅删除额外`fork` reset patch，保留subprocess、_exit、thread/multiprocessing、
+  全quantos源码、branch和85%门；独立对照实际171个源码、27549 statements/
+  7986 branches分母一致，native单节点两组分别1 passed但都因85%门exit1。
+  当前配置的实际fork内联覆盖102/138、20/36，reset对照84/138、15/36；独立toy
+  fork/spawn/subprocess/_exit/thread控制也完成，无旧data混合或XML加工。
+  tracer失效机制仍是与观察一致的推断，不能扩张为所有子进程保证或Q12资格。
+- 独立`gpt-6.1-sol / high`限定配置审查CLOSED，报告
+  `docs/reviews/hm-coverage-fork-inheritance-review.md`，最终SHA256
+  `453f8f2c000fd4b2893615f43faef67a611d832018679d4097428de5779a0435`；审查原件
+  32个source/evidence hashes及全171源码清单再次一致，不授正式资格。
+- 全量Ruff/check/format再次通过，pyright0 errors/warnings。前23个原始失败/不完整
+  attempt索引预备04完整（23个staging，6个另存CI报告，pending为空），SHA256
+  `7f89d71ba2a68c210c1aa8f65ad7964de7950b9f56548f6cd6b4279663b4cb18`；仅哈希与
+  记录核对，不重写原失败、不构成资格。最终HM09仍需核对完整历史与原根。
+- attempt24驱动已准备但未执行：要求精确干净新commit/新wheel/新根，先完整CI，
+  再全部61个Q05窗口及独立Q06预算子部署；无provider认证读取或模型调用。
+  正式Q01/Q07/live/replay/完整Q12、HM09–HM11仍未完成，MVP仍NOT_QUALIFIED。

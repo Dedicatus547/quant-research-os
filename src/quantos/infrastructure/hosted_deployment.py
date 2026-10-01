@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import csv
 import ctypes
+import io
 import json
 import os
 import platform
@@ -129,6 +131,41 @@ def verify_install(root: Path, expected: HostedInstallInventory) -> None:
         raise ArtifactIntegrityError("frozen installation inventory changed")
 
 
+def _freeze_ruff_executable(dependency_site: Path, python_root: Path) -> None:
+    """Preserve the optional native audit tool from its installed wheel RECORD."""
+    frozen_site = python_root / "lib/python3.11/site-packages"
+    metadata = tuple(
+        sorted(
+            path.name
+            for path in frozen_site.iterdir()
+            if path.name.startswith("ruff-") and path.name.endswith(".dist-info")
+        )
+    )
+    if not metadata:
+        return
+    if len(metadata) != 1:
+        raise ArtifactIntegrityError("native Ruff metadata is ambiguous")
+    with opened_directory(frozen_site / metadata[0]) as directory:
+        records = csv.reader(
+            io.StringIO(read_regular_bytes_at(directory, "RECORD", max_bytes=1_048_576).decode())
+        )
+        identities = tuple(row for row in records if row and row[0] == "../../../bin/ruff")
+    if len(identities) != 1 or len(identities[0]) != 3:
+        raise ArtifactIntegrityError("native Ruff wheel identity is unavailable")
+    with opened_directory(dependency_site.parents[2] / "bin") as directory:
+        executable = read_regular_bytes_at(directory, "ruff", max_bytes=67_108_864)
+    digest = sha256_bytes(executable)
+    encoded = base64.urlsafe_b64encode(bytes.fromhex(digest)).rstrip(b"=").decode()
+    if not executable.startswith(b"\x7fELF") or identities[0][1:] != [
+        "sha256=" + encoded,
+        str(len(executable)),
+    ]:
+        raise ArtifactIntegrityError("native Ruff executable differs from installed wheel")
+    target = python_root / "bin/ruff"
+    atomic_write_bytes(target, executable, expected_sha256=digest)
+    os.chmod(target, 0o500)
+
+
 def freeze_python_install(
     destination: Path,
     *,
@@ -165,6 +202,7 @@ def freeze_python_install(
             shutil.copytree(source, target, symlinks=False)
         else:
             shutil.copy2(source, target, follow_symlinks=True)
+    _freeze_ruff_executable(dependency_site, python_root)
     with zipfile.ZipFile(wheel) as archive:
         for entry in archive.infolist():
             name = Path(entry.filename)

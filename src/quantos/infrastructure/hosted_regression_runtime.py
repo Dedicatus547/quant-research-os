@@ -18,6 +18,7 @@ from quantos.infrastructure.hosted_deployment import install_inventory
 from quantos.infrastructure.hosted_verification import read_relative
 
 CI_PREFIX = "qualification-checks/Q12"
+CI_PYTEST_TEMP = Path("/tmp/pt/b")
 COVERAGE_PTH = (
     b'import sys; exec(\'import os\\n\\nif os.getenv("COVERAGE_PROCESS_START") or '
     b'os.getenv("COVERAGE_PROCESS_CONFIG"):\\n try:\\n  import coverage\\n except:\\n'
@@ -197,6 +198,10 @@ def ci_namespace_command(
         "--dev",
         "/dev",
         "--clearenv",
+        "--tmpfs",
+        "/tmp",
+        "--dir",
+        str(CI_PYTEST_TEMP.parent),
         "--bind",
         str(workspace),
         str(workspace),

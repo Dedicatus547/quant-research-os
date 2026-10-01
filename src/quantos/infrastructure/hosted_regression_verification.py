@@ -18,6 +18,7 @@ from quantos.contracts.hosted_qualification import HostedQualificationCase, Host
 from quantos.contracts.provenance import RuntimeFingerprint
 from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 from quantos.infrastructure.hosted_regression_runtime import (
+    CI_PYTEST_TEMP,
     ci_environment,
     ci_namespace_command,
     ci_python,
@@ -49,7 +50,7 @@ def regression_commands(python: Path, workspace: Path, target: Path) -> dict[str
             "--cov-report=term-missing",
             f"--cov-report=xml:{target / 'coverage.xml'}",
             f"--junitxml={target / 'pytest.xml'}",
-            f"--basetemp={target / 'pytest-root'}",
+            f"--basetemp={CI_PYTEST_TEMP}",
         ),
         "diff-check": ("/usr/bin/git", "-C", str(workspace), "diff", "--check"),
     }

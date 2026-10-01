@@ -362,6 +362,7 @@ def run_managed_regression(deployment: HostedManagedDeployment, workspace: Path)
             actual_argv,
             workspace=workspace,
             environment={"PATH": "/usr/bin:/bin"},
+            timeout=14400 if name == "pytest" else 7200,
             kernel_observations=kernel,
             expected_executable_hash=installed["python/bin/python3.11"],
         )

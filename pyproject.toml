@@ -84,7 +84,7 @@ markers = [
 branch = true
 source = ["quantos"]
 concurrency = ["thread", "multiprocessing"]
-patch = ["subprocess", "fork", "_exit"]
+patch = ["subprocess", "_exit"]
 
 [tool.coverage.report]
 show_missing = true

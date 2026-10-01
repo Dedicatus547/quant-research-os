@@ -122,7 +122,12 @@ def test_native_source_import_ignores_real_timestamp_valid_stale_cache(
     source.write_bytes(stale)
     timestamp = source.stat().st_mtime_ns
     py_compile.compile(
-        str(source), doraise=True, invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP
+        str(source),
+        cfile=str(
+            source.parent / "__pycache__" / f"{source.stem}.{sys.implementation.cache_tag}.pyc"
+        ),
+        doraise=True,
+        invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP,
     )
     source.write_bytes(frozen)
     os.utime(source, ns=(timestamp, timestamp))

@@ -632,6 +632,8 @@ class TrustedCodexLauncher:
                 )
             else:
                 reason = "CLI_PROCESS_NOT_COMPLETED"
+                if outcome == "CAPTURED":
+                    outcome = "REJECTED"
         except (ValueError, UnicodeError, RecursionError, SecretArtifactRejected):
             outcome, reason = "REJECTED", "CLI_OUTPUT_UNSAFE_OR_SOURCE_INVALID"
             proposal = None
