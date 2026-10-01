@@ -674,6 +674,7 @@ def verify_case(
             "Q09",
             "Q10",
             "Q11",
+            "Q12",
         }:
             from quantos.infrastructure.hosted_case_predicates import verify_q01, verify_q11
             from quantos.infrastructure.hosted_negative_origin import (
@@ -683,6 +684,7 @@ def verify_case(
                 verify_q08,
             )
             from quantos.infrastructure.hosted_q06_verification import verify_q06
+            from quantos.infrastructure.hosted_regression_verification import verify_q12
             from quantos.infrastructure.hosted_replay_verification import verify_q09, verify_q10
 
             predicate = {
@@ -695,6 +697,7 @@ def verify_case(
                 "Q09": verify_q09,
                 "Q10": verify_q10,
                 "Q11": verify_q11,
+                "Q12": verify_q12,
             }[case.case_id]
             hashes.update(predicate(bundle, case, sources))
             return HostedQualificationGate(

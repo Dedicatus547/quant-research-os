@@ -25,6 +25,7 @@ from quantos.infrastructure.hosted_fault_cases import (
 from quantos.infrastructure.hosted_verification import raw_inventory, verify_protocol_root
 
 
+@pytest.mark.fresh_offline_process
 def test_parent_timeout_retains_actual_killed_child_exit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -68,6 +69,7 @@ def test_parent_timeout_retains_actual_killed_child_exit(
     + tuple(ADMISSION_FAULT_WINDOWS)
     + tuple(CORRUPTION_FAULT_WINDOWS),
 )
+@pytest.mark.fresh_offline_process
 def test_fixed_window_physically_exits_and_two_fresh_boots_are_idempotent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
 ) -> None:

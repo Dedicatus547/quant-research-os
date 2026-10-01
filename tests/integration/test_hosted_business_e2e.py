@@ -88,6 +88,7 @@ from quantos.infrastructure.hosted_verification import (
 from quantos.research.qlib import QlibResearchError
 
 
+@pytest.mark.fresh_offline_process
 def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

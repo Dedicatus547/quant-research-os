@@ -75,6 +75,7 @@ venv = ".venv"
 addopts = "-ra --strict-config --strict-markers --disable-socket"
 testpaths = ["tests"]
 markers = [
+  "fresh_offline_process: start offline management probes in an independent interpreter",
   "live: requires an explicit Tushare token and network access",
   "agent_live: requires an existing Codex login and provider network access",
 ]

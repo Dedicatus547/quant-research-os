@@ -23,6 +23,7 @@ from quantos.infrastructure.hosted_verification import raw_inventory
 
 
 @pytest.mark.parametrize("case", ("accepted", "rejected"))
+@pytest.mark.fresh_offline_process
 def test_actual_barrier_receipt_resume_and_cap_reuse(
     tmp_path: Path, monkeypatch, case: str
 ) -> None:

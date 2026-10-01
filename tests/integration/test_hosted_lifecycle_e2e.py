@@ -63,6 +63,7 @@ from quantos.infrastructure.hosted_verification import (
 )
 
 
+@pytest.mark.fresh_offline_process
 def test_native_lifecycle_accounting_and_tampered_process_records(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

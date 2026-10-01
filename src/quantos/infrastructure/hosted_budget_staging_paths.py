@@ -41,8 +41,15 @@ def _check_identity(fd: int, forbidden: set[tuple[int, int]]) -> None:
 @contextmanager
 def pinned_budget_staging_parent(
     parent: HostedManagedDeployment,
+    *,
+    family: str = "Q06",
 ) -> Generator[tuple[int, int], None, None]:
     """Keep the exact staging/evidence inode pinned for child cwd and openat writes."""
+    if family not in {"Q06", "Q12"}:
+        raise ValueError("unknown fixed management staging family")
+    components = (
+        ("qualification-deployments", "Q06") if family == "Q06" else ("qualification-checks",)
+    )
     root = parent.root.absolute()
     with ExitStack() as stack:
         root_fd = stack.enter_context(opened_directory(root))
@@ -81,7 +88,7 @@ def pinned_budget_staging_parent(
         # Inspect all existing fixed ancestors before creating even an empty prefix.
         current = os.dup(root_fd)
         try:
-            for component in ("qualification-deployments", "Q06"):
+            for component in components:
                 try:
                     child = os.open(
                         component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current
@@ -100,7 +107,7 @@ def pinned_budget_staging_parent(
         # Creation and all subsequent lookups use the previously pinned parent.
         current = os.dup(root_fd)
         try:
-            for component in ("qualification-deployments", "Q06"):
+            for component in components:
                 try:
                     os.mkdir(component, mode=0o700, dir_fd=current)
                     os.fsync(current)
@@ -136,9 +143,14 @@ def pinned_budget_staging_parent(
             os.close(current)
 
 
-def require_staging_parent_identity(parent: HostedManagedDeployment, pinned_fd: int) -> None:
+def require_staging_parent_identity(
+    parent: HostedManagedDeployment, pinned_fd: int, *, family: str = "Q06"
+) -> None:
     """A renamed/retargeted path cannot be published as the original child source."""
-    with opened_directory(parent.root / "qualification-deployments/Q06") as observed:
+    if family not in {"Q06", "Q12"}:
+        raise ValueError("unknown fixed management staging family")
+    logical = "qualification-deployments/Q06" if family == "Q06" else "qualification-checks"
+    with opened_directory(parent.root / logical) as observed:
         expected_info, observed_info = os.fstat(pinned_fd), os.fstat(observed)
         if (expected_info.st_dev, expected_info.st_ino) != (
             observed_info.st_dev,

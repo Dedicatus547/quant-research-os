@@ -200,3 +200,41 @@ def test_new_case_basename_replacement_cannot_redirect_its_pinned_cwd(tmp_path: 
             assert (moved / "inputs/component-canary").read_bytes() == b"pinned case cwd"
         finally:
             os.close(case_fd)
+
+
+@pytest.mark.parametrize("role", ROLES)
+def test_ci_prefix_staging_rejects_protected_ancestor_alias_before_writes(
+    tmp_path: Path, role: str
+) -> None:
+    parent = _parent(tmp_path)
+    (tmp_path / "qualification-checks").symlink_to(tmp_path / role, target_is_directory=True)
+    before = _facts(tmp_path)
+    with (
+        pytest.raises(ArtifactIntegrityError, match="ancestor alias"),
+        pinned_budget_staging_parent(parent, family="Q12"),
+    ):
+        pytest.fail("aliased prefix preparation must never start")
+    assert _facts(tmp_path) == before
+
+
+def test_ci_prefix_retarget_cannot_redirect_pinned_preparation(tmp_path: Path) -> None:
+    parent = _parent(tmp_path)
+    with pinned_budget_staging_parent(parent, family="Q12") as (descriptor, _):
+        staging = tmp_path / "qualification-checks"
+        staging.rename(tmp_path / "original-ci-staging")
+        staging.symlink_to(tmp_path / "authority", target_is_directory=True)
+        before = _facts(tmp_path)
+        os.mkdir("Q12", dir_fd=descriptor)
+        assert _facts(tmp_path) == before
+        assert (tmp_path / "original-ci-staging/Q12").is_dir()
+        with pytest.raises(ArtifactIntegrityError):
+            require_staging_parent_identity(parent, descriptor, family="Q12")
+
+
+def test_staging_family_is_finite_before_any_directory_inspection(tmp_path: Path) -> None:
+    with (
+        pytest.raises(ValueError),
+        pinned_budget_staging_parent(SimpleNamespace(), family="arbitrary-path"),
+    ):
+        pytest.fail("arbitrary staging must never start")
+    assert not tuple(tmp_path.iterdir())

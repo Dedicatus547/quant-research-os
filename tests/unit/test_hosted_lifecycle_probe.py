@@ -20,6 +20,7 @@ from quantos.infrastructure.hosted_verification import raw_inventory, verify_pro
 
 
 @pytest.mark.parametrize("case", probe.HOSTED_LIFECYCLE_CASES)
+@pytest.mark.fresh_offline_process
 def test_real_flock_orders_ttl_and_two_native_restarts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
 ) -> None:

@@ -10,7 +10,11 @@ import pytest
 from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.hosted_qualification import HostedManagerExportFile, HostedQualificationCase
-from quantos.infrastructure.hosted_deployment import HostedNamespacePaths, namespace_command
+from quantos.infrastructure.hosted_deployment import (
+    MOUNT_POLICY_BYTES,
+    HostedNamespacePaths,
+    namespace_command,
+)
 from quantos.infrastructure.hosted_offline_verification import verify_offline_manager_run
 from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 from quantos.infrastructure.hosted_verification import HostedQualificationError, raw_inventory
@@ -214,7 +218,9 @@ def test_offline_original_capture_and_fixed_launch_are_cross_bound(
     deployment = SimpleNamespace(
         root=manager,
         paths=paths,
-        profile=SimpleNamespace(content_hash="d" * 64),
+        profile=SimpleNamespace(
+            content_hash="d" * 64, mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES)
+        ),
         install=SimpleNamespace(
             files=(
                 SimpleNamespace(

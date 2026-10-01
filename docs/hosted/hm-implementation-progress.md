@@ -6,8 +6,9 @@ HM-01/02 的基线、冻结契约和独立契约审查已保存；HM-03/04/05 �
 持久化业务编排和受限 CLI 已实现并通过组件回归。HM-06 的冻结安装、namespace、
 Unix channel、可信 CLI 捕获及管理 staging 已实现；已有实际启动和 Q07 原件诊断，
 尚未完成完整正式资格。
-HM-07 的只读 raw/protocol/business verifier、保存 SUBMIT 导入和 offline 管理入口正在完善；
-尚未实现完整 Q01–Q12 的 scenario verdict。HM-08 的实际模型驱动已接入受限 CLI，
+HM-07 的只读 raw/protocol/business verifier、保存 SUBMIT 导入和 offline 管理入口已接入；
+Q01–Q12 的来源谓词已有实现，完整原件矩阵与新 Q12 实现的冻结安装验收尚未通过。
+HM-08 的实际模型驱动已接入受限 CLI，
 正式 live、receipt reuse、两个全新 Qlib 根及完整 bundle 尚未执行。HM-09/10/11 未完成。
 
 追加独立审查 [隔离启动与回放](../reviews/hm-replay-isolation-review.md) 批准有界实施澄清，
@@ -805,3 +806,74 @@ deny execute/Workflow/network零调用。主agent最新prepared-root管理回归
 该关闭仍不授Q06或MVP资格；下一步冻结新源码运行完整七个installed预算worker与四个
 lifecycle来源矩阵、剩余native Q05窗口和完整Q12。已准备新attempt19离线driver，未复用
 旧失败root，也没有运行provider或读认证；完整资格声明继续等待全部门与HM09独立接受。
+
+2026-10-01 后继实际安装与 Q12 修正记录：精确源码
+`359338d35e880a93f06ff5bcffb005bdd7de5368` 的完整 worktree 为
+`/tmp/hm-q06-installed-worktree02`。早先不完整资产复制的第一个 worktree 保留未复用。
+attempt19 wheel SHA256 为
+`ef0bf2a886a15a98d25242fed4986bc318506b668a6bac24cffb5513ea0475d8`，实际部署根
+`/tmp/hm-stage-359338d-attempt19`，B
+`5981c63df9b7fcf87ce83822de685da31e22e4987f3a43070fc1e5b1ea0a399b`，D
+`7be62dc94bf362b96660d3c23445ded42dec0e4404fe403104a0b91896073a36`。
+安装服务与 Q07 实际检查已采集；Q02、Q03、Q04、Q08 的管理 fixture 已采集，
+Q05/Q06 矩阵仍在运行。另行启动的 Q05 `execution-started` 已有原生完成记录；
+`execution-prepared` 与 `execution-execution_receipt` 仍待实际完成。
+receipt 驱动首次错误使用非固定 case 名，CLI 在 case 执行前拒绝，原日志保留；
+后继只使用冻结有限 case。所有这些新记录仍为 `NOT_QUALIFIED`，并非完整 scenario PASS。
+原 live authority 未改写；其 initial request 已过期，不能重新设置 TTL 冒充 live。
+
+359338d 全库 CI 实际完成为 **72 failed / 1314 passed / coverage 74.63%**，不通过 85% 门。
+原日志 `/tmp/hm-ci-359338d-pytest01.txt`，SHA256
+`5ce5390eb9c9a128813688784f1af2505a45da8cfefb4458b9fb343a35ddf983`；coverage XML
+`/tmp/hm-ci-359338d-coverage01.xml`，SHA256
+`dc293cba6595591db41208afa5bc1be9820ea490857dc39339e7d838c19cdd9f`。
+60 项失败由整个 pytest session 收集时导入 Agent SDK、再 fork 原生 offline probe 导致；
+保留生产 SDK 拒绝逻辑，后继仅让明确标记的原生 probe 在新 Python interpreter 执行准确
+nodeid。独立先导入 SDK 再运行 atomic 的新回归 27 passed，子集全库 coverage29.55% 仍
+FAILED，不算 Q12。其余 12 项来源控制的合成 profile 缺少新版 mount_policy_hash，已修正
+测试 fixture；34 项 offline profile 回归通过。359338d 原格式/ruff 通过；严格 pyright
+需显式真实 venv 路径，03 零错误，最初两次未找到依赖的失败日志不删除，不创建 venv symlink。
+
+新 Q12 管理 capture/source predicate 已实现固定五个完整 CI 命令、逐项原 prelaunch/
+waitpid/log、coverage 与 JUnit 重新计算、完整 tracked source 与 before/after authority
+闭包，但还没有新冻结 full CI 原件，不能授 Q12。独立第一窄审
+[原 OPEN](../reviews/hm-q12-regression-narrow-review.md)，SHA256
+`36a94cf6b025b755ad63f41bd721877848fc3c673ee6e8cbb0de977ce206e621`，发现 pyright
+默认版本探网、外部 Node、外部 Python prefix 及 EOF 后超时逃逸四项缺口。后继冻结 CI
+完整前缀由 D 的 python/ 全文件派生，只加经冻结 coverage wheel RECORD 认证的官方
+a1_coverage.pth；Node 显式复制为只读 ELF，原始 declaration 与 inventory 绑定每项字节。
+固定 bwrap 只读基础/前缀/Node，明确禁止工具版本发现与 Node 下载；所有检查使用真实
+独立网络 namespace，释放 exec 前由管理父读取 /proc 核查 PID、祖先、namespace 与
+Python executable hash。EOF 继续使用原剩余 deadline，超时原 bytes 与实际退出完整保存。
+
+独立第二[关闭复审](../reviews/hm-q12-regression-closure-review.md)，SHA256
+`318214e13aea00e913a0f0c77091fd94da3159eee2b8ccb446734a75b46e28f6`，117 组件通过，
+关闭三个原缺口但发现 bwrap 新会话下 kill 外层进程组留下真实孤儿后代，以及管理运行时
+实际 isolated flags 未核对两个阻塞。该 OPEN 报告不追改。后继增加固定 PID namespace：
+原管理父以真实 /proc children 与 NSpid 映射核对 init/bridge PID，在 exec barrier 前开
+native init pidfd，完整 namespace 实际退出后才记录 namespace_exit_observed；失败时
+对实际 pidfd SIGKILL，内核销毁 PID namespace 后代。冻结 Python/glibc 无公开 pidfd
+wrapper，复用既有 libseccomp 名称解析与真实 Linux syscall，不模拟进程或硬编码 PID。
+capture 和 verifier 同时硬要求真实 isolated/ignore_environment/no_user_site/safe_path。
+新三项原生控制实际生成 start_new_session=True 的 60s 后代，以后代原 pidfd 确认正常、
+普通超时与 EOF 超时三种退出均清理；同组 161 passed/45.15s，全 src 严格 pyright 零错误，
+全库 ruff 及 525 文件格式通过。新的独立关闭审正在进行，尚未冻结后继源码。
+
+CI staging 使用原 Q06 pinned-inode helper 的唯一新固定 Q12 家族，无研究 RPC 能力增加；
+新增八 protected ancestor alias、retarget 与 finite-family 控制。真实 fork 准备的四控制
+5.95s 通过，原安装与全部保护角色的 raw/dirs 不变；坏 hook/Node 和既有 root 原证据保留，
+子进程实际 PID 被 waitpid 回收。实际固定工具组件01只读借用旧359安装、派生真实完整
+前缀与 Node，网络 namespace 下 pyright exit0；由于该旧 wheel 没有新 Q12 capture，
+它明确只是 `NOT_QUALIFIED` 组件，不能替代新冻结源完整 CI。后继 PID namespace 工具
+组件另建新根；未启动的 driver 日志与所有 failed component/type/coverage 日志均保留。
+当前仍待新源码独立关闭、冻结安装完整 Q01–Q12 原件、HM09 接受、Luna HM10 与 HM11。
+
+后继第三[PID/flags 关闭审](../reviews/hm-q12-regression-pid-closure-review.md)，SHA256
+`0797ae60cbdaad6178e3921e726eaa9870d835b31babc0b0ab20c3862af6d7d2`，在精确后继源码
+上限定关闭剩余两项代码阻塞；两原 OPEN 报告和原反例不变。独立127组件65.84s通过，
+另行三项原生跨session后代各自原pidfd观察退出，guest PID与管理父真实NSpid映射、init
+及namespace闭包留存；四管理flags逐字段false的原记录负例均拒绝。工具component02的
+真实pyright exit0、PID namespace退出已核对；它只读借用旧359wheel，仍不授新源资格。
+本次准备冻结后继源码；新部署先bootstrap注册而不提前签发live请求，完整离线矩阵与
+Q12之后才通过真实start创建请求，避免修改原TTL或重新签发过期请求。新Q12需真实冻结
+管理前缀运行全部CI并通过原85%门，后续live/Q09/Q10/HM09与Luna文档仍未完成。

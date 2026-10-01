@@ -24,6 +24,7 @@ from quantos.infrastructure.hosted_verification import raw_inventory, verify_pro
 
 
 @pytest.mark.parametrize("case", tuple(probe.ATOMIC_FAULT_WINDOWS))
+@pytest.mark.fresh_offline_process
 def test_native_atomic_exit_and_two_fresh_boots_retain_originals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
 ) -> None:
