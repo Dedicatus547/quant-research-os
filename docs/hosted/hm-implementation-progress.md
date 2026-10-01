@@ -1258,3 +1258,63 @@ Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicat
   源/测试、两个历史 OPEN 与独立原件 hashes 再次由根 agent 核对一致，未修补或
   改写旧失败。关闭只适用于这两项私有 FD/返回进程所有权缺陷，不授 HM09/Q12/
   MVP、部署 namespace 或真实 scientific/live 资格。开始冻结新 commit/wheel/D25。
+
+- 修正已冻结为 `98e6f2f04e86f9b1a2a3a6bb6e185bb88609ed19`；独立干净
+  `/tmp/hm-q12-installed-worktree08` 无共享 `.venv`，三个固定输入路径复制完成后
+  构建 wheel25，SHA256
+  `59ac1f84243e486ee6a349202cb76885b2c5edd03046260de00fcf09d73beb78`。
+  attempt25 已实际启动，原根 `/tmp/hm-stage-98e6f2f-attempt25`；
+  B=`2987dbd6eb8de85f0e7d2002180f9c847441283af065417ba0f57435fbff94d2`，
+  D=`9df7e2646759b5556332db6e1b408a7dade1ee4f775fe2580df742ddd166ff6e`。
+  驱动先整轮 CI，再全部离线矩阵；没有 live request、provider 认证读取或模型调用。
+  此时尚无完整 CI/矩阵终态，仍 NOT_QUALIFIED；最终 HM09–HM11 未完成。
+
+- attempt25 原生 REGISTER/服务停止与回归运行前缀准备已完成；Ruff/check、format、
+  pyright 三个原始 exit records 均0且 waitpid_observed=true，全量 pytest 尚在运行。
+  独立 worktree08 再次核对精确 HEAD 与干净状态。
+- 仅在 `/tmp` 准备了后继管理脚本，未执行：`hm_live_drive_attempt25.py` 要求原始
+  离线七门全部 PASS、独立安装源码 verifier 的实际退出/输出/清单绑定，并在
+  provider 认证前检查既有保存源读取/guard 上限；之后才调用既有实际 live driver。
+  该脚本编译和 Ruff 通过，SHA256
+  `47fe471fa42846e7814cad3b7b72572f078dc56237ad1421059b658ae7186d24`。
+  `hm_failed_attempt_index_attempt25.py` 只准备纳入前24个原始非资格 attempt 的
+  后继索引，显式绑定独立 history 文件；仍需等待 attempt24 原始终态并核对，
+  未将旧23项 prepared index 冒充最终完整历史。没有进行凭据读取或真实模型调用。
+
+### 继续：完整 attempt24 失败与嵌套 Python 前缀修复（2026-10-01）
+
+- attempt24 的原始完整 CI 已终结：1757 passed /5 failed /0 skipped，7170.77s。
+  五个原始 CLI 均完成并实际 wait；Ruff/check、format、pyright、diff-check 为0，
+  pytest 为1。原始 run.json 已发布，SHA256
+  `59ccf5a457326ade0b5474f3eba6247bc4c0ecbba4839827c6e4714f42e6fce7`；
+  coverage.xml SHA256
+  `93163a39db3b60bde15df6a870ec3af5e608ffa21f52fe537d6b84155fa695cc`。
+  实际覆盖24280/27549 statements、5766/7986 branches，合并84.55%，未达到85%。
+  原根 negative-staging-failure.json SHA256
+  `f88d8180e397d8596322cd1b11472f95a12c063bb1b8287513ef2f535f4a42ac`；
+  驱动因 CI 失败停止，未进入离线矩阵或 live。旧原件没有重跑、合并或修补。
+- 五项失败都是真实嵌套 capture 的桥接/后代清理控制：外层 CI 的 Python 前缀
+  位于 /tmp，内层新的 private /tmp 隐藏该前缀，bwrap 在执行 Python 前 ENOENT。
+  后继修正仅在 private scratch 后显式只读挂载选定解释器前缀；原 workspace、
+  target 与最后的只读 .venv/node-bin 挂载保持，namespace、精确 argv、源码全集
+  与85%门不变。runtime SHA256
+  `8432333df6f22de31f77335d7f08dd968445aba4436799b7bf18655b2460ae27`。
+- 根 agent 真正 nested capture 控制为10 passed /13.21s；独立新上下文
+  `gpt-6.1-sol / high` 在新原根复现省略三 argv 参数的 ENOENT 反例，修正后
+  code0，五个 direct/link/prefix/Node canary 均 EROFS；private scratch/socket、
+  持久 target 和 host marker 边界通过。独立真正 nested capture 10 passed /
+  12.86s。限定 CLOSED 报告 `docs/reviews/hm-q12-nested-python-prefix-closure-review.md`
+  SHA256 `b6d03141a5cb9c927575260dc097037122e31b237f7c5eca726e058e184d885b`；
+  20项原始证据全部由根 agent 再次核验哈希一致。该窄审不授 Q12/HM09/MVP。
+- 新 probe collector 控制执行真实 memfd、fork、子进程导入与 Unix IPC，核对
+  错 capability/campaign、unsupported operation、只读查询不改变 protocol inventory。
+  权限、proc view 与危险 syscall 明确 double，不作为实际隔离观测或资格。
+  初次 sandbox bind 被拒、CDLL double scope 与 byref 缺失的失败日志01–03均保留；
+  后继04为2 passed /6.73s。测试 SHA256
+  `2fc785d28129ab81cf6663e93bfa73a289e09c23d7a804ca0a8bb3af5168245d`。
+  Ruff/check、format 565 files 均通过，pyright0 errors/warnings。相邻97项含覆盖率
+  回归 `/tmp/hm-probe-capture-current-unit01.txt` 全通过，67.25s；子集26.86%
+  低于保留的85%门，因此 exit1，不替代完整 CI。开始冻结新 commit/wheel/attempt26。
+- attempt25 仍使用其旧98e6f2f身份运行，不继承此修正；其原始终态待保留并纳入
+  后继完整失败历史。HM08 完整新资格、HM09 独立接受、Luna HM10 和 HM11 未完成。
+  没有读取 provider 认证或调用研究模型，MVP仍 NOT_QUALIFIED。
