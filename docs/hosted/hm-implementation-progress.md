@@ -877,3 +877,40 @@ CI staging 使用原 Q06 pinned-inode helper 的唯一新固定 Q12 家族，无
 本次准备冻结后继源码；新部署先bootstrap注册而不提前签发live请求，完整离线矩阵与
 Q12之后才通过真实start创建请求，避免修改原TTL或重新签发过期请求。新Q12需真实冻结
 管理前缀运行全部CI并通过原85%门，后续live/Q09/Q10/HM09与Luna文档仍未完成。
+
+2026-10-01 科学工件快照后继：冻结提交
+`c046e37c6618e1f65b025a57924c0fe4b0c5fd93` 已包含 Q12 的第三次独立代码关闭，
+但其完整安装 CI 尚未开始。attempt20 在验证业务输入时因 release 资产目录布局错误失败；
+保留 `/tmp/hm-stage-c046e37-attempt20.log` 与不完整 worktree03。
+新完整 worktree04 的 attempt21 已冻结 B
+`6ec54ad9b87d6ca27b6d12e55f42f1c60d46c965dd93ca5842246d2b63893dea`、D
+`dd21804e9ac166cd48d29a7a311687695b6733b2a9e99055b03885039a7e6878`，
+bootstrap 注册成功，但管理 pending 客户端不能处理“尚未签发请求”的 JSON null，故失败。
+没有签发请求、执行 CI 或读取认证；服务已停止，原 root 与失败记录保留。
+后继驱动直接只读核对原 protocol store 的零 requests，不提前调用 start/pending。
+
+旧359安装的 execution-prepared 已实际完成 recovery-1 与两次 native execute，随后
+管理快照在 Qlib 约30MB labels/predictions JSON 处遇到小型 typed-contract 的16MiB上限，
+只有496个复制文件，未执行 recovery-2。execution-execution_receipt 的294个源文件中有
+两个大文件，其 crashed 快照只复制248个文件、尚未开始 recovery。两个窗口均 FAILED，
+原根不补写；不能因原生执行部分完成授予 Q05。
+后继只修管理科学工件复制：raw inventory 的既有16GiB单文件上限不变，以已经观测的
+文件 size 有界读取，逐项核对 SHA，再重核源和目标 raw/目录闭包。小型协议、模型响应和
+typed reader 的16MiB默认上限、预算及TTL均不变。
+
+新组件 `/tmp/hm-scientific-snapshot-native-component01` 只读借用旧 prepared 源，
+完整复制616/616 files及4个大JSON，原 inventory
+`44d59424f34705ad16af85c4122844f530899deaec7504cdcc6ac9b7f03536c9` 与目录完全一致，
+原源与旧失败快照均未动；该组件 NOT_QUALIFIED，不能补齐旧窗口。
+生产 helper SHA256
+`074cd7d493b8aaed7595d926a79dc2c878d7692ebda9c908de19db23bf0ca261`。
+原组件01为2 failed/81 passed/463.40s，两失败仅为新增测试的异常类型预期错配；
+修正后的 unit03 两项 passed/1.72s，原失败日志不覆写。全src严格pyright零错误、ruff通过。
+必要独立审查仍使用 gpt-6.1-sol/high；实际616项及旧失败496项前后重新核对、16GiB+1
+sparse、增长、同大小内容变化、symlink/hardlink/FIFO和零长度控制已完成，独立17项通过。
+下一步冻结限定代码修复，使用新完整 worktree、wheel、D 与新root执行实际Q12完整CI及
+全部离线来源矩阵。HM07/HM08完整门、HM09接受、Luna HM10与HM11仍未完成。
+
+科学cap[独立限定关闭审查](../reviews/hm-scientific-snapshot-cap-review.md)，SHA256
+`b1f3d27eba7e641c9d5bb692c2bdd3d8dcd28b4f563e194f8c14aac808b8cac8`，已关闭上述具体代码缺口，明确仍为
+NOT_QUALIFIED；原OPEN/FAILED报告与旧根均未改写。

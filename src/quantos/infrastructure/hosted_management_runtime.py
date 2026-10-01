@@ -27,7 +27,14 @@ def snapshot_management_authority(phase: str, authority: Path, channel: Path) ->
         with opened_directory(target / logical, create=True):
             pass
     for item in inventory.files:
-        atomic_write_bytes(target / item.logical_path, read_relative(authority, item.logical_path))
+        # Inventory files already obey the scientific-artifact bound. A Qlib
+        # labels/predictions export is not a small incoming protocol contract.
+        atomic_write_bytes(
+            target / item.logical_path,
+            read_relative(authority, item.logical_path, max_bytes=item.size_bytes),
+            expected_sha256=item.sha256,
+        )
+    verify_raw_inventory(authority, inventory)
     verify_raw_inventory(target, inventory)
     if directory_inventory(authority) != directories or directory_inventory(target) != directories:
         raise ArtifactIntegrityError("management snapshot directories differ")
