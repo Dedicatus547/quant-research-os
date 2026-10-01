@@ -1201,3 +1201,60 @@ Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicat
 - attempt24驱动已准备但未执行：要求精确干净新commit/新wheel/新根，先完整CI，
   再全部61个Q05窗口及独立Q06预算子部署；无provider认证读取或模型调用。
   正式Q01/Q07/live/replay/完整Q12、HM09–HM11仍未完成，MVP仍NOT_QUALIFIED。
+
+### 继续：attempt24 原始运行与私有 FD 后继修复（2026-10-01）
+
+- 已冻结 `236955448d4e7683836d8b527625a371dcfed6e5`，干净独立 checkout
+  `/tmp/hm-q12-installed-worktree07`。wheel24 SHA256
+  `59de39755e2bc1cca9c14b7860b17297c85f6d89118fba29d48906be5290871b`；首次
+  offline build 缺默认解释器，保留原失败日志；显式现有 Python 与缓存 backend
+  的后继 build 成功。实际 attempt24 原根 `/tmp/hm-stage-2369554-attempt24`，
+  B=`4b6105b71fe94f8f3a116b5352ad314ec27a851e12350a973b2559ebca3d4217`，
+  D=`a4a6fa5742f5c87ec9288b7326a0365299b1b4eea5f462039efd48c4e76d6e20`。
+  原生 REGISTER 后服务已停止，未签发 live request；初始 EXHAUSTED sentinel
+  receipt 不是提交 attempt。Ruff/check、format、pyright 三个原始 CLI exit0，
+  全量 pytest 仍在运行；未提前登记完整 CI 或资格。
+- 既有 fault/lifecycle 与 misc fork 的继承配置回归
+  `/tmp/hm-inherited-fault-unit01.txt`：49 passed /788.95s。子集 coverage29.52%
+  低于保留的85%门，exit1；不能替代完整 Q12。
+- 后继真实 memfd 控制发现 socket construction/bind/listen/control connection
+  四个启动前错误泄漏私有 FD；原 `/tmp/hm-manager-start-unit02.txt` 4 failed /
+  8 passed 保留。首次修正遗漏 port 定义顺序，`...unit03.txt` 11 failed /
+  1 passed 保留；修正后的04为12 passed。`_memory` 增加短写拒绝并在 write/seek
+  错误中关闭 descriptor；启动 preparation 的 FD 分配与 socket/namespace/spawn
+  已纳入清理范围。后继104项相关组件回归通过，25项专项子集通过；其 coverage
+  19.83%仍 exit1，不授资格。
+- `gpt-6.1-sol / high` 独立窄审另以 close-error listener double 与真实 memfd
+  复现三条 information FD 泄漏，原 OPEN 报告
+  `docs/reviews/hm-manager-private-fd-cleanup-open-review.md` 保留，SHA256
+  `15d8ef2341b9a8a3c6dd9a9dccf4b893c34f3e98c36142c55d8cae6c76c8a683`。
+  两处 cleanup 改为 nested finally 后，新增 bind/readiness-error/readiness-success
+  三种 close-error 回归，`/tmp/hm-manager-private-fd-unit03.txt` 107 passed /
+  12.35s；真实 FD 操作保留，socket/process/namespace observation 为明确 double，
+  不构成原生隔离或 live 证据。最新全量 Ruff/check、format 通过，pyright0
+  errors/warnings。后继独立 closure 仍在进行，尚未冻结修正后的 commit/wheel。
+- 修正后的源码不能继承 attempt24 资格；其运行、原日志与后续结果保持原身份。
+  attempt25 驱动已准备但尚未执行，仍需新干净 commit/wheel/部署、完整 CI≥85%
+  与全部原生矩阵，再执行真实 hosted campaign、双根 replay、HM09–HM11。
+  没有读取 provider 认证或调用研究模型；MVP仍 NOT_QUALIFIED。
+
+- 后继 `8a66a929…` 的两 FD 清理已独立通过，但 close-success 还有真实 child
+  所有权缺口：readiness double 返回真实 Python sleep 子进程后，listener close
+  error 从 finally 逸出，调用方拿不到句柄且 child 仍运行。独立诊断最终终止并
+  wait 了两组 child，没有遗留；第二份 OPEN
+  `docs/reviews/hm-manager-private-fd-lifecycle-open-review.md` 独立封存，不改写首份。
+  最后修正把 post-readiness cleanup 放进原 terminate/wait/kill 的异常范围，
+  manager SHA256 `f3fe45e45127454561ee76d2e04a6df95278e5ad62d24c989e7c0510b7e381b9`。
+  新增真实 subprocess 正向与 close-error 两项，失败时在测试自己 poll/wait 前
+  核验实现已设置终态 returncode；startup/network/readiness 仍明确 double。
+  `/tmp/hm-manager-private-fd-unit05.txt` 109 passed /12.54s；专项 coverage02
+  30 passed /22.96s，19.83%低于85%所以 exit1，不能用此子集登记完整 CI 通过。
+  全量 Ruff/check、format 561 files、pyright0 errors/warnings；最终独立复审待完成。
+
+- 最终限定窄审已 CLOSED，`docs/reviews/hm-manager-private-fd-closure-review.md`
+  SHA256 `5349ea90d393abd8adc92047fd2bdee61a40cf58064b18ddb71ad1afcaba5a10`。
+  新独立根 review03 实际7个 FD 控制、2个真实 child 对照和30项独立组件回归
+  全通过；错误路径在诊断自身 poll/wait 前 returncode 已为-15，证明实现已 reap。
+  源/测试、两个历史 OPEN 与独立原件 hashes 再次由根 agent 核对一致，未修补或
+  改写旧失败。关闭只适用于这两项私有 FD/返回进程所有权缺陷，不授 HM09/Q12/
+  MVP、部署 namespace 或真实 scientific/live 资格。开始冻结新 commit/wheel/D25。

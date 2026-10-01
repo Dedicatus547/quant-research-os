@@ -364,8 +364,13 @@ def stage_hosted_deployment(
 
 def _memory(data: bytes, name: str) -> int:
     descriptor = private_memory_fd(name)
-    os.write(descriptor, data)
-    os.lseek(descriptor, 0, os.SEEK_SET)
+    try:
+        if os.write(descriptor, data) != len(data):
+            raise ArtifactIntegrityError("private memory staging write is incomplete")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+    except BaseException:
+        os.close(descriptor)
+        raise
     return descriptor
 
 
@@ -460,24 +465,26 @@ def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Pop
         if os.listdir(channel):
             raise ArtifactIntegrityError("service start requires an empty stopped channel")
     descriptor = _memory(deployment.capability, "service-capability")
-    info_fd = private_memory_fd("service-container-information")
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen(2)
-    port = listener.getsockname()[1]
-    with socket.create_connection(("127.0.0.1", port), timeout=2):
-        control, _ = listener.accept()
-        control.close()
-    command = (
-        "/install/python-seeded",
-        "-m",
-        "quantos.infrastructure.hosted_service",
-        "--profile-hash",
-        deployment.profile.content_hash,
-        "--network-probe-port",
-        str(port),
-    )
+    info_fd: int | None = None
+    listener: socket.socket | None = None
     try:
+        info_fd = private_memory_fd("service-container-information")
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(2)
+        port = listener.getsockname()[1]
+        with socket.create_connection(("127.0.0.1", port), timeout=2):
+            control, _ = listener.accept()
+            control.close()
+        command = (
+            "/install/python-seeded",
+            "-m",
+            "quantos.infrastructure.hosted_service",
+            "--profile-hash",
+            deployment.profile.content_hash,
+            "--network-probe-port",
+            str(port),
+        )
         argv = namespace_command(
             "service",
             deployment.paths,
@@ -496,13 +503,23 @@ def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Pop
             start_new_session=True,
         )
     except BaseException:
-        listener.close()
-        os.close(info_fd)
+        try:
+            if listener is not None:
+                listener.close()
+        finally:
+            if info_fd is not None:
+                os.close(info_fd)
         raise
     finally:
         os.close(descriptor)
     try:
-        return _wait_for_managed_service(deployment, process, argv, port, command, info_fd)
+        try:
+            return _wait_for_managed_service(deployment, process, argv, port, command, info_fd)
+        finally:
+            try:
+                listener.close()
+            finally:
+                os.close(info_fd)
     except BaseException:
         if process.poll() is None:
             process.terminate()
@@ -512,9 +529,6 @@ def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Pop
                 process.kill()
                 process.wait(timeout=10)
         raise
-    finally:
-        listener.close()
-        os.close(info_fd)
 
 
 def _observe_namespace_child(
