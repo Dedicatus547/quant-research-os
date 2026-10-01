@@ -1388,7 +1388,7 @@ def capture_authority_snapshot(
         data = read_relative(
             deployment.paths.authority, item.logical_path, max_bytes=MAX_SINGLE_FILE_BYTES
         )
-        KnownValueGuard((deployment.capability,))(data)
+        KnownValueGuard((deployment.capability,), byte_cap=item.size_bytes)(data)
         atomic_write_bytes(target / item.logical_path, data, expected_sha256=item.sha256)
     verify_raw_inventory(deployment.paths.authority, before)
     verify_raw_inventory(target, before)

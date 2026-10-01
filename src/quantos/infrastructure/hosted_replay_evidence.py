@@ -116,8 +116,8 @@ def capture_replay_tampers(deployment: HostedManagedDeployment) -> Path:
         target.mkdir(parents=True, mode=0o700)
         for item in baseline.files:
             data = read_relative(authority, item.logical_path, max_bytes=MAX_SINGLE_FILE_BYTES)
-            guard(data)
-            atomic_write_bytes(target / item.logical_path, data)
+            KnownValueGuard((deployment.capability,), byte_cap=item.size_bytes)(data)
+            atomic_write_bytes(target / item.logical_path, data, expected_sha256=item.sha256)
         logical = targets[kind]
         value = strict_json_object(read_relative(authority, logical), max_bytes=16_777_216)
         corrupted = canonical_json_bytes(

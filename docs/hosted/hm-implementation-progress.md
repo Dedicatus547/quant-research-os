@@ -914,3 +914,33 @@ sparse、增长、同大小内容变化、symlink/hardlink/FIFO和零长度控�
 科学cap[独立限定关闭审查](../reviews/hm-scientific-snapshot-cap-review.md)，SHA256
 `b1f3d27eba7e641c9d5bb692c2bdd3d8dcd28b4f563e194f8c14aac808b8cac8`，已关闭上述具体代码缺口，明确仍为
 NOT_QUALIFIED；原OPEN/FAILED报告与旧根均未改写。
+
+2026-10-01 科学扫描与真实startup初始化后继：`70cbd98` attempt22已完成新B/D与bootstrap，
+B `3f90a890365cc137b9f2daa4cd80cd0b1208a57d1527d17a7d74cc070b251297`、D
+`4d13b84cb76a1ceb38c0d753c9eb00d6600103984e87a3ad3c163dda99a2edd7`。
+随后管理driver对尚不存在的campaign journal直接snapshot失败，未进入Q12、未签发请求，
+原根和failure_locations保留。原因是bootstrap原来只保存spec，campaign REGISTER直到
+业务start才建立。后继固定service.main在完整bootstrap之后、network probe/readiness之前，
+调用同具体应用的既有protocol.start：核对冻结授权表与registered_spec，复用原完整输入
+reverifier，仅建立REGISTER零预算journal，不调用业务_advance，不issue，不改变TTL。
+重复初始化raw不变；真正业务start仍由受限入口产生当时的新请求。失败输入阻止readiness。
+
+继续核对发现manager authority snapshot和Q09 tamper复制仍整文件调用4MiB小消息guard。
+旧prepared真实29,788,439字节科学原件上实际默认guard拒绝；使用该raw inventory观测size
+作为此单文件扫描上限后，完整raw与decoded JSON扫描通过。后继仅在这两个科学复制入口
+显式设置byte_cap=item.size_bytes，默认incoming guard上限不动，未分块绕过decoded扫描；
+Q09科学复制新增expected SHA认证。固定component canary的混合Unicode转义在大文件中
+仍拒绝且不发布，安全大文件完整复制，源不变。unit04四项通过；科学scan相关实际内核
+components03为41 passed/76.99s。默认sandbox components02的8 failed/33 passed记录保留，
+其中6个真实socket/proc权限问题和2个初始非canonical测试fixture；更早unit01/03失败不覆盖。
+新startup unit04五项通过/5.94s，覆盖零请求/预算、重启、完整输入回调失败、错授权绑定、
+main readiness接线和一天后才业务start签发请求。初始policy无默认值和测试插入断言错位
+失败日志保留，仅修测试。全src严格pyright零错误，ruff/format通过。
+
+[独立扫描/startup限定关闭审](../reviews/hm-scientific-scan-startup-review.md)，SHA256
+`0c17ccf344757b3a35cd27f5129ec1e496415060d24507abaac5b70e47f1bbc3`，gpt-6.1-sol/high：
+独立最终9项、原生guard/header6项、main/type2项通过；两个复制入口共12个size/SHA/alias/
+16GiB+1控制拒绝。仅关闭具体代码缺口，NOT_QUALIFIED，不能继承旧Q12或旧窗口资格。
+下一新attempt23将重新冻结全部已审修复、完整离线资产、wheel、D及root，实际service先
+创建零请求REGISTER，随后运行Q12完整安装CI与原85%门。正式矩阵、live/Q09/Q10/HM09、
+Luna HM10及HM11仍未完成；没有读取认证、调用provider或改写旧根。

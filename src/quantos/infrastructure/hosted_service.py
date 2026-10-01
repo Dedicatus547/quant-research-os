@@ -125,6 +125,18 @@ class HostedUnixService:
         with self._lock:
             self._requests[request.content_hash] = request.campaign_hash
 
+    def initialize_registered_protocols(self) -> None:
+        """At startup, register zero-request journals using the original input verifier."""
+        from quantos.application.hosted_campaign import HostedCampaignApplicationService
+
+        application = self.application
+        if not isinstance(application, HostedCampaignApplicationService):
+            raise ArtifactIntegrityError("fixed hosted campaign application is required")
+        for spec_hash, campaign_hash in sorted(self._specs.items()):
+            if application.registered_spec(campaign_hash).content_hash != spec_hash:
+                raise ArtifactIntegrityError("startup registration differs from frozen inputs")
+            application.protocol.start(spec_hash)
+
     def scan_publication(self, data: bytes) -> None:
         """Manager/runtime publication guard, never an operation on the host channel."""
         self._guard(data)
@@ -595,6 +607,7 @@ def main() -> None:
         raise ValueError("network probe port is outside the fixed transport range")
     _hydrate_service_capabilities(args.profile_hash)
     service = bootstrap_hosted_service(args.profile_hash)
+    service.initialize_registered_protocols()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.settimeout(1)
         try:
