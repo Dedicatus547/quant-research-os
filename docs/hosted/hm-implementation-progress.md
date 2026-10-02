@@ -1318,3 +1318,226 @@ Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicat
 - attempt25 仍使用其旧98e6f2f身份运行，不继承此修正；其原始终态待保留并纳入
   后继完整失败历史。HM08 完整新资格、HM09 独立接受、Luna HM10 和 HM11 未完成。
   没有读取 provider 认证或调用研究模型，MVP仍 NOT_QUALIFIED。
+
+- 后继修正实际冻结为 `19d49ff9fff785a8acacc38dce5ee6acab15ffe0`；独立干净
+  `/tmp/hm-q12-installed-worktree09` 无共享 .venv。首次资产复制使用了缺少
+  `artifacts/data/` 的错误路径，源文件不存在，未复制资产或启动部署；定位既有
+  固定路径后在新 checkout 完成三个资产复制，日志 `/tmp/hm-fixed-assets-attempt26.txt`。
+  wheel26 SHA256 `5e22916d8181fb7445922166a427b81be8c38637593e755998aba5550e9ba40b`。
+  attempt26 已实际启动，原根 `/tmp/hm-stage-19d49ff-attempt26`；
+  B=`ed7f70b955bc65b00c254cac71f7fb0162a87e40c48ef0036671324786c6bda1`，
+  D=`5e9564a96e3b1dc159947a14232a522258703e9feb9ba9f9430017499a0bc385`。
+  尚未取得完整 CI、矩阵或 live 资格。独立失败索引后继仅准备纳入前25个
+  attempt，仍等待 attempt25 终态；没有将 prepared 管理脚本登记为执行证据。
+
+- 第26轮的 Ruff/check、format、pyright 原始 exit records 均0且真实 wait，完整
+  pytest仍运行。只读跨运行 arc 诊断05提示85.4105%的近似估算；没有 combine、
+  add_arcs、XML加工或路径别名，该估算不能授资格，最终仅看新整轮原始 CI。
+  前25轮 prepared05 索引 SHA256
+  `861d075a82dad5860eb2c390f01ca4061a5724093308a52d6dcc71dad21bd9b4`，
+  绑定独立 history snapshot，明确 complete=false/pending=[25]，另含6份原始 CI
+  报告；原件哈希再次机械核对。该不完整索引不能用于最终资格 bundle。
+
+- attempt25 已按其98e6f2f身份完整终结：1787 passed /5 failed /0 skipped，7031.88s，
+  实际24376/27561 statements、5797/7992 branches，覆盖率84.87%，低于85%。
+  五项仍是原嵌套 bridge/descendant ENOENT 失败；Ruff/check、format、pyright、
+  diff-check 原始退出均0，pytest1，五项都有真实 wait。原始 run.json SHA256
+  `fecabb89bbb4bbe7bca0bded3b7c0f59475ec41f9915bd3edfc8d0496638cadc`，
+  coverage.xml SHA256
+  `07c631d4ed12ca79e1b858557bf7404f813640b307b355666952429892a3a334`，
+  pytest.xml SHA256
+  `a413711c5018548c6de3e00539045d17c042452333902cf575c031a72c1dfac9`。
+  原始 negative-staging-failure.json 已封存，驱动exit1，没有执行矩阵/live；
+  worktree08仍干净。没有修改旧失败，开始生成独立history snapshot的完整前25轮
+  后继索引。当前19d49ff/attempt26的完整 CI 仍在运行，MVP仍 NOT_QUALIFIED。
+
+- 前25轮完整后继索引 `/tmp/hm-failed-attempt-index-complete06.json` SHA256
+  `e5ab433bf2cb7c0478e6b5790e0cd7866f5ef0f029bca316edf9823f9e1e395a`，
+  complete=true/pending=[]，25个staging与6份另外保留的CI报告；47个原件hash/size
+  再次一致。独立 history snapshot SHA256
+  `6abedc8c02d07a30f2039020744b26668a54d4dc36c5e8b6fd0771b6a037108b`。
+  该索引只适用于第26轮候选的全部既往非资格attempt，不授任何新门PASS。
+
+### 继续：attempt26 原始完整 CI 通过（2026-10-01）
+
+- 精确19d49ff/新wheel26/独立D26的完整原始 CI 首次通过：1794 passed /
+  0 failed /0 errors /0 skipped，6763.11s；Ruff/check、format、pyright、pytest、
+  diff-check五个原始CLI均exit0且waitpid_observed=true。实际24532/27561
+  statements、5832/7992 branches，覆盖85.40%，达到原85%门。没有组合旧运行、
+  改分母、增omit或改XML；此前85.4105%诊断不是此结果的来源。
+- 原始 Q12 run.json SHA256
+  `a19faa2e903631718f8fd0b107ef41aefd6eb539f40f241be3920864537577bc`，
+  coverage.xml SHA256
+  `0f6c4e8931a7d9b080744fca5183fa6ab00fe2b8afab3886653852c29b146638`，
+  pytest.xml SHA256
+  `e49c1371e2ffc6eabd297838976d136b9f461647a51ceecb2918e0278f1da8e6`。
+  worktree09原始tracked源保持干净。驱动已进入同一D26的全部离线矩阵，尚未
+  完成source-only verifier或live/replay；HM09独立接受与Luna HM10/HM11待后续。
+  本记录只登记完整 CI 的实际通过，不登记全部Q门或MVP已接受。
+
+- 同一D26的完整离线矩阵已实际推进：Q02两个重复提交控制、Q03八个错绑/
+  过期/取消/冲突负例原始采集完成，继续Q04。冻结总用例数106（Q02=2、Q03=8、
+  Q04=13、Q08=11、Q05=61、Q06生命周期4+独立预算部署7）。完成采集与source-only
+  verifier的门判定分开；全矩阵尚未完成，未登记这些Q门PASS，没有auth/model调用。
+
+- Q04全部13个有界/business拒绝用例原始采集完成，继续Q08的11个自报字段与
+  source绑定负例。此前Q02/Q03/Q04完成只指新D26中的独立原始 worker/run/snapshot
+  采集，不代替各门的最终source-only机械判定。没有读取provider认证或调用模型。
+
+- Q08全部11项自报/伪造/来源绑定控制原始采集完成，继续全部61个Q05故障窗口
+  （含9个真实确定性执行窗口）。Q06生命周期与独立预算部署尚未开始，source-only
+  verifier、真实live、两根replay、HM09–HM11均待后续；仍NOT_QUALIFIED。
+
+- 后继完整管理handoff脚本已编译/Ruff通过，但自动审批审查拒绝启动该流程：
+  认为实施MVP的授权未明确覆盖真实认证provider调用与外部Context传输，并要求
+  不绕过拒绝。完整coordinator没有启动，没有认证读取或模型调用；独立本地
+  拒绝记录 `/tmp/hm-live-auto-review-rejection-attempt26-01.json` 保留该事实。
+  已改为纯离线脚本 `/tmp/hm_finish_offline_attempt26.py`，SHA256
+  `ed6865bc6ef191d9349e17632c8335a7e1a841ddd4b42353ea5c9eff01a7d754`：只等待
+  原始全部106用例、导出七门与断网namespace内的安装源码verifier，未包含live/
+  auth调用。该安全替代已实际启动，等待当前Q05/Q06矩阵完成。完成获准工作与
+  可审阅输入后，真实provider调用仍需用户明确批准；不能自动发布HM09资格。
+
+- Q05已完成前35/61个原始窗口，开始九个native execution窗口中的第一个
+  execution-prepared。只读检查看到新的signal/backtest原件持续生成，未取得整个
+  窗口终态，不登记其PASS。另准备但没有运行
+  `/tmp/hm_resume_after_approval_attempt26.py`，SHA256
+  `a9f45f9baaf73e1f37238ffbfffc84ae5977c8f66de3c5418b43a1ee0c679e2c`；
+  编译、Ruff/check、format通过。此后继入口复用已完成的原始offline-ready及native
+  verifier，不重新发布离线工件；要求实际用户回复记录明确认证调用和Context外传，
+  绑定精确commit/profile/offline-ready hash。没有创建批准记录或执行live入口，
+  自动审批拒绝仍有效，MVP仍NOT_QUALIFIED。
+
+- 第一个真实确定性执行故障窗口 execution-prepared 已实际完成原始采集，
+  Q05推进到36/61，驱动继续execution-started。前一个窗口经历原始Qlib信号、
+  回测、复现、Validation及恢复快照采集；只登记原始窗口完整采集，不替代全61项
+  的source-only门判定。Q06和离线preflight仍等待，provider认证/model调用仍未开始。
+
+- 第二个execution-started窗口已完成原始采集，Q05推进到37/61，继续
+  execution-execution_receipt。另从已完成execution-prepared的两个不可变请求生成
+  只供审阅的ContextPack/schema及完整请求/启动器提示预览。Context预览manifest
+  SHA256 `8d28a3f43a8a256f9914097b050ecf40fcd055d7df809b6ed071f46f147f82e1`，
+  后继完整请求预览03 manifest SHA256
+  `1aa65b4060f8f4752b059cabda4fcbba9cca62b200f61d00eb74d29532867ea4`；
+  各预览hash/size与原始请求哈希再次一致。第一个完整提示15,681 bytes，第二个示例
+  112,150 bytes；第二个上下文依赖第一个实际结果，不能替代将来的真实请求输入。
+  预览辅助脚本01曾因安全函数缺少file_name参数而TypeError，未创建输出根；原脚本/
+  日志保留。后继02成功但有import排序检查失败，原件也保留；03编译与Ruff/check/
+  format通过并实际成功。该本地准备没有改动生产源码或任何原始资格根，没有auth/
+  model调用，不授新门PASS。可审阅范围记录
+  `/tmp/hm-live-approval-material-attempt26-01.md`，明确完整请求信封也在拟外传范围内。
+
+- 2026-10-02（Asia/Singapore）续核：Q05的execution-execution_receipt及
+  execution-completed_intent已完成原始采集，累计39/61，继续execution-trial_event；
+  新Validation event仍在生成。原始staging与纯离线coordinator进程均仍运行，
+  worktree09保持干净；尚无原始driver/preflight失败终态。继续等待全部106用例及
+  原生七门预检。没有读取provider认证或调用模型，未签发MVP资格或HM09接受记录。
+
+- 2026-10-02（Asia/Singapore）续核：execution-trial_event及execution-ledger
+  原始故障窗口采集完成，Q05累计41/61，驱动进入execution-step_completed并已
+  生成新的journal与signal工件。原始矩阵与七门离线预检均无失败终态；Q06尚未
+  开始，不将原始采集数量记为门PASS。真实provider认证读取、模型调用及对外
+  请求传输仍未发生；自动审批拒绝仍有效，整体仍NOT_QUALIFIED。
+
+- 2026-10-02（Asia/Singapore）服务器重启中断续核：Q05原始采集已达到43/61，
+  execution-step_completed与execution-selection_ledger已完成，execution-final_report
+  仅创建未完成根。重启后旧执行会话句柄不存在；主机进程名/PID只读核对确认
+  staging和纯离线coordinator均已终止。原始完整CI通过记录仍有效，但矩阵没有
+  终态，不能授予资格；没有取得外层waitpid/exit，不伪造退出码或research失败。
+  保留全部第26轮原件，独立记录管理中断并纳入第27轮的既往非资格索引；新根
+  继续全部冻结检查，不修补或重跑第26轮原根。新离线运行拟由现有用户级systemd
+  服务托管，独立于Codex会话生命周期。自动审批拒绝仍有效，没有auth/model调用。
+
+- 第26轮独立中断记录SHA256
+  `e14d5a7263420ebdb016a2c249a1e589c73f81491f45c5501998bba3989446f9`；完整前26轮
+  后继索引 `/tmp/hm-failed-attempt-index-complete07.json` SHA256
+  `e048d8603abbaaf7eeb0c0c7e4aaff4961e9ef9199c1d1cec2087630ef22c891`，旧47个记录
+  和第26轮原始日志/CI/管理退出记录hash/size重新一致。历史快照SHA256
+  `02e0fbf945ed0dcae982d5769acb44cbc057ec7693e2a786393ef6d388b776a2`。中断留存辅助
+  脚本01遇到非JSON日志行，尚未写任何工件即JSONDecodeError；保留原脚本，后继02
+  只解析实际JSON记录，并严格核对77个已采集唯一身份与43/61的Q05计数后成功。
+- 第27轮纯离线用户级服务 `quantos-hm-offline-attempt27.service` 已实际启动，
+  MainPID=1686579；运行状态active/running不等于检查通过。监督脚本SHA256
+  `c46c398cbced064ff9b977483791e6da81850f0f8ee9db60c3dd98177e5fcd05`，新staging脚本
+  SHA256 `30b7e7e4d781b972ca4bcd5c24f8b78734115f8452d7902dd801dd58b0da9756`；编译及
+  Ruff/check、format检查通过。冻结源仍19d49ff、worktree09保持干净，复用精确
+  wheel26原字节而不继承旧资格；新B/D、完整CI、106项矩阵及原生七门预检均待本轮
+  实际结果。监督脚本仅离线执行，保存真实Popen/wait与每步退出记录，不含auth/live。
+
+- 第27轮精确19d49ff的B=
+  `a9b0b7652f704b855a6343558a433bd784f1436ffbeb782dede8b7cb2e5b0aed`，D=
+  `25e00ab0095e03099cb26568efdd94b6e8dfa2f2860cc60926741ed9d920a855`。新根完整CI
+  实际通过：1794 passed /0 failed /0 errors /0 skipped，6663.25s，113 warnings；
+  五个原始CLI均exit0且waitpid_observed=true。实际24529/27561 statements、
+  5832/7992 branches，原始pytest报告85.40%，达到冻结85%门，没有组合旧报告或
+  修改coverage分母。Q12 run.json SHA256
+  `135c6ce66043431033449ece36738aef0660c45d1d03f946cfc9b21a239b3e4b`，coverage.xml
+  SHA256 `5e0636756011b634cb27d55a5b2224dd1314b572455c5ee294fde185a6b6d939`，pytest.xml
+  SHA256 `474d5431cdd648ee92b5bdb3e535944776edbed035e076bf5f57763708363156`。原始驱动
+  已继续本轮全部106项离线矩阵；上述CI结果不代替Q12最终source-only门判定，
+  全部七门预检、真实live与HM09–HM11仍未完成，没有auth/model调用。
+
+- 第27轮Q02=2/2、Q03=8/8、Q04=13/13、Q08=11/11已完成本轮原始采集；Q05已
+  达36/61，execution-prepared原始窗口完整结束并进入execution-started。上述计数
+  不等于门PASS，Q06与全矩阵七门原生预检继续等待。用户级服务保留实际原始
+  退出记录，监督层尚未得到整轮终态。
+- 本轮只供审阅的Context/schema预览manifest SHA256
+  `2dbcbdab13f5b11ec91b68b4275dab71bd2ed817b608c0a93ed312e337bc33bd`，完整请求/提示
+  预览manifest SHA256 `ef6f3488d44bec659c3012264126b975bc64709dabb463f2ec27db578dc23741`；
+  8个文件hash/size重新核对一致，原始请求读取后未变。两个辅助脚本均Ruff/check、
+  format通过且实际exit0。新审阅材料 `/tmp/hm-live-approval-material-attempt27-01.md`
+  绑定本轮C/B/D，明确第二次Context依赖实际首轮结果，完整请求信封也在拟外传
+  范围内。未签发真实请求，未读取认证，未调用模型；预览不能替代live输入或输出。
+
+- 第27轮execution-started窗口已完整采集，Q05达到37/61，继续
+  execution-execution_receipt。授权后恢复入口已准备但未执行，SHA256
+  `c374e4a7251bd8d17232a8bcf85e604a6cba768b0fdfe3a8d4d79750801acd41`，绑定本轮
+  D与complete07索引，并仍要求实际用户批准记录及实际offline-ready哈希。guarded
+  live脚本原字节SHA256 `47fe471fa42846e7814cad3b7b72572f078dc56237ad1421059b658ae7186d24`。
+  新replay副本起初继承旧管理脚本的格式问题；仅整理新副本的imports/格式后
+  SHA256 `df6c41ac7663d94b3fc5fe54c08865baf2f62d1f94e8acdad8a743457292a33f`，三份
+  后继脚本语法与Ruff/check、format均通过。没有修改旧脚本或运行live/replay；
+  第27轮实际离线矩阵继续进行，MVP仍NOT_QUALIFIED。
+
+- 第27轮续核：execution-execution_receipt、execution-completed_intent、
+  execution-trial_event、execution-ledger已完成本轮原始采集，Q05累计41/61，
+  继续execution-step_completed。Q06尚未开始，矩阵、七门预检和监督层均无
+  失败终态，也未取得完整终态；不将采集数量记为门PASS。没有auth/model调用，
+  自动审批拒绝仍有效，HM09独立接受与Luna HM10/HM11继续等待前置证据。
+
+- 2026-10-02 19:52（Asia/Singapore）第27轮续核：execution-step_completed、
+  execution-selection_ledger、execution-final_report均已完成原始采集，Q05累计
+  44/61，全部九个真实执行故障窗口结束，继续剩余损坏及原子写入控制。Q06和
+  七门原生预检尚未完成；采集记录不等于门PASS，整体仍NOT_QUALIFIED。用户级
+  离线监督服务继续运行，没有auth/model调用。
+
+- 2026-10-02 20:31（Asia/Singapore）第27轮Q05全部61项已完成原始采集，未记录
+  失败终态，驱动继续Q06。Q02/Q03/Q04/Q08此前采集也已完成；完整106项、七门
+  原生预检和监督层真实退出仍待结果，采集计数不授予门PASS或MVP完成资格。
+
+- 2026-10-02 20:51（Asia/Singapore）第27轮实际失败：Q06四个生命周期案例完成，
+  第一个独立预算变体request_allowance的原生worker退出1，观测hash缺失，manager
+  按硬门拒绝。child D为`13d4144e3691b5767ea6c52731fea16c4782ccfd532f0661df630f6d3355edb9`；
+  原始驱动记录ArtifactIntegrityError并退出1，监督层实际Popen/wait记录亦为1。
+  用户级服务已failed/exit-code，未运行七门导出、auth或model。99个唯一案例采集
+  和本轮1794项/85.40% CI记录仍保留，但整轮NOT_QUALIFIED；保留原始第27轮根，
+  用全新离线诊断根定位实际故障，不修补原始证据或将工程失败记为研究失败。
+
+- 第27轮原始失败及13个CI/管理退出/child启动与退出记录已纳入后继完整索引
+  `/tmp/hm-failed-attempt-index-complete08.json`，SHA256
+  `6d96fa1bba636aa627cc13cd4c4e410a86b1f5301a217430f265e64f8986c75e`；前27轮和此前
+  独立CI记录均保留，所有被引用原件hash/size重新一致。失败历史快照SHA256
+  `20eae43f14172ffc5aca1df428a9dcb0881082dfebdaccb39d89d275652b86d8`。索引辅助
+  脚本实际成功，但格式化后仍有一处E501，属于管理脚本格式问题，不改变已保留
+  原始失败或任何资格结论。
+- 新离线诊断根`/tmp/hm-q06-budget-request-failure-diagnostic27-01`实际worker退出1，
+  原始authority/channel未变；仅输出安全异常类型和源码位置，定位到
+  `QuantosResearchExecutionAdapter.__init__`的P14-DQ固定campaign名称检查。
+  诊断输出SHA256`8fdc39e25ff8d3416d449bb8ee5fc91a4c071b9593dbf0add3d5905fde8524ce`。
+  后继有限预算派生保留baseline campaign_id，独立budget_id/hash仍产生新campaign
+  哈希与新plan/event身份；未改动P14-DQ执行适配器或其数据/策略/名称硬门。
+- 后继预算名称回归及相邻五个文件实际75 passed/63.95s，日志
+  `/tmp/hm-budget-campaign-label-unit27-01.txt`，覆盖七个typed派生的baseline名称
+  保持、独立campaign/budget/plan哈希及原始B不变；现有路径隔离、stage capture、
+  fork预算恢复和input bootstrap回归亦通过。源码与测试Ruff/check、format通过；
+  这仍是组件验证，真实新安装的七个预算worker和新整轮CI/矩阵均需重新取得。

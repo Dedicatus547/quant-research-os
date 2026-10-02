@@ -128,7 +128,9 @@ def derive_hosted_budget_case(
     campaign = ResearchCampaignSpec.model_validate(
         {
             **bundle.campaign.model_dump(mode="python"),
-            "campaign_id": f"hm-q06-{case}-campaign-v1",
+            # The existing P14-DQ execution adapter pins this campaign label.
+            # Each finite budget_id and budget hash already gives the variant
+            # a distinct immutable campaign identity without changing that label.
             "budget_hash": research.content_hash,
         }
     )

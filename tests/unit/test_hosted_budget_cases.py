@@ -58,6 +58,41 @@ def test_budget_minima_remain_consistent_and_do_not_mutate_baseline(case: str) -
     assert budget_case_specs(case, research, transport) == (bounded, channel)
 
 
+def test_derived_budget_campaigns_keep_execution_label_and_distinct_frozen_identities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_hosted_input_bootstrap import _inputs
+
+    from quantos.contracts.autonomous import P14DQ_REPORT_ONLY_FINALIZATION_PROFILE
+    from quantos.contracts.hosted_inputs import HostedFrozenBusinessInputs
+    from quantos.infrastructure.hosted_budget_cases import derive_hosted_budget_case
+
+    input_root = tmp_path / "inputs"
+    baseline, _ = _inputs(input_root, monkeypatch)
+    baseline = HostedFrozenBusinessInputs.model_validate(
+        {
+            **baseline.model_dump(mode="python"),
+            "selection_finalization_profile": P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
+        }
+    )
+    original = baseline.canonical_bytes()
+    variants = [
+        derive_hosted_budget_case(baseline, case, input_root=input_root)
+        for case in HOSTED_BUDGET_CASES
+    ]
+    assert baseline.canonical_bytes() == original
+    assert len({variant.campaign.content_hash for variant in variants}) == len(variants)
+    for case, variant in zip(HOSTED_BUDGET_CASES, variants, strict=True):
+        assert variant.campaign.campaign_id == baseline.campaign.campaign_id
+        assert variant.campaign.content_hash != baseline.campaign.content_hash
+        assert variant.campaign.budget_hash == variant.research_budget.content_hash
+        assert variant.research_budget.budget_id == f"hm-q06-{case}-budget-v1"
+        assert variant.selection_plan.campaign_hash == variant.campaign.content_hash
+        assert variant.manifest == baseline.manifest
+        assert variant.execution_bindings == baseline.execution_bindings
+        assert derive_hosted_budget_case(baseline, case, input_root=input_root) == variant
+
+
 @pytest.mark.parametrize("case", ("../trial_allowance", "compute_allowance;exec", "auto", ""))
 def test_unknown_recipes_cannot_become_management_policy_editors(case: str) -> None:
     with pytest.raises(ValueError, match="unknown fixed"):
