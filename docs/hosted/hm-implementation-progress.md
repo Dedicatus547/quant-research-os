@@ -1541,3 +1541,143 @@ Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicat
   保持、独立campaign/budget/plan哈希及原始B不变；现有路径隔离、stage capture、
   fork预算恢复和input bootstrap回归亦通过。源码与测试Ruff/check、format通过；
   这仍是组件验证，真实新安装的七个预算worker和新整轮CI/矩阵均需重新取得。
+
+- 后继源已冻结为`3a40cae1b4569beb6df9add68db7a1e277a8d59c`，独立worktree10干净，
+  仅复制既有离线snapshot/view/上游release原件。新wheel SHA256
+  `799fb767f92170be52c031e79a2d7a4d85d242fe8db07e546791039d78886d32`。首次无构建
+  隔离缺少hatchling而exit2，第二次缓存离线构建未指定Python而找不到3.11/exit2；
+  第三次显式现有Python并使用本地缓存离线构建成功，各输出目录独立保留。
+- 第28轮纯离线服务`quantos-hm-offline-attempt28.service`实际active/running，
+  MainPID=1772541。先用独立组件根验证七个真正安装的预算worker；全部actual0且
+  组件ready绑定一致后，监督层才启动新原始整轮CI/106项矩阵/七门原生预检。
+  组件不是整轮资格证据，不能替代第28轮矩阵；没有auth、模型或外传操作。
+  监督脚本SHA256`ab4a44923672817c297afa4d3f755aa5a2deeea82ba0b95ae67811b0afb4a794`，
+  组件脚本SHA256`da8b0538345076e771f7fab89af8f9b1107f103cb9909e6282513ad50a213921`，
+  staging脚本SHA256`42c0d637f9d7c2fdf2491928ec8f1cee962959a0971b286234619d4ed4da26e6`。
+  新offline模板未绑定D，SHA256
+  `c0ee608e564b4610509b36a4f8a12791a1ba95ef1df232157690bb1bb6adc9c8`；新export副本
+  仅整理import/格式后SHA256
+  `2981ea0a7a70f1086f9bbcb4681a34055908c313131b89f8d7a66902268f2880`。上述五个
+  待运行脚本Ruff/check、format通过；第27轮与所有旧脚本/旧证据没有修改。
+
+- 2026-10-02 22:24（Asia/Singapore）新安装预算组件七个worker均实际exit0，有
+  各自原始kernel子进程观测与observation hash；监督层实际Popen/wait退出0。
+  原始组件日志SHA256`36236db61bf9e7b6278c307b0ee1b1a730d90c492c8f1e3937aeaea61daa3f25`，
+  ready SHA256`3a738431ec325cc2ad5ab7757e0bce9db7d26397d6ee7afd5db23d925f8dda1d`，
+  组件parent D=`33d2c1136b1bb1982a9f06ae86b5df80d9cc42e1499b0a38bda6c0d3255cddf3`。
+  七个child D均不同，parent authority保持不变；worktree10仍干净。该组件只验证
+  新安装预算路径，仍NOT_QUALIFIED，不替代第28轮矩阵。监督层已开始新原始
+  staging，本轮B输入已verified，完整CI/106项矩阵/七门预检继续等待。
+- 组件execution_allowance原始exercise记录实际execute=1、Workflow=1、network=0；
+  两次独立fresh bootstrap恢复均execute=0、Workflow=0、network=0，并维持
+  EXHAUSTED/BUDGET_EXHAUSTED。该计数来自各自原始fork记录，确认新campaign哈希
+  通过既有固定名称执行门且没有恢复时重复执行，不代表全部Q06门已接受。
+
+- 第28轮本轮B=`e4e11765ec5e3d402ab641bcd50c09c2708d9e039320d8ad4d57dc1dd7a54d78`，
+  D=`81da82950e4038ce9f42909006f702fb6b5131b289c7745dd39d4c055559d9ee`；本轮原始
+  Ruff、format、Pyright均实际exit0/waitpid，完整pytest与冻结85%覆盖率检查继续
+  运行。只读typed重新加载核对C/B/D和冻结research proposer gpt-6-sol/high一致。
+  授权后恢复入口新副本已准备但没有执行，SHA256
+  `96d4e602a1ff08b5f8333ea5a95193e21ec3dab3b9e0d510d901945b44b15140`，明确绑定本轮
+  C/D与complete08索引，仍要求真实用户批准记录及未来实际offline-ready hash。
+  live/replay副本沿用原逻辑，三份新脚本语法与Ruff/check、format均通过；没有
+  auth、模型或外传操作，也不存在本轮live批准记录。
+
+- 2026-10-03 00:28（Asia/Singapore）第28轮精确3a40cae/C与81da829/D的完整CI
+  实际通过：1795 passed、0 failed/errors/skipped、113 warnings、7139.43s；
+  五个原始CLI均exit0/waitpid，CI manager原始退出记录亦为0/failure=null。
+  原始171个文件覆盖率24529/27561 statements、5832/7992 branches，实际pytest
+  报告85.40%，达到冻结85%门，没有改分母、拼旧报告或篡改XML。run.json SHA256
+  `50c7fd1cf0dcf0d4a8e585fcf767e6709165f5684f0131d40e7b0a8218c33818`，coverage.xml
+  SHA256`523dbec1c277b55ed2d68540c2bf8384c327ae66416f2c168cc29d33ce954192`，pytest.xml
+  SHA256`bc98328039a86882331a48149f8a777f0fad773edf423f87efde81bedd829585`。原始
+  驱动继续本轮全部106项矩阵，先前组件结果不替代本轮Q06或其他门；七门原生
+  预检、真正live、HM09独立接受与HM10/HM11均待实际证据，整体NOT_QUALIFIED。
+
+- 2026-10-03 01:15（Asia/Singapore）第28轮原始矩阵完成Q02=2/2、Q03=8/8、
+  Q04=13/13、Q08=11/11，共34个唯一案例，未记录失败，继续Q05崩溃/恢复/
+  损坏及原子发布控制。Q05/Q06、全部七门原生预检及整轮真实退出仍未完成；
+  上述采集数量不等于门PASS，没有auth/model调用。
+
+- 2026-10-03 03:08（Asia/Singapore）第28轮Q05已完成35/61，本轮共69/106个
+  唯一案例原始采集，继续首个真实执行窗口execution-prepared。此前管理与业务
+  崩溃/恢复采集无失败终态；九个真实执行窗口、损坏/原子控制、Q06和七门预检
+  均仍需本轮原件。没有auth/model调用，NOT_QUALIFIED不变。
+
+- 第28轮execution-prepared已完整采集，Q05达到36/61；继续execution-started。
+  新审阅用Context/schema预览清单SHA256
+  `392ffd6cbb045efb607fbbef8f9a30f5d0d81d8968bc48b31676a806bfd492ef`，完整请求/启动器
+  prompt预览清单SHA256
+  `59f62dfa754a64435104f41afe11034a180ba2110d582f2bd8c818033bc5fecd`。八个文件hash/size
+  重新一致，C/B/D与两个canonical请求原件核对且读取后未变；两份新辅助脚本
+  Ruff/check、format通过，实际exit0。新材料
+  `/tmp/hm-live-approval-material-attempt28-01.md`绑定本轮C/B/D，明示整轮离线尚未
+  就绪、第二次Context依赖实际首轮结果，以及完整请求信封的拟外传范围。该
+  材料不是批准记录，不把离线预览当成live输入或输出；没有auth/model调用。
+
+- 2026-10-03 05:34（Asia/Singapore）第28轮execution-started与
+  execution-execution_receipt均已完整原始采集，Q05=38/61，本轮共72/106个唯一
+  案例；继续execution-completed_intent。监督服务只读实查仍active/running，
+  MainPID=1772541，worktree10干净。活跃单元的ExecMainStatus=0不是整轮退出记录；
+  七门预检及HM09仍未就绪，没有auth/model调用，整体NOT_QUALIFIED。
+
+- 2026-10-03 09:17（Asia/Singapore）第28轮execution-completed_intent、
+  execution-trial_event、execution-ledger已完整原始采集，Q05=41/61，本轮共
+  75/106个唯一案例；继续execution-step_completed。监督服务实查仍active/running，
+  MainPID=1772541，worktree10仍干净，未出现矩阵/监督失败记录。Q05其余执行
+  窗口及损坏/原子控制、Q06七个本轮预算worker、七门原生预检仍待完成；不能
+  用完成计数推定门PASS，没有auth/model调用，整体NOT_QUALIFIED。
+
+- 2026-10-03 13:00（Asia/Singapore）第28轮execution-step_completed、
+  execution-selection_ledger、execution-final_report已完整原始采集，九个原生
+  执行窗口全部完成，Q05=44/61，本轮共78/106个唯一案例。继续剩余五个损坏与
+  十二个原子控制，随后Q06。监督服务实查仍active/running，MainPID=1772541，
+  worktree10仍干净，未出现矩阵/监督失败记录。原始整轮退出、七门预检及整轮
+  HM09仍未就绪，没有auth/model调用，整体NOT_QUALIFIED。
+
+- 2026-10-03 15:07（Asia/Singapore）第28轮全部106个唯一案例完整原始采集，
+  Q02=2、Q03=8、Q04=13、Q05=61、Q06=11、Q08=11；原始staging实际Popen/wait
+  exit0/failure=null，日志SHA256
+  `8215df6e1870f73ee4e9b93d3099b9907c8594287d339754aaa865b29390c5fc`。
+  后续offline export实际exit1：新输出父目录尚未创建，安全opened_directory
+  抛ArtifactIntegrityError；尚未创建bundle或得到七门结果。监督单元实际failed、
+  MainPID=0、ExecMainStatus=1；失败管理根与日志完整保留。这是导出辅助流程
+  的目录准备失败，不把已成功的staging改判失败或重跑，不修改冻结源码/部署。
+  后继将在独立新输出/管理根显式创建父目录，再做导出与原生核验；仍无auth/model。
+
+- 第28轮离线预检后继02使用独立export/management/native-verifier目录，显式
+  mkdir新export父目录，保留既有安全opened_directory校验；没有放宽目录门。
+  complete09索引SHA256`2825bee124a83ed6a349c5803047d87f49c45be5d9167ef8030f7ab0dee26927`
+  重核全部既有原始记录，并新增14个首次管理失败及实际staging成功记录；原始
+  complete08与管理失败根不改写。后继脚本SHA256
+  `69784c54346e30ecab3965862c6dd76c2eb755091a49a512a260fa4c79cb4f19`，监督脚本SHA256
+  `4b9ee12f0fd9f06b80792606633fbad3b361564e4581e3de21bc148444cea469`，两份运行脚本
+  Ruff/check通过。已执行的准备生成器Ruff仍有四处E501，仅管理辅助脚本字符串
+  格式问题，保留真实结果，不把它当作冻结源码CI失败或宣称全部辅助检查通过。
+  新授权后入口`/tmp/hm_resume_after_approval_attempt28_02.py`已准备但未运行，SHA256
+  `949ea05ed94c751ab1c7dc10ce799e8e621e2722b772dacf8f33e65d54d506e2`，语法与Ruff/check、
+  format通过，绑定新的offline-ready路径和complete09索引，仍须真实用户批准。
+
+- 第28轮预检02原始export在2026-10-03 17:58（Asia/Singapore）实际exit1，
+  waitpid=true/failure=null，输出SHA256
+  `757e6075c20164c197e1047fdfd33efdab6fbdf0b598792a92e528f004c72511`；没有启动
+  native verifier。verify_staging构造HostedQualificationGate时，checked_artifact_hashes
+  包含非64位hex身份，合同硬拒绝；FAIL构造再次携带同一非法集合，错误没有成为
+  合法终态。失败bundle/管理根保留，没有过滤身份或放宽合同、没有宣称七门通过。
+  独立只读诊断已启动，重新核对manager-export/原始源，并在RAM中记录实际出错门
+  与有限非法身份样本；原始Gate合同仍实际执行并拒绝。诊断永不授予资格，
+  不修复失败包、不读取auth、不调用模型，冻结源码仍未改动。
+
+- 进一步静态核对明确Q06预算与生命周期调用方误把
+  verify_native_authority_file_closure返回的已归属逻辑路径集合放入哈希集合。
+  主worktree最小修复为保留文件闭包验证，并使用现有digest_relative取已验证文件
+  的真实内容SHA256；不更改合同、PIT、预算判据或固定数据/名称执行门。原生
+  生命周期/七个预算场景的integration回归增加资格Gate构造断言，连同matrix-source
+  与qualification单元共57 passed、280.76s、tool实际exit0；仅组件回归，不代替
+  未来冻结源整轮CI。测试新增import排序检查先I001，自动整理后源码/测试Ruff与
+  format及diff-check通过，不把先前检查失败隐去。
+- 只读诊断01/02分别遇到strict_json_object缺失max_bytes参数和读取不存在的
+  campaign_hash JSON字段而实际失败，各独立根/输出保留；03误以spec整体hash
+  重建campaign后被显式外部停止，不伪造原始Popen/wait退出。04改用实际
+  HostedCampaignSpec.campaign_hash合同解析，并先检查Q06，已完成原始source
+  reconciliation并进入Q06；仍NOT_QUALIFIED，没有修改冻结worktree10或原包。

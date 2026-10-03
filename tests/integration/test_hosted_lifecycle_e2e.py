@@ -41,7 +41,11 @@ from quantos.contracts.hosted_inputs import (
     HostedFrozenInputFile,
     derive_hosted_campaign_spec,
 )
-from quantos.contracts.hosted_qualification import HOSTED_ACCEPTANCE_SHA256, HOSTED_CONTRACT_SHA256
+from quantos.contracts.hosted_qualification import (
+    HOSTED_ACCEPTANCE_SHA256,
+    HOSTED_CONTRACT_SHA256,
+    HostedQualificationGate,
+)
 from quantos.data import verify_qlib_view, verify_snapshot
 from quantos.infrastructure import (
     hosted_business_verification as business_verification,
@@ -349,6 +353,13 @@ def test_native_lifecycle_accounting_and_tampered_process_records(
             case, roots, records, observation, parent_pid=os.getpid(), sources=sources
         )
         assert checked and (raw_inventory(authority), directory_inventory(authority)) == original
+        gate = HostedQualificationGate(
+            case_id="Q06",
+            verdict="PASS",
+            reason="SYNTHETIC_LIFECYCLE_HASH_BOUNDARY",
+            checked_artifact_hashes=checked,
+        )
+        assert gate.checked_artifact_hashes == checked
         for mutation in (
             "charge-reset",
             "exit-phase",
@@ -428,6 +439,13 @@ def test_native_lifecycle_accounting_and_tampered_process_records(
             case, budget_roots, budget_processes, budget_observation, **budget_args
         )
         assert checked
+        gate = HostedQualificationGate(
+            case_id="Q06",
+            verdict="PASS",
+            reason="SYNTHETIC_BUDGET_HASH_BOUNDARY",
+            checked_artifact_hashes=checked,
+        )
+        assert gate.checked_artifact_hashes == checked
         for field, replacement in (
             ("fresh_application_bootstrap", False),
             ("clock", "2000-01-01T00:00:00+00:00"),

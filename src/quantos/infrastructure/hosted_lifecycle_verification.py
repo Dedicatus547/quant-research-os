@@ -30,6 +30,7 @@ from quantos.infrastructure.hosted_negative_origin import require, verify_manage
 from quantos.infrastructure.hosted_qualification_sources import HostedVerifiedSources
 from quantos.infrastructure.hosted_store import HostedStoreSnapshot
 from quantos.infrastructure.hosted_verification import (
+    digest_relative,
     directory_inventory,
     raw_inventory,
     read_relative,
@@ -166,11 +167,10 @@ def verify_lifecycle_scenario(
             if final
             else None
         )
-        checked.update(
-            verify_native_authority_file_closure(
-                root, deployment.bundle, state, orchestrator, events, business=business
-            )
+        verified_paths = verify_native_authority_file_closure(
+            root, deployment.bundle, state, orchestrator, events, business=business
         )
+        checked.update(digest_relative(root, path)[0] for path in verified_paths)
         expected_directories = {"business-locks", f"business-locks/{state.spec.campaign_hash}"}
         for item in raw_inventory(root).files:
             expected_directories.update(
