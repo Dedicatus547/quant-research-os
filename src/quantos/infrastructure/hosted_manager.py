@@ -23,6 +23,7 @@ from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
     opened_directory,
+    read_regular_bytes_at,
     sha256_file,
 )
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
@@ -46,6 +47,7 @@ from quantos.contracts.hosted_inputs import (
     HostedFrozenBusinessInputs,
     derive_hosted_campaign_spec,
 )
+from quantos.contracts.hosted_qualification import HostedManagerExport
 from quantos.infrastructure.hosted_deployment import (
     MOUNT_POLICY_BYTES,
     HostedNamespacePaths,
@@ -727,8 +729,24 @@ def restricted_client_call(
 
 
 def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
-    """Observe actual restricted syscalls and retain safe output outside the host mount."""
+    """Capture or independently reverify the immutable deployed boundary proof."""
     from quantos.infrastructure.hosted_verification import raw_inventory, verify_raw_inventory
+
+    with opened_directory(deployment.root / "evidence") as parent:
+        try:
+            os.stat("deployment-probes.json", dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            saved = None
+        else:
+            saved = read_regular_bytes_at(parent, "deployment-probes.json", max_bytes=65536)
+    if saved is not None:
+        from quantos.infrastructure.hosted_security_verification import verify_deployment_security
+
+        KnownValueGuard((deployment.capability,))(saved)
+        checked = verify_deployment_security(deployment)
+        if sha256_bytes(saved) not in checked:
+            raise ArtifactIntegrityError("deployment probe changed during source reverification")
+        return saved
 
     # Non-secret canaries exist in denied mounts. They are deliberately not credentials.
     atomic_write_bytes(deployment.paths.authority / "sealed-canary", b"sealed-source-canary")
@@ -741,6 +759,32 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
         (item.logical_path for item in before.files if "/campaign-events/" in item.logical_path),
         None,
     )
+    if event_path is None:
+        from quantos.application.autonomous import CampaignEventStore
+        from quantos.application.campaigns import ResearchCampaignGovernor
+
+        # The offline probe must precede the first request and its TTL. Reuse
+        # native event seeding to materialize only the frozen initial prefix.
+        campaign = deployment.bundle.campaign
+        CampaignEventStore(
+            deployment.paths.authority / "business" / campaign.content_hash / "campaign-events"
+        ).seed(
+            deployment.bundle.initial_events,
+            ResearchCampaignGovernor(
+                deployment.bundle.family, deployment.bundle.template, deployment.bundle.manifest
+            ),
+            campaign,
+            deployment.bundle.research_budget,
+        )
+        before = raw_inventory(deployment.paths.authority)
+        event_path = next(
+            (
+                item.logical_path
+                for item in before.files
+                if "/campaign-events/" in item.logical_path
+            ),
+            None,
+        )
     ledger_path = next(
         (item.logical_path for item in before.files if "/ledger/" in item.logical_path), None
     )
@@ -1348,11 +1392,32 @@ def _run_managed_transport_fixture(
                 process.wait(timeout=10)
 
 
+def guard_manager_export(deployment: HostedManagedDeployment, export: HostedManagerExport) -> None:
+    """Scan a bounded typed source export without changing the general guard cap."""
+    if (
+        export.exact_commit != deployment.profile.exact_commit
+        or export.deployment_profile_hash != deployment.profile.content_hash
+    ):
+        raise ArtifactIntegrityError("manager export belongs to another frozen deployment")
+    encoded = export.canonical_bytes()
+    if len(encoded) > 16_777_216:
+        raise ValueError("manager export byte cap exceeded")
+    guard = KnownValueGuard((deployment.capability,))
+    guard(canonical_json_bytes(export.model_dump(mode="python", exclude={"files"})))
+    for file in export.files:
+        guard(file.canonical_bytes())
+    window_bytes = 1_048_576
+    # register_value's longest escaped representation is six bytes per input byte.
+    overlap = 6 * len(deployment.capability)
+    for offset in range(0, len(encoded), window_bytes - overlap):
+        guard(encoded[offset : offset + window_bytes])
+
+
 def publish_manager_export(
     deployment: HostedManagedDeployment, mappings: tuple[tuple[str, str], ...]
 ) -> CanonicalContract:
     """Retain an exact source mapping; qualification is computed by a separate verifier."""
-    from quantos.contracts.hosted_qualification import HostedManagerExport, HostedManagerExportFile
+    from quantos.contracts.hosted_qualification import HostedManagerExportFile
     from quantos.infrastructure.hosted_verification import digest_relative
 
     files: list[HostedManagerExportFile] = []
@@ -1373,17 +1438,7 @@ def publish_manager_export(
     # can exceed the guard's per-call4MiB cap, so scan typed records separately
     # (including decoded JSON strings) and all raw bytes in overlapping windows.
     # The generic guard and research-channel limits retain their existing caps.
-    if len(encoded) > 16_777_216:
-        raise ValueError("manager export byte cap exceeded")
-    guard = KnownValueGuard((deployment.capability,))
-    guard(canonical_json_bytes(export.model_dump(mode="python", exclude={"files"})))
-    for file in export.files:
-        guard(file.canonical_bytes())
-    window_bytes = 1_048_576
-    # register_value's longest representation is six bytes per input byte.
-    overlap = 6 * len(deployment.capability)
-    for offset in range(0, len(encoded), window_bytes - overlap):
-        guard(encoded[offset : offset + window_bytes])
+    guard_manager_export(deployment, export)
     atomic_write_bytes(deployment.root / "evidence" / export.content_hash, encoded)
     return export
 

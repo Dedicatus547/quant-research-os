@@ -5,9 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from quantos.artifacts.store import ArtifactIntegrityError
 from quantos.contracts.hosted_qualification import HostedManagerExport
 from quantos.infrastructure.hosted_deployment import KnownValueGuard
-from quantos.infrastructure.hosted_manager import publish_manager_export
+from quantos.infrastructure.hosted_manager import guard_manager_export, publish_manager_export
 from quantos.security import SecretArtifactRejected
 
 
@@ -36,6 +37,16 @@ def test_complete_large_matrix_publishes_with_existing_reader_bound(tmp_path: Pa
     assert 4_194_304 < len(data) < 16_777_216
     assert HostedManagerExport.model_validate_json(data) == export
     assert len(HostedManagerExport.model_validate_json(data).files) == 9000
+    before = {path.name: path.read_bytes() for path in (tmp_path / "evidence").iterdir()}
+    guard_manager_export(deployment, HostedManagerExport.model_validate_json(data))
+    assert before == {path.name: path.read_bytes() for path in (tmp_path / "evidence").iterdir()}
+    with pytest.raises(ArtifactIntegrityError, match="another frozen deployment"):
+        guard_manager_export(
+            deployment,
+            HostedManagerExport.model_validate_json(data).model_copy(
+                update={"exact_commit": "c" * 40}
+            ),
+        )
     # The general guard keeps its per-call cap; only typed exports use windows.
     with pytest.raises(ValueError, match="known-value scan byte cap"):
         KnownValueGuard(())(data)
@@ -65,6 +76,8 @@ def test_large_export_rejects_known_value_crossing_record_and_window_boundary(
     prior = {path.name: path.read_bytes() for path in (tmp_path / "evidence").iterdir()}
     with pytest.raises(SecretArtifactRejected):
         publish_manager_export(deployment, mappings)
+    with pytest.raises(SecretArtifactRejected):
+        guard_manager_export(deployment, HostedManagerExport.model_validate_json(data))
     assert prior == {path.name: path.read_bytes() for path in (tmp_path / "evidence").iterdir()}
 
 

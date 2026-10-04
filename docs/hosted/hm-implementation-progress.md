@@ -1681,3 +1681,274 @@ Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicat
   重建campaign后被显式外部停止，不伪造原始Popen/wait退出。04改用实际
   HostedCampaignSpec.campaign_hash合同解析，并先检查Q06，已完成原始source
   reconciliation并进入Q06；仍NOT_QUALIFIED，没有修改冻结worktree10或原包。
+
+- Q06内容哈希修复后继冻结源为`01cc07112f8c4db9a1488e91fc8156ea22a2b748`，
+  独立worktree11干净；新wheel SHA256
+  `3f6c63c0b306ff9842580c442d5dbc1e93a95a7e4a6dac4368ade4c8844dca81`，本地缓存
+  显式Python离线构建实际exit0。三个既有snapshot/view/release数据树经拒绝符号
+  链接后复制，tool实际exit0，不采集新数据。第29轮纯离线监督单元
+  `quantos-hm-staging-attempt29.service`已实际active/running，MainPID=1991841；
+  staging脚本SHA256`1890451a260a5fbd4ce9c361de6b5e14a602e02248537ed6c983904fad04705e`。
+  新根不复用第28轮CI/矩阵作为本轮资格；新完整CI、106项矩阵及七门原生预检
+  仍待原始结果。无auth/model/外传操作，整体NOT_QUALIFIED。
+- 第29轮监督脚本首次format检查有一处待格式化，整理后两份运行脚本Ruff/check、
+  format均通过再启动。旧只读诊断03当前服务实查inactive/dead、MainPID=0，
+  原始wait记录仍缺失，不把服务ExecMainStatus=0当作成功退出或资格证明。
+
+- 2026-10-03 18:54（Asia/Singapore）旧冻结源的只读诊断04完成：原始Popen/wait
+  actual0/failure=null，诊断内原始严格Gate实际ValidationError，Q06记录651个
+  非SHA身份，有限样本为business事件/Ledger文件路径。最后实际重算失败bundle
+  的raw inventory一致并记录bundle_unchanged=true；诊断不是门PASS或资格bundle，
+  不改写原始失败，没有auth/model。定位与本轮Q06调用方内容哈希修复一致。
+- 第29轮原始ruff-format、ruff、pyright已各自actual0/waitpid/failure=null，
+  完整pytest继续运行，尚无本轮覆盖率/整轮CI结论。新C/B/D不能继承旧整轮资格。
+
+- 第28轮预检02失败及诊断01/02实际失败、03外部停止且缺失wait、04只读完成
+  原件已纳入complete10后继索引，SHA256
+  `f9fb428aa06cd64748f9c7cb92c850dbd33d544b040d45fbe73f07e1147e42cd`；39项历史
+  记录及其引用原件hash/size重新一致，complete09不改写。诊断04日志SHA256
+  `b584aed49de84c05cd3d3d66fc0a230deab72e4ea42678ec8fa6216432d8e214`。
+- 第29轮B=`9dbd584630d475f0d12d9a446a426dc6d03d8e8bbc9c40f45237750bfca776d4`，
+  D=`bc026bd931b4b824b0746c2a170de930de41dca719cb8428725f3dfacd010b12`，来源为
+  本轮原始staging输出。纯离线预检后继单元
+  `quantos-hm-offline-preflight-attempt29-01.service`实际active/running，
+  MainPID=1998915；先等待同轮原始staging监督ready及actual0/wait/hash，再允许
+  独立新根导出和原生核验。等待不代表离线预检已经执行或任何门PASS。
+  新协调器SHA256`24781cca76619cdde58cc1f30d55e4e20792eb78ef34df5037ef75674a67cf02`，
+  监督脚本SHA256`303d0805b3a31f6a7fab20ac337b69db16f396065ddd01334ca2d193673fe4f7`，
+  新export副本与旧逻辑字节一致，SHA256
+  `2981ea0a7a70f1086f9bbcb4681a34055908c313131b89f8d7a66902268f2880`。生成辅助脚本
+  首次E501、监督脚本首次I001/E501，整理后最终三份运行脚本Ruff/check、format
+  均通过再启动；不存在本轮live批准记录，没有auth/model/外传操作。
+- 第29轮授权后恢复入口已准备但未运行，SHA256
+  `69eea74cc4f7bc16bc3a45d08f52698c1ba84a18393da28166b1ca0871f2e5eb`；绑定本轮C/D、
+  complete10和未来实际offline-ready hash。live/replay新副本与旧通用逻辑字节
+  一致，三份语法与Ruff/check、format通过。仍要求实际用户批准及工具自动审批，
+  不因用户“继续”或准备脚本推定外传/真实模型授权；没有执行任何授权后入口。
+
+- 2026-10-03 20:35（Asia/Singapore）第29轮精确01cc071/C与bc026bd/D完整CI
+  实际通过：1795 passed、0 failures/errors/skipped、113 warnings、6816.79s；
+  五个原始CLI均actual0/waitpid/failure=null，CI manager原始退出亦为0。
+  原始171个文件覆盖率24534/27563 statements、5832/7992 branches，pytest
+  原始覆盖率85.41%，达到冻结85%门，不改分母、不拼旧报告、不修改XML。
+  run.json SHA256`0424ae6ecffb2e204f8b26cdd4c0e44e295bb8dcd748bf49a28f81cf7ab4376b`，
+  coverage.xml SHA256`94f3669891cf56def201f6368bcaa1710e449d6d2e30307831fb5b5af7b44b1a`，
+  pytest.xml SHA256`2b88ff6a1c229923f8046c068888854c1f48788ad64e7bad706a5ae719bb6e93`。
+  worktree11仍干净；原始驱动继续本轮106项矩阵，七门预检仍等待整轮采集/退出。
+  本轮尚无门资格、真实交接或HM09接受记录，没有auth/model/外传操作。
+
+- 2026-10-03 21:32（Asia/Singapore）第29轮Q02=2、Q03=8、Q04=13、Q08=11
+  已完成34项原始采集，进入Q05；register前三个窗口已采集，本轮共37/106。
+  两个监督服务实查active/running，MainPID分别1991841、1998915；worktree11
+  仍干净。本轮完整矩阵、七门预检及原始整轮退出未完成，不从采集数量授予PASS。
+- 新审阅预览辅助脚本已准备但未执行；须先等待本轮execution-prepared原始
+  完成记录，再读取本轮真实离线案例的两份canonical请求。请求预览模板尚未
+  绑定未来实际Context/schema预览清单hash，不能作为运行脚本或批准记录。
+  两份辅助脚本语法与Ruff/check、format通过，没有auth/model/外传操作。
+
+- 2026-10-03 22:31（Asia/Singapore）第29轮Q05完成22/61，本轮共56/106个
+  唯一案例原始采集，包含register/issue/submit/reject崩溃窗口；继续余下恢复/
+  执行/损坏及原子控制。监督单元实查仍active/running，MainPID=1991841，
+  预检后继MainPID=1998915继续等待；worktree11仍干净。尚无本轮整轮退出或
+  七门资格结果，没有auth/model/外传操作，整体NOT_QUALIFIED。
+
+- 2026-10-03 23:28（Asia/Singapore）第29轮Q05前35个管理/业务恢复窗口完整
+  原始采集，本轮共69/106个唯一案例；继续execution-prepared及其余八个真实
+  Qlib执行窗口。监督服务实查仍active/running、MainPID=1991841，worktree11
+  仍干净，无矩阵失败记录。九个执行窗口、损坏/原子控制、本轮Q06和七门预检
+  均仍待原件；采集进度不等于资格通过，没有auth/model/外传操作。
+
+- 2026-10-04 00:28（Asia/Singapore）第29轮execution-prepared已完整原始采集，
+  Q05达到36/61、本轮70/106；随后execution-started也完成，Q05=37/61、共71/106。
+  两个窗口采集不授予Q05门PASS，继续其余执行窗口和离线矩阵。
+- 本轮已完成execution-prepared的两份canonical请求用于新审阅预览，Context/schema
+  清单SHA256`1c8fe593129e4c572d83123af001b6f0ff092dd08fe126eb52934dca1966e937`，
+  完整请求/启动器提示清单SHA256
+  `0fe35734da82ab9c201cd81046bd4a4a97ab90a19751b9253f0efd601200d9d1`。八个文件
+  hash/size及两份原始请求hash重新一致。两份预览运行脚本Ruff/check、format
+  通过，实际exit0，无auth/model/外传操作；真实第二份Context仍依赖首次真实结果。
+- 新审阅材料`/tmp/hm-live-approval-material-attempt29-01.md`，SHA256
+  `e3856817086b73e813bb17da1772190a556a363a5752d7330f1064558274e9c1`，明确绑定
+  本轮C/B/D并注明七门离线尚未就绪，仅为范围预览，不是批准或接受记录。
+  材料生成器Ruff实际22个RUF001（中文标点）且format未通过，但生成器实际
+  exit0且检查了原件hash/size；保留原始生成器和结果，不宣称该生成器检查通过。
+  这些管理辅助脚本样式问题不改变冻结源码CI或任何资格结论。
+
+- 2026-10-04 01:30（Asia/Singapore）第29轮execution-prepared与execution-started
+  两个原始窗口已完整采集，Q05=37/61、本轮71/106；继续execution-execution_receipt。
+  监督单元实查仍active/running，MainPID=1991841，worktree11仍干净。当前窗口
+  原始子进程仍存活，尚无整轮退出或失败记录；七门预检仍待本轮完整矩阵。
+  没有auth/model/外传操作，整体NOT_QUALIFIED。
+
+- 2026-10-04 02:28（Asia/Singapore）第29轮execution-execution_receipt已完整
+  原始采集，前三个执行窗口完成，Q05=38/61、本轮72/106；继续
+  execution-completed_intent。监督服务实查仍active/running、MainPID=1991841，
+  worktree11仍干净，没有矩阵失败终态或整轮退出。七门预检及HM09仍未就绪，
+  没有auth/model/外传操作，整体NOT_QUALIFIED。
+
+- 2026-10-04 03:24（Asia/Singapore）第29轮execution-completed_intent已完整
+  原始采集，Q05=39/61、本轮73/106；继续execution-trial_event。监督单元
+  实查仍active/running、MainPID=1991841，worktree11仍干净，无整轮失败记录。
+  本轮剩余矩阵、七门预检、真实交接及HM09仍未就绪，整体NOT_QUALIFIED。
+
+- 2026-10-04 04:22（Asia/Singapore）第29轮execution-trial_event完整原始采集，
+  Q05=40/61、本轮74/106；继续execution-ledger。监督单元实查仍active/running，
+  MainPID=1991841，worktree11仍干净，无整轮失败记录。七门预检仍等待本轮
+  全部106项及原始成功退出，整体NOT_QUALIFIED，没有auth/model/外传操作。
+
+- 2026-10-04 06:15（Asia/Singapore）第29轮execution-ledger完整原始采集，
+  Q05=41/61、本轮75/106；继续execution-step_completed。监督单元实查仍
+  active/running，MainPID=1991841，worktree11仍干净，无整轮失败记录。剩余
+  矩阵、七门预检及真实交接尚未完成，整体NOT_QUALIFIED。
+
+- 2026-10-04 07:11（Asia/Singapore）第29轮execution-step_completed完整原始
+  采集，Q05=42/61、本轮76/106；继续execution-selection_ledger。监督单元
+  实查仍active/running，MainPID=1991841，worktree11仍干净，无整轮失败记录。
+  剩余矩阵、七门预检及真实交接尚未完成，整体NOT_QUALIFIED。
+
+- 2026-10-04 08:08（Asia/Singapore）第29轮execution-selection_ledger完整原始
+  采集，Q05=43/61、本轮77/106；继续最后一个执行窗口execution-final_report。
+  监督单元实查仍active/running，MainPID=1991841，worktree11仍干净，无整轮
+  失败记录。随后仍需损坏/原子控制、本轮Q06及七门预检，整体NOT_QUALIFIED。
+
+- 2026-10-04 09:08（Asia/Singapore）第29轮execution-final_report完整原始采集，
+  九个执行窗口全部完成，Q05=44/61、本轮78/106；继续五个损坏和十二个原子
+  控制，随后本轮Q06。没有矩阵失败终态；原始整轮退出、七门预检及HM09仍
+  待完整原件，不从九个窗口采集授予资格，没有auth/model/外传操作。
+
+- 2026-10-04 09:46（Asia/Singapore）第29轮Q05全部61项完整原始采集，包含
+  九个执行窗口、五个损坏场景和十二个原子控制；本轮95/106，进入四个
+  生命周期和七个独立预算场景。没有矩阵失败记录；原始整轮退出与七门预检
+  仍需本轮实际结果，不从95项采集授予门PASS，整体NOT_QUALIFIED。
+
+- 2026-10-04 10:43（Asia/Singapore）第29轮四个生命周期和前五个独立预算
+  场景完整原始采集，Q06=9/11、本轮104/106；继续execution_allowance，随后
+  compute_allowance。监督单元实查仍active/running，MainPID=1991841，worktree11
+  仍干净，无矩阵失败记录；七门预检仍待原始整轮退出，整体NOT_QUALIFIED。
+
+- 2026-10-04 11:13（Asia/Singapore）第29轮全部106项完成：Q02=2、Q03=8、
+  Q04=13、Q08=11、Q05=61、Q06=11；原始staging Popen/wait actual0、
+  waitpid_observed=true、failure=null，parent=1991841/child=1991846，
+  finished_at=2026-10-04T03:12:56.928036+00:00。完整日志SHA256
+  `24173138104d9eae50448af137ed68c73093f75774f2e976b4faf1ed65313331`，
+  terminal SHA256`a6c4d57114a8ee9da854823d59038547ba49e68a51190e9e83c8f59e58d458e0`；
+  精确C=01cc07112f8c4db9a1488e91fc8156ea22a2b748、D=bc026bd931b4b824b0746c2a170de930de41dca719cb8428725f3dfacd010b12，
+  106唯一场景核对一致。以上是SYNTHETIC_NOT_LIVE_MODEL_SOURCE采集成功，
+  不能由计数或CI推断七门PASS或hosted资格。用户级staging服务已正常结束；
+  七门纯离线后继服务实际active/running，原始stage成功绑定后已启动独立新根
+  export29-01，管理父进程2171323；预检尚无退出/原生验证结果。系统级systemctl
+  查询未定位用户单元，随后使用--user实查确认，不将缺失单元默认状态当退出证据。
+  worktree11实查干净，没有auth/model读取、调用或外传，整体仍NOT_QUALIFIED。
+
+- 2026-10-04 12:11（Asia/Singapore）export29-01已发布manager-export映射，
+  七门verify_staging尚无verifier-result/qualification-manifest或原始退出记录。
+  用户级后继服务实查active/running，MainPID=1998915；原始export child=2171328、
+  parent=2171323、elapsed=58:31/pcpu=90.3/状态Rsl，仅记录运行元数据，
+  不把CPU或服务默认ExecMainStatus=0当作完成。worktree11实查干净，无失败记录。
+  最终实际offline-ready绑定材料的第29轮后继生成脚本已准备但未执行，
+  SHA256`0a8721c1caddb8dc5118f01a0e72116f39b98dc29f840d3bb41027213b645ec6`；
+  首次Ruff有一处E501，修正后Ruff/check、format/check和语法检查实际通过。
+  中文审阅文字使用局部RUF001本地化说明，不改变生产规则；它要求原始stage/export/
+  native/outer四层actual wait0、七门原始PASS、原生资格hash与ready一致、
+  bundle/authority实际unchanged和8份输入预览hash/size重新一致后才创建新材料。
+  原先interim材料和其失败style记录不修改，没有认证/模型调用，整体NOT_QUALIFIED。
+
+- 2026-10-04 14:01（Asia/Singapore）第29轮七门导出原始Popen/wait actual1、
+  waitpid_observed=true/failure=null，parent=2171323/child=2171328；完整stdout
+  SHA256`bdfb75519eaad3dfe721ec4209de49d4d77f76492c4bd42d16956b010d4ab0b9`，
+  原始生产器strict verify_staging返回后以
+  `original offline scenario preflight did not pass every required gate`实际拒绝，
+  本轮至少一项必需门未通过，不再是上轮checked_artifact_hashes构造异常。
+  外层actual1/waitpid/failure=null，完整stdout
+  SHA256`911f4f1a04322b9b8f6786629952f98e133d53da51b371deb3ae3bc1fab74c6b`；
+  用户级单元实查failed/exit-code/MainPID=0。failed bundle原根
+  `/tmp/hm-qualification-export-attempt29-01/offline-preflight01`保留，没有正式
+  qualification-manifest/verifier-result或原生验证；第29轮106采集与CI仍是实际成功，
+  不将其改写失败。原始所有输入/输出、失败根、运行脚本及源码保持不变。
+  新独立有界只读diagnostic29-01已启动，复核原始来源和严格谓词，记录被捕获
+  的实际异常位置与门理由；诊断结果仅NOT_QUALIFIED，不能作为门接受或HM09。
+  worktree11实查干净，未执行最终审阅材料生成器，也没有认证/模型调用。
+
+- 第29轮失败导出保留后继complete11索引已实际生成并逐条重核原记录hash/size，
+  共40行，SHA256`6cde3203a0527efd15659fa3efe747aaaedf53452ad6fe7c4550adba3fada40c`；
+  scope=PRIOR_COMPLETE10_PLUS_OFFLINE_MANAGEMENT_ATTEMPT29_01，明确第29轮
+  original_staging_actual_exit=0/offline_export_actual_exit=1，完整包含原始
+  退出、失败、stdout、运行脚本、manager-export与成功staging终态。原complete10
+  未修改。history生成器Ruff/check、format/check实际通过，执行actual0。
+  2026-10-04 15:01（Asia/Singapore）readonly diagnostic29-01已完成source
+  reconciliation并进入Q06，尚无被捕获异常或原始退出；用户服务实查
+  active/running/MainPID=2193345，child=2193384 elapsed=57:53/pcpu=96.8/Rsl。
+  两份诊断运行脚本Ruff/check和format/check实际通过；仅在RAM记录原始谓词
+  异常和位置，严格Gate仍原样调用，最后要求failed bundle与原权威inventory不变，
+  不过滤/修复失败根、不授予资格。没有认证/模型，整体NOT_QUALIFIED。
+
+- 2026-10-04 15:09（Asia/Singapore）readonly diagnostic29-01原始actual0/
+  waitpid_observed=true/failure=null，parent=2193345/child=2193384，stdout SHA256
+  `5320e005cb7f57513fef57f5ca0a447d161c19e0a32242d75cb14b9883c17d3e`；
+  完整failed bundle和原authority raw_inventory实际不变。Q06严格谓词诊断返回
+  PASS/ORIGINAL_SCENARIO_AUTHORITY_VERIFIED，说明本轮hash边界修复通过该诊断，
+  但它不是原始生产器七门PASS或资格。随后Q12诊断FAIL/
+  Q12 original check registry is incomplete。核对发现诊断脚本自己的
+  logical.split('/',3)[-1]丢掉checks前缀，导致Q12全部检查文件未索引；
+  实际生产器映射23项与expected精确一致，不能把诊断遗漏当作生产缺陷。
+  原始helper/结果保留。新readonly diagnostic29-02在新根修正精确
+  cases/Q12/checks/索引并优先Q12后Q05，两份运行脚本Ruff/check与format/check
+  实际通过后启动；仍无生产代码改动，原始门失败原因尚待定位，NOT_QUALIFIED。
+
+- diagnostic29-01保留后继complete12索引已实际生成，41行，SHA256
+  `8dacf63405dfbd0f7b1fa970f1dd6411184894e136f4b4fe3b88816acc1b4f5f`；
+  原complete11不修改，scope明确只增加已完成diagnostic29-01及其
+  Q12_DIAGNOSTIC_OMITTED_CHECK_EVIDENCE_NOT_PRODUCTION_REGISTRY_FAILURE限制。
+  生成器首次RUF005已在执行前修正，最终Ruff/check、format/check通过、执行actual0。
+  2026-10-04 16:06（Asia/Singapore）diagnostic29-02实际Q12返回
+  PASS/ORIGINAL_SCENARIO_AUTHORITY_VERIFIED，完整23项CI来源核验通过；随后
+  进入Q05，目前无异常/退出。用户级诊断服务实查active/running/MainPID=2202202，
+  worktree11干净。诊断不能替代原始七门失败结果，仍NOT_QUALIFIED，
+  没有auth/model或原始失败根修复。
+
+- 2026-10-04 17:03与17:59（Asia/Singapore）diagnostic29-02用户服务
+  均实查active/running，MainPID=2202202/child=2202208；后次elapsed=02:49:10、
+  pcpu=99.7/Rsl，仍在Q05严格谓词，没有异常/原始退出记录。已有Q12诊断PASS，
+  不能推断Q05或原始七门通过。诊断保持原先14400秒上限，未修改运行脚本、
+  冻结worktree11或原始失败包，无auth/model，整体NOT_QUALIFIED。
+
+- 2026-10-04 19:36（Asia/Singapore）第29轮故障门定位已结束：独立只读
+  diagnostic29-03 actual wait0/failure=null，Q02/Q03严格谓词诊断PASS，Q04
+  实际FileNotFoundError：原主部署缺少deployment-probes.json；Q08未执行。
+  failed bundle与当时原authority inventory实际不变。diagnostic29-02先完成
+  Q12/Q05严格谓词诊断PASS，重复Q06期间实际触及14400秒上限，原wait=-9/
+  OFFLINE_TIMEOUT；没有最终inventory断言，保留失败，诊断不能授予资格。
+  offline-security-probe29-01因执行前发现异常类型预期错误而外部停止，未实际
+  探针且没有原始wait终态；全根保留。新probe29-02实际wait1/failure=null，
+  probe_managed_deployment因没有campaign event canary拒绝，未产生权限证明；
+  实际服务停止记录和非秘密canary保留，未发出请求、读取认证或调用模型。
+
+- 第29轮独立授权前读取诊断actual0，仅完成诊断：295份原始evidence保持不变，
+  一份真实manager-export为16,449,272字节，SHA256
+  `9241bbb34f101f3bd2809378ce9b774da4cc1c60f428c9d9735d36b9b620ea84`，
+  超过通用KnownValueGuard的4MiB单次上限，实际ValueError。没有执行live驱动。
+  修复复用已有16MiB有界typed export逐记录及重叠窗口扫描，并校验精确C/D；
+  通用扫描器、proposal及研究通道上限不变。首次实际权限探针缺少事件时，仅
+  使用既有CampaignEventStore.seed落盘冻结初始前缀；不在公共输入loader中
+  全局落盘，不发请求，不启动TTL。已有权限证明只可通过完整独立安全谓词
+  重验后返回相同字节，不重复覆盖不可变权限证明，也不从file-exists授予PASS。
+
+- 本次修复的六文件组件回归最初120 passed/1 failed：失败在默认工具PID
+  namespace不能读取真实bwrap子进程/proc状态。保留真实失败，不降低PID检查。
+  在真实宿主权限下重跑四个相关文件实际86 passed/24.42秒、退出0；仓库标准
+  src范围Pyright实际0 errors/0 warnings/0 informations、退出0。此前误将动态
+  测试fixture加入显式Pyright范围产生76项错误，不能宣称该命令通过；纠正为
+  仓库配置的严格src范围。以上只是修复组件证据，不替代新精确提交完整CI、
+  106场景、七门原生预检、真实hosted campaign或HM09。整体NOT_QUALIFIED。
+
+- complete13索引生成器29-04首次执行实际退出1：误断言外部停止probe29-01
+  的stdout为空。原件实际只有导入时第三方Gym维护提示，没有探针结果；保留
+  原生成器和工具实际失败记录。新独立29-05生成器以无原始exit且无实际探针
+  结果核验停止状态，并保留真实stdout。生成器29-04执行前Ruff/check首次有
+  E501，format后最终Ruff/check、format/check及git diff --check实际通过。
+
+- complete13索引29-05实际生成成功、退出0，47行，所有前序原件hash/size
+  逐条重验一致；SHA256
+  `215b254a7caf3b4c96d0a3464ebc12e84932dd0b3038d8ebb1c59662813a7161`。
+  scope只增加第29轮终态诊断、失败/停止探针、授权前大export诊断和索引生成器
+  真实失败，不从任何诊断授予门PASS。原complete12及原失败根不修改。

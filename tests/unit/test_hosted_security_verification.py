@@ -16,6 +16,7 @@ from quantos.infrastructure.hosted_deployment import (
     install_inventory,
     namespace_command,
 )
+from quantos.infrastructure.hosted_manager import probe_managed_deployment
 from quantos.infrastructure.hosted_security_verification import verify_deployment_security
 from quantos.infrastructure.hosted_verification import HostedQualificationError, raw_inventory
 
@@ -280,9 +281,15 @@ def _observations(tmp_path: Path):
     ),
 )
 def test_security_origin_rejects_forged_boundary_observations_without_mutation(
-    tmp_path: Path, attack: str | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attack: str | None
 ) -> None:
     deployment, fact, start, bootstrap = _observations(tmp_path)
+    deployment.capability = b"non-secret-reverification-capability"
+
+    def unexpected_capture(*args, **kwargs):
+        raise AssertionError("immutable proof must be reverified without a replacement capture")
+
+    monkeypatch.setattr("quantos.infrastructure.hosted_manager.subprocess.run", unexpected_capture)
     rows = {row["name"]: row for row in fact["actual_observation"]["results"]}
     if attack == "program":
         fact["probe_program_hash"] = "d" * 64
@@ -338,7 +345,10 @@ def test_security_origin_rejects_forged_boundary_observations_without_mutation(
             sha256_bytes(start_bytes),
             sha256_bytes(bootstrap_bytes),
         } <= set(checked)
+        assert probe_managed_deployment(deployment) == fact_bytes
     else:
         with pytest.raises(HostedQualificationError):
             verify_deployment_security(deployment)
+        with pytest.raises(HostedQualificationError):
+            probe_managed_deployment(deployment)
     assert raw_inventory(deployment.root) == before
