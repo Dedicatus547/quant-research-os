@@ -1,13 +1,25 @@
 # HM-MVP 实施进度
 
-日期：2026-10-01。整体状态：`NOT_QUALIFIED`，尚未完成 MVP 验收。
+最新核对：2026-10-05。整体状态：`NOT_QUALIFIED`，尚未完成 MVP 验收。
+
+第31轮绑定精确实现 `a29bbc5512a514af9f2b69da99f82e03068b8131`，冻结安装完整
+CI 五项原始退出均为0，1795 tests passed，完整171个源码文件覆盖率85.39%。
+106个离线场景已完整采集，原staging实际wait0；七门导出与独立原生核验正在运行。
+完整导出布局的只读诊断发现管理端source index超过16MiB上限；后继
+[专用32MiB边界修正](hm-manager-export-capacity.md)已通过组件回归，正在准备新冻结验收。
+第31轮的通过记录不自动授予后继代码资格。尚未取得真正offline-ready，
+没有读取模型认证或调用模型。真实交接、Q09/Q10回放、
+完整HM09独立审查、Luna HM10及HM11发布绑定仍待完成。
+
+下列过程记录分别保留各次当时的状态；历史诊断、组件通过或采集完成不能授予资格。
 
 HM-01/02 的基线、冻结契约和独立契约审查已保存；HM-03/04/05 的版本化交接、
 持久化业务编排和受限 CLI 已实现并通过组件回归。HM-06 的冻结安装、namespace、
 Unix channel、可信 CLI 捕获及管理 staging 已实现；已有实际启动和 Q07 原件诊断，
 尚未完成完整正式资格。
 HM-07 的只读 raw/protocol/business verifier、保存 SUBMIT 导入和 offline 管理入口已接入；
-Q01–Q12 的来源谓词已有实现，完整原件矩阵与新 Q12 实现的冻结安装验收尚未通过。
+Q01–Q12 的来源谓词已有实现；第31轮完整原件矩阵和Q12冻结安装CI已采集完成，
+完整来源门验证仍待实际七门预检、原生核验及后续真实交接与回放。
 HM-08 的实际模型驱动已接入受限 CLI，
 正式 live、receipt reuse、两个全新 Qlib 根及完整 bundle 尚未执行。HM-09/10/11 未完成。
 
@@ -1952,3 +1964,246 @@ Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicat
   `215b254a7caf3b4c96d0a3464ebc12e84932dd0b3038d8ebb1c59662813a7161`。
   scope只增加第29轮终态诊断、失败/停止探针、授权前大export诊断和索引生成器
   真实失败，不从任何诊断授予门PASS。原complete12及原失败根不修改。
+
+- 新修复源码冻结C=`a29bbc5512a514af9f2b69da99f82e03068b8131`。首次uv build
+  --offline未发现Python3.11，工具actual2；显式现有.venv/bin/python、独立
+  build-attempt30-02实际成功，wheel SHA256
+  `b69d39a5cbc5efd6051e0ad97eaa10c3afd0c27db316c3ba31f65451032dad08`。
+  worktree12整体artifacts复制产生额外目录层级，原始第30轮staging在
+  verify_external_inputs实际FileNotFoundError，original wait1/failure=null，
+  stdout SHA256`0e71a2ea08d730276f96ab296c6b6b7fa663ff411aff74d42a39f42a5b9f6681`。
+  没有进入部署/权限/CI/矩阵，原根与监督记录保留，不修复或授予资格。
+  第30轮准备生成器Ruff首次两处E501，执行actual0、实际stage和supervisor
+  Ruff/check通过，不宣称生成器style通过。一次误用全/tmp rg已中止（tool130），
+  后续限定已知管理目录与hm前缀，不读取认证。
+
+- 2026-10-04 19:43（Asia/Singapore）独立worktree13同一C实查干净。仅三条
+  显式snapshot/view/release输入树拒绝符号链接后复制，tool actual0；第31轮
+  原始输入验证会重核冻结内容。staging31/supervisor31语法和Ruff/check通过，
+  新用户级单元quantos-hm-staging-attempt31.service启动实际成功；继续真实
+  权限探针前置、完整CI和106场景。原第29/30轮结果不会替代本轮资格，
+  仍NOT_QUALIFIED，无auth/model/外传；本轮offline-ready和正式接受尚未生成。
+
+- 第31轮实际B=`9845e4c14ca870199f39416d7235d6912563fd94ec26e0ecf75b824fba0bfd77`，
+  D=`eb246eddd0ffb9214f6302f157746f1113c97420b7bc4d732becabcd8967c7d8`。
+  原始真实主部署权限探针已完成并经完整安全谓词重验，第二次返回字节完全一致，
+  原protocol snapshot实际不变/request_count=0；proof SHA256
+  `751728b1a59035cc5b242549b44311e4811d70834750327f2687f7b6d118abc2`。
+  这只是实际边界采集/重验，不授予Q04/Q07或整体资格。完整CI前缀准备继续中。
+  第30轮失败及构建错误complete14实际生成、49行、前序hash/size逐条一致，
+  SHA256`76317b210643f4304f562cd022d72bde77b632f752dc713468a6449c7fa43d84`。
+  新纯离线后继监督单元已启动，严格等本轮原始wait0/106终态后才导出七门；
+  staging MainPID=2240947/active/running实查，不能从服务状态推断检查通过。
+
+- 新第31轮live管理脚本仅准备、未执行。大export分支只接受canonical typed
+  HostedManagerExport、原content-addressed文件名和相同C/D，调用生产共享有界
+  扫描函数；未知大型文件仍拒绝。显式Pyright首次实际23 errors，发现原29脚本
+  三处strict_json_object漏传必需max_bytes，会在auth前真实阻断；新未执行脚本
+  补齐65536字节原生metadata/summary上限及类型注解后实际0 errors/0 warnings/
+  0 informations。Ruff/check和format通过。原29脚本保持不变，没有认证操作。
+
+- 已准备的七份管理辅助脚本显式Pyright实际231 errors；大部分为既有动态
+  JSON/管理脚本未注解类型，另一个reportArgumentType为预算profile原始JSON
+  object到str边界。未将其当成生产src检查或PASS；原始完整诊断JSON保留于
+  `/tmp/hm-prepared-helper-static-review-attempt31-01.json`。预算部署读取仍经过
+  原始输入/profile合同重验，当前未观察运行失败，不更改冻结门/运行中脚本。
+  本轮完整CI会实际执行仓库配置的src检查。所有七份第31轮准备脚本最终
+  Ruff/check、format/check实际通过，源diff-check通过，live脚本仍未执行。
+
+- 2026-10-04 20:40（Asia/Singapore）第31轮全量pytest尚无原始退出。安装环境
+  Ruff、ruff-format、Pyright三项实际wait0/failure=null；checks目录原件已核对。
+  staging/纯离线后继用户单元均实查active/running，MainPID=2240947/2241778；
+  原始stage child=2240952/elapsed=57:58/Ssl，仅记录已知父进程非敏感元数据，
+  不用进程CPU或服务状态推断pytest通过。独立worktree13仍干净，矩阵0/106，
+  没有staging/offline失败记录或ready；完整CI及七门仍待原件，NOT_QUALIFIED。
+
+- 2026-10-04 21:35（Asia/Singapore）第31轮仍在完整pytest，无原始pytest/
+  docs检查退出或整轮终态；已有三项静态检查实际wait0不变。用户级staging/
+  纯离线后继均实查active/running，MainPID=2240947/2241778；原stage child
+  2240952 elapsed=01:53:00/Ssl。worktree13干净，矩阵0/106、无失败记录，
+  不把持续运行当pytest通过，不读取auth/model，整体NOT_QUALIFIED。
+
+- 第31轮完整安装环境CI已实际完成：1795 passed、113 warnings、6816.93秒，
+  pytest原始wait0/failure=null；五项diff-check/Pyright/pytest/Ruff/format
+  全部原始wait0，完整覆盖率85.39%（门85%，原完整分母不裁剪）。
+  37 files skipped due to complete coverage只是终端展示，不是忽略分母。
+  原始stage已输出INSTALLED_FULL_CI_CAPTURED并进入本轮106场景，源worktree13
+  仍干净。不能从CI成功推断七门PASS、live或HM09；仍NOT_QUALIFIED。
+
+- 2026-10-04 21:43（Asia/Singapore）本轮完整覆盖分母实查171个src文件，
+  lines=24553/27589、branches=5838/8000；run.json SHA256
+  `094c5f69c43a5a0c19629d562a5a52473061ec3d51259a69cce7fa36866c37c3`，
+  coverage.xml SHA256`a216f21d92b04e241d4a516021ab6bb0912bc872779f577124aee06d57386b17`，
+  pytest.xml SHA256`3b6bac0920d72a2c7d4136101adb480b12d9610238c9c4e0aff1dc657280c473`。
+  CI原管理parent=2240952/child=2241832、actual wait0/failure=null。
+  tracked-before/after哈希相同；覆盖数据按原始捕获留存，无手工覆盖修复。
+
+- 第31轮前10/106原始场景采集完成：Q02=2、Q03=8，包含重复提交、错绑、
+  expired/cancelled及conflict，实际原驱动输出INSTALLED_OFFLINE_FIXTURE_CAPTURED。
+  worktree13干净，没有staging/offline失败记录或原始整轮退出；继续13个Q04
+  与11个Q08。采集成功不代替严格门谓词、原生七门预检或HM09，NOT_QUALIFIED。
+
+- 第31轮34/106原始场景完整采集：Q02=2、Q03=8、Q04=13、Q08=11，
+  最后一项Q08/claimed_trusted_source已由原始驱动输出。完整CI1795P/85.39%
+  保持原件，本轮源worktree13干净，没有整轮退出、失败记录或offline-ready。
+  进入61个Q05崩溃/执行/损坏/原子控制场景，随后11个Q06生命周期与预算。
+  本轮实际主权限证明已捕获并重验，但34项采集不能授予Q04/Q07、七门或
+  hosted资格，仍NOT_QUALIFIED，无auth/model/外传。
+
+- 2026-10-04 23:21（Asia/Singapore）第31轮Q05=15/61、本轮49/106，最近
+  submit-artifact_published-3原始完整采集；继续提交与后继恢复窗口。
+  两项用户级离线监督单元实查active/running，MainPID=2240947/2241778，
+  worktree13干净，没有staging/offline失败记录、原整轮退出或ready。
+  全量CI1795P/85.39%保持原件，本轮权限probe已完成；不据部分窗口推断
+  七门通过或HM09接受，整体NOT_QUALIFIED，没有auth/model/外传。
+
+- 第31轮Q05=26/61、本轮60/106，expire-intent_published-1原始完整采集，
+  注册、请求、提交、拒绝、取消的原始故障窗口已采集。worktree13仍干净，
+  没有staging/offline失败记录、原整轮退出或ready；后续过期、执行、损坏与
+  原子控制及Q06仍待原始采集。部分计数不能代替七门或资格，NOT_QUALIFIED。
+
+- 第31轮Q05=35/61、本轮69/106，business-step_completed原始完整采集；
+  协议与业务事件/Ledger协调窗口已采集，进入九个真实PIT/Qlib执行窗口。
+  原始执行/恢复/对账仍须完整返回，不从native worker启动或组件通过推断
+  采集成功。worktree13干净，无本轮失败记录/整轮退出/ready，NOT_QUALIFIED。
+
+- 2026-10-05 01:15（Asia/Singapore）第31轮首个execution-prepared真实执行
+  窗口仍运行，Q05=35/61、本轮69/106，尚无该窗口完整原始恢复终态。两项
+  用户级离线服务实查active/running，MainPID=2240947/2241778；原stage子
+  namespace wrapper=2302395/parent=2240952/elapsed=48:34/Ss，只记录运行元数据，
+  不把wrapper CPU或启动当作成功。worktree13干净、无本轮失败记录/退出/ready，
+  无auth/model/外传，整体NOT_QUALIFIED，继续原先有界执行。
+
+- 第31轮execution-prepared首个真实PIT/Qlib执行故障窗口原始完整采集，
+  Q05=36/61、本轮70/106；继续execution-research_reserved等其余八个执行窗口。
+  worktree13干净，无staging/offline失败记录或原整轮退出/ready；新纯公开输入
+  预览从本轮已完成execution-prepared请求读取，不发live请求或读认证，
+  不能作为未来实际live输入或资格结果。整体NOT_QUALIFIED。
+
+- 第31轮两份公开预览清单已实际生成且原始请求不变：Context/schema清单
+  SHA256`673aa963c471367a9cd24cd5e400584fb0ec80261d18b222f84304ad3e6d2c4d`，
+  request/prompt清单SHA256`0c030b7ffcfbd30715bfd6017355ae21c4542b0248b92e0f7ca353c13b84bc20`。
+  八份文件hash/size及两份原始请求hash重新一致，尺寸704/97106、schema各3319、
+  request15482/111951、prompt15681/112150字节。仅从已完成离线原件复制，
+  没有实际live请求、认证或模型调用；第二份实际上下文依赖未来真实首个结果。
+  本轮interim审阅材料SHA256
+  `fbdab869d7bd3b64dfdd13b77b313ea1aefa30f2bac4705d630e6a6fa242181a`，
+  明确106矩阵/七门/原生未就绪，不是批准或资格。真正offline-ready绑定的
+  后继生成器31-02已准备、Ruff/check和format/check通过，未执行；须本轮
+  actual原始退出、七门PASS、独立原生结果与bundle/authority不变全部一致。
+  interim生成器首次import顺序自动整理后通过，再实际执行0；旧材料不修改。
+
+- 第31轮execution-started第二个执行窗口原始完整采集，Q05=37/61、71/106。
+  源worktree13仍干净，无本轮失败记录或整轮退出；公开预览两次生成实际
+  exit0，interim材料不是离线ready或批准，31-02后继材料生成器仍未执行。
+  本轮准备的live-drive脚本SHA256
+  `14f1f0381a7ab06a90dbfdf9d4685bd1fb15b2d6c7c5b5ceca1ea1182fe41ee2`，
+  最终审阅材料生成器SHA256
+  `f864ea6fce1914934cabc3b8f55afe358b77c6e5a7c7e11325990ea67198b1f4`，
+  均语法/Ruff/check通过；live脚本src依赖标准Pyright与显式脚本Pyright实际
+  通过。没有调用live脚本或读取认证，整体NOT_QUALIFIED。
+
+- 第31轮execution-execution_receipt第三个执行故障窗口原始完整采集，
+  Q05=38/61、本轮72/106；后继执行结果、事件、Ledger与最终报告窗口继续。
+  worktree13仍干净，无本轮失败记录、原整轮退出或ready；公开预览及interim
+  已生成，但真正31-02 offline-ready绑定材料未生成，没有认证/模型操作，
+  整体NOT_QUALIFIED，不从执行receipt窗口单项采集推断整套资格。
+
+- 第31轮execution-completed_intent第四个执行窗口原始完整采集，Q05=39/61、
+  本轮73/106；继续trial event、Ledger、step、选择Ledger和最终报告执行窗口。
+  worktree13干净，无本轮失败记录/整轮退出/ready，公开审阅材料仍interim，
+  原生七门预检及最终材料待本轮完整矩阵。没有auth/model/外传，NOT_QUALIFIED。
+
+- 第31轮execution-trial_event第五个执行故障窗口原始完整采集，Q05=40/61、
+  本轮74/106；继续execution-ledger、step_completed、selection_ledger及final_report。
+  worktree13干净，无本轮失败记录、原整轮退出或offline-ready；106完整原件、
+  七门导出及独立原生验证仍待实际结果，不能以已有窗口推断PASS。没有
+  auth/model/外传，整体NOT_QUALIFIED，真正31-02审批材料生成器未执行。
+
+- 第31轮execution-ledger第六个执行故障窗口已由原始驱动完整采集，
+  Q05=41/61、本轮75/106。继续step_completed、selection_ledger与final_report，
+  随后执行损坏、原子控制及Q06生命周期/预算场景。worktree13仍干净，
+  无本轮失败记录、原整轮退出或offline-ready；七门与独立原生核验尚未完成。
+  没有认证读取、模型调用或外传，整体NOT_QUALIFIED，31-02材料尚未生成。
+
+- 当前主agent准备了第31轮HM09独立审查交接清单
+  `/tmp/hm-hm09-handoff-preparation-attempt31-01.md`，仅列冻结源码/安装身份、
+  后续必须检查的实际ready记录与十二门、原生结果、106分母、真实来源、
+  双根回放、失败历史和声明限制。它没有未来qualification hash，不是审查
+  或接受记录；HM09尚未启动。必须真实live及完整verifier完成后，以新上下文
+  gpt-6.1-sol/high独立审查，通过后再交gpt-6-luna/medium整理HM10。
+
+- 第31轮execution-step_completed第七个执行故障窗口原始完整采集，
+  Q05=42/61、本轮76/106；选择Ledger与最终报告两个执行窗口继续，随后
+  损坏、原子控制及Q06生命周期/预算仍待采集。worktree13干净，无本轮
+  失败记录、原整轮退出或offline-ready；不能从已采集窗口推断七门PASS，
+  未读取认证、调用模型或发送上下文，整体NOT_QUALIFIED。
+
+- 第31轮execution-selection_ledger第八个执行故障窗口原始完整采集，
+  Q05=43/61、本轮77/106，继续最后的execution-final_report窗口。损坏五项、
+  原子控制十二项及Q06十一项仍待原始采集；worktree13干净，无本轮失败记录、
+  原整轮退出或offline-ready。本轮完整CI原件1795P/85.39%保持不变，整体
+  NOT_QUALIFIED，未读取认证或调用模型，不以单项恢复采集授予七门或HM09。
+
+- 第31轮execution-final_report第九个执行故障窗口原始完整采集，Q05=44/61、
+  本轮78/106；九个真实PIT/Qlib执行窗口全部已取得原始恢复/对账采集记录。
+  继续五个损坏、十二个原子控制及十一项Q06生命周期/预算场景。worktree13
+  干净，无本轮失败记录、原整轮退出或offline-ready；完整矩阵后再由既有
+  离线监督程序执行七门导出和独立原生核验，仍NOT_QUALIFIED，无auth/model。
+
+- 第31轮五个corruption窗口已全部原始完整采集，最后changed_artifact，
+  Q05=49/61、本轮83/106。覆盖journal_fragment、wrong_sequence、double_pending、
+  orphan_artifact与changed_artifact；继续十二项atomic写入与十一项Q06。
+  worktree13干净，无本轮失败记录、原整轮退出或offline-ready；采集记录仍须
+  后续严格来源谓词和原生验证，不据采集计数授予门PASS，整体NOT_QUALIFIED。
+
+- 第31轮十二个atomic物理写入窗口原始完整采集，最后
+  atomic-object-directory_fsynced；Q05=61/61、本轮95/106。spec、journal、object
+  各四个file_fsynced/file_linked/file_published/directory_fsynced窗口均已取得
+  原始故障及恢复采集，进入最后四个生命周期和七个预算场景。worktree13
+  仍干净，无本轮失败记录、原整轮退出或offline-ready；Q05整门及其余六门
+  的严格来源验证尚未完成，不将61项采集当作门PASS，仍NOT_QUALIFIED。
+
+- 第31轮Q06四个生命周期场景原始完整采集，最后ttl_seen_response，
+  本轮99/106：cancel_before_submit、submit_before_cancel、ttl_unseen_response、
+  ttl_seen_response均已采集。进入七个独立冻结预算部署/场景；worktree13
+  干净，无本轮失败记录、原整轮退出或offline-ready，完整七门及原生核验
+  仍待本轮106矩阵实际退出后执行，整体NOT_QUALIFIED，没有auth/model/外传。
+
+- 2026-10-05 12:01（Asia/Singapore）第31轮104/106，五个预算场景已采集：
+  request_allowance、research_attempts、campaign_submissions、request_submissions、
+  trial_allowance。执行execution_allowance真实Qlib场景；冻结recipe明确
+  max_executions=1/max_validation_rounds=1、native_execution=True，并非仅提交
+  拒绝fixture。原stage子wrapper=2415762/parent=2240952/elapsed=16:17/Ss，
+  只记录运行元数据，不据启动或耗时推断通过。worktree13干净，无本轮失败
+  记录/原整轮退出/ready；后继compute_allowance尚待采集，仍NOT_QUALIFIED。
+
+- 2026-10-05 12:28（Asia/Singapore）第31轮106场景完整采集，原始Popen/wait
+  实际0/failure=null/waitpid_observed=true，parent=2240947/child=2240952，
+  finished_at=2026-10-05T04:27:57.293915+00:00；stdout SHA256
+  `b2adfd39c4c431dbd61c0644a4bc34fde2beb96343c17e872032cf05b25a6bbc`。
+  重算106 unique identities，Q02=2/Q03=8/Q04=13/Q05=61/Q06=11/Q08=11，
+  原terminal exact C31/D31一致，terminal SHA256
+  `bff2b1f08ad48925d5e15457a4593c9e7f7cb23c8ca064d0fa6985410e8f3585`，
+  staging-supervisor-ready SHA256
+  `1a1e930f6246a7552c916dc2ce80b7acb658a99fd7f357fe4899a36067f98acb`。
+  staging单元实查inactive/dead/MainPID=0，与原wait0一致；纯离线后继单元
+  active/running/MainPID=2241778，进入七门导出/独立原生核验。源worktree13
+  仍干净，没有本轮失败记录/真正offline-ready，无auth/model/外传；原terminal
+  仍标SYNTHETIC_NOT_LIVE_MODEL_SOURCE、NOT_QUALIFIED，不能把106采集或CI当资格。
+
+- 第31轮完整布局容量只读诊断实际exit0：原index22745 records/16452551 bytes，
+  原生execution-final_report最终authority616文件投影到全量producer十个布局位置，
+  得到28905 records/21063197 bytes，旧guard实际因16777216上限拒绝。结果明确
+  SYNTHETIC_LAYOUT_SIZE_DIAGNOSTIC_NOT_LIVE_NOT_QUALIFICATION，没有未来authority、
+  auth/model或原件改写。首次只读尺寸检查误用logical_path字段触发KeyError，
+  后继按真实bundle_path/source_path完成测量；初版诊断脚本E501经format修正，
+  再check通过后实际执行0。它不是实际live/full资格失败，也不是七门结果。
+
+- 后继代码为HostedManagerExport引入独立33554432-byte硬上限，publisher/window
+  guard与专用read_manager_export及原始index读取统一使用该上限。通用typed
+  读取16MiB、KnownValueGuard每调用4MiB、request1MiB/proposal256KiB及科研
+  流式/库存边界均保持原范围；完整映射分母、canonical/schema/C/D、原始bytes、
+  source与bundle digest以及nofollow/single-link校验继续硬要求。20个组件测试
+  实际通过/38.38秒，标准src Pyright实际0 errors/warnings/infos，Ruff/format/
+  diff check通过。须新精确commit和完整冻结验收，不把C31 106/CI当新代码通过。

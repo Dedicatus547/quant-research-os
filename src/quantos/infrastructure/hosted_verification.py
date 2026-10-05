@@ -69,6 +69,9 @@ MAX_BUNDLE_FILES = 100_000
 MAX_SINGLE_FILE_BYTES = 16 * 1024**3
 MAX_INVENTORY_BYTES = 128 * 1024**3
 MAX_TYPED_BYTES = 16_777_216
+# A complete source index includes the full fault matrix, live authority and
+# seven replay/tamper roots. This is not a protocol payload limit.
+MAX_MANAGER_EXPORT_BYTES = 33_554_432
 _CONTRACTS: dict[str, type[CanonicalContract]] = {
     "hosted-campaign-spec/v1": HostedCampaignSpec,
     "hosted-budget-journal-fact/v1": HostedBudgetJournalFact,

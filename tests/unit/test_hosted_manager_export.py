@@ -9,6 +9,12 @@ from quantos.artifacts.store import ArtifactIntegrityError
 from quantos.contracts.hosted_qualification import HostedManagerExport
 from quantos.infrastructure.hosted_deployment import KnownValueGuard
 from quantos.infrastructure.hosted_manager import guard_manager_export, publish_manager_export
+from quantos.infrastructure.hosted_qualification_sources import read_manager_export
+from quantos.infrastructure.hosted_verification import (
+    MAX_MANAGER_EXPORT_BYTES,
+    HostedQualificationError,
+    read_relative,
+)
 from quantos.security import SecretArtifactRejected
 
 
@@ -30,13 +36,15 @@ def _mappings(count: int = 9000) -> tuple[tuple[str, str], ...]:
     )
 
 
-def test_complete_large_matrix_publishes_with_existing_reader_bound(tmp_path: Path) -> None:
+def test_complete_large_matrix_uses_only_dedicated_index_reader_bound(tmp_path: Path) -> None:
     deployment = _deployment(tmp_path, b"S" * 32)
-    export = publish_manager_export(deployment, _mappings())
+    export = publish_manager_export(deployment, _mappings(35000))
     data = (tmp_path / "evidence" / export.content_hash).read_bytes()
-    assert 4_194_304 < len(data) < 16_777_216
-    assert HostedManagerExport.model_validate_json(data) == export
-    assert len(HostedManagerExport.model_validate_json(data).files) == 9000
+    assert 16_777_216 < len(data) < MAX_MANAGER_EXPORT_BYTES
+    parsed = read_manager_export(tmp_path, f"evidence/{export.content_hash}")
+    assert parsed == export and len(parsed.files) == 35000
+    with pytest.raises(HostedQualificationError, match="exceeds its byte cap"):
+        read_relative(tmp_path, f"evidence/{export.content_hash}")
     before = {path.name: path.read_bytes() for path in (tmp_path / "evidence").iterdir()}
     guard_manager_export(deployment, HostedManagerExport.model_validate_json(data))
     assert before == {path.name: path.read_bytes() for path in (tmp_path / "evidence").iterdir()}
@@ -84,7 +92,7 @@ def test_large_export_rejects_known_value_crossing_record_and_window_boundary(
 def test_export_over_reader_limit_is_not_persisted(tmp_path: Path) -> None:
     deployment = _deployment(tmp_path, b"S" * 32)
     with pytest.raises(ValueError, match="manager export byte cap"):
-        publish_manager_export(deployment, _mappings(35000))
+        publish_manager_export(deployment, _mappings(70000))
     assert not tuple((tmp_path / "evidence").iterdir())
 
 

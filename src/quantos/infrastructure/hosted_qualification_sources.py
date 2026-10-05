@@ -26,6 +26,7 @@ from quantos.infrastructure.hosted_launcher import TrustedLauncherEvidenceStore
 from quantos.infrastructure.hosted_manager import HostedManagedDeployment, read_managed_deployment
 from quantos.infrastructure.hosted_store import HostedProtocolStore
 from quantos.infrastructure.hosted_verification import (
+    MAX_MANAGER_EXPORT_BYTES,
     HostedQualificationError,
     digest_relative,
     read_relative,
@@ -58,6 +59,19 @@ class HostedVerifiedSources:
         return self.deployment.root / prefixes.pop()
 
 
+def read_manager_export(root: Path, logical_path: str) -> HostedManagerExport:
+    """Read only a canonical typed source index under its dedicated finite bound.
+
+    The caller must independently bind the index to the original deployment
+    and every referenced file.
+    """
+    return parse_hosted_contract(
+        read_relative(root, logical_path, max_bytes=MAX_MANAGER_EXPORT_BYTES),
+        HostedManagerExport,
+        max_bytes=MAX_MANAGER_EXPORT_BYTES,
+    )
+
+
 def verify_manager_export(
     bundle: Path, manifest: HostedQualificationManifest, manager_root: Path
 ) -> HostedVerifiedSources:
@@ -73,12 +87,13 @@ def verify_manager_export(
         or manager_absolute in bundle_absolute.parents
     ):
         raise HostedQualificationError("bundle and original manager roots must be independent")
-    encoded = read_relative(bundle, "manager-export.json")
-    exported = parse_hosted_contract(encoded, HostedManagerExport, max_bytes=16_777_216)
+    exported = read_manager_export(bundle, "manager-export.json")
+    encoded = exported.canonical_bytes()
     digest = sha256_bytes(encoded)
     if (
         digest != manifest.manager_export_hash
-        or read_relative(manager_root, f"evidence/{digest}") != encoded
+        or read_relative(manager_root, f"evidence/{digest}", max_bytes=MAX_MANAGER_EXPORT_BYTES)
+        != encoded
     ):
         raise HostedQualificationError("manager export is not the retained original record")
     deployment = read_managed_deployment(manager_root, manifest.deployment_profile_hash)

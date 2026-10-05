@@ -1394,13 +1394,15 @@ def _run_managed_transport_fixture(
 
 def guard_manager_export(deployment: HostedManagedDeployment, export: HostedManagerExport) -> None:
     """Scan a bounded typed source export without changing the general guard cap."""
+    from quantos.infrastructure.hosted_verification import MAX_MANAGER_EXPORT_BYTES
+
     if (
         export.exact_commit != deployment.profile.exact_commit
         or export.deployment_profile_hash != deployment.profile.content_hash
     ):
         raise ArtifactIntegrityError("manager export belongs to another frozen deployment")
     encoded = export.canonical_bytes()
-    if len(encoded) > 16_777_216:
+    if len(encoded) > MAX_MANAGER_EXPORT_BYTES:
         raise ValueError("manager export byte cap exceeded")
     guard = KnownValueGuard((deployment.capability,))
     guard(canonical_json_bytes(export.model_dump(mode="python", exclude={"files"})))
@@ -1434,7 +1436,7 @@ def publish_manager_export(
         files=tuple(files),
     )
     encoded = export.canonical_bytes()
-    # The existing export reader accepts at most16MiB. A complete durable matrix
+    # The dedicated source-index reader accepts at most32MiB. A complete matrix
     # can exceed the guard's per-call4MiB cap, so scan typed records separately
     # (including decoded JSON strings) and all raw bytes in overlapping windows.
     # The generic guard and research-channel limits retain their existing caps.
