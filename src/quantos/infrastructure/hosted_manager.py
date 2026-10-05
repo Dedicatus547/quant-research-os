@@ -912,6 +912,7 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
 
 def export_live_source(deployment: HostedManagedDeployment, destination: Path) -> str:
     """Export the stopped manager's original protocol/capture; never copy research results."""
+    from quantos.infrastructure.hosted_qualification_sources import read_manager_export
     from quantos.infrastructure.hosted_verification import (
         raw_inventory,
         read_relative,
@@ -934,8 +935,17 @@ def export_live_source(deployment: HostedManagedDeployment, destination: Path) -
         target = destination / name
         target.mkdir(mode=0o700)
         for item in inventories[name].files:
-            data = read_relative(source, item.logical_path)
-            guard(data)
+            if name == "evidence" and item.size_bytes > 4_194_304:
+                # A retained qualification index has its own bounded reader.
+                # Unknown large evidence must still fail rather than inherit it.
+                export = read_manager_export(source, item.logical_path)
+                data = export.canonical_bytes()
+                if item.logical_path != export.content_hash or item.sha256 != export.content_hash:
+                    raise ArtifactIntegrityError("large live evidence is not its typed export")
+                guard_manager_export(deployment, export)
+            else:
+                data = read_relative(source, item.logical_path)
+                guard(data)
             if len(data) != item.size_bytes or sha256_bytes(data) != item.sha256:
                 raise ArtifactIntegrityError("live source changed during manager export")
             atomic_write_bytes(target / item.logical_path, data)

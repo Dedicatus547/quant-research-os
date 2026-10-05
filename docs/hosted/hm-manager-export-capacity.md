@@ -47,9 +47,34 @@ before publication. Standard production Pyright completed with zero errors,
 warnings or informational diagnostics; Ruff, formatting and diff checks passed.
 These checks use unit fixtures and grant no native qualification.
 
-C31's original 1795-test installed CI and complete 106-scene capture remain
-immutable historical evidence for C31. Its seven-gate offline verification
-continues in its clean frozen worktree. The revised implementation requires a
-new exact commit, install/deployment identity and qualification execution.
+C31's original 1795-test installed CI, complete 106-scene capture and seven-gate
+offline export remain immutable historical evidence for C31. Its independent
+native verification exceeded the 7200-second limit and failed; the original roots
+were not repaired. Revised implementations require a new exact commit,
+install/deployment identity and qualification execution.
 Authenticated handoff still requires the actual user approval demanded by the
 earlier automatic review rejection; no provider authentication has been read.
+
+Pre-live consumer review found that `export_live_source` still read all stopped
+manager evidence under the ordinary 16 MiB limit and scanned it under the general
+4 MiB guard. The old actual index already exceeds 4 MiB. The corrected copy path
+allows only canonical, hash-named `HostedManagerExport` evidence above 4 MiB to use
+the existing dedicated reader and typed scanner. Commit/deployment, original
+inventory hash and length remain mandatory. All original files are copied;
+protocol and request projections retain their ordinary caps.
+
+Actual development regression: 32 tests passed in 52.97 seconds, including 13 new
+source-copy cases. The positive case copies a real synthetic index above 16 MiB
+and binds all three original roots to the export sidecar. Foreign deployment,
+wrong hash/name/length, noncanonical bytes, known sensitive values, unknown large
+JSON and evidence above 32 MiB are rejected without a terminal source-export
+record. The ordinary protocol/projection limits are also checked. Source bytes
+were unchanged during the tests. These fixtures do not establish live or replay
+qualification. The complete development collection now has 1825 tests; the new
+frozen installation must run its own full CI rather than reuse the old reports.
+
+The final management bundle producer must preserve retained indexes in its file
+manifest and source mapping, validate them under this typed boundary, and keep
+them separate from ordinary case JSON paths. Raising all case readers to 32 MiB,
+dropping original indexes, or treating reader failures as harmless JSON skips
+would weaken the existing source checks and is not an accepted correction.

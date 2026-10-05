@@ -2,16 +2,28 @@
 
 最新核对：2026-10-05。整体状态：`NOT_QUALIFIED`，尚未完成 MVP 验收。
 
-第31轮绑定精确实现 `a29bbc5512a514af9f2b69da99f82e03068b8131`，冻结安装完整
-CI 五项原始退出均为0，1795 tests passed，完整171个源码文件覆盖率85.39%。
-106个离线场景已完整采集，原staging实际wait0；七门导出与独立原生核验正在运行。
-完整导出布局的只读诊断发现管理端source index超过16MiB上限；后继
-[专用32MiB边界修正](hm-manager-export-capacity.md)已通过组件回归，正在准备新冻结验收。
-第31轮的通过记录不自动授予后继代码资格。尚未取得真正offline-ready，
-没有读取模型认证或调用模型。真实交接、Q09/Q10回放、
-完整HM09独立审查、Luna HM10及HM11发布绑定仍待完成。
+第34轮绑定精确实现 `694b7c49caa73b01555530c61762d984d15bc25d`。部署、原始主权限
+proof、native输入前置检查和完整CI已完成：五项原始wait0，1795 tests、171源码、
+coverage85.40%。随后发现该实现的后续容量消费缺口，Root在保留完整CI后停止
+场景采集；原监督进程实际wait-15并清理该stage进程组，完整106场景没有完成。
+没有真正offline-ready、公开交接副本ready、实际用户批准或模型调用。
+
+后继真实交接链路的前置检查发现新的容量阻塞：C32 `export_live_source` 仍将保留的
+ManagerExport 按普通16MiB读取、4MiB扫描；最终完整导出的管理JSON分类也未处理
+专用索引边界。最小源码修正及32项局部回归已通过，正在准备后继冻结。第34轮
+原始CI仅用于该提交的实际观测；它不能授予后继修正资格，也不能解决已知的
+replay容量阻塞。本轮不是容量缺口实际触发失败，不虚构未执行的研究或模型结果。
+
+第31轮C31完整CI、106场景和七门导出成功，但独立原生核验达到7200秒上限而失败；
+第32轮C32完整CI通过，但场景采集中的provenance检查失败。原件均保留，不修复旧根或
+继承旧通过记录；第33轮单故障窗口恢复成功只用于开发定位。
+[专用32MiB边界修正](hm-manager-export-capacity.md)已纳入当前冻结实现，证据容量
+前置估算仍不替代本轮实际完整布局核验。没有读取模型认证或调用模型。真实交接、
+Q09/Q10回放、完整HM09独立审查、Luna HM10及HM11发布绑定仍待完成。
 
 下列过程记录分别保留各次当时的状态；历史诊断、组件通过或采集完成不能授予资格。
+开发时的前置检查、局部验证和性能测量顺序见
+[开发验证顺序](hm-development-verification.md)。
 
 HM-01/02 的基线、冻结契约和独立契约审查已保存；HM-03/04/05 的版本化交接、
 持久化业务编排和受限 CLI 已实现并通过组件回归。HM-06 的冻结安装、namespace、
@@ -19,7 +31,8 @@ Unix channel、可信 CLI 捕获及管理 staging 已实现；已有实际启动
 尚未完成完整正式资格。
 HM-07 的只读 raw/protocol/business verifier、保存 SUBMIT 导入和 offline 管理入口已接入；
 Q01–Q12 的来源谓词已有实现；第31轮完整原件矩阵和Q12冻结安装CI已采集完成，
-完整来源门验证仍待实际七门预检、原生核验及后续真实交接与回放。
+七门导出已完成但独立原生核验失败；当前第34轮仍须重新完成全矩阵、来源门和原生
+核验，再执行真实交接与回放。
 HM-08 的实际模型驱动已接入受限 CLI，
 正式 live、receipt reuse、两个全新 Qlib 根及完整 bundle 尚未执行。HM-09/10/11 未完成。
 
@@ -2207,3 +2220,364 @@ Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicat
   source与bundle digest以及nofollow/single-link校验继续硬要求。20个组件测试
   实际通过/38.38秒，标准src Pyright实际0 errors/warnings/infos，Ruff/format/
   diff check通过。须新精确commit和完整冻结验收，不把C31 106/CI当新代码通过。
+
+- 后继C32精确提交`694b7c49caa73b01555530c61762d984d15bc25d`已本地冻结，
+  仅管理端完整source index有限容量修正及相关测试/文档，无push/tag。新干净
+  worktree14复制三个固定输入tree，逐项新目的地copytree且拒绝symlink，未重演
+  第30轮嵌套artifacts错误；离线wheel32-01实际build0，SHA256
+  `4cd107db5547aa31605a9423279f6d3ac722b00b1461a52935a5eb14e9dbe68c`。
+  新stage32脚本SHA256`044e2dd1ce7f25b123715f170fa4ba4a1a589536b52cfe267a455fbf2d927dc4`，
+  新监督脚本SHA256`00832801529291b05412217077c0d47501e54af76e874d741d6b66f8a53d3b9d`，
+  两项Ruff/check及format/check通过后由新用户服务实际启动；MainPID=2432712，
+  原stage child=2432728。本轮实际B32
+  `047177743686892de397756e8112dd77f55218807c758d24e9ede6cc08a6fe22`，D32
+  `9b6eb18318f19d9333b9169a96fcee51de6c0502749d148f56ad35f5f7e40a5b`；实际主权限
+  proof SHA256`39f020e947598a3a44ef634278a7dc1f4f832c9375469bae2acf01074d051195`，
+  已full predicate重验并再次返回相同bytes，request_count=0、协议不变。
+  本轮CI/106尚未完成；旧31离线export仍执行于干净旧worktree13，原件不变，
+  不混用两轮资格。没有读取模型认证或调用模型，整体NOT_QUALIFIED。
+
+- 第32轮后继live-drive管理脚本已准备但未执行，使用公共
+  MAX_MANAGER_EXPORT_BYTES解析大typed index，manifest/普通metadata仍用原16MiB，
+  65KiB原生小metadata与4MiB通用guard维持原范围。最终脚本SHA256
+  `f81d1ab571964b176887e1770e750e57f0770a9de61ee17bf25a55cae1ce98a5`，Ruff/check、
+  format/check及显式脚本Pyright实际0 errors/warnings/infos。后继replay32
+  脚本SHA256`df6c41ac7663d94b3fc5fe54c08865baf2f62d1f94e8acdad8a743457292a33f`，
+  只改新管理路径绑定，Ruff/format通过，未执行。没有auth读取/model invocation。
+  本轮已捕获Ruff/format/Pyright三个安装CI原始wait0，pytest完整CI仍运行；
+  新106场景0/106。旧31七门export仍执行，原始退出未取得，两轮均NOT_QUALIFIED。
+
+- 第32轮纯离线export脚本与公开输入preview生成脚本已准备，均未执行。
+  export32 SHA256 `2981ea0a7a70f1086f9bbcb4681a34055908c313131b89f8d7a66902268f2880`，
+  与既有严格producer字节一致；preview32 SHA256
+  `59ee38293003f3e7684f5ffdbc6dd8f4d12c189ca0a2f1f4c40f51c19677782d`，仅绑定新C/B/D及
+  新管理路径，必须等待本轮原始execution-prepared场景完成后才能生成公开副本。
+  两项Ruff/check与format/check实际0，无认证读取、模型调用或请求签发。第31轮
+  尚无实际export退出，不把完整布局容量诊断的预期拒绝写成实际资格失败。
+
+- 2026-10-05 第32轮完整安装CI实际1795 passed/0 failures/0 errors/0 skipped，
+  113 warnings，7779.43秒，完整171个src/quantos Python文件覆盖85.40%；XML的
+  覆盖文件集合与git tracked source逐项相等，line24557/27593、branch5838/8000，
+  无缩减分母。五项原始wait均0/failure=null，输出hash及kernel观察重核一致，
+  authority before/after及tracked before/after相同，worktree14干净。
+  run SHA256 `30f9ad761d9aea22b8b984a09bdc563e99bd8fc382f86808c24315a490f974d8`，
+  coverage SHA256 `a3922f41a91fa99e6538aaa770a3f3e7a485f7a06b5ec03783a1d267161eb39f`，
+  pytest XML SHA256 `c712f0833f4aeb111611564177fda1f2a41abfa12dea6dc86be9e4a6c918f57c`。
+  首次只读额外核对误将XML已有src/quantos前缀重复添加导致assert，纠正路径规则后
+  全集断言实际0；不改原始CI工件，不将这个辅助命令失败当CI失败。本轮矩阵已27/106，
+  原整轮退出仍未取得，不授予资格。
+
+- 第31轮七门export原始wait实际0/failure=null，parent2422861/child2422866，
+  stdout SHA256 `a22446e5a19d66387db741b1533fe99ef05d7e05c60ee5a66bfbf45a17fa6afa`；
+  Q02/Q03/Q04/Q05/Q06/Q08/Q12实际PASS，资格hash
+  `b67c5349784e8f35a57e45e151858ff8a76a98b6117101872652ffb563ef560b`，
+  独立原生核验进行中。其余五门NOT_EVALUATED，整体NOT_QUALIFIED，旧C31证据不
+  自动资格化C32。没有认证读取、模型调用或上下文外传。
+
+- 用户明确要求开发阶段失败环节快速验证、部署/布局/容量/来源门前置、最长环节先测量，
+  并加强安全并发。三名gpt-6.1-sol子代理分别执行性能测量(high)、前置诊断工具(high)、
+  真实交接授权材料准备(medium)，仅新文件/只读原件，不改冻结部署或运行脚本。
+  独立HM09与HM10仍须完整真实资格后执行，开发并发不替代独立接受。初步静态发现
+  hosted_verification.main在verify_bundle内完整来源与gate核验后再次核验，先做有界
+  测量与最小管理入口去重评估，再决定实现；不削弱来源谓词或独立原生closure。
+
+- 第32轮在34/106后首个Q05 `register-intent_published-1`实际失败，原始stage
+  wait1/failure=null/waitpid_observed=true，finished_at=2026-10-05T08:52:41.860282+00:00，
+  stdout SHA256 `ae16fc770cd7554499980d764fa2a5bf79bb63817b49e43a7693bc697343443e`。
+  原native worker exit1、无negative-observation，recovery-1原始failure定位
+  hosted_service.bootstrap_hosted_service:443，即runtime/provenance硬核验。
+  整轮及失败case、完整CI原件保留；不补拍旧case、不修复旧provenance、不授予资格。
+
+- 性能子代理实际有界扫描：install41449文件/1921158857 bytes，13.579秒，匹配；
+  projection1文件/2482 bytes匹配；system10文件/6481150 bytes匹配。provenance
+  3801文件/18866314 bytes不匹配，未发现pyc/__pycache__，944个tracked文件与
+  干净W14内容一致；`.git/index`是唯一晚mtime文件，08:52:24.323775UTC。
+  新前置diagnostic此前provenance检查通过，其native输入核验调用git status未禁
+  optional locks，可刷新index；时序与随后recovery硬拒绝一致。原部署未保存完整
+  provenance inventory，因此不声称严格还原全部文件差异。该开发诊断只读隔离遗漏
+  已改为GIT_OPTIONAL_LOCKS=0/-B及原件前后变化检测，旧诊断COMPLETED原件保持不变，
+  不以它宣称provenance未变化。后续冻结保存完整provenance inventory作管理旁证。
+
+- 最长execution-final_report原始文件时间跨度4437.599秒（73.96分钟，仅观测跨度），
+  before→crash3906.655秒、两次fresh recovery分别252.484/244.697秒；原记录
+  crash前2 execute/2 workflow，recovery各0/0。完整库/投影/来源/系统扫描单次
+  14.324秒，四次fresh bootstrap扫描约一分钟量级，不能据此把74分钟归因安装hash。
+  最长执行需要保持完整科研与恢复分母；可在独立authority/channel/private namespace
+  下保守两个case并行，共享输入/安装/provenance/projection只读，单case恢复继续串行。
+  性能报告 `/tmp/hm_perf_review32_01.json` SHA256
+  `d2e14f93fee10a97b571e7f040c49e167cee4a70e685dafb8efa8d1eda4fe014`。
+
+- 新单次原生管理入口准备完成，SHA256
+  `ff428883f2636a47135ab1013712f1cab0f3aa88574689de7e4fcd4ad0d549fa`，保持完整公共
+  verify_bundle及外层authority/bundle before-after，去掉CLI重复整轮核验。六项
+  局部测试和Ruff/format通过，实际C32 source-only `-c`微检查wait0/4.462秒，
+  40个quantos模块完整SourceFileLoader/路径/hash/隔离flags核对通过。前三次微检查
+  的setup/sandbox/缺少parser max_bytes失败均另存原件，没有运行整轮或调用模型。
+
+- 按用户快速局部验证指示，新独立development-register-attempt33-01部署已启动，
+  仅重测Q05 register-intent_published-1，不跑全CI/106。复用冻结C32/W14/wheel32，
+  新实际B=`67a1cd1da5eb505df97cdde8f14d7a46ff62ef908abfb123088855d8a126da6e`、
+  D=`92993c6c309fdc01d005594586947ad219c777fa35959b586b1bdb5b33154daf`，强制
+  GIT_OPTIONAL_LOCKS=0/-B并核验输入检查及局部capture前后provenance。脚本SHA256
+  `522965cd45312a0fefae4d144c32543c756f7540711814283a035ca72509892b`，Ruff/format
+  通过后新用户监督服务实际运行，尚无实际退出。旧32失败原件和旧31原生核验保持，
+  并行完整attempt34仅准备不启动，须局部验证稳定后再冻结验收。
+
+- 真实交接授权准备稿、新只读binding generator与默认check-only resume guard已由
+  子代理准备；fullCI原件已重核，五项拒绝测试包含实际第32轮stage exit1的硬拒绝，
+  实际wait0且无认证读取/模型调用/批准或最终binding生成。准备材料不授予授权，
+  本轮失败不能自动复用这些C32/D32绑定给下一部署，最终必须重新绑定实际原件。
+
+- 单Q05开发复现attempt33-01实际原始wait0/failure=null/waitpid_observed=true，
+  parent2482354/child2482357，finished_at=2026-10-05T09:07:13.218813+00:00；stdout
+  SHA256 `3c1fe522791c298831eeb707615f3c8691bee76c8d8d12d775cc487b38044315`，
+  exit SHA256 `b9db2927a758a5ab28f755139b26b553800642f1975f31d3ab43bc44cba516e0`。
+  预期crash73/recovery1=0/recovery2=0及fullprovenance before/after一致，terminal
+  SHA256 `9ccbadc042871d328902ec3ff7567e98dd22886e1b0966923ebb0781aaf79074`，
+  provenance hash `a7d53b099f12de7c6704daf0b44bea1d6c524692490cf99ed9281c7c1b931a2b`。
+  这是针对失败窗口的实际纯离线局部验证，不运行全CI/106或模型，不授予门PASS；
+  后继固定前置部署/权限proof复核与新并行矩阵仍待实际验收。
+
+- 新history15生成器实际0，55行/196 row-record references，212个原件生成前后
+  hash/size一致并另行独立重核；prior14的49行原值保留。index SHA256
+  `c665b271c79bc7f9f7e2a602986c8e9145c65ee200871118f03151ca58e5210a`，
+  scope=PRIOR14_PLUS_FAILED_STAGE32_AND_DEVELOPMENT_DIAGNOSTICS，记录32stage/worker
+  实际失败、provenance诊断影响修订及三个微检查原始失败。旧31原生仍pending，
+  明确排除，不能捏造其失败或将本清单当最终live history；33局部成功不写failed row。
+  初版early diagnostic代码按其原记录hash精确重建单独保存，因果assessment限制与
+  初版只核对before的不足明确保留，旧COMPLETED诊断未改写。
+
+- 固定前置工具在静态新33部署复核完整输入/安装/provenance与原权限probe，实际
+  COMPLETED/NO_PROBLEM_OBSERVED，输出 SHA256
+  `67a14ffdb95f704f0d1d876ae446f82554d00cf384c5d236cf2f61a3474cc998`；source扫描
+  约0.59秒，安装12.74秒，native输入7.26秒，原权限proof复核13.63秒，原件变化guard
+  前后六个主根一致。全部属于开发前置诊断，eligibility NOT_QUALIFIED。
+  新33已先获得单窗口实际恢复成功，再重核前置条件，不以旧32诊断/CI当新部署通过。
+
+- 开发原生输入 micro33-02 实际原始 wait0/failure=null，parent2488845/child2488949，
+  七个受保护根的完整文件库存前后相同，C32/B33/D33、来源加载和完整输入核验通过。
+  entrypoint SHA256 `0bf2bbbb407d7bebe3aa59f269efd985da1201e15c2f982586e9c2d6c5feec48`，
+  exit SHA256 `422d8fed5b13769d84d8f684653295ea9f754114821c32c68965639ca063addd`。
+  首次micro在原生启动前因空channel使用要求非空的安装库存类型失败；真实tool1保留，
+  不伪造native wait。改用允许空目录的raw inventory后在新根重测成功，无QLib/模型调用。
+
+- 新attempt34的开发脚本已冻结：stage SHA256
+  `19c6fa2c571a31634bd5bdef09024336b56726d42eb7454c7795909cebddcd31`，scheduler
+  `28362baebc81290a5a3ffb30d4796a2d493a268c1d301a50675a29786b7c066f`，supervisor
+  `69a9490fa7139386389e75f38cc88e4417cac371d93575291e39a3fecd79d280`。
+  完整CI先行，99个普通case最多两个并行，7个budget子部署串行；完整106身份不变。
+  独立开发审查发现并修正资源采样异常影响deadline的问题；不确定未回收进程如实记为
+  UNCERTAIN_UNREAPED，由监督进程请求group cleanup，不声称native实际wait。
+  独立15项局部测试、5项supervisor测试及静态检查实际通过；这不是HM-09接受。
+
+- 旧attempt31原生核验实际达到7200秒上限，native原始wait-9/
+  VERIFIER_TIMEOUT，authority与bundle库存未变；native exit SHA256
+  `d9d844297b17c7f876def04ba2901f02c7de662cd7db6e241e95800929499693`。
+  管理与监督层原始wait均为1，输出hash已独立核对。旧导出七门PASS事实保留，不能
+  代替原生核验或授予资格；所有原件保留。新轮使用单次完整核验入口并重新实际验收。
+
+- Root在独立开发审查完成后启动新的纯离线attempt34。独立审查记录 SHA256
+  `85097f430ec4d2a240e502bb171e8754a151277eb3212d52c1f4fbc3ee7f1bd5`，明确不是
+  HM-09。原始部署已冻结实际B=`e8cafc565cbcc4b28cda112984e56bdf4d78b7bfec072bd7c130b640975011e5`，
+  D=`7266fdba5ef89ed6819a48d7ad7c2ef54ebd8830fcfad5b98a0c82c505e7e7d8`；完整
+  provenance库存提前保留。新轮前置probe、native输入、CI、106场景和原生bundle核验
+  仍必须各自获得真实退出与来源结果，不能预填PASS或继承32/33局部结果。
+
+- 新轮实际primary OS probe已重复复核，SHA256
+  `52faa2196c798aaecae737d5599774693a1c4a3b35af5038b00bf39e1aaee706`，未发业务请求。
+  新轮native输入precheck原始wait0/failure=null，七个保护根完整库存前后一致，
+  parent2491408/child2492725，观测45.234秒；stdout SHA256
+  `70dd83adc0075fa9bee2133b87a269c6abb2b7334ce92e8033786dec1d3c7070`。
+  全CI前置目录已准备，后继CI和矩阵仍须真实完成。
+
+- 新history16实际生成，59行/211个row references；prior15的55行原值保留，新增旧31
+  原生超时、管理/监督失败及micro33-01原生启动前tool1，明确排除运行中的34。
+  index SHA256 `1ac2dfb92ac80cf0a4b0df3a88b0a5e064495a8d95249f207b387dd5e17c013e`，
+  Root另行逐个row记录hash/size重核。旧31 bundle共22748文件、约4.808GB及原authority
+  库存与native prelaunch前后绑定仍一致；失败尝试未修复，不以旧导出结果继承新资格。
+
+- 旧31完整export原prelaunch04:28:18.909412UTC、verifier-result07:31:02.604831、
+  actualexit07:31:42.412473，约3小时3分钟观测跨度。这包含复制与来源/门检查，不能
+  冒充纯gate/CPU耗时；原生两小时超时可能发生于首轮核验，不能断言是重复CLI造成。
+  新独立管理脚本准备14400秒原生上限与14700秒外层上限，保留单次完整核验及原库存
+  guard，业务服务预算和科研/来源门不变；采用仍须新脚本哈希与独立开发审查。
+
+- 前置子代理在独立输出根复核已发布原件，约38.73MB读取/8.44秒，未运行现场doctor、
+  probe或完整现场hash。七保护根before/after完整文件与目录库存逐份canonical/hash一致，
+  且与profile安装/provenance/projection绑定；记录SHA256
+  `37c5bf1ee46b0f3ef5e2d3983d5ca5c5a3bc51f4e44397f14311acfc49f3a9d1`。
+  捕获布局为snapshot13629文件/649149418B、view6686文件/77366983B、固定release
+  1文件/1295B、seed Ledger2文件/1688B，明确区分外部release与业务Ledger。
+  source index尚未导出，不捏造其未来容量PASS。
+
+- 新离线coordinator开发审查提前发现B与派生spec哈希混用，已改比较
+  deployment.bundle.content_hash，并用本轮真实typed配置重验C32/B34/D34，不bootstrap。
+  未启动旧候选，不以mock-only局部通过替代真实输入绑定。新native单次核验helper只改
+  管理communicate上限7200→14400，SHA256
+  `45e10869b16f167c02016e6620578b36bb67616087448ad377441f4ca08c3a30`；原single-pass
+  helper字节未改。后继离线脚本仍待最新完整失败历史与独立开发审查绑定后启动。
+
+- Fresh34授权准备稿及默认check-only resume guard只准备、不执行；真实ready、preview及
+  最终review binding尚未生成，无认证读取或模型调用。开发拒绝测试fresh03原wait0，
+  typed配置→service→loader核验确认B34是bundle而非派生spec。harness首次漏新增CIhash
+  参数的tool1及inline检查TypeError（组合tool0）如实另存，未伪造native/provider wait。
+  新history17共61行，prior16的59行原值保持，明确排除运行中的34；SHA256
+  `485f71975aab4ba5ef68fa9c94d5dd5da561a112d9040aa7e1aec68b7623bbd3`，Root重核
+  全部215个row记录hash/size。15/16原件未改，开发诊断不授予实验或部署资格。
+
+- Root继续预审发现offline-ready须提供旧消费者要求的live_approval固定字段，且授权
+  binder仍写死旧32覆盖率numerator。后继新02脚本提前修正接口并复用现有Q12报告
+  判定器，仍要求本轮显式CI/hash、完整171源路径、1795 tests/no failures/errors/skips
+  与适用85%阈值；不以旧轮实测计数资格化新轮。旧final候选及其局部测试原件保留，
+  待新接口测试与精确源码独立审查后再启动离线衔接，不改运行中的stage三脚本。
+
+- Fresh02离线管理脚本完成独立开发审查，记录SHA256
+  `d67f6e67504653c573457ac7d195977e3169727ac92009f17a2ff4f63417fdbd`；coordinator
+  `e3392c810dc2cb0be8b4ed17b1b953b041bb7530b10965da00ec7814d80e142e`，supervisor
+  `cfb3d5e405303746e099e05a7ed16e1821bac50b86177fe3104d9ac076d7497d`。
+  16项局部测试实际原wait0，Root再次重核源码、实际output及来源before/after；新user
+  service已实际启动，仅等待原stage106/CI真实成功再导出和原生核验，无live/auth。
+  单次核验14400/外层14700秒、history17/C32/B34/D34固定，采样只记录已知PID树的
+  CPU/RSS及五项公开I/O计数，采样不可用不影响deadline/实际wait，不宣称physical peak。
+
+- 新授权binder02 SHA256
+  `82078763aa237f511ad7eaf96057f6d729d585cdac23425b4b2a7b2ec2081b54`，准备稿02
+  `6c88caffe5217b04d180e8e48db79eef88493692d2b189c13b3b03b74a8e26fb`；六项真实
+  接口/覆盖测试原wait0，Root复核output hash及source guard。合法本轮覆盖分子变化
+  可以通过，低覆盖、缺完整源码、skip、缺/错live_approval均拒绝，仍复用冻结Q12。
+  旧binder/resume/history原件保持；actualready、preview与最终binding尚未生成，
+  无真实批准、无认证读取、无模型调用，仍NOT_READY/NOT_APPROVED/NOT_QUALIFIED。
+
+- 只读容量前置旁证已完成，记录
+  `/tmp/hm-capacity-front-attempt34-01/diagnostic.json`，SHA256
+  `8841bf021b0bd3f7a04c360897a49d7d91678b7cfb2b934a95b91d4010c0a2bf`。
+  按已知十个 authority 位置、十个 inventory sidecar 及 history17 估算，ManagerExport
+  21,065,925B/28,915 条记录，qualification manifest 12,767,882B，分别低于32MiB
+  和16MiB上限；约6.97GB/28,918文件低于聚合与数量上限。此为有条件布局估算，
+  不是实际34产物、上界或容量PASS；新增live/replay等实际证据仍须完整核验。
+
+- 已启动纯只读性能监测服务
+  `quantos-hm-performance-observer-attempt34-01.service`。脚本 SHA256
+  `782ea0bd18024314f34db13489d275ad79169c59a4c5a5c7449a3cb0af14e827`，十项
+  局部测试原始wait0、来源前后相同；首次真实快照
+  `/tmp/hm-stage34-performance-observer-01/snapshot-000001.json`，SHA256
+  `ec817ed1d04999c78d79902edb32569162724ff9d9a65d1bbd1602c87f8a56d4`。
+  已知两个cgroup未观察到OOM，MemoryCurrent约5.76GB；MemoryPeak和服务I/O
+  accounting不可用，不能将进程RSS、当前内存或不完整PID采样当作物理峰值。
+  监测每60秒读取公开元数据和已发布原始退出，不读argv/环境/认证、不执行科研门。
+  观察工具准备报告的一次写入TypeError另存原件，不覆盖空失败报告或history17，
+  不将该开发工具失败混同为运行中资格尝试的原始结果。
+
+- 公开交接副本准备已独立开发审查并实际启动为
+  `quantos-hm-public-previews-attempt34-02.service`，仅等待本轮
+  Q05/execution-prepared原始worker成功退出后生成八份context/schema/request/prompt
+  审阅副本。request02 SHA256
+  `106187927cfb0cecd9e62263903ca69ac5d03d4e8ec83f05f1abda32eb427601`，supervisor02
+  `e3f1dab7019fdf4113920f662c0c384cc9770c535cd021fb85827af049db6260`；七项
+  局部测试实际wait0，独立开发审查
+  `92a8f01ca1deec5a1716d55745ed7eb1b0cfc49766c9482c0e0836c2561c2c44`。
+  路径先限制后通过已有nofollow读取，最终原件before/after相等才发布ready；
+  无实际wait的超时保留UNCERTAIN_UNREAPED，拒绝ready。副本不代表实际provider
+  传输，第二次真实上下文仍依赖第一次真实结果；NOT_APPROVED/NOT_QUALIFIED。
+
+- 授权来源准备改为新的v2结构，明确平台message ID对当前harness不可见，
+  local capture ID仅定位留存回复，不能冒充平台ID或证明用户来源。新resume03
+  SHA256 `3d175d74ec5326681b83e553cc06e3efd3c05a07f77df75e6c92e062a7d15e1e`，
+  binder03 `1042adf158ee3abec9d77ad77692ff91093aaf115c19abc5ce6f10589a5832ec`，
+  准备稿03 `694f6241a37040b86fbb7296565a4c0d6ac2fffa04744a3cab936755c50c9d2b`；
+  四项局部机械测试实际wait0，独立开发审查
+  `0906b0d221cb2551694c8b445d2d4c6fefb152fddfe2ecfaac706e4b975f235f`。
+  十八项原有范围约束和显式执行开关保持；真实用户批准仍须可信root/harness直接
+  观察实际user-role回复，JSON/hash不自证来源。未创建capture/approval/binding，
+  未读取认证或执行handoff；完整实际离线ready和副本齐备后才生成最终review材料。
+
+- 提前容量预审发现真实交接前的管理脚本先按普通16MiB读取证据，再进行32MiB
+  ManagerExport类型校验，仍可能误拒合法大型索引。新live02仅在该前置分支复用已有
+  专用读取器，ordinary证据保持4MiB已知值guard；大型索引仍须canonical、hash命名、
+  长度/哈希、C/D绑定及全量已知值扫描。SHA256
+  `17b8a7bfaaed349b11be6c8e14905cf41c7d5117e4be468a0487d24dfb1f433b`；七项局部
+  容量/拒绝测试实际wait0，exit
+  `98906b0d1fd321abc64f825bb1c368902cddc226b347e8c12104a1f174efe357`，独立开发审查
+  `5738fec615b3f135f0d521759d19b5b6b4b4e8e71f4fb9d651633289d9dfc28c`。
+  初版测试的静态lint失败与原件另存，新测试仅修正lint；未运行live02 main或读取认证。
+
+- Fresh04只更新上述新live02路径/hash、review准备稿和独立resume输出位置，保留
+  所有v2用户来源和原有范围守卫。resume04 SHA256
+  `6d4144f22dfca6776ed23c864b825394052eac074cd50f1507ae8957acc6b10a`，binder04
+  `43873926677925e6a9ddb971e00c6a366b56a88041033f150adfacbebc990978`，准备稿04
+  `d591978c9d311a45b9cea1033f74d1309e2f51841b071b494e4ca6c9c15925d5`。
+  最终review监督工具已准备，SHA256
+  `67f539d9930fde5d3bd2cbab904fad445f04af1a8d37c09ec9194c9d8e61f6ce`；六项监督
+  与四项来源mechanics测试并行实际wait0，来源前后相同，独立开发审查
+  `28c7f7a1e479a99889196c30e25a2beb1c5f7c521dc2003818195d47ed2a6010`。
+  须先由Root独立核对本轮四份实际CI哈希，再启动等待真实offline-ready及公开副本；
+  完整十七项binder参数和公开副本原始监督旁证分别核验，结果只为
+  REVIEW_ONLY_NOT_AUTHORIZED。不预填CI、ready、用户批准或资格。
+
+- 来源重复读取静态报告
+  `/tmp/hm-source-reuse-static-review34-01.md`，SHA256
+  `a9ec7818e0589d73bc1b6a77c255d486b86089c0fee10b387c5b360d6df0a53f`，沿完整Q05
+  PASS路径推算至少99次adapter构造，每次重复snapshot/view逐文件哈希；这不是
+  实际计数、health检查、Qlib执行或三小时来源核验的耗时分解。只读挂载不能冻结
+  宿主侧内容，首尾一致不能独立排除中途变更，因此本轮未删除fresh核验或引入缓存。
+  已采取的加速是独立case最多两个并行、单次公共完整verify入口以及前置局部诊断；
+  纯JSON解析复用只列为后继候选，不改运行中的冻结脚本。
+
+- 本轮CI只读来源前置核对实际完成，记录
+  `/tmp/hm-ci34-readonly-precheck-02/result.json` SHA256
+  `02c8e394f72490b50e4b2d3454de1fad6c30a306dd9732c4cd085752733ad085`。
+  W14和部署provenance各944个Git跟踪文件/8,690,855B，实际nofollow逐文件哈希与原始
+  tracked-before一致；171个源码是覆盖率子集，不能冒充完整tracked分母。四份实际
+  prelaunch与既有命令builder一致，前三项原exit/output/kernel通过原有Q12分支检查；
+  pytest/diff/run/reports/总退出尚未发布。未新跑CI或门，未扫描完整安装及未列.git内容，
+  保持NQ/NOT_Q12。两次诊断setup失败在独立新根保留，修正worktree的.git pointer
+  处理后仅在新根重试，不更改原CI记录或history17。
+
+- 已实际启动纯离线CI就绪衔接服务
+  `quantos-hm-ci-ready-review-launch-attempt34-01.service`。新观察器SHA256
+  `ffc558b2e700aaa9a916282edb990f0a6cad93654c90c5992cd4e509cc97edfb`，九项
+  局部测试原始wait0/source前后同，独立开发审查
+  `e54156e01c7ae981220e065b7f2386b2f7694ea8c26608bf1a272a56060e2e02`。
+  等待24份实际CI原件后独立重算命令/kernel、W14/provenance全部tracked及完整报告，
+  保存四个实际哈希和35份来源绑定，再启动已冻结的最终review监督工具；不提前填写
+  未来哈希。旧32正例仅为RAM中的局部测试夹具，不能当34来源。manager原exit未记录
+  output hash时明确UNAVAILABLE，不编造原producer字段。当前runtime只核已发布
+  D-bound参照，完整来源/权限/Q12仍须原生硬门；所有产物仅REVIEW_ONLY_NOT_AUTHORIZED，
+  无认证读取、用户批准生成、外网传输或模型调用。
+
+- 后继全链前置审查在真实模型调用前发现两处容量消费缺口：源码
+  `export_live_source` 将保留的索引按普通16MiB读取/4MiB扫描；最终管理导出在普通
+  case JSON分类阶段也按16MiB重新读索引。旧31实际16,452,551B索引已经超过4MiB，
+  新轮34未来索引大小没有被捏造。专用型修正保留全部源文件、canonical/hash命名、
+  原库存hash/size与C/D、known-value及32MiB硬上限；普通协议/投影上限不变。
+  新13场景与原19回归实际32 passed/52.97s，source前后相同，exit SHA256
+  `d828970eca920183b7149ebc27db21411a81be685a94fe280d69c01d4c97a655`；Root独立重核。
+  Ruff570files格式/检查及源码Pyright0；开发collection实际1825，不当作全CI通过。
+
+- 第34轮原始完整CI实际终结：pytest1795 passed、0 failure/error/skip，171 distinct
+  source classes，lines24557/27593、branches5838/8000，combined30395/35593=85.3960%。
+  实际四hash为run `b7c53e847c91562dc589774e66b01d0d03486527eca58b3808c4d5ba7f4c6b9e`、
+  tracked `a88f97a7fa083cf6708c006fdf674f56d12b130d2d8a6101b22fcbb8252a0e3d`、coverage
+  `95dc46b913f45efc9ae6f6622d44b102eee7ebf197fcd1ac4512fc36e328fbda`、JUnit
+  `fb0dc3d73e9f2d25e29d843c81fa38503d17633c3473fe5c9631b627b93b710c`。
+  首ruff prelaunch到原manager exit观测7276.613秒/121.277分钟，非纯CPU计时；
+  五项原wait0和manager原wait0保留，独立只读CI观察proof SHA256
+  `84a6c359d92bedf29b380c54f7e72803938574a0e9d3761ce110d8272459773f`，仍NQ。
+
+- 因已确认后续源码容量缺口需要新exact commit，Root核对原CI manager0、PIDparent链、
+  systemdMainPID及W14 cwd后，向原stage child2491408发送SIGTERM；原supervisor2491403
+  于11:46:27.670442UTC实际wait-15/null，stage-group cleanup requested true，未声称
+  descendants原wait。独立取代决定位于`/tmp/hm-stage34-superseded-stop-01`；不改
+  旧冻结helper、CI/场景原件或history17。106场景未完成，未把发现缺口写成已发生的
+  live/replay/科研失败；后继修正不继承这份CI，授权准备仍NOT_APPROVED。
+
+- 后继源码窄审由`gpt-6.1-sol/high`独立执行，actual32回归和source前后绑定复核，
+  除`export_live_source`外源码module AST保持C32语义；窄范围无未关闭阻断。
+  记录`/tmp/hm-source-capacity-core-and-full-helper-development-review-attempt35-01.json`
+  SHA256 `704819ddeb4fd4d866679aaa1682e5329a4cf5078ba07bec6e5083017a78b038`。
+  新完整管理producer保留旧版本，SHA256
+  `c5f0645296662a8a686eab21908f6177552730de299499932d31c864dbc29e2c`，九项实际
+  局部测试原wait0/39.60秒，exit
+  `6d62a8a9d72f12da7662dfe71ebaafc3beb5d947367ee341658cfb0cd4860eb4`；Root读取完整
+  源码/测试并复核output与source hash。未执行producer main或完整科研门；普通
+  source-export sidecar、offline-run与qualification manifest各自容量仍须实际测量。
