@@ -232,9 +232,7 @@ def freeze_python_install(
         raise ArtifactIntegrityError("wheel does not contain QuantOS installation")
     if client_configuration.socket_path != "/channel/quantos.sock":
         raise ArtifactIntegrityError("public hosted client configuration escaped fixed channel")
-    copy_file_verified(
-        codex_binary, destination / "codex", before_physical_copy=copy_guard
-    )
+    copy_file_verified(codex_binary, destination / "codex", before_physical_copy=copy_guard)
     atomic_write_bytes(destination / "hosted-client.json", client_configuration.canonical_bytes())
     return install_inventory(destination)
 
