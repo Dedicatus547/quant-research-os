@@ -38,7 +38,11 @@ from quantos.contracts.hosted_deployment import (
     HostedInstallInventory,
     HostedProjectionFact,
 )
-from quantos.infrastructure.hosted_storage_copy import copy_file_verified, copy_tree_verified
+from quantos.infrastructure.hosted_storage_copy import (
+    copy_file_verified,
+    copy_tree_verified,
+    physical_copy_budget,
+)
 from quantos.security import SecretArtifactRejected
 
 
@@ -186,24 +190,37 @@ def freeze_python_install(
         raise ArtifactIntegrityError("frozen installation destination already exists")
     if sys.version_info[:2] != (3, 11):
         raise ValueError("QuantOS frozen installation requires Python 3.11 manager")
+    # Preserve the existing hook/editable filtering before sizing the complete copy.
+    selected = tuple(
+        source
+        for source in sorted(dependency_site.iterdir())
+        if not source.name.endswith(".pth")
+        and not source.name.startswith(("quantos", "_quant_research_os", "quant_research_os"))
+    )
+    copy_guard = before_physical_copy
+    if before_physical_copy is not None:
+        # The base bound includes its original site-packages, even though removed below.
+        total_bytes = sum(item.size_bytes for item in install_inventory(base_python).files)
+        for source in selected:
+            total_bytes += (
+                sum(item.size_bytes for item in install_inventory(source).files)
+                if source.is_dir()
+                else source.lstat().st_size
+            )
+        total_bytes += codex_binary.lstat().st_size
+        copy_guard = physical_copy_budget(total_bytes, before_physical_copy)
     python_root = destination / "python"
-    copy_tree_verified(base_python, python_root, reserve_physical_copy=before_physical_copy)
+    copy_tree_verified(base_python, python_root, before_physical_copy=copy_guard)
     site = python_root / "lib/python3.11/site-packages"
     if site.exists():
         shutil.rmtree(site)
     site.mkdir(parents=True)
-    for source in sorted(dependency_site.iterdir()):
-        # No pth/import hooks or editable QuantOS distribution may enter execution.
-        name = source.name
-        if name.endswith(".pth") or name.startswith(
-            ("quantos", "_quant_research_os", "quant_research_os")
-        ):
-            continue
-        target = site / name
+    for source in selected:
+        target = site / source.name
         if source.is_dir():
-            copy_tree_verified(source, target, reserve_physical_copy=before_physical_copy)
+            copy_tree_verified(source, target, before_physical_copy=copy_guard)
         else:
-            copy_file_verified(source, target, before_physical_copy=before_physical_copy)
+            copy_file_verified(source, target, before_physical_copy=copy_guard)
     _freeze_ruff_executable(dependency_site, python_root)
     with zipfile.ZipFile(wheel) as archive:
         for entry in archive.infolist():
@@ -216,7 +233,7 @@ def freeze_python_install(
     if client_configuration.socket_path != "/channel/quantos.sock":
         raise ArtifactIntegrityError("public hosted client configuration escaped fixed channel")
     copy_file_verified(
-        codex_binary, destination / "codex", before_physical_copy=before_physical_copy
+        codex_binary, destination / "codex", before_physical_copy=copy_guard
     )
     atomic_write_bytes(destination / "hosted-client.json", client_configuration.canonical_bytes())
     return install_inventory(destination)

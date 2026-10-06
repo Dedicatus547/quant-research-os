@@ -511,7 +511,7 @@ def prepare_managed_regression(
         os.close(writer)
         reaped = False
         try:
-            deadline = time.monotonic() + 300
+            deadline = time.monotonic() + 900
             while True:
                 observed, status = os.waitpid(pid, os.WNOHANG)
                 if observed:

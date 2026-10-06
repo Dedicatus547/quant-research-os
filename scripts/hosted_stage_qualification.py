@@ -266,6 +266,7 @@ def main() -> None:
         )
         step("Q07", lambda: capture_security(deployment))
         step("Q01", lambda: capture_restart(deployment))
+        active_step = "Q12-prepare"
         command = prepare_managed_regression(
             deployment, workspace, node_source=arguments.node_binary
         )

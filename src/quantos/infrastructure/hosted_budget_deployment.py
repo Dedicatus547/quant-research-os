@@ -159,7 +159,7 @@ def stage_managed_budget_deployment(
                     os._exit(1)
             os.close(writer)
             writer = -1
-            deadline = time.monotonic() + 300
+            deadline = time.monotonic() + 900
             while True:
                 observed, status = os.waitpid(pid, os.WNOHANG)
                 if observed:
