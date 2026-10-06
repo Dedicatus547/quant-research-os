@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -72,13 +73,23 @@ def publish(directory: Path, name: str, value: dict[str, object]) -> None:
     atomic_write_bytes(path, canonical_json_bytes(value))
 
 
-def capture_restart_and_security(deployment: HostedManagedDeployment) -> None:
+def capture_restart(deployment: HostedManagedDeployment) -> None:
+    owner = deployment
+    fixture = owner.root / "qualification-cases/Q01/fixture"
+    for name in ("authority", "channel", "evidence"):
+        (fixture / name).mkdir(parents=True, mode=0o700)
+    deployment = replace(
+        owner,
+        root=fixture,
+        paths=replace(owner.paths, authority=fixture / "authority", channel=fixture / "channel"),
+    )
+    snapshots = replace(owner, paths=deployment.paths)
     process = start_managed_service(deployment)
     record: dict[str, object] = {"deployment_profile_hash": deployment.profile.content_hash}
     try:
         record["start"] = restricted_client_call(deployment, "start")
         before = raw_inventory(deployment.paths.authority)
-        capture_authority_snapshot(deployment, "qualification-cases/Q01/before/authority")
+        capture_authority_snapshot(snapshots, "qualification-cases/Q01/before/authority")
         pending = restricted_client_call(deployment, "pending")
         record["pending_before"] = pending
         record["before_wrapper_pid"] = process.pid
@@ -94,7 +105,7 @@ def capture_restart_and_security(deployment: HostedManagedDeployment) -> None:
             queries.extend((observed, restricted_client_call(deployment, "status")))
             queries.append(restricted_client_call(deployment, "resume"))
         verify_raw_inventory(deployment.paths.authority, before)
-        capture_authority_snapshot(deployment, "qualification-cases/Q01/after/authority")
+        capture_authority_snapshot(snapshots, "qualification-cases/Q01/after/authority")
         record.update(
             schema_version="hosted-manager-suspend-restart/v1",
             before_inventory=before.model_dump(mode="json"),
@@ -103,9 +114,7 @@ def capture_restart_and_security(deployment: HostedManagedDeployment) -> None:
             qualification_eligibility="NOT_QUALIFIED",
         )
         KnownValueGuard((deployment.capability,))(canonical_json_bytes(record))
-        publish(deployment.root / "evidence", "offline-suspend-restart.json", record)
-        probe_managed_deployment(deployment)
-        verify_deployment_security(deployment)
+        publish(owner.root / "evidence", "offline-suspend-restart.json", record)
     finally:
         stop_managed_service(deployment, process)
         publish(
@@ -118,6 +127,15 @@ def capture_restart_and_security(deployment: HostedManagedDeployment) -> None:
                 "qualification_eligibility": "NOT_QUALIFIED",
             },
         )
+
+
+def capture_security(deployment: HostedManagedDeployment) -> None:
+    process = start_managed_service(deployment)
+    try:
+        probe_managed_deployment(deployment)
+        verify_deployment_security(deployment)
+    finally:
+        stop_managed_service(deployment, process)
 
 
 def capture_ci(command: tuple[str, ...], records: Path) -> None:
@@ -200,6 +218,8 @@ def main() -> None:
             "matrix_cases": len(MATRIX),
             "matrix_workers": 1,
             "ci_before_matrix": True,
+            "Q01_authority": "qualification-cases/Q01/fixture/authority",
+            "live_request_issued": False,
             "qualification": "NOT_QUALIFIED",
         },
     )
@@ -244,7 +264,8 @@ def main() -> None:
                 "qualification": "NOT_QUALIFIED",
             },
         )
-        step("Q01-Q07", lambda: capture_restart_and_security(deployment))
+        step("Q07", lambda: capture_security(deployment))
+        step("Q01", lambda: capture_restart(deployment))
         command = prepare_managed_regression(
             deployment, workspace, node_source=arguments.node_binary
         )
