@@ -19,7 +19,7 @@ from quantos.infrastructure.hosted_storage_copy import copy_tree_verified
 from quantos.infrastructure.hosted_verification import read_relative
 
 CI_PREFIX = "qualification-checks/Q12"
-CI_PYTEST_TEMP = Path("/tmp/pt/b")
+CI_PYTEST_TEMP = Path("/run/pt/b")
 COVERAGE_PTH = (
     b'import sys; exec(\'import os\\n\\nif os.getenv("COVERAGE_PROCESS_START") or '
     b'os.getenv("COVERAGE_PROCESS_CONFIG"):\\n try:\\n  import coverage\\n except:\\n'
@@ -208,7 +208,7 @@ def ci_namespace_command(
         "--size",
         str(NAMESPACE_TMPFS_BYTES),
         "--tmpfs",
-        "/tmp",
+        "/run",
         "--dir",
         str(CI_PYTEST_TEMP.parent),
         "--ro-bind",
@@ -251,6 +251,7 @@ def ci_environment(python: Path, workspace: Path, target: Path) -> dict[str, str
         "PATH": str(target / "node-bin") + ":" + str(python.parent) + ":/usr/bin:/bin",
         "LANG": "C.UTF-8",
         "TZ": "UTC",
+        "TMPDIR": "/run",
         "PYTHONPATH": str(workspace / "src"),
         "COVERAGE_FILE": str(target / "coverage-data"),
         "PYTHONDONTWRITEBYTECODE": "1",

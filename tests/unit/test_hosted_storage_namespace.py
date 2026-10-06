@@ -79,7 +79,7 @@ def test_ci_namespace_uses_the_same_fixed_private_tmp_cap():
         python, Path("/fixture/source"), Path("/fixture/ci"), {"PATH": "/usr/bin:/bin"}, command
     )
     index = argv.index("--size")
-    assert argv[index : index + 4] == ("--size", "536870912", "--tmpfs", "/tmp")
+    assert argv[index : index + 4] == ("--size", "536870912", "--tmpfs", "/run")
     assert argv.count("--size") == 1
     assert "--unshare-pid" in argv and "--unshare-net" in argv
     assert json.loads(argv[-1]) == list(command)

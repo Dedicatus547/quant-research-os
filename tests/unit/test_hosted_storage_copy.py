@@ -328,10 +328,7 @@ def test_freeze_install_routes_prefix_dependencies_and_binary_through_budgeted_c
     )
     assert inventory == install_inventory(destination)
     assert charged == [
-        len(b"native fixture\nfrozen bytes\n"),
-        len(b"module fixture"),
-        len(b"package fixture"),
-        len(b"CLI fixture"),
+        len(b"native fixture\nfrozen bytes\nmodule fixturepackage fixtureCLI fixture"),
     ]
     assert not (destination / "python/lib/python3.11/site-packages/unsafe.pth").exists()
     assert (destination / "codex").read_bytes() == codex.read_bytes()
