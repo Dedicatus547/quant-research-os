@@ -25,6 +25,14 @@ from quantos.infrastructure.hosted_verification import (
 from quantos.security import SecretArtifactRejected
 
 
+@pytest.fixture(autouse=True, scope="module")
+def synthetic_storage_checkpoint():
+    # The typed-index copy fixture does not establish a mounted storage quota.
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(manager, "storage_checkpoint", lambda *_: None)
+        yield
+
+
 def _source_deployment(root: Path, capability: bytes = b"S" * 32) -> SimpleNamespace:
     deployment = _deployment(root, capability)
     authority, channel = root / "authority", root / "channel"

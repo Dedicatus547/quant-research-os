@@ -155,7 +155,7 @@ class HostedDeploymentProfile(HostedContract):
 
 class HostedLauncherConfiguration(HostedContract):
     schema_version: Literal["hosted-launcher-configuration/v1"] = "hosted-launcher-configuration/v1"
-    model: Literal["gpt-6-sol"] = "gpt-6-sol"
+    model: Literal["gpt-6-sol", "gpt-6.1-sol"] = "gpt-6-sol"
     reasoning_effort: Literal["high"] = "high"
     output_byte_cap: int = Field(gt=0, le=4_194_304)
     proposal_byte_cap: int = Field(gt=0, le=262144)

@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from importlib.metadata import version
 from pathlib import Path
@@ -53,6 +54,7 @@ from quantos.infrastructure.hosted_regression_verification import (
     CI_PREFIX,
     regression_commands,
 )
+from quantos.infrastructure.hosted_storage import StorageRejected, storage_checkpoint
 from quantos.infrastructure.hosted_verification import (
     directory_inventory,
     raw_inventory,
@@ -88,6 +90,7 @@ def _check(
     byte_cap: int = 16_777_216,
     kernel_observations: list[dict[str, object]] | None = None,
     expected_executable_hash: str | None = None,
+    storage_check: Callable[[], None] | None = None,
 ) -> tuple[int, int, bytes, str | None]:
     """Capture bounded bytes in RAM, then actually reap the entire fixed child group."""
     process = subprocess.Popen(
@@ -110,6 +113,12 @@ def _check(
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ)
             while True:
+                if storage_check is not None:
+                    try:
+                        storage_check()
+                    except StorageRejected:
+                        failure = "CHECK_STORAGE_CAPACITY"
+                        break
                 if time.monotonic() >= deadline:
                     failure = "CHECK_TIMEOUT"
                     break
@@ -285,6 +294,9 @@ def observe_ci_kernel(
 
 def run_managed_regression(deployment: HostedManagedDeployment, workspace: Path) -> None:
     """No RPC route or caller-supplied command; every retained attempt has a fresh root."""
+    storage_checkpoint(
+        deployment.root, "ci", 0, getattr(deployment.profile, "mount_policy_hash", "")
+    )
     workspace = workspace.absolute()
     target = deployment.root / CI_PREFIX
     installed = {item.relative_path: item.bytes_hash for item in deployment.install.files}
@@ -342,6 +354,7 @@ def run_managed_regression(deployment: HostedManagedDeployment, workspace: Path)
     guard = KnownValueGuard((deployment.capability,))
     observations: list[dict[str, object]] = []
     for name in CHECK_NAMES:
+        storage_checkpoint(deployment.root, "ci")
         actual_argv = ci_namespace_command(python, workspace, target, environment, commands[name])
         prelaunch = canonical_json_bytes(
             {
@@ -365,6 +378,7 @@ def run_managed_regression(deployment: HostedManagedDeployment, workspace: Path)
             timeout=14400 if name == "pytest" else 7200,
             kernel_observations=kernel,
             expected_executable_hash=installed["python/bin/python3.11"],
+            storage_check=lambda: storage_checkpoint(deployment.root, "ci"),
         )
         for offset in range(0, len(output), 1_048_576 - 6 * len(deployment.capability)):
             guard(output[offset : offset + 1_048_576])
@@ -383,6 +397,8 @@ def run_managed_regression(deployment: HostedManagedDeployment, workspace: Path)
         }
         observations.append(observed)
         atomic_write_bytes(target / f"{name}-exit.json", canonical_json_bytes(observed))
+        if failure == "CHECK_STORAGE_CAPACITY":
+            break
     after_tracked = tracked_regression_inventory(workspace)
     verify_ci_runtime(deployment.root, deployment.install)
     if verify_ci_declaration(deployment.root, deployment.install) != declaration:
@@ -445,6 +461,9 @@ def prepare_managed_regression(
     deployment: HostedManagedDeployment, workspace: Path, *, node_source: Path
 ) -> tuple[str, ...]:
     """Pin a new tool prefix before publishing the fixed source-only manager launch."""
+    storage_checkpoint(
+        deployment.root, "ci", 0, getattr(deployment.profile, "mount_policy_hash", "")
+    )
     verify_code_provenance(
         workspace,
         expected_commit_hash=deployment.profile.exact_commit,
@@ -468,7 +487,12 @@ def prepare_managed_regression(
                 )
                 os.fchdir(case_fd)
                 declaration = prepare_ci_runtime_contents(
-                    deployment.paths.install, expected, node_source
+                    deployment.paths.install,
+                    expected,
+                    node_source,
+                    before_physical_copy=lambda size: storage_checkpoint(
+                        deployment.root, "ci", size
+                    ),
                 )
                 info = os.fstat(case_fd)
                 os.write(

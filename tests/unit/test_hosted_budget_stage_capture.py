@@ -46,6 +46,12 @@ BOUND_FIELDS = (
 )
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Tiny install doubles cannot establish a mounted production storage quota.
+    monkeypatch.setattr(stage, "storage_checkpoint", lambda *_: None)
+
+
 def _bundle(digest):
     return SimpleNamespace(
         content_hash=digest,

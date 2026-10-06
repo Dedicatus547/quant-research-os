@@ -70,6 +70,15 @@ def test_install_uses_wheel_and_removes_editable_and_import_hook_sources(
         codex_binary=codex,
         client_configuration=configuration,
     )
+    fixture_copied_bytes = 0
+
+    def allow_tiny_fixture_copy(size: int) -> None:
+        nonlocal fixture_copied_bytes
+        fixture_copied_bytes += size
+        assert fixture_copied_bytes < 1024
+
+    # This bounds tiny synthetic bytes; it never certifies a production quota.
+    arguments["before_physical_copy"] = allow_tiny_fixture_copy
     if damage is None:
         inventory = freeze_python_install(target, **arguments)
         assert inventory == install_inventory(target)

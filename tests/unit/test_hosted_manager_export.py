@@ -18,6 +18,14 @@ from quantos.infrastructure.hosted_verification import (
 from quantos.security import SecretArtifactRejected
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from quantos.infrastructure import hosted_manager
+
+    # Typed-index fixtures cannot establish a mounted production storage quota.
+    monkeypatch.setattr(hosted_manager, "storage_checkpoint", lambda *_: None)
+
+
 def _deployment(root: Path, capability: bytes) -> SimpleNamespace:
     (root / "evidence").mkdir()
     (root / "source.bin").write_bytes(b"frozen-source")

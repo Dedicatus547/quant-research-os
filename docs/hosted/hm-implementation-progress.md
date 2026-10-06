@@ -1,25 +1,295 @@
 # HM-MVP 实施进度
 
-最新核对：2026-10-05。整体状态：`NOT_QUALIFIED`，尚未完成 MVP 验收。
+最新核对：2026-10-07（Asia/Singapore）。整体状态：`NOT_QUALIFIED / NOT_APPROVED`，尚未完成 MVP 验收。
 
-第34轮绑定精确实现 `694b7c49caa73b01555530c61762d984d15bc25d`。部署、原始主权限
-proof、native输入前置检查和完整CI已完成：五项原始wait0，1795 tests、171源码、
-coverage85.40%。随后发现该实现的后续容量消费缺口，Root在保留完整CI后停止
-场景采集；原监督进程实际wait-15并清理该stage进程组，完整106场景没有完成。
-没有真正offline-ready、公开交接副本ready、实际用户批准或模型调用。
+## 恢复续接：Python 来源规范化与完整运行预算（2026-10-07）
 
-后继真实交接链路的前置检查发现新的容量阻塞：C32 `export_live_source` 仍将保留的
-ManagerExport 按普通16MiB读取、4MiB扫描；最终完整导出的管理JSON分类也未处理
-专用索引边界。最小源码修正及32项局部回归已通过，正在准备后继冻结。第34轮
-原始CI仅用于该提交的实际观测；它不能授予后继修正资格，也不能解决已知的
-replay容量阻塞。本轮不是容量缺口实际触发失败，不虚构未执行的研究或模型结果。
+继续保留全部此前未提交修改和失败原件。当前 boot ID 与维护前相同；重新观察正式
+scratch 的真实1GiB挂载、两卷余量、bubblewrap能力及旧监督lease。旧lease实际原exit
+仍为未启动任务且cleanup=true，不继承第36轮存活或通过。恢复观察为
+`artifacts/hosted-evidence/recovery-continue01/resumption-observation-01.json`，SHA256
+`30fed355795c982ee93d9c8c5064482030bf576fdf2880572872e195fe47eb9c`。
+较后真实宿主容量预检C卷可用77912735744B（约72.56GiB），已高于此前32GiB底线；
+这不是Windows压缩成功的声明，本轮没有执行Windows维护。
 
-第31轮C31完整CI、106场景和七门导出成功，但独立原生核验达到7200秒上限而失败；
-第32轮C32完整CI通过，但场景采集中的provenance检查失败。原件均保留，不修复旧根或
-继承旧通过记录；第33轮单故障窗口恢复成功只用于开发定位。
-[专用32MiB边界修正](hm-manager-export-capacity.md)已纳入当前冻结实现，证据容量
-前置估算仍不替代本轮实际完整布局核验。没有读取模型认证或调用模型。真实交接、
-Q09/Q10回放、完整HM09独立审查、Luna HM10及HM11发布绑定仍待完成。
+原科学输入由既有P14-DQ离线external input gate重新逐文件核验通过，未复制、采集或
+重建。记录`recovery-continue01/external-input-reuse-01.json`，SHA256
+`507e10d5c074f494223035ffc5ed828cdf0312b121347bccc495a1af152fc6e5`；
+只能作为新attempt的合法输入候选，不授予旧第36轮CI、场景或新的hosted资格。
+
+新增专用`hosted_python_prefix.py`和`hosted_prepare_python.py`：仅物化明确Python前缀
+内部的file aliases，拒绝逃逸、目录alias、循环、hardlink和special file；保留通用
+verified-copy的原拒绝策略。完整source before/after、alias映射、模式和副本hash均绑定。
+真实监督复制01/02各5254个独立regular文件、1048个alias、156014730B物理新增量；
+reflink_files均0，不假设ext4具有COW。两次实际wrapper wait0、namespace退出和cleanup
+均有原exit，01保留；02规范化安装inventory hash为
+`cf27401025e1e5a3031c68584a7cef954f126f00632ba6f16a6cc418bc8af34c`。
+02解释器在`-I -S -B`下实际启动Python3.11.15并加载ssl/sqlite3，前后inventory相同；
+`recovery-continue01/normalized-python-runtime-02.json` SHA256
+`2f97031a12e35b8191476edcc53729daeafb8370985f2afdeafcd2ae358e7233`。
+
+复制01暴露逐文件完整容量/布局复验的成本。后继为整树先预留已核验inventory的完整
+物理复制上界，逐文件核对消费量，外监督器继续实际监测容量/增长及退出；预算不足仍在
+首次物理写入前拒绝。部署输入、Python/依赖和CI采用此路径，不改变副本hash、模式、
+inode独立性或来源before/after验证。仅增加与此资源边界直接相关的局部验证：最终
+41项通过/5.68秒；首轮40通过、1项旧逐文件计费断言失败的原log保留，不归为科研失败。
+新helper/脚本严格Pyright为0 errors/warnings；不是完整CI或HM09。
+
+完整预算为`recovery-continue01/full-job-forecast-01.json`，SHA256
+`aef1a71071e025b99970a55eac438b8681532e1ec0c12b87e46b8af7b9bbbfa4`：
+物理复制保守估算35.49GiB，监督新增量上限36GiB，加既有32GiB宿主余量预检通过。
+包括父安装/七个预算安装、八份科学输入、CI前缀、provenance/build/元数据、结果/导出、
+可能的4GiB private tmpfs swap增长和失败留证。两个独立replay authority根沿用既有
+只读runtime/input映射，不重复复制环境；外scratch固定1GiB，矩阵保持单worker。
+容量与预算通过只允许继续准备新冻结来源，不授予研究资格。
+
+新live驱动显式冻结`gpt-6.1-sol/high`，历史`gpt-6-sol`配置仍可按原hash解析。
+缺失的Windows维护说明从明确持久公开备份恢复原字节，SHA256
+`b470d4376cba75c4c6198787987fb484a33e08ee01023aa1bafaac17cf79143d`，未恢复或重造旧
+执行原件。后继离线编排入口正在准备；新源码/wheel/部署、106矩阵及完整CI仍待实际
+执行，真实模型认证/上下文外传仍未获批准，整体继续`NOT_QUALIFIED / NOT_APPROVED`。
+
+## Windows离线维护批准与续接（2026-10-06）
+
+**本次实际终态：`FAILED / NOT_EVALUATED / NO_SHUTDOWN`。** Windows系统UAC返回
+“操作已被用户取消”，实际PowerShell rc1；原始Windows UTF8结果完整保存在
+`vhd-maintenance-20261006-01/elevation-launch-result.json`，SHA256
+`2a8d3c93a5baaf12096a87d588474796f195d6909527cf03db50b38293ea080c`。
+核查01的registration、runner-ready、release、result文件全部未出现，未关闭WSL、
+未运行压缩，放行监督01仅准备、未启动；不把系统UAC错误归为自动审批拒绝。
+下文请求尚待返回段落保留为此前中间观察。本轮不再重复UAC请求。
+
+已准备独立02管理员手动入口，保留01原件。Windows目录为
+`C:\Users\zjw\AppData\Local\Quantos\hm-vhd-maintenance-20261006-02`，12个明确文件
+共396214B，副本hash全一致；四份脚本在本机PowerShell5.1 AST实际解析rc0。
+`binding.json`、`windows-copy-verification.json`、`powershell-parse.json`位于仓库同名02
+证据目录。入口先核对同一Windows用户及管理员令牌，之后注册/启动精确无触发器任务，
+再由有界监督核对实际就绪和余量后原子发布release；02**仅准备、未执行**。
+同一维护授权仍有效，但必须获得Windows实际管理员令牌，不能从普通令牌绕过UAC。
+具体Windows管理员命令见[维护说明](hm-windows-vhd-maintenance.md)。研究认证和外传
+仍未获得明确授权，正式验收未启动。
+
+用户明确批准[具体VHD维护](hm-windows-vhd-maintenance.md)，本次仅批准该Ubuntu VHD
+离线压缩和关闭WSL；迁移、unregister、删除证据、研究模型认证及上下文外传未获授权。
+准备Windows独立一次性任务 `Quantos-HM-VHD-20261006-01`，无触发器/自动重试，
+哈希绑定脚本，系统UAC提升后等待release记录才关闭WSL。改用微软支持的未挂载VHD直接
+compact，不创建或脱离任何挂载，避免清理误操作。当前为准备状态，**尚未据实际结果
+确认压缩成功**；下方“未执行Windows维护”保留为此前阶段观察，不代表本次批准后的结果。
+
+持久续接包 `artifacts/hosted-evidence/vhd-maintenance-20261006-01`；Windows结果目录
+`C:\Users\zjw\AppData\Local\Quantos\hm-vhd-maintenance-20261006-01`。
+WSL关闭会中断会话与本轮tmpfs挂载，先在Windows读实际`result.json`和原生DiskPart日志，
+压缩运行期间不启动WSL。返回后逐项复验源码/证据hash、VHD映射、C及Linux余量、硬容量
+挂载和旧lease；不得继承后台存活、旧wait或资格。完整验收仍未启动，未放宽任何门槛。
+
+实际已发出一次Windows系统UAC请求，Linux工具会话31532，尚未观察到返回、任务就绪、
+WSL关闭或压缩结果；不把请求当成运行成功。两份脚本已在本机PowerShell5.1实际AST解析
+rc0，首次因`Get-FileHash`缺失的rc1记录保留，改用.NET SHA256后Windows副本哈希一致。
+当前worker SHA256 `af04d89f200a0016a0e62669a84b0c6c5b31593b6177f89bc2ffbfbf8b24d9f2`，
+registrar SHA256 `c0f9e1ea0ad2b1bd121cac2d8999666a18e392b3a35c857c84ea77174f673237`。
+38个明确公开源码/文档文件共734927B已独立备份，Windows维护包初次总量278788B，
+未复制完整Python、VHD或认证目录。独立窄开发审查修复原生stderr退出记录、任务身份、
+ScriptBlock作用域及挂载清理歧义；不是正式HM09。
+
+准备独立Windows放行监督脚本：最多等10分钟，仅在实际管理员runner-ready、源码hash、
+原任务XML/Running状态、C卷新观察全部匹配后，发布已获批准的release。超时或错误拒绝
+放行，不关闭WSL；本轮不再重复UAC请求。具体实际调度/放行/压缩状态以Windows
+`release-controller-ready.json`、`release-controller-result.json`、`release.json`及
+`result.json`为准。若会话因关闭WSL中断，从这些原件续接，不补写退出或维护成功。
+
+## 直接修复续接：真实运行环境已配置，完整验收仍未启动
+
+已进入真实宿主视图核查，而非继承沙箱结论。Windows互操作已可用；Ubuntu的Lxss注册
+位置与通过WSL调用所得同一仓库文件device/inode一致，绑定VHD为
+`C:\Users\zjw\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu_79rhkp1fndgsc\LocalState\ext4.vhdx`。
+原第36轮管理根、W16在真实宿主也ENOENT，六个指定旧systemd单元均`LoadState=not-found`；
+其中默认`Result=success`不视为原任务wait或成功。没有重造原件、补写wait0或继承后台状态。
+实际观察：`artifacts/hosted-evidence/recovery-runtime01/runtime-observation-01.json`，SHA256
+`d754ab877da0491be9a28e2f6059258745084f737d80e67e94d4323a4ac8e575`。
+
+已直接安装非setuid的本地`bubblewrap 0.11.2-quantos1`，dpkg身份与实际binary一致。
+官方固定archive SHA256
+`69abc30005d2186baf7737feacd8da35633b93cf5af38838ecff17c5f8e924f6`；仅新增四个固定
+小型构建依赖，总下载718KB。原精确Ubuntu deb和原binary已核对一致并持久保留供回滚。
+构建全过程独占64MiB tmpfs、限时/限日志、持续双卷检查，官方LICENSE文档symlink未解包，
+首次拒绝原件保留。源码/新旧deb/binary/步骤绑定为`recovery-runtime01/build-binding.json`，
+SHA256 `04440a34f3b553dcc8cb1041f60349d611b063b04a5974fd4605b49f405623e0`。
+自建构建副本只按显式名单清理，原包、原件、日志与失败保留。
+
+实际硬容量目录已挂载：修复scratch为64MiB/4096 inodes；正式独立scratch为
+`artifacts/hosted-scratch/acceptance-pool01`，1GiB/65536 inodes、`nosuid,nodev,noswap`。
+内核为`6.18.33.2-microsoft-standard-WSL2`。正式policy证据根统一
+`artifacts/hosted-evidence`，其下不同attempt共享同一监督lease，避免各根重复预留；
+修复独立toy根只属于明确128MiB修复预算，不授予正式并发调度。挂载在WSL重启后消失，
+必须重新核验；当前守卫会拒绝缺失quota，不能继承本轮mount通过。
+
+真实验证暴露并已修正Python缺少memfd/pidfd封装、root bind不递归继承挂载、普通
+ro-bind的nodev行为及原生启动门EOF放行窗口。监督器复用已有native helpers，显式
+dev-bind `/dev`、只读绑定实际宿主卷和绑定quota scratch。严格`-I -S -B`桥必须收到
+精确`G`才exec任务，EOF/其他字节固定125；先绑定真实namespace pidfd并保存原info JSON，
+再放行，记录桥代码与实际解释器hash。没有提前加载业务或认证。
+
+最终严格桥已通过真实EOF/错误字节/G三项pipe/exec验证，前两项没有payload marker；
+G的payload实际exec后读取fd0得到EOF才发布marker，已修复fd0 non-inheritable问题。
+原件为`recovery-runtime02/strict-bridge-probe-02/summary.json`。
+与该桥源码绑定的六项真实保护探针已全部通过：64MiB scratch及8MiB私有tmp内核ENOSPC；
+实际detached孙进程pidfd退出；6MiB实际写入越过4MiB增长预算，监督器提前停止并实际
+wait−15、namespace退出和cleanup观察；Linux/host两种真实余量guard拒绝child83。
+后两项是在child中绑定提高的阈值测试，不冒称宿主实际耗尽或外监督器host触线。
+最终原始路径`recovery-runtime02/runtime-probe-1791271807377767429-17322/summary.json`；
+较早launch02/03的真实通过及之前失败原件全部保留，不替代最终源码绑定。
+
+真实before-G崩溃控制亦通过，原件为
+`recovery-runtime02/crash-probe-1791271833771681848-17350/crash-result.json`。
+仅延迟实际pin callback返回，独立controller核对真实PPid/namespace与pidfd后，
+SIGKILL自建监督器；观察实际wait−9、wrapper及namespace退出，未需controller补杀，
+payload marker未出现。原supervisor exit保持缺失，同scope重试在新增run之前拒绝
+`STORAGE_PREVIOUS_JOB_UNRECONCILED`。这是实际before-G、pin callback尚未返回的
+故障窗口；不宣称在任何pidfd打开前或所有崩溃窗口都已复验，不改写未知旧退出。
+
+最终core SHA256 `0bbd6da9f797f1f606fdfab96237b06a113b23c4200b69db42338ab65575864a`。
+统一最终验证链`recovery-runtime02/final-local-checks-03.json` SHA256
+`7bf066eaeaa47aa8d15a38f11ae3432ca3e547a8f86736a066c2ab141d1c6992`，
+六kernel控制、crash控制、73项局部回归、Ruff/check、format、严格Pyright、diff-check
+七个实际步骤全rc0，六个选定源码before/after相同。非完整CI、非HM09，
+仍为`NOT_EVALUATED / NOT_QUALIFIED`。
+
+独立`gpt-6.1-sol/high`窄开发审查02为
+`recovery-runtime02/storage-runtime-review-02.json`，SHA256
+`291e111d99e93af70434061f7abecffa635da8a9f04b1e6f32337c2465961462`，
+绑定59项原件及六个最终源码。原审查01和旧失败字节未改；EOF P1及stdin P2在上述
+精确实测范围关闭。review02仍是`AGENT_REVIEW_PROPOSAL / NOT_EVALUATED / NOT_QUALIFIED`，
+不是fresh正式HM09接受。本轮主/子代理usage不可用，不捏造token统计。
+
+Root再核review02的59项原件及六个最终源码hash均一致，记录为
+`recovery-runtime02/root-review-hash-check-01.json`。没有把独立Agent判断替代实际原件。
+
+首轮dev01的未知namespace清理继续`cleanup_verified=false`且lease阻断；后继开发根
+为独立串行小型验证，不补原namespace、wait或清理。旧wrapper返回码不能替代namespace
+实际退出，独立窄审01保留其P1与历史源码绑定，不用于接受后继实现。
+
+正式容量预检已实际拒绝`STORAGE_HOST_HEADROOM`，child未启动、wait未观察、return_code
+为null。当前选用32GiB保守宿主余量策略；预检时C卷20328837120B，离余量底线尚缺
+14030901248B（约13.07GiB），完整预计新增量还需另计。32GiB是本次安全策略配置，
+不是研究资格门；未放宽科学、来源、106场景或完整CI门。实际拒绝原件为
+`recovery-runtime01/formal-prelaunch-rejection-01.json`，SHA256
+`ef41aa46250a6ef31a55bd035716b28015c2f1768ed12d9b30fb02f2458fd315`。
+最终源码另在`recovery-runtime02/formal-prelaunch-rejection-02.json`实际复验同一拒绝：
+当前C卷20327288832B，离32GiB余量底线差14032449536B，launch=false、wait=false、
+return_code=null；仍未启动正式任务。维护前公共boot身份另记，不代替任何旧namespace退出。
+九个精确历史root/wheel/helper/观察路径真实宿主均不可用，记录为
+`recovery-runtime02/legacy-host-paths-01.json`；不据此重造原件或宣称其他备份不存在。
+
+只读metadata估算候选：snapshot649149418B，view77366983B，Python base regular
+89846742B且1048个alias未跟随，dependency site1461095425B。该census不是科学输入完整性
+门或完整job预算；ext4的COW节省尚未证实，不能假设zero-copy或静默重复制。合法复用需
+原绑定实测、只读隔离或实际验证的COW；后继Python来源规范化/完整预算/新源码和wheel
+冻结仍待执行，不复用失去原件绑定的第36轮通过。
+
+[本机VHD独立维护步骤](hm-windows-vhd-maintenance.md)已给出精确注册路径、Windows外部
+关闭WSL/只读挂载/压缩/脱离步骤及重启后复验边界，**未执行**压缩、迁移或Windows维护。
+未读取认证、调用研究模型或外传上下文；HM09/HM10与MVP继续未接受。
+
+## 恢复开发第一阶段（保留当时观察）：源码守卫修复，运行环境尚未就绪
+
+本会话先读 AGENTS.md、roadmap 与原进度，保留原未提交进度和交接文档。事故原因没有
+重新分析。恢复观察原件位于
+`artifacts/hosted-evidence/recovery-dev01/recovery-observation-01.json`，SHA256
+`e9dd5654622b16ea5f29494013e6102be4ab32ba71cdd33a711837b81adb89b9`。
+实际 Linux 可用 `743000010752B`，Windows C卷可用 `21258878976B`（约19.80GiB）；
+Linux余量不能代替宿主卷余量。真实 VHD所在路径/卷映射尚未取得，C卷只是已观测卷，
+没有把路径存在性当作 running WSL映射证明。
+
+原第36轮管理根、W16、wheel与 observer 在**当前会话视图**不可访问，登记为
+`UNAVAILABLE_IN_CURRENT_VIEW`。当前工具 PID视图未见旧任务；不继承后台存活或退出假设，
+不据此宣称宿主原件已永久删除。固定 snapshot、view、release 与冻结 Git对象仍可见，
+只做存在性及 release字节核对，未重扫完整科学输入，不因此授予 input gate PASS。
+交接所述中断前56/106、2项仅prelaunch、1825项CI/85.40%与两个公开生成步骤原wait0
+是用户交接事实，当前没有原件复验；以下第36轮旧52/106等记录保留其当时观察时点。
+不得重造原退出记录、回填wait0或用这些摘要授予后继资格。
+
+已落入开发源码的局部保护：
+
+- 管理部署、CI、矩阵/预算子部署、快照、导出、回放及直接launcher入口调用
+  `storage_checkpoint`。要求显式canonical policy/SHA、持久Linux证据根、实际宿主卷与
+  VHD文件绑定、独立有硬容量的scratch挂载及活动监督lease；缺条件默认拒绝。
+- 新监督入口 `scripts/hosted_storage_guard.py` 对两个文件系统预留预计新增量，连续
+  监测余量和实际增长。正式job使用独立PID namespace及init pidfd，等待真实wrapper和
+  namespace退出后再次检查容量；清理时屏蔽重复TERM/INT。未知启动/等待不填0，保留
+  `FAILED / NOT_EVALUATED`与未知清理记录并阻止新增调度。资源观察不授予研究资格。
+- 正式/失败/拒绝与本轮测试日志存入 `artifacts/hosted-evidence/`，退出和失败原件不
+  覆盖。监督lease为同一配置证据根内的协调状态；不宣称跨不同根的全卷互斥。
+  实际scratch硬配额仅接受已核验独立tmpfs mount；软件du轮询不算硬配额。
+- 挂载策略新增v3，服务/宿主与CI私有 `/tmp` 固定512MiB，要求bubblewrap的
+  `--size`在`--tmpfs`之前。保留v1/v2历史字节用于只读重建，实际执行入口拒绝旧profile；
+  本地toy验证lease不能调用正式操作。外部scratch和各namespace的tmpfs是独立上限，
+  不能把其中一个cap宣称为整个并发job总配额，内存/swap预算仍须另核。
+- Python冻结安装、CI环境与不可变输入复制使用校验过的reflink helper，绑定完整
+  SHA256/模式/目录清单及源前后身份，拒绝symlink、hardlink与special file。
+  不支持COW时默认拒绝；显式物理回退须逐文件通过磁盘预算检查，不冒称节省空间。
+  既有带alias的Python前缀必须先在受保护预算内规范化，未大规模复制或处理原科学输入。
+
+有意义的局部回归原始日志均在
+`artifacts/hosted-evidence/recovery-dev01/storage-tests/`：run10实际100 passed、
+run11实际56 passed（含COW20、launcher与启动/CI小夹具），run12守卫43 passed，
+run13针对终态清理字段的5项通过；各原工具退出码0。run01–09的开发失败/先前通过
+原日志也保留，不覆盖、不混算为完整CI。这些测试含显式mock容量/挂载、tiny copy和
+短toy子进程；不证明真实mounted quota、完整namespace隔离或正式研究模型来源。
+修改源码的Ruff/format、严格Pyright及diff-check通过，未启动完整CI或106场景。
+最后静态检查原件为
+`artifacts/hosted-evidence/recovery-dev01/final-static-checks-01/result.json`，SHA256
+`500d0c92199bf67287ed49a01b27602ee631916f9a80dd65a2bd0e60e434d9cf`；四项实际退出0，
+修改源码before/after与开发审查绑定相同。
+
+独立开发窄审为 `gpt-6.1-sol/high`，记录
+`artifacts/hosted-evidence/recovery-dev01/storage-static-review-03-final.json`，SHA256
+`931a61bfc03db6625208bfa96a08d6e47c4d100486a4ad022379a5a355655e5a`。
+源hash已独立核对一致，已审路径无开放P1；旧02/03审查及其阻断项历史原件保留。
+该记录是 `AGENT_REVIEW_PROPOSAL / NOT_EVALUATED / NOT_QUALIFIED`，不是HM09接受。
+本轮主代理与子代理usage均unavailable；研究host仍冻结 `gpt-6-sol/high`。
+
+**当前不启动新attempt**：本机实际 `bwrap --help` 未提供 `--size`，守卫真实只读能力
+检查拒绝 `STORAGE_BWRAP_HARD_QUOTA_UNAVAILABLE`；未执行新namespace或quota写满验证。
+VHD映射、正式scratch挂载、宿主安全余量与规范化安装来源也未就绪。现有保护已阻止
+正式入口，但不能宣称运行环境的全部磁盘保护已部署验证。源码仍是开发修改，冻结C35
+Git对象未改；后继须冻结新commit/wheel/部署与管理输入，再按真实原件判断复用范围。
+旧CI、场景、十三项回放编排和五项授权守卫摘要都不能替代缺失来源或新实现的实际门。
+
+[存储恢复说明](hm-storage-recovery.md)列明配置、清理策略、复用条件及Windows压缩/
+迁移的具体独立维护步骤；Windows维护未执行。真实认证模型调用与上下文外传仍未获
+明确授权，最终具体材料齐备前不读取认证、不调用模型、不预填批准或HM09/HM10。
+
+## 中断前进度与历史记录
+
+第36轮使用精确实现 `a2d9b82120f997a937954f1bf0573398c45ca1b7`、新工作树
+`/tmp/hm-q12-installed-worktree16` 及实际离线 wheel SHA256
+`e1351c038eb5962e105ecd05c0f89f64529f8c1ded57c01f911c4ee55142d0dc`。
+固定 snapshot/view/release 已逐文件复制到新工作树，原件与副本前后不变，既有
+external input gate 实际退出0；随后部署及 native 输入前置检查完成，原始 wait0。
+本轮实际业务输入 B 为
+`c8ff79c963c31a8a89173cd70481144ad0b3feedfcb974a602031dc6413c2f7a`，profile D 为
+`352d4ca9c0972ccf0c08c99dee236cfae91fe3591cf0d7912869b755c9ac8758`。
+
+本轮原始完整 CI 已实际完成：五 check 与 manager 原 wait0，1825 个 testcase，
+failure/error/skip 均0，完整171源码分母，组合覆盖30406/35604=85.40051679586563%。
+Root 已独立重核35份发布原件 before/after 相同；这份 CI 属于 C35/第36轮，不继承旧通过。
+106 场景仍在采集：最新已核对 snapshot256（2026-10-05 16:32:32 UTC）为52个 case
+原 wait0、2个已 prelaunch、52个尚未发布；未把完整分母宣称通过。observer 与后继
+等待服务并发运行，CI-ready 已发布 final-review01 的原 prelaunch；新版 final-review02
+等待服务于16:25:28 UTC 实际启动，尚无 binder 原 prelaunch、exit、binding 或 ready。
+当前仍无完整七门、最终 native 核验、offline-ready、最终交接 binding 或真实用户批准。
+等待服务启动和已完成 CI 不代表完整 hosted 资格通过。
+
+第35轮同一实现因 W15 缺少固定科学输入而实际 wait1，未产生 deployment、B/D、
+native、CI 或场景；失败原根与原件保留，已纳入 history19。第34轮属于旧 C32 实现：
+完整原始 CI 通过后，因后继容量消费缺口被停止并保留原 wait−15；106 项场景未完成。
+第36轮不继承该 CI 或其他旧通过记录。第31轮完整 CI、106 场景及七门通过后，独立
+原生核验因7200秒上限失败；第32轮场景 provenance 检查失败，原件均未修复。
+
+[专用32MiB边界修正](hm-manager-export-capacity.md)已纳入当前 C35 冻结实现；新完整
+producer 保留全部源 mapping，专用 typed 索引不混入普通 case JSON。容量前置估算、
+局部回归及开发审查不替代实际完整布局核验。没有读取模型认证或调用模型；真实
+交接、Q09/Q10 回放、完整 HM09 独立审查、Luna HM10 及 HM11 发布绑定仍待完成。
 
 下列过程记录分别保留各次当时的状态；历史诊断、组件通过或采集完成不能授予资格。
 开发时的前置检查、局部验证和性能测量顺序见
@@ -31,7 +301,7 @@ Unix channel、可信 CLI 捕获及管理 staging 已实现；已有实际启动
 尚未完成完整正式资格。
 HM-07 的只读 raw/protocol/business verifier、保存 SUBMIT 导入和 offline 管理入口已接入；
 Q01–Q12 的来源谓词已有实现；第31轮完整原件矩阵和Q12冻结安装CI已采集完成，
-七门导出已完成但独立原生核验失败；当前第34轮仍须重新完成全矩阵、来源门和原生
+七门导出已完成但独立原生核验失败；当前第36轮仍须重新完成全矩阵、来源门和原生
 核验，再执行真实交接与回放。
 HM-08 的实际模型驱动已接入受限 CLI，
 正式 live、receipt reuse、两个全新 Qlib 根及完整 bundle 尚未执行。HM-09/10/11 未完成。
@@ -2581,3 +2851,216 @@ Q05仍14400秒，其他场景300秒。请求TTL、冻结预算、source predicat
   `6d62a8a9d72f12da7662dfe71ebaafc3beb5d947367ee341658cfb0cd4860eb4`；Root读取完整
   源码/测试并复核output与source hash。未执行producer main或完整科研门；普通
   source-export sidecar、offline-run与qualification manifest各自容量仍须实际测量。
+
+## 第36轮：C35 新工作树、实际前置检查与待完成 CI
+
+- 精确源码 `a2d9b82120f997a937954f1bf0573398c45ca1b7` 的离线 build 原 wait0，wheel
+  `/tmp/hm-build-attempt35-01/quant_research_os-0.1.0.dev0-py3-none-any.whl` 为631216B，
+  SHA256 `e1351c038eb5962e105ecd05c0f89f64529f8c1ded57c01f911c4ee55142d0dc`。
+  第35轮在新 W15 缺少 external inputs 时原 wait1/failure null，未进入部署及核验；
+  不向旧失败根补写输入。history19 保留67条限定范围内已终结 staging/管理失败记录，
+  SHA256 `a1ebf4c333033e501ceb17e3a5b1b42945cb7847e2c9db3ca809fa7f2f292136`；
+  该历史不是所有可选开发检查的全量清单，不把仍运行的36轮记成已终结。
+
+- 新 W16 从固定原件逐文件复制 snapshot 13629文件/649149418B、view
+  6686文件/77366983B、release 1文件/1295B；原件与副本 before/after 一致。
+  既有 external input gate 实际退出0，复制及前置检查共284.330秒，记录
+  `/tmp/hm-worktree16-scientific-input-preflight-01/result.json`，SHA256
+  `44ddd51e70ad1de366535d10a5425a84f6c576f0d97e89b0586ddc565b4559e1`。
+  这项检查没有授予 Q 门或整体资格。
+
+- Root 实际启动 `quantos-hm-staging-attempt36.service`，原监督 prelaunch 为
+  2026-10-05 12:10:56.961 UTC，parent PID2542114。新根
+  `/tmp/hm-stage-a2d9b82-attempt36` 发布实际 B
+  `c8ff79c963c31a8a89173cd70481144ad0b3feedfcb974a602031dc6413c2f7a`、D
+  `352d4ca9c0972ccf0c08c99dee236cfae91fe3591cf0d7912869b755c9ac8758`；
+  typed canonical bytes/hash/C35 已独立核对，B 是 business bundle hash，不能用
+  spec/campaign hash 替代。native 输入前置检查原 wait0/failure null，39.4946秒，
+  七个受保护根完整 before/after 一致，原 exit SHA256
+  `cb98f88d307c05f15ce142d61f246ca4058e81302e0d4638f137c9ad82fef43a`。
+  此前置检查不等于最终完整 bundle 的 native verifier。
+
+- 本轮 CI 的 ruff-format、ruff、pyright 原 wait0/failure null；pytest exit 尚未发布，
+  完整 reports、diff-check 和原 CI manager 终态仍待完成。1825 只是开发 collection
+  基线；本轮必须实际完成全部测试及85%覆盖门、完整171源码和106项场景，不能继承
+  C32/第34轮的1795项 CI PASS。当前106场景未开始，纯离线监测服务
+  `quantos-hm-performance-observer-attempt36-01.service` 已真实启动，observer
+  `/tmp/hm_stage36_readonly_observer_01.py` SHA256
+  `5b1138771b9b7f31f290620d9bdab5e512a8e70450cc7cc352500372a59e6d4c`。
+  监测 snapshot 的发布不能替代 CI 或场景的原始退出记录。
+
+- 后继 offline、公开 preview、CI-ready/final-review 与 live/replay/resume/binder
+  脚本只更新本轮身份、独占路径、实际 helper/source hash 和1825基线，保留原 wait、
+  uncertain、来源 closure、provenance v2 与十八项授权范围守卫。独立开发审查记录
+  `/tmp/hm36-source-chain-independent-review-01.json`，SHA256
+  `3ceaa8584dfe07a35fdd251c821f80ac904ec793e513831f3a4f28a8d45b8ab1`；
+  未发现该窄范围新增结构阻断，不是 HM09。三项接口与四项离线绑定局部测试均实际
+  wait0/source前后相同；最初接口 fixture 只改总数而未添逐项 testcase 的开发 tool1
+  独立保留于 `/tmp/hm-review-chain36-interface-test01-tool-failure.json`，SHA256
+  `8f1fbf0289245867d2f4d60397449137ca9e58cfcd530a69496ff84ceb2401dc`，不能写成
+  本轮 CI、native 或 provider 失败。Root 对11份源码 whole AST 与42份原件的独立重核记录为
+  `/tmp/hm36-root-successor-chain-review-01/review.json`，SHA256
+  `f6ac16d8b113ccf502b2e30abc8aa134aa263e362bd49a66711540f02dabe5c9`。
+  随后实际启动 `quantos-hm-offline-preflight-attempt36-01.service`、
+  `quantos-hm-public-previews-attempt36-01.service`、
+  `quantos-hm-ci-ready-review-launch-attempt36-01.service`，三个 systemd-run 原调用均
+  退出0，与 observer 共四个等待/监测服务并发。Root 已核对 offline 与 CI-ready 的
+  waiting 原件，公开副本服务仍在等待指定场景；五个固定单元只读查询均为
+  loaded/active/running，不能以 systemd 默认 Result 或 ExecMainStatus 声称原 wait0。
+  启动及 waiting 观测记录为
+  `/tmp/hm36-root-successor-chain-review-01/waiter-launch-observation.json`，SHA256
+  `6d9c631218335c73c37c8db48b3b3e0fe8873cd4b0ea1789e2d67e9380bf15dd`。
+  这些启动不证明子进程原 wait、offline-ready、公开副本 ready、CI PASS 或资格。
+  未执行 live/replay main、读取认证或调用模型。
+
+- 按用户2026-10-05的新并发要求，授权材料准备、离线与性能预检、独立前置审查
+  分别由三个 `gpt-6.1-sol` 子代理并行完成；开发窄审不能代替未来 fresh HM09。
+  HM10 仍待 HM09 实际接受后交给 `gpt-6-luna/medium`，不提前生成接受声明。
+
+- 轻量性能观测记录为 `/tmp/hm-stage36-lightweight-performance-observation-01.json`，
+  SHA256 `bb625743432598dd96fc63f8c79a46547ce1108ed6e57139d7c5e08acd649b42`。
+  12:34:20 UTC 快照没有告警，已观测 cgroup oom/oom_kill 为0；服务 CPU 累计、
+  活跃 PID CPU、当前 RSS 与服务 MemoryCurrent 分别记录，不能混用为峰值或总耗时。
+  单门耗时与最终来源产物容量仍未知，不削弱完整来源检查。
+
+- 已发布容量只读观测计划为 `/tmp/hm36-capacity-published-observation-plan-01.md`，
+  SHA256 `c5c428b56eadc4b677550346d3985408a80bc7c05609e210fc348d708aba426b`。
+  Root 重核其11份固定源码绑定。首次七门 producer 在 evidence 分类后才向原根
+  回写 ManagerExport，标准首次路径没有重复读取新 index；再次对同一原根执行旧
+  producer 可能受普通16MiB分类限制，不作为通用重试入口。postlive 新 producer 保留
+  所有旧 index 与来源映射；sidecar/offline-run 的普通4MiB guard、16MiB读取边界和
+  typed index 的32MiB边界分别保留，待实际原件发布后有限测量，不重复扫描科学目录。
+
+- 真实交接准备稿 `/tmp/hm-live-authorization-preparation-attempt36-01.md`，SHA256
+  `9f70e9b58dd6cbd98c004841c0da20c6dfa81c512ed3307491d57742c238973f`，明确
+  `NOT_READY / NOT_APPROVED / NOT_QUALIFIED`。完整本轮 CI、106场景、七门、最终
+  native 原 wait0 和公开副本齐备后才生成实际最终 review bindings；不预填未来 hash。
+  真正 authenticated model handoff/provider context transmission 仍需可信 root/harness
+  直接观察真实 user-role 明确批准，JSON、hash 和本地 capture ID 不自证用户来源。
+  第二次实际 context 依赖第一次实际结果，offline preview 不能替代它；当前没有创建
+  用户批准/capture，也没有模型调用或 HM09 资格。
+
+
+### 第36轮追加：本轮完整 CI 原始终态与 Root 复核
+
+本轮 C35/W16/B36/D36 完整 CI 实际完成，五项 check（ruff-format/ruff/pyright/pytest/
+diff-check）及 CI manager 原 wait0；Root 重核1825个逐项 testcase、failure/error/skip0、
+171个 unique sourceclasses 与 Git 源分母完全相同，35份已发布原件 before/after 不变。
+实际 lines24564/27600、branches5842/8004，组合30406/35604=85.40051679586563%。
+这是实际完整 CI 观测，不再只是开发 collection；仍不能替代106场景、七门、live/replay、
+最终 native 或独立 HM09 接受。
+
+Root 只读复核记录 `/tmp/hm36-root-actual-ci-observation-01/result.json`，SHA256
+`119523b8c0a5fb1a3e67c731e16b0498b2b390b60bf1561899303f154a94617d`；CI观察 proof
+`/tmp/hm-ci-ready-review-launch-attempt36-01/independent-ci-hash-observation.json`，SHA256
+`6eb3866f8b9ab1ead175e4ec953542c2a49707339aec19fa63580c7e523e6779`。实际四 hash：
+
+| Q12 原件 | SHA256 |
+|---|---|
+| run.json | `7235dc3efd5460c80a28790d7d91f7d2183c840a9ea6cb9f57da7ef67eee9ca2` |
+| tracked-before.json | `bc9a2b4a4b17e1d059766a5ef72e30f6ce03f368fd2929f7b9ccaa096a382cf3` |
+| coverage.xml | `fd06d7ee26a7683686a3223e0c5d5e50006ffb6aa7921680a5de1c218c11acbf` |
+| pytest.xml | `e45bf604b8741872e70b733e0aeff738963dfcc5021db4cb3aa9892ad78e6366` |
+
+原 CI manager 未记录 output hash，明确 unavailable，不补造原 producer 字段。CI-ready
+已实际启动 final-review 等待子进程，原 prelaunch parent2551001；尚未观测其原 exit，
+不能称 ready。最新 Root 核对 snapshot194 为50 case原wait0、2 prelaunch、54未发布，
+仍在完整106分母内采集，不把 prelaunch 等同完成。本轮公开副本、source-only/native、
+实际用户批准、真实模型交接、完整full12及HM09仍待后继实际原件，整体保持
+`NOT_QUALIFIED / NOT_APPROVED`。
+
+本轮 CI 独立只读复核另存 `/tmp/hm36-actual-ci-original-readonly-review-01.json`，SHA256
+`ad29fa3fcae820fd5cf5548fa14d994ff4e5590d10cb70547752ab3784f4def7`。逐项 line/branch
+重算、完整948个 tracked record 与已发布 D-bound provenance、五项命令/原退出/输出及
+kernel 记录相符，38份选定原件前后一致；未重新扫描安装或科学目录、未运行正式门。
+本地观察器初版错误假定原 prelaunch 有 script_hash 字段的 tool1 单独留存，修正只使用
+实际 argv/expected-self 绑定，不写成 CI 或管道失败，不改 history19。
+
+性能原件汇总 `/tmp/hm-stage36-completed-case-performance-observation-01.json`，SHA256
+`0505a214e527b959ac9f00e8020a75f303440a506268db9a51f95c856fbc6e1b`，锚定15:31:28 UTC
+的 snapshot195。50个完成场景的150份原 prelaunch/exit/outcome 逐文件复核，最长管理
+wall245.130秒；当时两个 execution 场景已有约21分钟 prelaunch elapsed，但没有原退出。
+时间包含完整管理/恢复工作，不能据此宣称纯 Qlib 耗时、磁盘瓶颈或预测最终时长。
+本轮 max2 已占用；后继回放安全并行候选另作静态核查，不修改运行中的冻结调度器。
+
+HM09 原件交接检查表 `/tmp/hm36-final-review-handoff-preparation-01.md`，SHA256
+`09e11379a0fa630a096dd2113a2809af27e4cc029da87bf1ef08c1f848dabe5c`，列完整106场景、
+七门/native、八份公开副本、实际用户来源、live/replay 和最终 full12/native 的待审原件。
+它仅为 PREPARED / NOT_READY_FOR_HM09，不是接受记录；实际 full12 完成后才新建
+fresh `gpt-6.1-sol/high/fork_turns=none` 审查，实际接受后才执行 Luna HM10。
+
+### 第36轮追加：后继双根回放并行与授权来源绑定
+
+按照用户加速要求，三个开发子代理并发处理性能/编排、来源独审和授权准备，均使用
+`gpt-6.1-sol`；未执行 HM09 或 HM10。当前 C35/W16、wheel、CI、106场景调度及旧01
+等待链保持冻结；新增 helper03/授权链02 是后继管理编排，不把局部审查授予资格。
+
+新的 replay driver03 先串行完成 source export、receipt reuse、baseline 与五个 tamper
+控制，再并发运行两个既有 REEXECUTE 管理入口。每根独立 authority/channel/tmp/MLflow，
+保留 native7200秒上限，外层每worker7800秒；二者实际原 wait0 后，按 root-a/root-b
+固定顺序核全部 business/raw/principal/runtime/C11/source及原 authority，再进行比较。
+共享 manager evidence 的完整扫描、export、producer 和 native 验证均在 join 后；未删
+科学执行或完整来源门。当前没有实际启动该并行回放，收益与峰值资源仍未知。
+
+13项局部子进程测试实际原 wait0，记录
+`/tmp/hm36-reexecution-pair-local-tests-02/exit.json`，SHA256
+`d824dfdd9d61a64fb631fc2fa313e62fa12df0254fdd3cc575f8ea17962bc2f4`；覆盖真实重叠、
+已观察失败阻止第二次启动、失败回收、超时、不确定wait、输出缺失与父进程硬终止。
+首次开发测试原 wait1 保留于 tests01，未覆盖；新03修正 cleanup错误覆盖主UNREAPED
+标签的问题，仍保留 return_code=null/waitpid_observed=false。硬终止证明仅限隔离测试
+中的driver与adopted toy worker，不宣称 native 或任意孙进程实际wait。源码/hash guard
+及最后poll不能证明无ABA修改或原子阻止未观察退出。Ruff/check与format实际0。
+
+Replay独立语义审查 `/tmp/hm36-parallel-reexecution-independent-semantic-review-01.json`，
+SHA256 `98971c69b663ecfcc6b221e75d188abfa8b785660abdec1409ed9fe912ae2348`；Root复核
+`/tmp/hm36-root-parallel-replay-and-authorization-review-01/review.json`，SHA256
+`9b31f965cf7cdbeb45b095e342d4a6e5abca99a5958106d4544e1052bfb5a57c`，54份选定原件
+前后不变。独立交叉核对52份有限helper/记录，两个已复核CI XML未重复读取；记录SHA256
+`e74a7fd342b3911f2e0188b5c08a396ab5903213068c64a905c0f2105ba90297`。均为开发审查。
+
+授权链02将driver/worker/runner03的三份实际SHA同时固定在resume、binder和final
+supervisor中，执行前后重核，仍消费本轮实际offline/native/public/EXPORT01原件。
+新management/full-qualification/final-native使用独占02输出，不全局替换01来源。
+五项纯守卫测试实际原 wait0，记录
+`/tmp/hm-replay02-authorization-guard-local-tests-02/exit.json`，SHA256
+`b2379bad1df47151d27f640c262a3a47b3454fe64c47054318dd8025c5f286ae`。独立拓扑审查
+`/tmp/hm36-auth02-source-topology-independent-review-01.json`，SHA256
+`296f1e40d663349586a0f8c27e3552a11c03aa06ca90fd1d28a622e7b3895755`，无未关闭结构
+或接口阻断；17个binder参数、真实批准条件及实际CI四hash保持。18指设计授权scope项，
+原require源码有39个and项，AST未改；局部checker失败另行保留，不属于CI或科学失败。
+
+Root完成上述复核后，于2026-10-05 16:25:28 UTC实际启动
+`quantos-hm-final-review-bindings-attempt36-02.service`；systemd-run原退出0，MainPID
+观察2600792，已发布review-only waiting.json。只等待实际offline/public完整材料，再运行
+binder生成审阅binding，不调用resume/live/auth/模型。启动观察
+`/tmp/hm36-root-parallel-replay-and-authorization-review-01/final02-service-launch-observation.json`，
+SHA256 `e9d3ad1d7b9700b8924d18beca8a36757bd3c010db248c949e343c66fb5ec9e3`；service
+active和启动器退出0不是服务子进程原wait0，也不是binding ready或用户批准。
+
+新版HM09原件检查表 `/tmp/hm36-final-review-handoff-preparation-02.md`，SHA256
+`f0101f2a77b9dafc78415f3880888f7050878d0d77a3efbd409035e5b6a23f24`；保留生成当时
+final02尚未启动的状态，后续实际启动另存观察，不覆盖旧稿。旧checklist01保持原值。
+启动补充 `/tmp/hm36-final-review-handoff-preparation-02-launch-supplement-01.md`，SHA256
+`d39df8133a572cf97f96e7d13aac26e2eb9c44d0b103e7f040c4cdb208e51794`，明确启动观察
+与原child wait/ready的差别，以及18设计scope和39语法and项的计数范围。
+真实交接仍要求材料齐备后由Root直接观察用户明确授权；当前没有auth读取、模型调用、
+user capture/approval、真实双根回放、full12 native 或 HM09接受。
+
+### 第36轮追加：两个长执行场景实际完成
+
+Q05/execution-completed_intent 与 execution-execution_receipt 已分别发布原管理
+wait0、failure=null和COMPLETED outcome。管理wall4760.765880秒（79.3461分钟）及
+4696.428751秒（78.2738分钟）；worker自身wall另有记录，不能混作纯Qlib或来源门
+耗时。当前推进到52/106；下一组 execution-final_report/execution-ledger 仅prelaunch，
+没有原退出。当前仍无完整stage/offline/native/public ready，不预填导出容量或模型材料。
+
+仅新增8份原prelaunch/exit/output/outcome有界核对，未重读已过50场景、安装或科学
+清单；测量记录 `/tmp/hm-stage36-completed-case-performance-observation-03.json`，
+SHA256 `04995e779151339a5e9b7876123a4eb1cd4344c320eade43fc7e447999a27157`。
+Root独立核原PID/parent、输出hash、C/B/D、COMPLETED/原wait0与before/after，记录
+`/tmp/hm36-root-new-completed-case-original-check-01.json`，SHA256
+`39527884d0ddad91827dcdc3cc1bbc495f31fc0bae6b0702a4bf5e35bb12bb5b`。这些是原件
+观测，不替代完整场景及来源谓词核验。snapshot256未见失败alerts，已观测cgroup
+oom/oom_kill为0；MemoryPeak unavailable，没有实际physical或同时峰值证明。
+单worker采样进程树RSS约32GB会含共享页面，不作physicalpeak，也不把两根各自峰值
+相加。现有max2取得实际运行经验，后继pair的actualspeedup/资源峰值仍未测量。

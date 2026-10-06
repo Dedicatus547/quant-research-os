@@ -23,6 +23,12 @@ from quantos.infrastructure.hosted_deployment import install_inventory
 from quantos.infrastructure.hosted_verification import raw_inventory
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Synthetic graph fixtures cannot prove a mounted production storage quota.
+    monkeypatch.setattr(manager, "storage_checkpoint", lambda *_: None)
+
+
 @pytest.mark.parametrize(
     "damage",
     (

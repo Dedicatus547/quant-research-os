@@ -23,6 +23,12 @@ from quantos.infrastructure.hosted_verification import HostedQualificationError,
 from quantos.security import SecretArtifactRejected
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Process doubles establish capture composition, never a real storage quota.
+    monkeypatch.setattr(manager, "storage_checkpoint", lambda *_: None)
+
+
 def _deployment(root: Path):
     paths = HostedNamespacePaths(
         **{

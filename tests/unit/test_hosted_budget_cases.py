@@ -12,6 +12,15 @@ from quantos.contracts.hosted import HostedBudgetPolicy
 from quantos.infrastructure.hosted_budget_cases import HOSTED_BUDGET_CASES, budget_case_specs
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from quantos.infrastructure import hosted_budget_deployment, hosted_manager
+
+    # Finite recipe fixtures cannot establish a mounted production storage quota.
+    for module in (hosted_budget_deployment, hosted_manager):
+        monkeypatch.setattr(module, "storage_checkpoint", lambda *_: None)
+
+
 def _base() -> tuple[ResearchBudgetSpec, HostedBudgetPolicy]:
     return (
         ResearchBudgetSpec(

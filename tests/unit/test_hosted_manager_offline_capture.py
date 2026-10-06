@@ -22,6 +22,12 @@ from quantos.infrastructure.hosted_verification import HostedQualificationError,
 from quantos.security import SecretArtifactRejected
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Synthetic stopped-source fixtures never establish a mounted storage quota.
+    monkeypatch.setattr(manager, "storage_checkpoint", lambda *_: None)
+
+
 def _source(deployment):
     roots = {
         "protocol": deployment.paths.authority / "protocol",

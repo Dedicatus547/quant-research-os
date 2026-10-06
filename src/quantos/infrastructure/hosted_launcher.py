@@ -43,6 +43,7 @@ from quantos.infrastructure.hosted_deployment import (
     verify_install,
     verify_projection_fact,
 )
+from quantos.infrastructure.hosted_storage import storage_checkpoint
 from quantos.security import SecretArtifactRejected, validate_secret_free
 
 EXTRACTION_RULE_BYTES = canonical_json_bytes(
@@ -93,6 +94,7 @@ def probe_projection_mount(
     seccomp_fd: int,
 ) -> HostedMountObservation:
     """Observed inside the exact host mount/proc/seccomp recipe before model launch."""
+    storage_checkpoint(paths.configuration.parent, "matrix", 0, profile.mount_policy_hash)
     os.lseek(seccomp_fd, 0, os.SEEK_SET)
     argv = namespace_command(
         "host",
@@ -518,6 +520,10 @@ class TrustedCodexLauncher:
         model_auth_memory_fd: int | None = None,
     ) -> tuple[HostedLauncherRecord, bytes | None]:
         """Manager owns capture; CLI receives no channel capability or authority descriptor."""
+        storage_checkpoint(self.evidence.root, "matrix", 0, self.profile.mount_policy_hash)
+        storage_checkpoint(
+            self.paths.configuration.parent, "matrix", 0, self.profile.mount_policy_hash
+        )
         if model_auth_memory_fd is not None:
             register_model_auth_memory(model_auth_memory_fd, self.evidence.guard)
         verify_install(self.paths.install, self.install)

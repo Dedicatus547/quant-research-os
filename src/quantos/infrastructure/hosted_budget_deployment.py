@@ -28,6 +28,7 @@ from quantos.infrastructure.hosted_manager import (
     read_managed_deployment,
     stage_hosted_deployment,
 )
+from quantos.infrastructure.hosted_storage import storage_checkpoint
 from quantos.infrastructure.hosted_verification import read_relative
 
 
@@ -92,6 +93,7 @@ def stage_managed_budget_deployment(
     dependency_site: Path,
 ) -> HostedManagedDeployment:
     """Freeze new B→L→C→I0→D before running the native fixture, without a model call."""
+    storage_checkpoint(parent.root, "matrix")
     if case not in HOSTED_BUDGET_CASES:
         raise ValueError("unknown fixed budget deployment")
     target = parent.root / "qualification-deployments/Q06" / case

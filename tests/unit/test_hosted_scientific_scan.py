@@ -22,6 +22,14 @@ from quantos.security.artifact_secrets import SecretArtifactRejected
 CAPABILITY = b"component-only-sensitive-value32"
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from quantos.infrastructure import hosted_manager
+
+    # Known-value scan fixtures never establish a mounted production storage quota.
+    monkeypatch.setattr(hosted_manager, "storage_checkpoint", lambda *_: None)
+
+
 def _deployment(tmp_path: Path) -> HostedManagedDeployment:
     authority = tmp_path / "authority"
     authority.mkdir()

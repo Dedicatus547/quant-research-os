@@ -8,7 +8,6 @@ import json
 import os
 import platform
 import secrets
-import shutil
 import socket
 import stat
 import subprocess
@@ -60,6 +59,8 @@ from quantos.infrastructure.hosted_deployment import (
     system_runtime_inventory,
 )
 from quantos.infrastructure.hosted_launcher import EXTRACTION_RULE_BYTES
+from quantos.infrastructure.hosted_storage import storage_checkpoint
+from quantos.infrastructure.hosted_storage_copy import copy_tree_verified
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,7 @@ def stage_hosted_deployment(
     prepared_root_fd: int | None = None,
 ) -> HostedManagedDeployment:
     """Construct the reviewed B→L→C→I0→D graph before exposing any service/model."""
+    storage_checkpoint(root, "deployment")
     provenance = capture_code_provenance(workspace)
     if provenance != bundle.code_provenance:
         raise ArtifactIntegrityError("business authoring differs from clean deployment provenance")
@@ -175,7 +177,11 @@ def stage_hosted_deployment(
     for relative in (bundle.snapshot_directory, bundle.qlib_view_directory):
         destination = inputs / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(workspace / relative, destination, symlinks=False)
+        copy_tree_verified(
+            workspace / relative,
+            destination,
+            reserve_physical_copy=lambda size: storage_checkpoint(root, "deployment", size),
+        )
     seed = inputs / bundle.initial_ledger_directory
     seed.mkdir(parents=True)
     for item in bundle.initial_ledger_files:
@@ -186,6 +192,7 @@ def stage_hosted_deployment(
     clone = subprocess.run(
         [
             "git",
+            "--no-optional-locks",
             "clone",
             "--quiet",
             "--no-hardlinks",
@@ -201,6 +208,7 @@ def stage_hosted_deployment(
     subprocess.run(
         [
             "git",
+            "--no-optional-locks",
             "-C",
             str(root / "provenance"),
             "checkout",
@@ -256,6 +264,7 @@ def stage_hosted_deployment(
         dependency_site=dependency_site,
         codex_binary=codex_binary,
         client_configuration=public,
+        before_physical_copy=lambda size: storage_checkpoint(root, "deployment", size),
     )
     native_source = Path(__file__).with_name("hosted_python.c")
     subprocess.run(
@@ -461,6 +470,7 @@ def stop_managed_service(
 
 
 def start_managed_service(deployment: HostedManagedDeployment) -> subprocess.Popen[bytes]:
+    storage_checkpoint(deployment.root, "matrix", 0, deployment.profile.mount_policy_hash)
     # An old socket/observation must never attest a new child. Stop/forensic cleanup
     # is explicit; starting does not silently remove evidence from a crashed service.
     with opened_directory(deployment.paths.channel) as channel:
@@ -647,6 +657,7 @@ def restricted_client_call(
     request_hash: str | None = None,
 ) -> dict[str, object]:
     """Invoke the installed CLI as the actual restricted research subject."""
+    storage_checkpoint(deployment.root, "matrix", 0, deployment.profile.mount_policy_hash)
     if operation not in {
         "start",
         "pending",
@@ -747,6 +758,8 @@ def probe_managed_deployment(deployment: HostedManagedDeployment) -> bytes:
         if sha256_bytes(saved) not in checked:
             raise ArtifactIntegrityError("deployment probe changed during source reverification")
         return saved
+
+    storage_checkpoint(deployment.root, "matrix", 0, deployment.profile.mount_policy_hash)
 
     # Non-secret canaries exist in denied mounts. They are deliberately not credentials.
     atomic_write_bytes(deployment.paths.authority / "sealed-canary", b"sealed-source-canary")
@@ -919,6 +932,7 @@ def export_live_source(deployment: HostedManagedDeployment, destination: Path) -
         verify_raw_inventory,
     )
 
+    storage_checkpoint(destination, "export")
     if destination.exists() or destination.is_symlink():
         raise ArtifactIntegrityError("offline source export already exists")
     if any(deployment.paths.channel.iterdir()):
@@ -929,12 +943,18 @@ def export_live_source(deployment: HostedManagedDeployment, destination: Path) -
         "request-projections": deployment.root / "request-projections",
     }
     inventories = {name: raw_inventory(path) for name, path in sources.items()}
+    storage_checkpoint(
+        destination,
+        "export",
+        sum(item.size_bytes for inventory in inventories.values() for item in inventory.files),
+    )
     destination.mkdir(parents=True, mode=0o700)
     guard = KnownValueGuard((deployment.capability,))
     for name, source in sources.items():
         target = destination / name
         target.mkdir(mode=0o700)
         for item in inventories[name].files:
+            storage_checkpoint(destination, "export", item.size_bytes)
             if name == "evidence" and item.size_bytes > 4_194_304:
                 # A retained qualification index has its own bounded reader.
                 # Unknown large evidence must still fail rather than inherit it.
@@ -979,6 +999,12 @@ def run_managed_offline(
     target: Path | None = None,
 ) -> Path:
     """Run the installed offline entrypoint in the real network-isolated service namespace."""
+    storage_checkpoint(
+        target if target is not None else deployment.root,
+        "replay",
+        0,
+        deployment.profile.mount_policy_hash,
+    )
     from quantos.infrastructure.hosted_verification import (
         raw_inventory,
         read_relative,
@@ -1161,6 +1187,7 @@ def run_managed_budget_case(deployment: HostedManagedDeployment, case: str) -> P
 def _run_managed_transport_fixture(
     deployment: HostedManagedDeployment, case: str, family: str
 ) -> Path:
+    storage_checkpoint(deployment.root, "matrix", 0, deployment.profile.mount_policy_hash)
     from quantos.infrastructure.hosted_atomic_forensics import (
         atomic_forensic_inventory,
         native_registration_publication,
@@ -1429,6 +1456,7 @@ def publish_manager_export(
     deployment: HostedManagedDeployment, mappings: tuple[tuple[str, str], ...]
 ) -> CanonicalContract:
     """Retain an exact source mapping; qualification is computed by a separate verifier."""
+    storage_checkpoint(deployment.root, "export")
     from quantos.contracts.hosted_qualification import HostedManagerExportFile
     from quantos.infrastructure.hosted_verification import digest_relative
 
@@ -1451,6 +1479,7 @@ def publish_manager_export(
     # (including decoded JSON strings) and all raw bytes in overlapping windows.
     # The generic guard and research-channel limits retain their existing caps.
     guard_manager_export(deployment, export)
+    storage_checkpoint(deployment.root, "export", len(encoded))
     atomic_write_bytes(deployment.root / "evidence" / export.content_hash, encoded)
     return export
 
@@ -1474,9 +1503,11 @@ def capture_authority_snapshot(
     if target.exists() or target.is_symlink():
         raise ArtifactIntegrityError("case snapshot requires a new absent root")
     before = raw_inventory(deployment.paths.authority)
+    storage_checkpoint(target, "matrix", sum(item.size_bytes for item in before.files))
     with opened_directory(target, create=True):
         pass
     for item in before.files:
+        storage_checkpoint(target, "matrix", item.size_bytes)
         data = read_relative(
             deployment.paths.authority, item.logical_path, max_bytes=MAX_SINGLE_FILE_BYTES
         )

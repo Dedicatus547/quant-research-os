@@ -7,14 +7,15 @@ import csv
 import ctypes
 import io
 import os
-import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.hosted import strict_json_object
 from quantos.contracts.hosted_deployment import HostedFileIdentity, HostedInstallInventory
-from quantos.infrastructure.hosted_deployment import install_inventory
+from quantos.infrastructure.hosted_deployment import NAMESPACE_TMPFS_BYTES, install_inventory
+from quantos.infrastructure.hosted_storage_copy import copy_tree_verified
 from quantos.infrastructure.hosted_verification import read_relative
 
 CI_PREFIX = "qualification-checks/Q12"
@@ -133,7 +134,11 @@ def verify_ci_declaration(
 
 
 def prepare_ci_runtime_contents(
-    install: Path, expected: HostedInstallInventory, node_source: Path
+    install: Path,
+    expected: HostedInstallInventory,
+    node_source: Path,
+    *,
+    before_physical_copy: Callable[[int], None] | None = None,
 ) -> dict[str, object]:
     """Called only inside a private management child's already-pinned new cwd."""
     records = tuple(
@@ -152,7 +157,9 @@ def prepare_ci_runtime_contents(
         map(tuple, records)
     ):
         raise ArtifactIntegrityError("CI coverage hook differs from locked installed wheel")
-    shutil.copytree(install / "python", Path(".venv"), symlinks=False)
+    copy_tree_verified(
+        install / "python", Path(".venv"), reserve_physical_copy=before_physical_copy
+    )
     atomic_write_bytes(Path(".venv/lib/python3.11/site-packages/a1_coverage.pth"), COVERAGE_PTH)
     if install_inventory(Path(".venv")) != expected:
         raise ArtifactIntegrityError("CI prefix differs from frozen installation derivation")
@@ -198,6 +205,8 @@ def ci_namespace_command(
         "--dev",
         "/dev",
         "--clearenv",
+        "--size",
+        str(NAMESPACE_TMPFS_BYTES),
         "--tmpfs",
         "/tmp",
         "--dir",

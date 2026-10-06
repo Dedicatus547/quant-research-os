@@ -23,6 +23,14 @@ from quantos.infrastructure.hosted_manager import publish_manager_export
 from quantos.infrastructure.hosted_verification import HostedQualificationError
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from quantos.infrastructure import hosted_manager
+
+    # Original-byte origin fixtures never establish a mounted storage quota.
+    monkeypatch.setattr(hosted_manager, "storage_checkpoint", lambda *_: None)
+
+
 def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     original, bundle = tmp_path / "original-manager", tmp_path / "uploaded-bundle"
     original.mkdir()

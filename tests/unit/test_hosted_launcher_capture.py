@@ -25,6 +25,12 @@ from quantos.infrastructure.hosted_deployment import (
 from quantos.infrastructure.hosted_store import HostedProtocolStore
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Process/mount doubles cannot establish a mounted production storage quota.
+    monkeypatch.setattr(launcher, "storage_checkpoint", lambda *_: None)
+
+
 @pytest.mark.parametrize(
     "damage",
     (

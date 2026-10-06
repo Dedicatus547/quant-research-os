@@ -38,6 +38,7 @@ from quantos.contracts.hosted_deployment import (
     HostedInstallInventory,
     HostedProjectionFact,
 )
+from quantos.infrastructure.hosted_storage_copy import copy_file_verified, copy_tree_verified
 from quantos.security import SecretArtifactRejected
 
 
@@ -174,6 +175,7 @@ def freeze_python_install(
     dependency_site: Path,
     codex_binary: Path,
     client_configuration: HostedClientConfiguration,
+    before_physical_copy: Callable[[int], None] | None = None,
 ) -> HostedInstallInventory:
     """Freeze a Python prefix and installed dependencies; never imports editable source.
 
@@ -185,7 +187,7 @@ def freeze_python_install(
     if sys.version_info[:2] != (3, 11):
         raise ValueError("QuantOS frozen installation requires Python 3.11 manager")
     python_root = destination / "python"
-    shutil.copytree(base_python, python_root, symlinks=False)
+    copy_tree_verified(base_python, python_root, reserve_physical_copy=before_physical_copy)
     site = python_root / "lib/python3.11/site-packages"
     if site.exists():
         shutil.rmtree(site)
@@ -199,9 +201,9 @@ def freeze_python_install(
             continue
         target = site / name
         if source.is_dir():
-            shutil.copytree(source, target, symlinks=False)
+            copy_tree_verified(source, target, reserve_physical_copy=before_physical_copy)
         else:
-            shutil.copy2(source, target, follow_symlinks=True)
+            copy_file_verified(source, target, before_physical_copy=before_physical_copy)
     _freeze_ruff_executable(dependency_site, python_root)
     with zipfile.ZipFile(wheel) as archive:
         for entry in archive.infolist():
@@ -213,7 +215,9 @@ def freeze_python_install(
         raise ArtifactIntegrityError("wheel does not contain QuantOS installation")
     if client_configuration.socket_path != "/channel/quantos.sock":
         raise ArtifactIntegrityError("public hosted client configuration escaped fixed channel")
-    shutil.copy2(codex_binary, destination / "codex")
+    copy_file_verified(
+        codex_binary, destination / "codex", before_physical_copy=before_physical_copy
+    )
     atomic_write_bytes(destination / "hosted-client.json", client_configuration.canonical_bytes())
     return install_inventory(destination)
 
@@ -417,12 +421,21 @@ LEGACY_MOUNT_POLICY_BYTES = canonical_json_bytes(
         "system_ro": ("/usr", "/lib", "/lib64"),
     }
 )
-MOUNT_POLICY_BYTES = canonical_json_bytes(
+PRE_STORAGE_MOUNT_POLICY_BYTES = canonical_json_bytes(
     {
         **json.loads(LEGACY_MOUNT_POLICY_BYTES),
         "schema_version": "hosted-mount-policy/v2",
         "service_bin_alias": {"/bin": "/usr/bin"},
         "service_environment": {"MLFLOW_DISABLE_TELEMETRY": "true"},
+    }
+)
+NAMESPACE_TMPFS_BYTES = 536_870_912
+MOUNT_POLICY_BYTES = canonical_json_bytes(
+    {
+        **json.loads(PRE_STORAGE_MOUNT_POLICY_BYTES),
+        "schema_version": "hosted-mount-policy/v3",
+        "private_tmp_size_bytes": NAMESPACE_TMPFS_BYTES,
+        "private_tmp_enforcement": "BWRAP_SIZE_BEFORE_TMPFS",
     }
 )
 
@@ -554,6 +567,7 @@ def namespace_command(
         raise ValueError("namespace requires fixed command")
     if mount_policy_hash not in (
         sha256_bytes(LEGACY_MOUNT_POLICY_BYTES),
+        sha256_bytes(PRE_STORAGE_MOUNT_POLICY_BYTES),
         sha256_bytes(MOUNT_POLICY_BYTES),
     ):
         raise ValueError("unknown frozen namespace mount policy")
@@ -587,7 +601,7 @@ def namespace_command(
         (paths.projection, "/projection"),
     ):
         result += ["--ro-bind", str(source), target]
-    if role == "service" and mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES):
+    if role == "service" and mount_policy_hash != sha256_bytes(LEGACY_MOUNT_POLICY_BYTES):
         # Qlib's native recorder uses subprocess(..., shell=True), which resolves
         # /bin/sh. Both names reach the same already-read-only /usr tree.
         result += [
@@ -598,9 +612,10 @@ def namespace_command(
             "MLFLOW_DISABLE_TELEMETRY",
             "true",
         ]
+    result += ["--dev", "/dev"]
+    if mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES):
+        result += ["--size", str(NAMESPACE_TMPFS_BYTES)]
     result += [
-        "--dev",
-        "/dev",
         "--tmpfs",
         "/tmp",
         "--dir",
