@@ -142,7 +142,7 @@ def test_budget_staging_reaps_children_and_binds_original_inventory_and_declarat
 
     monkeypatch.setattr(stage, "read_managed_deployment", read)
     if damage == "timeout":
-        clock = iter((0.0, 301.0))
+        clock = iter((0.0, 901.0))
         monkeypatch.setattr(
             stage, "time", SimpleNamespace(monotonic=lambda: next(clock), sleep=time.sleep)
         )
