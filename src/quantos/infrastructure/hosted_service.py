@@ -439,6 +439,7 @@ def bootstrap_hosted_service(
         != profile.libseccomp_binary_hash
         or system_runtime_inventory().content_hash != profile.os_inventory_hash
         or sha256_bytes(MOUNT_POLICY_BYTES) != profile.mount_policy_hash
+        or profile.host_proc != "FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS"
     ):
         raise ArtifactIntegrityError("frozen runtime or provenance inventory changed")
     seccomp_fd, seccomp_bytes = source_seccomp_filter()

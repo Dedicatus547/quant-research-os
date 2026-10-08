@@ -305,9 +305,15 @@ def storage_checkpoint(
         raise StorageRejected("STORAGE_STAGE_INVALID")
     try:
         if mount_policy_hash is not None:
-            from quantos.infrastructure.hosted_deployment import MOUNT_POLICY_BYTES
+            from quantos.infrastructure.hosted_deployment import (
+                MOUNT_POLICY_BYTES,
+                STORAGE_MOUNT_POLICY_BYTES,
+            )
 
-            if mount_policy_hash != sha256_bytes(MOUNT_POLICY_BYTES):
+            if mount_policy_hash not in (
+                sha256_bytes(STORAGE_MOUNT_POLICY_BYTES),
+                sha256_bytes(MOUNT_POLICY_BYTES),
+            ):
                 raise StorageRejected("STORAGE_LEGACY_MOUNT_EXECUTION_FORBIDDEN")
         guard = configured_guard()
         guard.require_root(root)

@@ -332,6 +332,7 @@ def stage_hosted_deployment(
         bwrap_binary_hash=sha256_file(Path("/usr/bin/bwrap")),
         os_inventory_hash=system_runtime_inventory().content_hash,
         mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES),
+        host_proc="FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS",
         libseccomp_binary_hash=sha256_file(
             Path("/lib/x86_64-linux-gnu/libseccomp.so.2").resolve(strict=True)
         ),

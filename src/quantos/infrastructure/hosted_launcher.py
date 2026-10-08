@@ -29,6 +29,7 @@ from quantos.contracts.hosted import (
 )
 from quantos.contracts.hosted_deployment import (
     HostedDeploymentProfile,
+    HostedExecutableHintMountObservation,
     HostedInstallInventory,
     HostedLauncherConfiguration,
     HostedLauncherRecord,
@@ -36,6 +37,8 @@ from quantos.contracts.hosted_deployment import (
     HostedProjectionFact,
 )
 from quantos.infrastructure.hosted_deployment import (
+    HOST_PROC_EXECUTABLE_HINT_TARGET,
+    MOUNT_POLICY_BYTES,
     HostedNamespacePaths,
     KnownValueGuard,
     namespace_command,
@@ -85,6 +88,43 @@ print(json.dumps({'files':files,'projection_readonly':bool(os.statvfs('/projecti
 """.strip()
 
 
+EXECUTABLE_HINT_MOUNT_PROBE_CODE = MOUNT_PROBE_CODE.replace(
+    "print(json.dumps(",
+    """
+hint={'root_entries':sorted(os.listdir('/proc'))}
+hint['self_is_directory']=stat.S_ISDIR(os.lstat('/proc/self').st_mode)
+hint['self_entries']=sorted(os.listdir('/proc/self')) if hint['self_is_directory'] else []
+hint['exe_is_symlink']=stat.S_ISLNK(os.lstat('/proc/self/exe').st_mode)
+hint['exe_target']=os.readlink('/proc/self/exe') if hint['exe_is_symlink'] else None
+fd=os.open('/install/codex',os.O_RDONLY|os.O_NOFOLLOW)
+try:
+    meta=os.fstat(fd)
+    if not stat.S_ISREG(meta.st_mode) or meta.st_nlink!=1:
+        raise SystemExit(4)
+    digest=hashlib.sha256()
+    while True:
+        chunk=os.read(fd,65536)
+        if not chunk: break
+        digest.update(chunk)
+    hint['exe_hash']=digest.hexdigest()
+finally: os.close(fd)
+hint['proc_readonly']=bool(os.statvfs('/proc').f_flag&os.ST_RDONLY)
+print(json.dumps(
+""".strip(),
+).replace(
+    "'proc_empty':not os.listdir('/proc'),",
+    "'proc_hint':hint,'proc_empty':not os.listdir('/proc'),",
+)
+
+
+def _uses_proc_executable_hint(profile: HostedDeploymentProfile) -> bool:
+    hint = profile.mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES)
+    expected = "FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS" if hint else "EMPTY_READ_ONLY_TMPFS"
+    if profile.host_proc != expected:
+        raise ArtifactIntegrityError("host proc profile differs from frozen mount policy")
+    return hint
+
+
 def probe_projection_mount(
     paths: HostedNamespacePaths,
     *,
@@ -92,14 +132,19 @@ def probe_projection_mount(
     profile: HostedDeploymentProfile,
     projection: HostedInstallInventory,
     seccomp_fd: int,
-) -> HostedMountObservation:
+) -> HostedMountObservation | HostedExecutableHintMountObservation:
     """Observed inside the exact host mount/proc/seccomp recipe before model launch."""
     storage_checkpoint(paths.configuration.parent, "matrix", 0, profile.mount_policy_hash)
     os.lseek(seccomp_fd, 0, os.SEEK_SET)
+    hint = _uses_proc_executable_hint(profile)
     argv = namespace_command(
         "host",
         paths,
-        ("/install/python-seeded", "-c", MOUNT_PROBE_CODE),
+        (
+            "/install/python-seeded",
+            "-c",
+            EXECUTABLE_HINT_MOUNT_PROBE_CODE if hint else MOUNT_PROBE_CODE,
+        ),
         seccomp_fd=seccomp_fd,
         mount_policy_hash=profile.mount_policy_hash,
     )
@@ -122,9 +167,31 @@ def probe_projection_mount(
     ]
     if files != expected or any(
         observed.get(key) is not True
-        for key in ("projection_readonly", "install_readonly", "channel_readonly", "proc_empty")
+        for key in ("projection_readonly", "install_readonly", "channel_readonly")
     ):
         raise ArtifactIntegrityError("pre-launch mounted projection or readonly boundary changed")
+    if hint:
+        expected_hint = {
+            "root_entries": ["self"],
+            "self_is_directory": True,
+            "self_entries": ["exe"],
+            "exe_is_symlink": True,
+            "exe_target": HOST_PROC_EXECUTABLE_HINT_TARGET,
+            "exe_hash": profile.cli_binary_hash,
+            "proc_readonly": True,
+        }
+        if observed.get("proc_empty") is not False or observed.get("proc_hint") != expected_hint:
+            raise ArtifactIntegrityError("pre-launch fixed executable proc hint differs")
+        return HostedExecutableHintMountObservation(
+            request_hash=request.content_hash,
+            deployment_profile_hash=profile.content_hash,
+            projection_inventory_hash=projection.content_hash,
+            exe_hash=profile.cli_binary_hash,
+            observed_uid=cast(int, observed["uid"]),
+            observed_gid=cast(int, observed["gid"]),
+        )
+    if observed.get("proc_empty") is not True:
+        raise ArtifactIntegrityError("pre-launch empty proc boundary changed")
     return HostedMountObservation(
         request_hash=request.content_hash,
         deployment_profile_hash=profile.content_hash,
@@ -369,11 +436,18 @@ class TrustedLauncherEvidenceStore:
                 initial_inventory=initial_inventory,
                 projection_root=projection_root,
             )
-            mount = parse_hosted_contract(
-                self.read_bytes(record.isolation_observation_hash, max_bytes=65_536),
-                HostedMountObservation,
-                max_bytes=65_536,
-            )
+            mount_data = self.read_bytes(record.isolation_observation_hash, max_bytes=65_536)
+            mount: HostedMountObservation | HostedExecutableHintMountObservation
+            if _uses_proc_executable_hint(profile):
+                mount = parse_hosted_contract(
+                    mount_data, HostedExecutableHintMountObservation, max_bytes=65_536
+                )
+                if mount.exe_hash != profile.cli_binary_hash:
+                    raise ArtifactIntegrityError("launcher proc hint executable binding invalid")
+            else:
+                mount = parse_hosted_contract(
+                    mount_data, HostedMountObservation, max_bytes=65_536
+                )
             if (
                 mount.content_hash != record.isolation_observation_hash
                 or mount.request_hash != request.content_hash

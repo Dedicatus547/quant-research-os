@@ -445,12 +445,32 @@ PRE_STORAGE_MOUNT_POLICY_BYTES = canonical_json_bytes(
     }
 )
 NAMESPACE_TMPFS_BYTES = 536_870_912
-MOUNT_POLICY_BYTES = canonical_json_bytes(
+STORAGE_MOUNT_POLICY_BYTES = canonical_json_bytes(
     {
         **json.loads(PRE_STORAGE_MOUNT_POLICY_BYTES),
         "schema_version": "hosted-mount-policy/v3",
         "private_tmp_size_bytes": NAMESPACE_TMPFS_BYTES,
         "private_tmp_enforcement": "BWRAP_SIZE_BEFORE_TMPFS",
+    }
+)
+HOST_PROC_EXECUTABLE_HINT_TARGET = "/install/codex"
+MOUNT_POLICY_BYTES = canonical_json_bytes(
+    {
+        **json.loads(STORAGE_MOUNT_POLICY_BYTES),
+        "schema_version": "hosted-mount-policy/v4",
+        "host": tuple(
+            "fixed-executable-hint-ro-proc" if item == "empty-ro-proc" else item
+            for item in json.loads(STORAGE_MOUNT_POLICY_BYTES)["host"]
+        ),
+        "host_proc": {
+            "filesystem": "PRIVATE_TMPFS",
+            "root_entries": ("self",),
+            "self_type": "DIRECTORY",
+            "self_entries": ("exe",),
+            "exe_symlink_target": HOST_PROC_EXECUTABLE_HINT_TARGET,
+            "read_only": True,
+            "kernel_proc_mounted": False,
+        },
     }
 )
 
@@ -583,6 +603,7 @@ def namespace_command(
     if mount_policy_hash not in (
         sha256_bytes(LEGACY_MOUNT_POLICY_BYTES),
         sha256_bytes(PRE_STORAGE_MOUNT_POLICY_BYTES),
+        sha256_bytes(STORAGE_MOUNT_POLICY_BYTES),
         sha256_bytes(MOUNT_POLICY_BYTES),
     ):
         raise ValueError("unknown frozen namespace mount policy")
@@ -602,7 +623,18 @@ def namespace_command(
     if role == "host":
         if seccomp_fd is None:
             raise ValueError("research host requires source seccomp")
-        result += ["--share-net", "--tmpfs", "/proc", "--remount-ro", "/proc"]
+        result += ["--share-net", "--tmpfs", "/proc"]
+        if mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES):
+            # A fixed installation hint for Codex's current_exe() lookup. This is
+            # an ordinary tmpfs directory, never a kernel proc/process view.
+            result += [
+                "--dir",
+                "/proc/self",
+                "--symlink",
+                HOST_PROC_EXECUTABLE_HINT_TARGET,
+                "/proc/self/exe",
+            ]
+        result += ["--remount-ro", "/proc"]
     else:
         result += ["--proc", "/proc"]
     for logical in SYSTEM_RUNTIME_PATHS:
@@ -628,7 +660,10 @@ def namespace_command(
             "true",
         ]
     result += ["--dev", "/dev"]
-    if mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES):
+    if mount_policy_hash in (
+        sha256_bytes(STORAGE_MOUNT_POLICY_BYTES),
+        sha256_bytes(MOUNT_POLICY_BYTES),
+    ):
         result += ["--size", str(NAMESPACE_TMPFS_BYTES)]
     result += [
         "--tmpfs",

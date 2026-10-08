@@ -6,13 +6,14 @@ import ctypes
 import importlib.util
 import os
 import socket
+import stat
 import struct
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-from quantos.artifacts.store import opened_directory, read_regular_bytes_at
+from quantos.artifacts.store import opened_directory, read_regular_bytes_at, sha256_file
 from quantos.contracts.base import canonical_json_bytes
 from quantos.contracts.hosted import strict_json_object
 from quantos.contracts.hosted_deployment import HostedClientConfiguration
@@ -238,6 +239,17 @@ def main() -> None:
         }
     )
     results.append({"name": "PROC_CONTENT", "entries": sorted(os.listdir("/proc"))})
+    if os.path.lexists("/proc/self"):
+        results.append(
+            {
+                "name": "PROC_EXECUTABLE_HINT",
+                "self_is_directory": stat.S_ISDIR(os.lstat("/proc/self").st_mode),
+                "self_entries": sorted(os.listdir("/proc/self")),
+                "exe_is_symlink": stat.S_ISLNK(os.lstat("/proc/self/exe").st_mode),
+                "exe_target": os.readlink("/proc/self/exe"),
+                "exe_bytes_hash": sha256_file(Path("/proc/self/exe").resolve(strict=True)),
+            }
+        )
     results.append({"name": "SECCOMP_MODE", "mode": library.prctl(21, 0, 0, 0, 0)})
     for name in ("/install", "/projection", "/channel", "/proc"):
         results.append(
