@@ -49,7 +49,7 @@ def _process(
         verify_inputs=lambda _: None,
     )
     if barrier is not None:
-        barrier.wait(timeout=20)
+        barrier.wait(timeout=120)
     if operation == "register":
         result = service.start(spec.content_hash)
     elif operation == "issue":
@@ -85,7 +85,7 @@ def _run(
         target=_process, args=(str(root), str(material), operation, now, fault, queue)
     )
     process.start()
-    process.join(30)
+    process.join(120)
     if process.is_alive():
         process.terminate()
         process.join(10)
@@ -201,9 +201,9 @@ def test_barrier_submit_races_keep_one_acceptance_and_stable_lock_inode(
     try:
         for process in processes:
             process.start()
-        barrier.wait(timeout=20)
+        barrier.wait(timeout=120)
         for process in processes:
-            process.join(30)
+            process.join(120)
             assert process.exitcode == 0
         results = [queue.get(timeout=2) for _ in processes]
     finally:

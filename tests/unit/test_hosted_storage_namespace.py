@@ -8,9 +8,9 @@ import pytest
 from quantos.contracts.base import sha256_bytes
 from quantos.infrastructure.hosted_deployment import (
     LEGACY_MOUNT_POLICY_BYTES,
-    MOUNT_POLICY_BYTES,
     NAMESPACE_TMPFS_BYTES,
     PRE_STORAGE_MOUNT_POLICY_BYTES,
+    STORAGE_MOUNT_POLICY_BYTES,
     HostedNamespacePaths,
     namespace_command,
 )
@@ -38,12 +38,16 @@ def paths() -> HostedNamespacePaths:
 @pytest.mark.parametrize("role", ["service", "host"])
 def test_v3_namespace_places_fixed_hard_cap_immediately_before_private_tmp(paths, role):
     argv = namespace_command(
-        role, paths, ("/install/fixed-worker",), seccomp_fd=7 if role == "host" else None
+        role,
+        paths,
+        ("/install/fixed-worker",),
+        seccomp_fd=7 if role == "host" else None,
+        mount_policy_hash=sha256_bytes(STORAGE_MOUNT_POLICY_BYTES),
     )
     index = argv.index("--size")
     assert argv[index : index + 4] == ("--size", "536870912", "--tmpfs", "/tmp")
     assert argv.count("--size") == 1 and argv[-1] == "/install/fixed-worker"
-    policy = json.loads(MOUNT_POLICY_BYTES)
+    policy = json.loads(STORAGE_MOUNT_POLICY_BYTES)
     assert policy["schema_version"] == "hosted-mount-policy/v3"
     assert policy["private_tmp_size_bytes"] == NAMESPACE_TMPFS_BYTES == 512 << 20
     assert policy["private_tmp_enforcement"] == "BWRAP_SIZE_BEFORE_TMPFS"

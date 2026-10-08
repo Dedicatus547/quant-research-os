@@ -95,6 +95,7 @@ def test_bootstrap_refuses_changed_frozen_bindings_before_channel_readiness(
         libseccomp_binary_hash=sha256_file(Path("/lib/x86_64-linux-gnu/libseccomp.so.2").resolve()),
         os_inventory_hash=initial.content_hash,
         mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES),
+        host_proc="FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS",
         seccomp_bpf_hash="pending",
         operating_system=platform.system(),
         kernel_release=platform.release(),
