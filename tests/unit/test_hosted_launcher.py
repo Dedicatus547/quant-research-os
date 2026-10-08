@@ -22,7 +22,7 @@ from quantos.contracts.hosted_deployment import (
     HostedProjectionFact,
 )
 from quantos.infrastructure.hosted_deployment import (
-    MOUNT_POLICY_BYTES,
+    STORAGE_MOUNT_POLICY_BYTES,
     KnownValueGuard,
     export_projection,
     install_inventory,
@@ -82,7 +82,7 @@ def _profile(
         projection_inventory_hash=initial_inventory_hash,
         bwrap_binary_hash="a" * 64,
         os_inventory_hash="a" * 64,
-        mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES),
+        mount_policy_hash=sha256_bytes(STORAGE_MOUNT_POLICY_BYTES),
         libseccomp_binary_hash="a" * 64,
         bwrap_version="0.6.1",
         seccomp_bpf_hash="a" * 64,
