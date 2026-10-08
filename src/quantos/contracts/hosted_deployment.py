@@ -139,9 +139,9 @@ class HostedDeploymentProfile(HostedContract):
     extraction_rule_hash: Hash
     service_network: Literal["UNSHARED_OFFLINE"] = "UNSHARED_OFFLINE"
     host_network: Literal["PROPOSAL_ONLY_SHARED"] = "PROPOSAL_ONLY_SHARED"
-    host_proc: Literal[
-        "EMPTY_READ_ONLY_TMPFS", "FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS"
-    ] = "EMPTY_READ_ONLY_TMPFS"
+    host_proc: Literal["EMPTY_READ_ONLY_TMPFS", "FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS"] = (
+        "EMPTY_READ_ONLY_TMPFS"
+    )
     service_import: Literal["ISOLATED_FROZEN_PYTHON"] = "ISOLATED_FROZEN_PYTHON"
     channel_authentication: Literal["PEERCRED_AND_MEMORY_CAPABILITY"] = (
         "PEERCRED_AND_MEMORY_CAPABILITY"

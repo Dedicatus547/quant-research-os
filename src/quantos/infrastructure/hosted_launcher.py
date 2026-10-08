@@ -445,9 +445,7 @@ class TrustedLauncherEvidenceStore:
                 if mount.exe_hash != profile.cli_binary_hash:
                     raise ArtifactIntegrityError("launcher proc hint executable binding invalid")
             else:
-                mount = parse_hosted_contract(
-                    mount_data, HostedMountObservation, max_bytes=65_536
-                )
+                mount = parse_hosted_contract(mount_data, HostedMountObservation, max_bytes=65_536)
             if (
                 mount.content_hash != record.isolation_observation_hash
                 or mount.request_hash != request.content_hash
@@ -676,7 +674,7 @@ class TrustedCodexLauncher:
         if model_auth_memory_fd is not None:
             # bwrap copies the caller's private memory fd into tmpfs; no disk auth copy.
             # The outer controller must include auth's known values in its guard.
-            index = argv.index("/install/codex")
+            index = len(argv) - len(command)
             argv = (
                 *argv[:index],
                 "--ro-bind-data",
