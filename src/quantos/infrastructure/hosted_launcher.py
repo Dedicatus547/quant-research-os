@@ -352,10 +352,20 @@ def extract_proposal(
 
 
 def hosted_prompt(request: HostedAgentRequest) -> bytes:
+    candidate_identities = tuple(
+        {"candidate_id": option.candidate_id, "candidate_hash": option.content_hash}
+        for option in request.business_request.candidate_options
+    )
     return (
         b"Produce exactly one final JSON proposal using this frozen request. "
         b"Use only the listed candidate options and supplied context. "
-        b"Do not invoke tools. Output only the proposal JSON, with no commentary.\n"
+        b"Copy candidate_hash from candidate_identity_map for the selected candidate_id; "
+        b"it is the whole option's content hash, not the candidate_id suffix. "
+        b"Copy expression, parameters and expression hashes from that same option. "
+        b"Do not recompute hashes or invoke tools. "
+        b"Output only the proposal JSON, with no commentary.\ncandidate_identity_map:\n"
+        + canonical_json_bytes(candidate_identities)
+        + b"\nfrozen_request:\n"
         + request.canonical_bytes()
     )
 
