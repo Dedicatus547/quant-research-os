@@ -74,6 +74,7 @@ venv = ".venv"
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers --disable-socket"
 testpaths = ["tests"]
+tmp_path_retention_policy = "failed"
 markers = [
   "fresh_offline_process: start offline management probes in an independent interpreter",
   "live: requires an explicit Tushare token and network access",

@@ -28,6 +28,15 @@ ROLES = (
 )
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from quantos.infrastructure import hosted_budget_deployment, hosted_manager
+
+    # These fixtures verify pinned inode writes, never production storage quota.
+    for module in (hosted_budget_deployment, hosted_manager):
+        monkeypatch.setattr(module, "storage_checkpoint", lambda *_: None)
+
+
 @pytest.mark.parametrize("mode", ("named-root", "different-cwd", "nonempty", "regular-fd"))
 def test_prepared_stage_root_requires_empty_matching_directory_before_publication(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str

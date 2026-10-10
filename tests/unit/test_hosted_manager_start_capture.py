@@ -20,6 +20,12 @@ from quantos.infrastructure import hosted_manager as manager
 from quantos.security import SecretArtifactRejected
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Socket/process doubles establish cleanup behavior, never a production storage quota.
+    monkeypatch.setattr(manager, "storage_checkpoint", lambda *_: None)
+
+
 @pytest.mark.parametrize(
     "damage",
     (

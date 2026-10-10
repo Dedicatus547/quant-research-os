@@ -134,12 +134,14 @@ class HostedDeploymentProfile(HostedContract):
     bwrap_version: str = Field(min_length=1, max_length=100)
     seccomp_bpf_hash: Hash
     cli_binary_hash: Hash
-    cli_version: Literal["0.158.0"] = "0.158.0"
+    cli_version: Literal["0.158.0", "0.162.1"] = "0.162.1"
     model_configuration_hash: Hash
     extraction_rule_hash: Hash
     service_network: Literal["UNSHARED_OFFLINE"] = "UNSHARED_OFFLINE"
     host_network: Literal["PROPOSAL_ONLY_SHARED"] = "PROPOSAL_ONLY_SHARED"
-    host_proc: Literal["EMPTY_READ_ONLY_TMPFS"] = "EMPTY_READ_ONLY_TMPFS"
+    host_proc: Literal["EMPTY_READ_ONLY_TMPFS", "FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS"] = (
+        "EMPTY_READ_ONLY_TMPFS"
+    )
     service_import: Literal["ISOLATED_FROZEN_PYTHON"] = "ISOLATED_FROZEN_PYTHON"
     channel_authentication: Literal["PEERCRED_AND_MEMORY_CAPABILITY"] = (
         "PEERCRED_AND_MEMORY_CAPABILITY"
@@ -155,12 +157,14 @@ class HostedDeploymentProfile(HostedContract):
 
 class HostedLauncherConfiguration(HostedContract):
     schema_version: Literal["hosted-launcher-configuration/v1"] = "hosted-launcher-configuration/v1"
-    model: Literal["gpt-6-sol"] = "gpt-6-sol"
+    model: Literal["gpt-6-sol", "gpt-6.1-sol"] = "gpt-6-sol"
     reasoning_effort: Literal["high"] = "high"
     output_byte_cap: int = Field(gt=0, le=4_194_304)
     proposal_byte_cap: int = Field(gt=0, le=262144)
     runtime_timeout_seconds: int = Field(gt=0, le=3600)
-    extraction_rule: Literal["codex-jsonl-single-final/v1"] = "codex-jsonl-single-final/v1"
+    extraction_rule: Literal["codex-jsonl-single-final/v1", "codex-jsonl-single-final/v2"] = (
+        "codex-jsonl-single-final/v2"
+    )
     permission_observation: Literal["REQUESTED_ONLY_NOT_EFFECTIVE_ATTESTATION"] = (
         "REQUESTED_ONLY_NOT_EFFECTIVE_ATTESTATION"
     )
@@ -189,6 +193,27 @@ class HostedMountObservation(HostedContract):
     install_readonly: Literal[True] = True
     channel_readonly: Literal[True] = True
     proc_empty: Literal[True] = True
+    observed_uid: int = Field(ge=0)
+    observed_gid: int = Field(ge=0)
+
+
+class HostedExecutableHintMountObservation(HostedContract):
+    schema_version: Literal["hosted-mount-observation/v2"] = "hosted-mount-observation/v2"
+    source: Literal["TRUSTED_PRE_LAUNCH_BWRAP_PROBE"] = "TRUSTED_PRE_LAUNCH_BWRAP_PROBE"
+    request_hash: Hash
+    deployment_profile_hash: Hash
+    projection_inventory_hash: Hash
+    projection_readonly: Literal[True] = True
+    install_readonly: Literal[True] = True
+    channel_readonly: Literal[True] = True
+    proc_empty: Literal[False] = False
+    proc_readonly: Literal[True] = True
+    root_entries: tuple[Literal["self"]] = ("self",)
+    self_is_directory: Literal[True] = True
+    self_entries: tuple[Literal["exe"]] = ("exe",)
+    exe_is_symlink: Literal[True] = True
+    exe_target: Literal["/install/codex"] = "/install/codex"
+    exe_hash: Hash
     observed_uid: int = Field(ge=0)
     observed_gid: int = Field(ge=0)
 

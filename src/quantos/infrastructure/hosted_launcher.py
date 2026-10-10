@@ -29,6 +29,7 @@ from quantos.contracts.hosted import (
 )
 from quantos.contracts.hosted_deployment import (
     HostedDeploymentProfile,
+    HostedExecutableHintMountObservation,
     HostedInstallInventory,
     HostedLauncherConfiguration,
     HostedLauncherRecord,
@@ -36,6 +37,8 @@ from quantos.contracts.hosted_deployment import (
     HostedProjectionFact,
 )
 from quantos.infrastructure.hosted_deployment import (
+    HOST_PROC_EXECUTABLE_HINT_TARGET,
+    MOUNT_POLICY_BYTES,
     HostedNamespacePaths,
     KnownValueGuard,
     namespace_command,
@@ -43,17 +46,19 @@ from quantos.infrastructure.hosted_deployment import (
     verify_install,
     verify_projection_fact,
 )
+from quantos.infrastructure.hosted_storage import storage_checkpoint
 from quantos.security import SecretArtifactRejected, validate_secret_free
 
 EXTRACTION_RULE_BYTES = canonical_json_bytes(
     {
         "schema_version": "hosted-extraction-rule/v1",
-        "rule": "codex-jsonl-single-final/v1",
+        "rule": "codex-jsonl-single-final/v2",
         "success_exit": 0,
         "completed_turns": 1,
         "completed_agent_messages": 1,
         "proposal_encoding": "UNMODIFIED_AGENT_MESSAGE_TEXT_UTF8",
         "tool_events": "REJECTED",
+        "nonfatal_startup_error_items": "TYPED_ITEM_COMPLETED_AFTER_THREAD_BEFORE_TURN",
         "malformed_or_duplicate_json_keys": "REJECTED",
     }
 )
@@ -84,6 +89,43 @@ print(json.dumps({'files':files,'projection_readonly':bool(os.statvfs('/projecti
 """.strip()
 
 
+EXECUTABLE_HINT_MOUNT_PROBE_CODE = MOUNT_PROBE_CODE.replace(
+    "print(json.dumps(",
+    """
+hint={'root_entries':sorted(os.listdir('/proc'))}
+hint['self_is_directory']=stat.S_ISDIR(os.lstat('/proc/self').st_mode)
+hint['self_entries']=sorted(os.listdir('/proc/self')) if hint['self_is_directory'] else []
+hint['exe_is_symlink']=stat.S_ISLNK(os.lstat('/proc/self/exe').st_mode)
+hint['exe_target']=os.readlink('/proc/self/exe') if hint['exe_is_symlink'] else None
+fd=os.open('/install/codex',os.O_RDONLY|os.O_NOFOLLOW)
+try:
+    meta=os.fstat(fd)
+    if not stat.S_ISREG(meta.st_mode) or meta.st_nlink!=1:
+        raise SystemExit(4)
+    digest=hashlib.sha256()
+    while True:
+        chunk=os.read(fd,65536)
+        if not chunk: break
+        digest.update(chunk)
+    hint['exe_hash']=digest.hexdigest()
+finally: os.close(fd)
+hint['proc_readonly']=bool(os.statvfs('/proc').f_flag&os.ST_RDONLY)
+print(json.dumps(
+""".strip(),
+).replace(
+    "'proc_empty':not os.listdir('/proc'),",
+    "'proc_hint':hint,'proc_empty':not os.listdir('/proc'),",
+)
+
+
+def _uses_proc_executable_hint(profile: HostedDeploymentProfile) -> bool:
+    hint = profile.mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES)
+    expected = "FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS" if hint else "EMPTY_READ_ONLY_TMPFS"
+    if profile.host_proc != expected:
+        raise ArtifactIntegrityError("host proc profile differs from frozen mount policy")
+    return hint
+
+
 def probe_projection_mount(
     paths: HostedNamespacePaths,
     *,
@@ -91,13 +133,19 @@ def probe_projection_mount(
     profile: HostedDeploymentProfile,
     projection: HostedInstallInventory,
     seccomp_fd: int,
-) -> HostedMountObservation:
+) -> HostedMountObservation | HostedExecutableHintMountObservation:
     """Observed inside the exact host mount/proc/seccomp recipe before model launch."""
+    storage_checkpoint(paths.configuration.parent, "matrix", 0, profile.mount_policy_hash)
     os.lseek(seccomp_fd, 0, os.SEEK_SET)
+    hint = _uses_proc_executable_hint(profile)
     argv = namespace_command(
         "host",
         paths,
-        ("/install/python-seeded", "-c", MOUNT_PROBE_CODE),
+        (
+            "/install/python-seeded",
+            "-c",
+            EXECUTABLE_HINT_MOUNT_PROBE_CODE if hint else MOUNT_PROBE_CODE,
+        ),
         seccomp_fd=seccomp_fd,
         mount_policy_hash=profile.mount_policy_hash,
     )
@@ -120,9 +168,31 @@ def probe_projection_mount(
     ]
     if files != expected or any(
         observed.get(key) is not True
-        for key in ("projection_readonly", "install_readonly", "channel_readonly", "proc_empty")
+        for key in ("projection_readonly", "install_readonly", "channel_readonly")
     ):
         raise ArtifactIntegrityError("pre-launch mounted projection or readonly boundary changed")
+    if hint:
+        expected_hint = {
+            "root_entries": ["self"],
+            "self_is_directory": True,
+            "self_entries": ["exe"],
+            "exe_is_symlink": True,
+            "exe_target": HOST_PROC_EXECUTABLE_HINT_TARGET,
+            "exe_hash": profile.cli_binary_hash,
+            "proc_readonly": True,
+        }
+        if observed.get("proc_empty") is not False or observed.get("proc_hint") != expected_hint:
+            raise ArtifactIntegrityError("pre-launch fixed executable proc hint differs")
+        return HostedExecutableHintMountObservation(
+            request_hash=request.content_hash,
+            deployment_profile_hash=profile.content_hash,
+            projection_inventory_hash=projection.content_hash,
+            exe_hash=profile.cli_binary_hash,
+            observed_uid=cast(int, observed["uid"]),
+            observed_gid=cast(int, observed["gid"]),
+        )
+    if observed.get("proc_empty") is not True:
+        raise ArtifactIntegrityError("pre-launch empty proc boundary changed")
     return HostedMountObservation(
         request_hash=request.content_hash,
         deployment_profile_hash=profile.content_hash,
@@ -176,7 +246,13 @@ def _safe_event(event: dict[str, object]) -> None:
             raise ValueError("CLI usage schema invalid")
         counts = cast(dict[str, object], usage)
         if not set(counts).issubset(
-            {"input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"}
+            {
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_input_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+            }
         ):
             raise ValueError("CLI usage contains unknown fields")
         if any(type(x) is not int or x < 0 for x in counts.values()):
@@ -221,6 +297,25 @@ def extract_proposal(
             if started != 1 or completed:
                 raise ValueError("CLI completion order invalid")
             completed += 1
+        elif (
+            configuration.extraction_rule == "codex-jsonl-single-final/v2"
+            and kind == "item.completed"
+            and thread_started == 1
+            and started == completed == 0
+            and isinstance(event.get("item"), dict)
+            and cast(dict[str, object], event["item"]).get("type") == "error"
+        ):
+            # Official exec ErrorItem is a nonfatal notification. Keep the full
+            # scanned event in the capture; it cannot supply proposal text.
+            notification = cast(dict[str, object], event["item"])
+            if (
+                set(event) != {"type", "item"}
+                or set(notification) != {"id", "type", "message"}
+                or not isinstance(notification["id"], str)
+                or not 0 < len(notification["id"]) <= 200
+                or not isinstance(notification["message"], str)
+            ):
+                raise ValueError("CLI nonfatal startup notification invalid")
         elif kind in ("item.started", "item.updated", "item.completed"):
             if started != 1 or completed:
                 raise ValueError("CLI item order invalid")
@@ -257,10 +352,28 @@ def extract_proposal(
 
 
 def hosted_prompt(request: HostedAgentRequest) -> bytes:
+    candidate_identities = tuple(
+        {"candidate_id": option.candidate_id, "candidate_hash": option.content_hash}
+        for option in request.business_request.candidate_options
+    )
     return (
         b"Produce exactly one final JSON proposal using this frozen request. "
         b"Use only the listed candidate options and supplied context. "
-        b"Do not invoke tools. Output only the proposal JSON, with no commentary.\n"
+        b"Copy candidate_hash from candidate_identity_map for the selected candidate_id; "
+        b"it is the whole option's content hash, not the candidate_id suffix. "
+        b"Copy expression, parameters and expression hashes from that same option. "
+        b"Do not recompute hashes or invoke tools. "
+        b"Serialize canonical JSON: recursively sort object keys, use compact separators "
+        b"(',' and ':') with no whitespace outside strings, and emit Unicode directly. "
+        b"Escape only quotation marks, backslashes and JSON control characters in strings. "
+        b"Use \\b, \\f, \\n, \\r and \\t for those controls; use lowercase four-digit "
+        b"\\u00xx for other U+0000-U+001F controls. Do not escape '/'. "
+        b"Preserve copied JSON value types and numeric spelling. "
+        b"Do not add leading or trailing whitespace to string values. "
+        b"Include every schema-required field and do not add a trailing newline. "
+        b"Output only the proposal JSON, with no commentary.\ncandidate_identity_map:\n"
+        + canonical_json_bytes(candidate_identities)
+        + b"\nfrozen_request:\n"
         + request.canonical_bytes()
     )
 
@@ -367,11 +480,16 @@ class TrustedLauncherEvidenceStore:
                 initial_inventory=initial_inventory,
                 projection_root=projection_root,
             )
-            mount = parse_hosted_contract(
-                self.read_bytes(record.isolation_observation_hash, max_bytes=65_536),
-                HostedMountObservation,
-                max_bytes=65_536,
-            )
+            mount_data = self.read_bytes(record.isolation_observation_hash, max_bytes=65_536)
+            mount: HostedMountObservation | HostedExecutableHintMountObservation
+            if _uses_proc_executable_hint(profile):
+                mount = parse_hosted_contract(
+                    mount_data, HostedExecutableHintMountObservation, max_bytes=65_536
+                )
+                if mount.exe_hash != profile.cli_binary_hash:
+                    raise ArtifactIntegrityError("launcher proc hint executable binding invalid")
+            else:
+                mount = parse_hosted_contract(mount_data, HostedMountObservation, max_bytes=65_536)
             if (
                 mount.content_hash != record.isolation_observation_hash
                 or mount.request_hash != request.content_hash
@@ -500,6 +618,7 @@ class TrustedCodexLauncher:
             profile.install_inventory_hash != install.content_hash
             or profile.model_configuration_hash != configuration.content_hash
             or profile.extraction_rule_hash != sha256_bytes(EXTRACTION_RULE_BYTES)
+            or configuration.extraction_rule != "codex-jsonl-single-final/v2"
         ):
             raise ArtifactIntegrityError("launcher frozen configuration binding invalid")
         executable = next((x for x in install.files if x.relative_path == "codex"), None)
@@ -518,6 +637,10 @@ class TrustedCodexLauncher:
         model_auth_memory_fd: int | None = None,
     ) -> tuple[HostedLauncherRecord, bytes | None]:
         """Manager owns capture; CLI receives no channel capability or authority descriptor."""
+        storage_checkpoint(self.evidence.root, "matrix", 0, self.profile.mount_policy_hash)
+        storage_checkpoint(
+            self.paths.configuration.parent, "matrix", 0, self.profile.mount_policy_hash
+        )
         if model_auth_memory_fd is not None:
             register_model_auth_memory(model_auth_memory_fd, self.evidence.guard)
         verify_install(self.paths.install, self.install)
@@ -596,7 +719,7 @@ class TrustedCodexLauncher:
         if model_auth_memory_fd is not None:
             # bwrap copies the caller's private memory fd into tmpfs; no disk auth copy.
             # The outer controller must include auth's known values in its guard.
-            index = argv.index("/install/codex")
+            index = len(argv) - len(command)
             argv = (
                 *argv[:index],
                 "--ro-bind-data",

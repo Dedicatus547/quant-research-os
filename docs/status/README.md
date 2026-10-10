@@ -1,6 +1,6 @@
 # 当前状态
 
-状态基准：2026-09-29。生产资格仍绑定既有实现提交；本次文档修订未发布新的资格。
+状态基准：2026-10-10。各轨道状态按其独立记录和精确适用范围读取。
 
 ## 工程与研究结果
 
@@ -12,6 +12,7 @@
 | P14d-B | `QUALIFIED`，基线 `e318dc4` | 有界 synthetic 离线自主工程 |
 | P14-DQ | `SUCCEEDED / PASS`，基线 `e318dc4` | 精确冻结输入和运行环境内的自主工程；研究 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE` |
 | P14 RC v1 | `FROZEN`，tag `p14-rc-v1` → `3a4a898` | 精确文档审阅及继承资格见 [freeze marker](../releases/p14-rc-v1-freeze-marker.md) |
+| HM-MVP hosted component-v2 | MVP 已完成；`ACCEPT_COMPONENT_V2 / LOCAL_RELEASE_REGISTERED` | 两项科学执行均 `SOFT_REJECT`；组件采用范围见 [发布记录](../releases/hm-mvp-component-v2-freeze-marker.md)及 [hosted 状态](hosted.md) |
 
 完整 P14 哈希与权威矩阵见 [P14 状态](p14.md)及[RC 修正记录](../releases/p14-rc-v1-equality-correction.md)。
 独立复审结论与实际核验范围见[复审报告](../reviews/p14-rc-3a4a898-independent-review.md)。
@@ -35,14 +36,15 @@
 | P14d-A / P14d-B | Scripted/Replay 编排、预算、失败分类、restart/replay 与双根工程资格 | 无 live Agent runtime |
 | P14-DQ | 既有合格数据上的完整自主工程核验 | 零个合格候选；未执行选择 |
 | FR-03 / P14d-C | FR-03 离线实现完成；live SDK `NO_GO` | `THIN_MAINTENANCE` / `BLOCKED_UNIMPLEMENTED` |
+| HM-MVP component-v2 | 真实模型交接、campaign 终态、离线回放、独立接受及 HM10/HM11 交付 | 有限候选家族；旧证明按原 tuple 采用，当前服务已清理，业务调用额度已耗尽 |
 
 ## 未获得的权威
 
-Live Agent、sealed confirmation、alpha/盈利、投资适用性、历史 vendor-vintage PIT
-和无限制自主研究均未取得当前资格。P14d-B 的 synthetic `SELECTED` 与
+无限制 Live Agent、sealed confirmation、alpha/盈利、投资适用性、历史 vendor-vintage PIT
+和无限制自主研究均未取得当前资格。HM-MVP component-v2 的有限工程接受见[独立状态页](hosted.md)。P14d-B 的 synthetic `SELECTED` 与
 `READY_FOR_SEALED_CONFIRMATION` 仅是工程用例。
 
-FR-03 的候选 runtime 与重新进入条件见 [FR-03 状态](fr03.md)。
+FR-03 的候选 runtime 与重新进入条件见 [FR-03 状态](fr03.md)。hosted component-v2 是独立轨道，不更改 FR-03 SDK `NO_GO / THIN_MAINTENANCE` 或 P14d-C `BLOCKED_UNIMPLEMENTED`。
 
 ## 证据入口
 
@@ -50,6 +52,8 @@ FR-03 的候选 runtime 与重新进入条件见 [FR-03 状态](fr03.md)。
 - [P13 v2 冻结](../p13-v2-freeze.md)
 - [P14c 契约](../p14c-selection-contract.md)
 - [当前 P14 RC 修正与精确绑定](../releases/p14-rc-v1-equality-correction.md)
+- [HM-MVP hosted component-v2 状态](hosted.md)
+- [HM-MVP 本地发布登记](../releases/hm-mvp-component-v2-freeze-marker.md)
 - [旧状态页与组件哈希](../history/2026-09-29/docs/implementation-status.md)
 - [旧 P14 实施与资格历程](../history/2026-09-29/docs/p14-progress.md)
 

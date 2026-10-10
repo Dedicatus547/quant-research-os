@@ -72,12 +72,22 @@ def test_stop_preserves_bootstrap_and_rejects_unexpected_channel_entry(tmp_path:
 
 
 @pytest.mark.parametrize("entry", ["quantos.sock", "bootstrap-observation.json", "unknown"])
-def test_start_cannot_reuse_stale_channel_attestation(tmp_path: Path, entry: str) -> None:
+def test_start_cannot_reuse_stale_channel_attestation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+) -> None:
+    from quantos.infrastructure import hosted_manager
+
+    # This isolates stale-channel rejection from the independently tested storage guard.
+    monkeypatch.setattr(hosted_manager, "storage_checkpoint", lambda *_: None)
     channel = tmp_path / "channel"
     channel.mkdir()
     saved = channel / entry
     saved.write_bytes(b"old service evidence")
-    deployment = SimpleNamespace(paths=SimpleNamespace(channel=channel))
+    deployment = SimpleNamespace(
+        root=tmp_path,
+        paths=SimpleNamespace(channel=channel),
+        profile=SimpleNamespace(mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES)),
+    )
     with pytest.raises(ArtifactIntegrityError, match="empty stopped channel"):
         start_managed_service(deployment)
     assert saved.read_bytes() == b"old service evidence"
@@ -91,7 +101,11 @@ def test_negative_worker_retains_prelaunch_and_failed_completion(
 ) -> None:
     from quantos.contracts.hosted import strict_json_object
     from quantos.contracts.hosted_qualification import HostedRawInventory
+    from quantos.infrastructure import hosted_manager
     from quantos.infrastructure.hosted_verification import raw_inventory
+
+    # Synthetic workers exercise completion retention, never a real storage quota.
+    monkeypatch.setattr(hosted_manager, "storage_checkpoint", lambda *_: None)
 
     channel, evidence = tmp_path / "channel", tmp_path / "evidence"
     channel.mkdir()

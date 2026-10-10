@@ -1,5 +1,13 @@
 # 发布与冻结记录
 
+## 当前 HM-MVP component-v2 本地登记
+
+HM09 已 `ACCEPT_COMPONENT_V2`；HM10 操作文档及 HM11 本地发布身份登记已完成。
+[发布标记](hm-mvp-component-v2-freeze-marker.md)绑定既有 C15 冻结、版本化工程接受及文档哈希。
+操作入口见 [Hosted 状态](../status/hosted.md)、[快速上手](../hosted/hm-mvp-quickstart.md)
+及[故障恢复](../hosted/hm-mvp-recovery.md)。旧 C11 重流程证明按限定范围复用；
+两项科学 execution 的 `SOFT_REJECT` 保持原样。
+
 ## 当前 P14 RC 文档入口
 
 [独立 RC 复审](../reviews/p14-rc-3a4a898-independent-review.md)已对

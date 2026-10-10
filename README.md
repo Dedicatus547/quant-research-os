@@ -18,6 +18,7 @@ UV_CACHE_DIR=/tmp/quantos-uv-cache uv run --frozen quantos doctor
 |---|---|
 | 安装并跑通离线示例 | [快速上手](docs/guides/quickstart.md) |
 | 执行研究、验证与 Registry 流程 | [离线工作流](docs/guides/offline-workflows.md) |
+| 使用有界 Codex-hosted 工作流 | [HM-MVP 快速上手](docs/hosted/hm-mvp-quickstart.md) |
 | 采集市场数据或公告 | [数据与 Evidence 采集](docs/guides/acquisition.md) |
 | 核对资格报告、实现和运行环境 | [资格证据核验](docs/guides/qualification.md) |
 | 理解系统设计和权威边界 | [架构总览](docs/architecture/overview.md) |
@@ -33,6 +34,13 @@ P14d-B 和 P14-DQ 的当前资格报告均绑定生产提交
 P14-DQ 工程结果为 `SUCCEEDED / PASS`；自然研究结果为
 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`，零个合格候选，未执行选择。
 FR-03 为 `NO_GO / THIN_MAINTENANCE`，P14d-C 为 `BLOCKED_UNIMPLEMENTED`。
+
+有界 Codex-hosted MVP（component-v2）已完成工程实施、真实交接与离线回放、
+独立接受、操作文档及本地发布登记。精确 C15 源码和组件采用范围见
+[HM-MVP 发布记录](docs/releases/hm-mvp-component-v2-freeze-marker.md)。
+两项科学执行均为 `SOFT_REJECT`，原 ValidationReport 均为 `SUCCEEDED / REJECT`。
+已完成 campaign 的额度已用完、服务已清理；后续新运行按
+[快速上手](docs/hosted/hm-mvp-quickstart.md)和[恢复手册](docs/hosted/hm-mvp-recovery.md)办理。
 
 RC 的逐字节一致性表述已在[修正记录](docs/releases/p14-rc-v1-equality-correction.md)中澄清。
 P14 v1 已冻结；本地 annotated tag `p14-rc-v1` 指向独立复审批准的提交 `3a4a898`。

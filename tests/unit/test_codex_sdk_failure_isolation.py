@@ -763,7 +763,17 @@ def test_candidate_matrix_verification_does_not_change_frozen_pin(
 def test_d05_calls_app_server_command_exec_directly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from types import SimpleNamespace
+
     observed: dict[str, object] = {}
+    actual_temporary_directory = MODULE.tempfile.TemporaryDirectory
+
+    def temporary_directory(**kwargs: Any) -> Any:
+        if kwargs.get("dir") == "/tmp":
+            kwargs["dir"] = tmp_path
+        return actual_temporary_directory(**kwargs)
+
+    monkeypatch.setattr(MODULE, "tempfile", SimpleNamespace(TemporaryDirectory=temporary_directory))
 
     class FakeResponse:
         def __init__(self, payload: dict[str, object]) -> None:

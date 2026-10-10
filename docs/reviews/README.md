@@ -29,6 +29,10 @@ tag 固定于 `3a4a898`；后继文档提交记录 marker，不改变审阅对�
 历史 acceptance 不替代当前 `e318dc4` 的 `f912cb0b…64d38a`。
 契约 amendment 的继承与 superseding 关系见[契约索引](../contracts/README.md)。
 
+## HM-MVP component-v2
+
+[HM09 独立最终复审](hm09-component-v2-final-review.md)绑定 C15 component-v2 范围，结论及边界由[接受记录](../../artifacts/hosted-evidence/recovery-continue01/hm09-component-v2-acceptance-01.json)固定。它不是科学验证门，也不把 hosted 结果并入 FR-03/P14d-C 状态。操作入口见 [HM-MVP 状态](../status/hosted.md)。
+
 ## 阶段评审与入口
 
 | 记录 | 阅读用途 |

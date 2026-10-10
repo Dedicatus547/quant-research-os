@@ -41,6 +41,15 @@
 
 ## 冻结原件与后继关系
 
+2026-10-10 后继实施规则追加前的根 [AGENTS.md 原文](2026-10-10/AGENTS.md)
+保留 HM02 审查输入的1335字节和原 SHA256；根文件的新规则只适用于后续工作。
+
+HM-MVP 的完整[实施历史](../hosted/hm-implementation-history-2026-10-10.md)、
+[恢复交接历史](../hosted/hm-recovery-history-2026-10-10.md)及
+[组件采用历史](../hosted/hm-component-adoption-history-2026-10-10.md)于2026-10-10按原字节留存。
+它们位于 `docs/hosted/`，以保留原相对链接；各简短入口记录归档的字节数与 SHA256。
+历史 pending 和失败仍按原时点读取，当前完成范围见[发布记录](../releases/hm-mvp-component-v2-freeze-marker.md)。
+
 契约、ADR、批准、发布、P8/P9 与 P13 freeze 原件还保留在原路径；
 快照中包含它们的原始副本，便于完整追溯。
 本次修改没有重写这些证据。

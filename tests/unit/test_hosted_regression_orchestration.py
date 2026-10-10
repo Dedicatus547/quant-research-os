@@ -30,9 +30,29 @@ from quantos.infrastructure.hosted_verification import HostedQualificationError,
 from quantos.security import SecretArtifactRejected
 
 
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from quantos.infrastructure import hosted_manager
+
+    # Explicit kernel/check doubles cannot establish a production storage quota.
+    monkeypatch.setattr(capture, "storage_checkpoint", lambda *_: None)
+    monkeypatch.setattr(hosted_manager, "storage_checkpoint", lambda *_: None)
+
+
 @pytest.mark.parametrize(
     "damage",
-    (None, "exit", "timeout", "secret", "authority", "source", "runtime", "occupied", "flags"),
+    (
+        None,
+        "exit",
+        "timeout",
+        "storage",
+        "secret",
+        "authority",
+        "source",
+        "runtime",
+        "occupied",
+        "flags",
+    ),
 )
 def test_ci_capture_keeps_all_original_checks_and_rejects_changed_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str | None
@@ -111,6 +131,7 @@ def test_ci_capture_keeps_all_original_checks_and_rejects_changed_inputs(
         name = capture.CHECK_NAMES[len(observed)]
         observed.append(name)
         assert kwargs["environment"] == {"PATH": "/usr/bin:/bin"}
+        kwargs["storage_check"]()
         assert kwargs["timeout"] == (14400 if name == "pytest" else 7200)
         assert "--unshare-net" in argv and "--unshare-pid" in argv
         kwargs["kernel_observations"].append({"synthetic_kernel_double": True})
@@ -126,6 +147,8 @@ def test_ci_capture_keeps_all_original_checks_and_rejects_changed_inputs(
             if damage == "secret" and name == "ruff"
             else b"synthetic check stdout\n"
         )
+        if damage == "storage" and name == "ruff":
+            return (100 + len(observed), -15, output, "CHECK_STORAGE_CAPACITY")
         return (
             100 + len(observed),
             int(damage == "exit" and name == "ruff"),
@@ -159,6 +182,15 @@ def test_ci_capture_keeps_all_original_checks_and_rejects_changed_inputs(
             assert (target / f"{name}.txt").read_bytes() == b"synthetic check stdout\n"
             assert (target / f"{name}-prelaunch.json").exists()
             assert (target / f"{name}-exit.json").exists()
+    elif damage == "storage":
+        assert observed == ["ruff-format", "ruff"]
+        record = json.loads((target / "run.json").read_bytes())
+        assert record["checks"][-1]["failure"] == "CHECK_STORAGE_CAPACITY"
+        assert record["checks"][-1]["return_code"] == -15
+        assert record["qualification_eligibility"] == "NOT_QUALIFIED"
+        assert not (target / "pytest-prelaunch.json").exists()
+        assert not (target / "mypy-prelaunch.json").exists()
+        assert not (target / "diff-check-prelaunch.json").exists()
     elif damage == "occupied":
         assert observed == []
         assert (target / "run.json").read_bytes() == b"immutable failed attempt"

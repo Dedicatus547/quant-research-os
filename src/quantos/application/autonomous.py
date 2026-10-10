@@ -162,6 +162,22 @@ def _raise(reason_code: ReasonCode, message: str) -> NoReturn:
     raise AutonomousOrchestrationError(reason_code, message)
 
 
+def _hosted_proposal_schema(schema: dict[str, object]) -> dict[str, object]:
+    """Require explicit fields in hosted structured output, including defaults."""
+    def adapt(value: object) -> object:
+        if isinstance(value, list):
+            return [adapt(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        result = {key: adapt(item) for key, item in value.items() if key != "default"}
+        properties = result.get("properties")
+        if result.get("type") == "object" and isinstance(properties, dict):
+            result["required"] = list(properties)
+        return result
+
+    return cast(dict[str, object], adapt(schema))
+
+
 def autonomous_trial_event_id(trial: CampaignTrial) -> UUID:
     return uuid5(_AUTONOMOUS_EVENT_NAMESPACE, trial.idempotency_key)
 
@@ -853,9 +869,10 @@ class AutonomousCampaignOrchestrator:
         )
         if not options:
             _raise(ReasonCode.RESEARCH_BUDGET_EXCEEDED, "no candidate remains for an Agent request")
-        proposal_schema_bytes = canonical_json_bytes(
-            AutonomousCandidateProposal.model_json_schema()
-        )
+        proposal_schema = AutonomousCandidateProposal.model_json_schema()
+        if self.agent_run_policy.harness_identifier == "host-mediated/v1":
+            proposal_schema = _hosted_proposal_schema(proposal_schema)
+        proposal_schema_bytes = canonical_json_bytes(proposal_schema)
         proposal_schema_hash = sha256_bytes(proposal_schema_bytes)
         relevant_policy_hashes = {
             self.campaign_policy.content_hash,

@@ -13,7 +13,7 @@ from test_hosted_budget_staging_paths import _facts, _parent
 
 from quantos.artifacts.store import ArtifactIntegrityError, atomic_write_bytes
 from quantos.contracts.base import sha256_bytes
-from quantos.infrastructure.hosted_deployment import install_inventory
+from quantos.infrastructure.hosted_deployment import MOUNT_POLICY_BYTES, install_inventory
 from quantos.infrastructure.hosted_regression_capture import prepare_managed_regression
 from quantos.infrastructure.hosted_regression_runtime import (
     COVERAGE_PTH,
@@ -22,6 +22,14 @@ from quantos.infrastructure.hosted_regression_runtime import (
     verify_ci_runtime,
 )
 from quantos.infrastructure.hosted_verification import directory_inventory, raw_inventory
+
+
+@pytest.fixture(autouse=True)
+def synthetic_storage_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from quantos.infrastructure import hosted_regression_capture
+
+    # Tiny preparation fixtures do not establish a production storage quota.
+    monkeypatch.setattr(hosted_regression_capture, "storage_checkpoint", lambda *_: None)
 
 
 @pytest.mark.parametrize("case", ("valid", "unbound-hook", "non-native-node", "existing-root"))
@@ -67,7 +75,10 @@ def test_fixed_prefix_preparation_reaps_and_retains_original_source(
         .strip()
     )
     parent.profile = SimpleNamespace(
-        exact_commit=commit, lock_hash=sha256_bytes(lock), content_hash="d" * 64
+        exact_commit=commit,
+        lock_hash=sha256_bytes(lock),
+        content_hash="d" * 64,
+        mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES),
     )
     install = parent.paths.install
     digest = (

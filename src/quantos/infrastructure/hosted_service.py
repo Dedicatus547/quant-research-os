@@ -411,6 +411,7 @@ def bootstrap_hosted_service(
     if (
         launcher_configuration.content_hash != profile.model_configuration_hash
         or sha256_bytes(EXTRACTION_RULE_BYTES) != profile.extraction_rule_hash
+        or launcher_configuration.extraction_rule != "codex-jsonl-single-final/v2"
     ):
         raise ArtifactIntegrityError("external model configuration or extraction rule changed")
     wheel_bytes = _hashed_wheel(configuration_root, profile.wheel_hash)
@@ -439,6 +440,7 @@ def bootstrap_hosted_service(
         != profile.libseccomp_binary_hash
         or system_runtime_inventory().content_hash != profile.os_inventory_hash
         or sha256_bytes(MOUNT_POLICY_BYTES) != profile.mount_policy_hash
+        or profile.host_proc != "FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS"
     ):
         raise ArtifactIntegrityError("frozen runtime or provenance inventory changed")
     seccomp_fd, seccomp_bytes = source_seccomp_filter()

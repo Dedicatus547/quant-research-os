@@ -56,6 +56,7 @@ from quantos.infrastructure.hosted_manager import (
     start_managed_service,
     stop_managed_service,
 )
+from quantos.infrastructure.hosted_storage import storage_checkpoint
 
 
 def _frozen_file(path: str, data: bytes) -> HostedFrozenInputFile:
@@ -232,7 +233,9 @@ def run_live_attempt(
     """
     if root.exists() or root.is_symlink():
         raise ValueError("live attempt root already exists")
+    storage_checkpoint(root, "deployment")
     configuration = HostedLauncherConfiguration(
+        model="gpt-6.1-sol",
         output_byte_cap=1_048_576,
         proposal_byte_cap=262144,
         runtime_timeout_seconds=900,

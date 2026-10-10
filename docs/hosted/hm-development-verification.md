@@ -1,6 +1,11 @@
 # Host-mediated 开发验证顺序
 
-本页规定开发期间的检查顺序。局部诊断不授予资格；正式 HM-MVP 仍绑定精确
+本页保留实施期间的检查顺序与历次观测。component-v2 MVP 已交付，当前入口为
+[发布记录](../releases/hm-mvp-component-v2-freeze-marker.md)和[故障恢复](hm-mvp-recovery.md)。
+以下检查不构成发布后的待办清单；后续工作应按实际影响范围复用原证明，避免非必要测试和重流程。
+后续任务执行[现行实施约定](../guides/implementation-discipline.md)，不照搬下文历史整轮顺序。
+
+局部诊断不授予资格；正式 HM-MVP 仍绑定精确
 提交、部署 profile、冻结业务输入和完整原始证据，经完整机械核验及 HM-09 接受。
 
 ## 先查前置条件

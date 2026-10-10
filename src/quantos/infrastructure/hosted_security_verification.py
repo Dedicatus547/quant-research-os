@@ -9,7 +9,12 @@ from typing import cast
 from quantos.contracts.base import sha256_bytes
 from quantos.contracts.hosted import strict_json_object
 from quantos.contracts.hosted_qualification import HostedRawInventory
-from quantos.infrastructure.hosted_deployment import install_inventory, namespace_command
+from quantos.infrastructure.hosted_deployment import (
+    HOST_PROC_EXECUTABLE_HINT_TARGET,
+    MOUNT_POLICY_BYTES,
+    install_inventory,
+    namespace_command,
+)
 from quantos.infrastructure.hosted_manager import HostedManagedDeployment
 from quantos.infrastructure.hosted_verification import (
     HostedQualificationError,
@@ -249,11 +254,25 @@ def verify_deployment_security(deployment: HostedManagedDeployment) -> tuple[str
         and canary.get("found") is False,
         "Q07 actual import isolation control failed",
     )
-    _require(
-        by_name.get("PROC_CONTENT", {}).get("entries") == []
-        and by_name.get("SECCOMP_MODE", {}).get("mode") == 2,
-        "Q07 proc/seccomp boundary differs",
-    )
+    if profile.mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES):
+        hint = by_name.get("PROC_EXECUTABLE_HINT", {})
+        _require(
+            profile.host_proc == "FIXED_EXECUTABLE_HINT_READ_ONLY_TMPFS"
+            and by_name.get("PROC_CONTENT", {}).get("entries") == ["self"]
+            and hint.get("self_is_directory") is True
+            and hint.get("self_entries") == ["exe"]
+            and hint.get("exe_is_symlink") is True
+            and hint.get("exe_target") == HOST_PROC_EXECUTABLE_HINT_TARGET
+            and hint.get("exe_bytes_hash") == profile.cli_binary_hash,
+            "Q07 fixed executable hint differs from frozen CLI",
+        )
+    else:
+        _require(
+            profile.host_proc == "EMPTY_READ_ONLY_TMPFS"
+            and by_name.get("PROC_CONTENT", {}).get("entries") == [],
+            "Q07 legacy empty proc boundary differs",
+        )
+    _require(by_name.get("SECCOMP_MODE", {}).get("mode") == 2, "Q07 seccomp boundary differs")
     for path in ("/install", "/projection", "/channel", "/proc"):
         _require(
             by_name.get("READ_ONLY_MOUNT:" + path, {}).get("read_only") is True,

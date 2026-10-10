@@ -11,7 +11,7 @@ import pytest
 from quantos.artifacts.store import atomic_write_bytes
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.infrastructure.hosted_deployment import (
-    MOUNT_POLICY_BYTES,
+    STORAGE_MOUNT_POLICY_BYTES,
     HostedNamespacePaths,
     install_inventory,
     namespace_command,
@@ -58,7 +58,8 @@ def _observations(tmp_path: Path):
         install_inventory_hash=installed.content_hash,
         projection_inventory_hash=projected.content_hash,
         seccomp_bpf_hash="b" * 64,
-        mount_policy_hash=sha256_bytes(MOUNT_POLICY_BYTES),
+        mount_policy_hash=sha256_bytes(STORAGE_MOUNT_POLICY_BYTES),
+        host_proc="EMPTY_READ_ONLY_TMPFS",
     )
     principal = SimpleNamespace(uid=501, gid=502)
     deployment = SimpleNamespace(

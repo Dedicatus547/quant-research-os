@@ -3,6 +3,10 @@
 本页维护工作顺序与入口条件。系统设计见[架构文档](docs/architecture/overview.md)，
 阶段结果见[当前状态](docs/status/README.md)，精确资格绑定见[发布记录](docs/releases/README.md)。
 
+后续任务先读[实施与恢复约定](docs/guides/implementation-discipline.md)；
+默认复用、局部影响与资源预算写在现有任务说明中，不另设开发门禁。
+延误原因和改进依据见[HM-MVP 复盘](docs/hosted/hm-mvp-implementation-retrospective.md)。
+
 ## 当前落点
 
 | 工作 | 当前范围 |
@@ -15,19 +19,23 @@
 | P14-DQ | 精确冻结输入和环境内工程资格完成；研究结果仍未进入选择 |
 | P14 RC | 冻结于 `p14-rc-v1`，精确目标 `3a4a898`，生产基线 `e318dc4` |
 | FR-03 / P14d-C | `NO_GO / THIN_MAINTENANCE` / `BLOCKED_UNIMPLEMENTED` |
+| HM-MVP component-v2 | 有界 Codex-hosted MVP 已完成；工程独立接受、操作文档及本地发布登记完成 |
 
-本次文档整理沿用生产实现 `e318dc4` 和已有资格报告；不授予新的生产、研究或运行时权威。
-文档审阅与后继修订见[审阅记录](docs/reviews/p14-rc-documentation-successor-review.md)。
-独立 RC 复审见[精确提交复审报告](docs/reviews/p14-rc-3a4a898-independent-review.md)，
-审阅对象为 `3a4a898f74ce2f60a14d2a69250024e92a4378c1`。
+HM-MVP 当前接受的是固定 C15 的 component-v2 工程组合；精确身份、复用范围和限制见
+[发布记录](docs/releases/hm-mvp-component-v2-freeze-marker.md)。两项科学结果均为 `SOFT_REJECT`。
+P14 原资格继续绑定 `e318dc4`；RC 文档复审对象及冻结身份见
+[P14 发布标记](docs/releases/p14-rc-v1-freeze-marker.md)。
 
 ## 下一项工作
 
-P14 v1 主线已冻结；发布绑定与重开条件见[freeze marker](docs/releases/p14-rc-v1-freeze-marker.md)。
-超出该精确范围的工作需要独立变更提案、审查与资格门。FR-03 仍遵守其
-[THIN_MAINTENANCE 重资格政策](docs/status/fr03.md)。
+HM-MVP 实施与发布交接已完成，目前没有必须重跑的验收或待完成的 HM09–HM11。
+使用入口为[快速上手](docs/hosted/hm-mvp-quickstart.md)和[故障恢复](docs/hosted/hm-mvp-recovery.md)。
+已完成 campaign 的调用额度已耗尽，后续运行需要新的授权与额度。
 
-发布管理步骤不修改生产代码。历史提交 `9e2fc41` 和更早的 blocked RC 保持可追溯。
+MCP 封装、standalone worker、其他 harness 或 SDK 重资格属于可选后续工作，
+见[原始方案第9节](docs/roadmap/host-mediated-mvp.md#9-发布回退与后续工作)，由具体需求决定是否启动。
+FR-03 继续遵守 [THIN_MAINTENANCE 政策](docs/status/fr03.md)；
+P14 主线的重开条件沿用其[发布标记](docs/releases/p14-rc-v1-freeze-marker.md)。
 
 ## 实施依赖
 
@@ -49,6 +57,10 @@ flowchart LR
 | P0–P7：确定性数据、研究、回测、验证与 Registry | [第一阶段](docs/roadmap/stage-one.md) |
 | P8–P14：Evidence、proposal、admission 与有界 campaign | [第二阶段](docs/roadmap/stage-two.md) |
 | FR-03：官方 Codex SDK/runtime | [冻结维护政策与重资格入口](docs/status/fr03.md) |
+| HM-MVP：有界 Codex-hosted 工作流 | [当前交付与接受范围](docs/hosted/hm-implementation-progress.md)；[2026-09-29 原始方案](docs/roadmap/host-mediated-mvp.md) |
+
+原始方案已作为 HM02 的历史审查输入绑定哈希，保留原字节。
+其中“尚未实施”和模型分配属于2026-09-29提案时点，当前事实以发布记录和交付页为准。
 
 ## 范围约束
 
@@ -63,6 +75,7 @@ flowchart LR
 | 主题 | 规范入口 |
 |---|---|
 | 仓库硬性规则 | [AGENTS.md](AGENTS.md) |
+| 后续实施、复用与恢复 | [实施约定](docs/guides/implementation-discipline.md) |
 | Contracts、状态、哈希与不可变产物 | [Contracts 与 provenance](docs/architecture/contracts.md) |
 | 采集、快照、时间语义与 PIT | [数据与 PIT](docs/architecture/data-and-pit.md) |
 | Qlib、Signal、ResearchResult 与回测 | [研究与回测](docs/architecture/research-and-backtest.md) |

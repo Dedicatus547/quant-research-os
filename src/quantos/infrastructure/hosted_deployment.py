@@ -38,6 +38,11 @@ from quantos.contracts.hosted_deployment import (
     HostedInstallInventory,
     HostedProjectionFact,
 )
+from quantos.infrastructure.hosted_storage_copy import (
+    copy_file_verified,
+    copy_tree_verified,
+    physical_copy_budget,
+)
 from quantos.security import SecretArtifactRejected
 
 
@@ -174,6 +179,7 @@ def freeze_python_install(
     dependency_site: Path,
     codex_binary: Path,
     client_configuration: HostedClientConfiguration,
+    before_physical_copy: Callable[[int], None] | None = None,
 ) -> HostedInstallInventory:
     """Freeze a Python prefix and installed dependencies; never imports editable source.
 
@@ -184,24 +190,37 @@ def freeze_python_install(
         raise ArtifactIntegrityError("frozen installation destination already exists")
     if sys.version_info[:2] != (3, 11):
         raise ValueError("QuantOS frozen installation requires Python 3.11 manager")
+    # Preserve the existing hook/editable filtering before sizing the complete copy.
+    selected = tuple(
+        source
+        for source in sorted(dependency_site.iterdir())
+        if not source.name.endswith(".pth")
+        and not source.name.startswith(("quantos", "_quant_research_os", "quant_research_os"))
+    )
+    copy_guard = before_physical_copy
+    if before_physical_copy is not None:
+        # The base bound includes its original site-packages, even though removed below.
+        total_bytes = sum(item.size_bytes for item in install_inventory(base_python).files)
+        for source in selected:
+            total_bytes += (
+                sum(item.size_bytes for item in install_inventory(source).files)
+                if source.is_dir()
+                else source.lstat().st_size
+            )
+        total_bytes += codex_binary.lstat().st_size
+        copy_guard = physical_copy_budget(total_bytes, before_physical_copy)
     python_root = destination / "python"
-    shutil.copytree(base_python, python_root, symlinks=False)
+    copy_tree_verified(base_python, python_root, before_physical_copy=copy_guard)
     site = python_root / "lib/python3.11/site-packages"
     if site.exists():
         shutil.rmtree(site)
     site.mkdir(parents=True)
-    for source in sorted(dependency_site.iterdir()):
-        # No pth/import hooks or editable QuantOS distribution may enter execution.
-        name = source.name
-        if name.endswith(".pth") or name.startswith(
-            ("quantos", "_quant_research_os", "quant_research_os")
-        ):
-            continue
-        target = site / name
+    for source in selected:
+        target = site / source.name
         if source.is_dir():
-            shutil.copytree(source, target, symlinks=False)
+            copy_tree_verified(source, target, before_physical_copy=copy_guard)
         else:
-            shutil.copy2(source, target, follow_symlinks=True)
+            copy_file_verified(source, target, before_physical_copy=copy_guard)
     _freeze_ruff_executable(dependency_site, python_root)
     with zipfile.ZipFile(wheel) as archive:
         for entry in archive.infolist():
@@ -213,7 +232,7 @@ def freeze_python_install(
         raise ArtifactIntegrityError("wheel does not contain QuantOS installation")
     if client_configuration.socket_path != "/channel/quantos.sock":
         raise ArtifactIntegrityError("public hosted client configuration escaped fixed channel")
-    shutil.copy2(codex_binary, destination / "codex")
+    copy_file_verified(codex_binary, destination / "codex", before_physical_copy=copy_guard)
     atomic_write_bytes(destination / "hosted-client.json", client_configuration.canonical_bytes())
     return install_inventory(destination)
 
@@ -417,12 +436,41 @@ LEGACY_MOUNT_POLICY_BYTES = canonical_json_bytes(
         "system_ro": ("/usr", "/lib", "/lib64"),
     }
 )
-MOUNT_POLICY_BYTES = canonical_json_bytes(
+PRE_STORAGE_MOUNT_POLICY_BYTES = canonical_json_bytes(
     {
         **json.loads(LEGACY_MOUNT_POLICY_BYTES),
         "schema_version": "hosted-mount-policy/v2",
         "service_bin_alias": {"/bin": "/usr/bin"},
         "service_environment": {"MLFLOW_DISABLE_TELEMETRY": "true"},
+    }
+)
+NAMESPACE_TMPFS_BYTES = 536_870_912
+STORAGE_MOUNT_POLICY_BYTES = canonical_json_bytes(
+    {
+        **json.loads(PRE_STORAGE_MOUNT_POLICY_BYTES),
+        "schema_version": "hosted-mount-policy/v3",
+        "private_tmp_size_bytes": NAMESPACE_TMPFS_BYTES,
+        "private_tmp_enforcement": "BWRAP_SIZE_BEFORE_TMPFS",
+    }
+)
+HOST_PROC_EXECUTABLE_HINT_TARGET = "/install/codex"
+MOUNT_POLICY_BYTES = canonical_json_bytes(
+    {
+        **json.loads(STORAGE_MOUNT_POLICY_BYTES),
+        "schema_version": "hosted-mount-policy/v4",
+        "host": tuple(
+            "fixed-executable-hint-ro-proc" if item == "empty-ro-proc" else item
+            for item in json.loads(STORAGE_MOUNT_POLICY_BYTES)["host"]
+        ),
+        "host_proc": {
+            "filesystem": "PRIVATE_TMPFS",
+            "root_entries": ("self",),
+            "self_type": "DIRECTORY",
+            "self_entries": ("exe",),
+            "exe_symlink_target": HOST_PROC_EXECUTABLE_HINT_TARGET,
+            "read_only": True,
+            "kernel_proc_mounted": False,
+        },
     }
 )
 
@@ -554,6 +602,8 @@ def namespace_command(
         raise ValueError("namespace requires fixed command")
     if mount_policy_hash not in (
         sha256_bytes(LEGACY_MOUNT_POLICY_BYTES),
+        sha256_bytes(PRE_STORAGE_MOUNT_POLICY_BYTES),
+        sha256_bytes(STORAGE_MOUNT_POLICY_BYTES),
         sha256_bytes(MOUNT_POLICY_BYTES),
     ):
         raise ValueError("unknown frozen namespace mount policy")
@@ -573,7 +623,18 @@ def namespace_command(
     if role == "host":
         if seccomp_fd is None:
             raise ValueError("research host requires source seccomp")
-        result += ["--share-net", "--tmpfs", "/proc", "--remount-ro", "/proc"]
+        result += ["--share-net", "--tmpfs", "/proc"]
+        if mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES):
+            # A fixed installation hint for Codex's current_exe() lookup. This is
+            # an ordinary tmpfs directory, never a kernel proc/process view.
+            result += [
+                "--dir",
+                "/proc/self",
+                "--symlink",
+                HOST_PROC_EXECUTABLE_HINT_TARGET,
+                "/proc/self/exe",
+            ]
+        result += ["--remount-ro", "/proc"]
     else:
         result += ["--proc", "/proc"]
     for logical in SYSTEM_RUNTIME_PATHS:
@@ -587,7 +648,7 @@ def namespace_command(
         (paths.projection, "/projection"),
     ):
         result += ["--ro-bind", str(source), target]
-    if role == "service" and mount_policy_hash == sha256_bytes(MOUNT_POLICY_BYTES):
+    if role == "service" and mount_policy_hash != sha256_bytes(LEGACY_MOUNT_POLICY_BYTES):
         # Qlib's native recorder uses subprocess(..., shell=True), which resolves
         # /bin/sh. Both names reach the same already-read-only /usr tree.
         result += [
@@ -598,9 +659,13 @@ def namespace_command(
             "MLFLOW_DISABLE_TELEMETRY",
             "true",
         ]
+    result += ["--dev", "/dev"]
+    if mount_policy_hash in (
+        sha256_bytes(STORAGE_MOUNT_POLICY_BYTES),
+        sha256_bytes(MOUNT_POLICY_BYTES),
+    ):
+        result += ["--size", str(NAMESPACE_TMPFS_BYTES)]
     result += [
-        "--dev",
-        "/dev",
         "--tmpfs",
         "/tmp",
         "--dir",
