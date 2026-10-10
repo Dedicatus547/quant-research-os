@@ -1,6 +1,6 @@
 # HM-MVP component-v2 来源采用说明
 
-更新：2026-10-10。状态：`ACCEPTED_COMPONENT_V2_ENGINEERING / LOCAL_RELEASE_REGISTERED`。
+更新：2026-10-10。状态：`ACCEPTED_COMPONENT_V2_ENGINEERING / FROZEN`。
 [独立 HM09 复审](../reviews/hm09-component-v2-final-review.md)已接受固定 C15 工程组合，
 HM10/HM11 已完成。完整身份见[发布标记](../releases/hm-mvp-component-v2-freeze-marker.md)，
 原始事实由[接受 JSON](../../artifacts/hosted-evidence/recovery-continue01/hm09-component-v2-acceptance-01.json)绑定。

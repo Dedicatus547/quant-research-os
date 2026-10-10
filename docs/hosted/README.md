@@ -1,11 +1,11 @@
 # Host-mediated 实施记录
 
-有界 Codex-hosted MVP（component-v2）已完成工程交付与本地发布登记。
+有界 Codex-hosted MVP（component-v2）已完成工程交付，正式冻结于 `hm-mvp-component-v2`。
 资格范围和运行限制以发布记录为准；FR-03/P14d-C 沿用各自原状态。
 
 ## 当前 component-v2 状态
 
-- [HM11 本地发布登记与身份标记](../releases/hm-mvp-component-v2-freeze-marker.md)
+- [HM11 发布登记与正式冻结标记](../releases/hm-mvp-component-v2-freeze-marker.md)
 - [HM-MVP 快速上手](hm-mvp-quickstart.md)
 - [HM-MVP 故障恢复](hm-mvp-recovery.md)
 - [HM-MVP 状态](../status/hosted.md)

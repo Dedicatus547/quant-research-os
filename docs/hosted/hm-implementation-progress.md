@@ -1,7 +1,8 @@
 # HM-MVP 交付进度
 
 更新：2026-10-10（Asia/Singapore）。**有界 Codex-hosted MVP（component-v2）已完成**。
-当前状态：`ACCEPTED_COMPONENT_V2_ENGINEERING / LOCAL_RELEASE_REGISTERED`。
+当前状态：`ACCEPTED_COMPONENT_V2_ENGINEERING / FROZEN`。
+正式 tag `hm-mvp-component-v2` → `59c25ac`；精确 tag/source 身份见[冻结标记](../releases/hm-mvp-component-v2-freeze-marker.md)。
 
 ## 交付结果
 

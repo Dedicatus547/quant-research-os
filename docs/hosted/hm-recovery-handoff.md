@@ -1,7 +1,8 @@
 # HM-MVP 新会话交接
 
 更新：2026-10-10（Asia/Singapore）。**MVP 实施与 HM09→HM10→HM11 交接已完成**，
-当前范围为 `ACCEPTED_COMPONENT_V2_ENGINEERING / LOCAL_RELEASE_REGISTERED`。
+当前范围为 `ACCEPTED_COMPONENT_V2_ENGINEERING / FROZEN`。
+正式 tag `hm-mvp-component-v2` → `59c25ac`；原接受 C15 保留在 Git 历史中。
 
 ## 先读这些入口
 

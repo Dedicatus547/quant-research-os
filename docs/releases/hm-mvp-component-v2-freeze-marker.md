@@ -1,7 +1,31 @@
-# HM-MVP component-v2 本地发布登记
+# HM-MVP component-v2 正式冻结
 
-日期：2026-10-10（Asia/Singapore）。状态：`LOCAL_RELEASE_REGISTERED`；工程接受范围：
-`ACCEPTED_COMPONENT_V2`。HM09、HM10、HM11 已完成。
+日期：2026-10-10（Asia/Singapore）。当前状态：`FROZEN`；工程接受范围：
+`ACCEPTED_COMPONENT_V2`。HM09、HM10、HM11 与正式 Git 冻结已完成。
+原本地发布 JSON 的 `LOCAL_RELEASE_REGISTERED` 状态保持原字节，由下述后继冻结登记记录新事实。
+
+## 正式冻结身份
+
+| 对象 | 精确身份 |
+|---|---|
+| Annotated tag | [`hm-mvp-component-v2`](https://github.com/Dedicatus547/quant-research-os/tree/hm-mvp-component-v2) |
+| Tag object | `fb3786a6050a7e99127fed661aba15cb36b7c5db` |
+| Tag target commit | `59c25ac851cde4f6074d83159fd95a5351237f63` |
+| Tag target tree | `78ecabaa7330ff73993a226ad6b788e0954a46c8` |
+| Tagger time | `2026-10-10T22:41:40+08:00` |
+| 实施与文档提交 | `f0fec01749c782d2771dee8ccd20ed22d06e869a` |
+| 原接受源码（发布提交第二父） | `a47e5a95db15f51e748c1343d96e124fc5b04d8c` |
+
+[Git 冻结登记](hm-mvp-component-v2/repository-freeze-registration.json)绑定上述身份、
+原接受/发布/复审与 HM10 文档，2793B，SHA256
+`7b06b4b688b67303924077bb2962af8060938ec771ebc4c0797195a234414593`。
+tag 固定发布快照；本标记、冻结登记 JSON 和导航更新为
+tag 之后的登记提交，不把它们声称为该 tag 内的原始文档字节。
+发布提交与实施提交的 tree 相同，原 C15 历史以显式第二父保留。
+该祖先合并保持已核对的发布树，没有重新生成原源码冻结或运行证明。
+
+后续修改使用新提交和明确的后继版本；本 tag 不移动、不覆盖。
+新的部署或研究运行仍按接受范围、实际变化和授权处理，不从冻结自动获得新额度或新资格。
 
 本标记登记既有 C15 源码冻结、版本化工程接受记录及操作文档的精确身份。
 资格身份采用 `SHA256_OF_VERSIONED_COMPONENT_V2_ENGINEERING_ACCEPTANCE`，

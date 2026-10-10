@@ -38,6 +38,7 @@ FR-03 为 `NO_GO / THIN_MAINTENANCE`，P14d-C 为 `BLOCKED_UNIMPLEMENTED`。
 有界 Codex-hosted MVP（component-v2）已完成工程实施、真实交接与离线回放、
 独立接受、操作文档及本地发布登记。精确 C15 源码和组件采用范围见
 [HM-MVP 发布记录](docs/releases/hm-mvp-component-v2-freeze-marker.md)。
+正式冻结标签为 `hm-mvp-component-v2`，目标提交 `59c25ac`；原接受源码 C15 的身份与历史保留。
 两项科学执行均为 `SOFT_REJECT`，原 ValidationReport 均为 `SUCCEEDED / REJECT`。
 已完成 campaign 的额度已用完、服务已清理；后续新运行按
 [快速上手](docs/hosted/hm-mvp-quickstart.md)和[恢复手册](docs/hosted/hm-mvp-recovery.md)办理。

@@ -19,7 +19,7 @@
 | P14-DQ | 精确冻结输入和环境内工程资格完成；研究结果仍未进入选择 |
 | P14 RC | 冻结于 `p14-rc-v1`，精确目标 `3a4a898`，生产基线 `e318dc4` |
 | FR-03 / P14d-C | `NO_GO / THIN_MAINTENANCE` / `BLOCKED_UNIMPLEMENTED` |
-| HM-MVP component-v2 | 有界 Codex-hosted MVP 已完成；工程独立接受、操作文档及本地发布登记完成 |
+| HM-MVP component-v2 | `FROZEN`；tag `hm-mvp-component-v2` → `59c25ac`；有界工程交付完成 |
 
 HM-MVP 当前接受的是固定 C15 的 component-v2 工程组合；精确身份、复用范围和限制见
 [发布记录](docs/releases/hm-mvp-component-v2-freeze-marker.md)。两项科学结果均为 `SOFT_REJECT`。
