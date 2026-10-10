@@ -1,0 +1,231 @@
+{
+  "amendment_policy": "Immutable v1 bytes; semantic changes require successor contract and independent review.",
+  "attempt_count": 1,
+  "frozen_outputs": [
+    {
+      "path": "docs/hosted/hosted-contract-v1.md",
+      "sha256": "14704b9cbbe0f0ca281751833bc08248820da0c277a281a140bfd12bc6b102df",
+      "size_bytes": 24250
+    },
+    {
+      "path": "docs/hosted/hosted-acceptance-v1.md",
+      "sha256": "e5877b503259f6e758f22a6feb9307efdc45397155a9229527b2a8ae5dbfc55e",
+      "size_bytes": 10693
+    },
+    {
+      "path": "docs/adr/0003-host-mediated-mvp.md",
+      "sha256": "850c7fb10cf45d48512fa57241ffbc6b6e8cbb60b621e34a2b1dffa721dcfdae",
+      "size_bytes": 3529
+    },
+    {
+      "path": "docs/reviews/hm02-contract-review.md",
+      "sha256": "5b784df225373591c5d18925e560779eee919148fed4d41050d944783689e713",
+      "size_bytes": 4911
+    }
+  ],
+  "model": "gpt-6-astra",
+  "qualification_cases": {
+    "Q01": "NOT_EVALUATED",
+    "Q02": "NOT_EVALUATED",
+    "Q03": "NOT_EVALUATED",
+    "Q04": "NOT_EVALUATED",
+    "Q05": "NOT_EVALUATED",
+    "Q06": "NOT_EVALUATED",
+    "Q07": "NOT_EVALUATED",
+    "Q08": "NOT_EVALUATED",
+    "Q09": "NOT_EVALUATED",
+    "Q10": "NOT_EVALUATED",
+    "Q11": "NOT_EVALUATED",
+    "Q12": "NOT_EVALUATED"
+  },
+  "qualification_granted": false,
+  "reasoning_effort": "high",
+  "review_input_files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "a0b0cbbc4ab9615e933b6ceca391b2d6dfaeecfdc9323a6ea561119c9fa114c7",
+      "size_bytes": 1335
+    },
+    {
+      "path": "docs/roadmap/host-mediated-mvp.md",
+      "sha256": "0864563a656341df125cf03801cc0acd37a75e020e2b5ec703dad5cd206d6c56",
+      "size_bytes": 22281
+    },
+    {
+      "path": "docs/hosted/README.md",
+      "sha256": "b2ccacdd4ec75540975779effdebdeb4ae02135fabe39207fd881033a505aea2",
+      "size_bytes": 606
+    },
+    {
+      "path": "docs/hosted/hm01-baseline.md",
+      "sha256": "afa49a0b0c516691071f29fa7e259bd540403b364dd73461bb2084f1a331c9a2",
+      "size_bytes": 8288
+    },
+    {
+      "path": "docs/hosted/hm01-contract-draft.md",
+      "sha256": "b9ca12125ea1eed24a199ac4173a25fe130b7d108660dd3f2ff8038b1205bb42",
+      "size_bytes": 11609
+    },
+    {
+      "path": "docs/hosted/hm01-acceptance-draft.md",
+      "sha256": "1d69baed1a5ac1cf1754357c72c2d20bdf95ef49a9333272ac5774dba5be1862",
+      "size_bytes": 7561
+    },
+    {
+      "path": "docs/adr/0002-official-codex-python-sdk.md",
+      "sha256": "06272fddb9edb75f07624fcaa9b934a25f0668c785ac023a125ae238c7b89dcb",
+      "size_bytes": 10504
+    },
+    {
+      "path": "docs/status/p14.md",
+      "sha256": "fb746c19c9c8573bfd74a7161bbf0a4f78a306bb0065cd04e6c52d994f2f34eb",
+      "size_bytes": 4452
+    },
+    {
+      "path": "docs/status/fr03.md",
+      "sha256": "bfc0dad3f3fc189d82ee1c2dab2fdadb8ecb034fc65908942e396b5d6013e735",
+      "size_bytes": 2794
+    },
+    {
+      "path": "docs/p14d-autonomous-loop-contract.md",
+      "sha256": "105d1120aeffadbda14920a8e2e9b5b6260c7e842248761690239940117dd13e",
+      "size_bytes": 12871
+    },
+    {
+      "path": "docs/p14-dq-qualification-contract-v3-draft.md",
+      "sha256": "563b1c44ff8e3b87822902c1f70183de2ddd97b007550f2028990bb37f858e17",
+      "size_bytes": 6907
+    },
+    {
+      "path": "docs/p14-dq-qualification-contract-v3-reproducibility-amendment.md",
+      "sha256": "a63058df2df0a89c054965fb33046d99dc0851624bd231b45a2446709539dbce",
+      "size_bytes": 6200
+    },
+    {
+      "path": "src/quantos/contracts/base.py",
+      "sha256": "c1b4fa287e1910f1efb82666ac7ab8b0972d3b49bdfaae154b6e4d7bf75a2bbb",
+      "size_bytes": 3841
+    },
+    {
+      "path": "src/quantos/contracts/agent.py",
+      "sha256": "7511d6907c8683097d8e3deeeff7e24b7f1f5c43e50d179e63561f1f85aa20ef",
+      "size_bytes": 33660
+    },
+    {
+      "path": "src/quantos/contracts/autonomous.py",
+      "sha256": "e612100beb53238c3b9b4a5e783ef230f33d1c832cc073e3599f5c9da9514673",
+      "size_bytes": 30481
+    },
+    {
+      "path": "src/quantos/contracts/campaign.py",
+      "sha256": "26ab3d76181e2b4e547daebbb1c9f96c1d2a96ffd2ea402c8e89d545682b0e81",
+      "size_bytes": 10865
+    },
+    {
+      "path": "src/quantos/application/autonomous.py",
+      "sha256": "29a3c6127bdcb5a4f0407e62a92bf8283aa816e1278259f24dd031e90dd458cd",
+      "size_bytes": 77629
+    },
+    {
+      "path": "src/quantos/application/autonomous_execution.py",
+      "sha256": "2c66b3d04ba39213bc4bea34cb7e91fc8c617441af80cbe7d4d009f118c2dad4",
+      "size_bytes": 50008
+    },
+    {
+      "path": "src/quantos/application/ledger.py",
+      "sha256": "146ba88d3d0a772d245e4dfb7d9d7537df17ce82cd77cdf5b3d5481bd299e802",
+      "size_bytes": 35718
+    },
+    {
+      "path": "src/quantos/artifacts/store.py",
+      "sha256": "e2c37980bdb8d0cedc6d90a7c88f73120286b7b13099624a46c80cc50f923b00",
+      "size_bytes": 9590
+    },
+    {
+      "path": "src/quantos/cli.py",
+      "sha256": "76106caa8b733884c9eef4bcfb48b5a8e3094884a47e758f8b5fa30299fd76c0",
+      "size_bytes": 49022
+    },
+    {
+      "path": "tests/unit/test_autonomous_campaign.py",
+      "sha256": "cad73a2df556f9a9ff6ef78e8e72fb96e15ef438ab349b98e108b83047cdddbe",
+      "size_bytes": 53887
+    },
+    {
+      "path": "tests/integration/test_autonomous_execution_e2e.py",
+      "sha256": "b35962ef32069a42ae559c359f4b3ce118070d9ebedd7ee04e7510fa7904bacd",
+      "size_bytes": 55383
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "a9beebb369686c81ce36b308dc0fcaf06d6fbd03672edb1795a90a6a960b3258",
+      "size_bytes": 1974
+    },
+    {
+      "path": "uv.lock",
+      "sha256": "0f5cd349fb32eed64a0cb907242f0ddd333f69efdc77461bdff90602e5bed7ca",
+      "size_bytes": 372278
+    }
+  ],
+  "review_input_manifest": {
+    "path": "docs/hosted/hm01-review-inputs.json",
+    "sha256": "5b5460065cda5f15c3cae2377b7fee7c26ca29623cfaa1f7011e624eca5522e4",
+    "size_bytes": 4607
+  },
+  "schema_version": "hm02-freeze-manifest/v1",
+  "starting_commit": "d6c77055eaa4844a2e0d9423990475ef23dce15c",
+  "status": "FROZEN_FOR_IMPLEMENTATION",
+  "supplemental_inputs": [
+    {
+      "path": "docs/reviews/p14-dq-v3-principal-equality-conformance.md",
+      "sha256": "4f95eee0f10b0ff6f31b3d70192bfe7c2d8fd9e41b5dbba97d9c1e875f693a3a",
+      "size_bytes": 4450
+    },
+    {
+      "path": "src/quantos/contracts/signal.py",
+      "sha256": "3aa179069d4b5601dc37803adda259c55d1e9bb77e764564a0a036218a96dfb8",
+      "size_bytes": 10519
+    },
+    {
+      "path": "src/quantos/contracts/backtest.py",
+      "sha256": "c1ba1647a2914c946fb1d26656c00832297c71dec5491f10367fe828eb2f7250",
+      "size_bytes": 14481
+    },
+    {
+      "path": "src/quantos/contracts/research_result.py",
+      "sha256": "7382e937dfdb902d0a1338eb97c8ca53c61b6d458f136f6f612d4458714e1be2",
+      "size_bytes": 7610
+    },
+    {
+      "path": "src/quantos/contracts/snapshot.py",
+      "sha256": "bc3b902b216b1aa63f3c9feae5bc913556caafe5a84040741cb068c3dbe68446",
+      "size_bytes": 10232
+    },
+    {
+      "path": "src/quantos/contracts/ledger.py",
+      "sha256": "b006bdaa7bb90fd35b5ed704a18dc55030679b7109c2f8dd8dd3d02140da0c64",
+      "size_bytes": 26341
+    },
+    {
+      "path": "src/quantos/contracts/qlib_view.py",
+      "sha256": "477682215848be10678ab0785a21dd05e85a00fa066781d70cd6d9c600413960",
+      "size_bytes": 8606
+    },
+    {
+      "path": "src/quantos/contracts/event_research.py",
+      "sha256": "cd028f6f67e449a81081c7b4fe94145554c7a0c825b0be3fb5f63b40bffa185a",
+      "size_bytes": 28135
+    },
+    {
+      "path": "src/quantos/contracts/harness.py",
+      "sha256": "e225e6d0531f5ebd3b7bb69dd613a0dddba5c768b09723fcc9aa907a6c2033f3",
+      "size_bytes": 20969
+    },
+    {
+      "path": "src/quantos/contracts/research.py",
+      "sha256": "c1d1bd99bf61d4ae00b6fccd077691130ee41b4ef156c66fb381234550d23a7a",
+      "size_bytes": 11201
+    }
+  ],
+  "usage": "unavailable"
+}

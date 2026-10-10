@@ -1,0 +1,58 @@
+# Q04/Q08 corrective implementation review — abe5a9d
+
+Status: **NOT_QUALIFIED; one remaining P1 blocks complete Q04 closure.**
+
+Assigned reviewer model: `gpt-6.1-sol`; reasoning effort: `high`; review attempt: 1; observed token/usage information: unavailable. This development review does not change the frozen research model/profile. No implementation, repository documentation, original deployment evidence, credential, vendor access, model invocation, commit, or push was performed by the reviewer.
+
+## Exact scope
+
+Read-only review of clean `/tmp/hm-negative-followup-worktree`, HEAD `abe5a9db5e542eb09caba9fc868c35fa56207e2a`, against `a6d1859398225f94cdc75c7f80adc73b1cc9b4ad`. The diff contains 19 files, 1,269 insertions and 60 deletions, covering the two a6 P1 fixes, admission checkpoint/shared native builder, Q08 fixture/source predicates and related tests. The review does not claim the whole acceptance matrix or HM09 is complete. New profile Q04/Q08 original executions had not been supplied for this review.
+
+Frozen contract SHA-256 remains `14704b9cbbe0f0ca281751833bc08248820da0c277a281a140bfd12bc6b102df`; acceptance remains `e5877b503259f6e758f22a6feb9307efdc45397155a9229527b2a8ae5dbfc55e`; HM02 deployment-bindings review remains `784b573fe47c4e5838a74d2ce39bbb420c707ca39d8d4743610ff55ac3782381`. No frozen document changed.
+
+## P1-1: stale bytecode / verifier source binding — implementation closure
+
+The old a6 disk-only helper accepted a real timestamp-valid stale QuantOS `.pyc` while hashing restored frozen `.py` bytes. The correction routes bytecode reads to a fixed absent private prefix before CPython initialization, disables bytecode writes, and rejects a preexisting prefix before loading Python. The formal helper additionally requires the inventory-bound `/install/python-seeded`, fixed isolation/hash flags and optimize=0, exact `/install` QuantOS source paths, exact ordinary `SourceFileLoader`/origin/path, expected absent cache paths, and no QuantOS `.pyc` in the install inventory. Formal verification checks loaded module provenance both before and after predicate execution.
+
+Independent real CPython regression passed: ordinary CPython loaded `staled`; the newly compiled native launcher loaded `frozen`; a polluted prefix caused return 78 before any Python output. Independent replay of the original ordinary-interpreter stale-cache canary under abe now refused with `HostedQualificationError: formal verifier requires the frozen source-only interpreter`. The helper source/loader boundary tests are synthetic registry doubles; they are not an installed formal qualification run. Within this explicit source-only profile and fixed native entrypoint, the a6 stale-bytecode defect is closed in implementation. A later actual frozen install must still demonstrate these same bindings; neither a6 original evidence nor this review gets new provenance retroactively.
+
+## P1-2: raw file delta — original plain-file hole closed, publication closure still open
+
+Independent native/Qlib fixture verification now rejects the original extra unpublished file with `HostedQualificationError: business admission has an unattributed raw file delta`. The implementation preserves every before file, verifies protocol history, attributes campaign events and exact Ledger event/object bytes, and compares the complete after inventory. The reported additional execution receipt/manifest/sidecar negatives use the same full inventory rule.
+
+However, the correction treats **every** added journal publication as authorized (`hosted_admission_verification.py:116–125`). `verify_native_admission_checkpoint` selects only budget/step objects and rejects final reports (`hosted_admission_checkpoint.py:34–48`); unrelated published trial objects are ignored. Thus journal packaging can turn an unknown artifact into an allowed file without proving that it belongs to the one native admission checkpoint.
+
+Independent reproduction against this exact HEAD used the existing disposable native integration fixture, including actual Qlib execution for its initial research results and the native schema-invalid checkpoint. The unchanged checkpoint first passed. An ordinary extra file was rejected. Then the reviewer used the existing internal `HostedProtocolService.publish_business` to append an extra canonical `CampaignTrial` with a new trial ID/idempotency key, but no corresponding research step, campaign event, or Ledger node. The checkpoint verifier still returned successfully and its verification did not change raw bytes. The correct trial, its one-trial budget, its single event and Ledger entry remained unchanged, so this extra immutable trial was omitted from the accounting/closure proof.
+
+This is an acceptance-predicate defect, not a claim that the production host RPC exposes `publish_business`. The extra publication can represent unexpected deterministic service behavior or preserved authority corruption. A Q04 verifier must reject it rather than use publication itself as permission. Producer completion and exact source copies do not establish the missing native semantic relation.
+
+Minimum correction: establish the exact allowed BUSINESS operation/publication chronology and hash closure from the native INITIAL/reservation/PREPARED/SETTLED/COMPLETED/trial/event/Ledger objects and terminal reference bindings, then reject every extra pair or publication. Preserve the permitted transport request/receipt/budget/cancellation chronology separately. Do not ignore unreferenced published objects or erase extra original evidence. Add a native negative that appends a valid unreferenced trial through a valid BUSINESS journal pair and asserts rejection with full before/after inventory unchanged; an unrelated canonical execution result is another useful distinct schema negative.
+
+The first reviewer canary run failed because its test operation ID was not a SHA-256; that failed log is retained and is not counted as a verifier rejection. A second run used a valid fixed SHA-256 operation ID and reproduced the acceptance hole.
+
+## Admission checkpoint / shared native builder
+
+The checkpoint approach is consistent with frozen Q04's requirement that a known invalid candidate has native accounting and zero execution. Q04 does not require finishing the full P14DQ candidate denominator or publishing a final campaign report for each malformed proposal. The implementation leaves production DQ finalization intact and requires `business_report_hash is None`; the worker cancels the next pending request without a second resume/finalization call.
+
+The extracted builder first verifies the protocol root, binds the spec to frozen business/deployment inputs, constructs the existing native adapter/governor/selection/Ledger/orchestrator, and loads the event chain with its frozen initial prefix. It does not execute, recover, resume or finalize the campaign. The checkpoint reuses native `prepare_trial`/`finish_trial`, matches the completed step to its prepared intent and accepted exchange, checks native logical event time, requires exactly one new schema-invalid event with no execution, verifies INITIAL→RESERVED→SETTLED time/counter/previous-hash bindings against native governor projection, verifies the Ledger initial prefix and one trial object, and binds the service STEP_COMPLETED terminal to the native artifact references. Those checks are substantive; they do not solve the extra-publication hole above.
+
+Independently applied the abe component helper read-only to original a6 attempt12's `known_schema_invalid` partial checkpoint: 26 checked hashes, both complete raw inventories unchanged. It correctly interprets the preserved native invalid trial, accounting and cancellation without completing the old failed worker. This check is **POSTDATES_INSTALLED_COMMIT / NOT_QUALIFIED**. It does not turn attempt12's return1/no observation or five not-launched Q04 cases into completed acceptance evidence.
+
+## Q08 source/observation boundary
+
+The management matrix requires fixed case names and new retained roots, uses installed fixed module/program hashes, records prelaunch/actual kernel child/argv/completion, and keeps the fixtures explicitly synthetic. It shares the source-bound before/after accounting predicates. Seven permitted HOST_REPORTED transport responses do not gain business execution/trial authority; four schema-invalid verdict/SDK/limitations/trusted-source claims are rejected. Late exact-byte repeats must preserve the raw authority and charge history.
+
+The source predicate checks the independently supplied original management evidence root with the existing `TrustedLauncherEvidenceStore.verify_response_source`; it does not accept an uploaded TRUSTED string or a same-UID claim. Fake attestation bytes remain under the case's untrusted channel root, outside the trusted evidence store. Missing original evidence is rejected before store construction; original evidence inventory is rechecked unchanged. No execution resume or model-auth acquisition is used for Q08.
+
+The model-conflict capture is explicitly synthetic. An independent control using the same capture with matching requested metadata was accepted by the fixed extractor; the unmodified capture failed specifically with `CLI requested and observed model disagree`. This verifies the conflict rule rather than merely malformed JSON. It does not observe a genuine live model identity, actual usage, authentication provenance or immutable model snapshot. Those facts still need original source evidence where required by the remaining gates. No further concrete Q08 P1 was established in this narrow diff review.
+
+## Independently observed verification
+
+- `tests/unit/test_hosted_python.py`, `test_hosted_verifier_installation.py`, `test_hosted_observation_verification.py`, `test_hosted_negative_origin.py`: **101 passed / 166.12 sec**, no coverage/qualification assertion. Log `/tmp/hm-corrective-independent-unit-abe.log`, SHA-256 `8f57d9eab836aaa0006ac123c1a9ca646e682751e6e5291a1e80a0fb0d05e25f`.
+- Real native journal canary script `/tmp/hm_admission_journal_canary_abe.py`, SHA-256 `578cae4ea7e3a8eaf32e41d99041689c7428b0ae8dd7a1aa45b981db40b227b1`; successful reproduction log `/tmp/hm-admission-journal-canary-abe02.log`, SHA-256 `76d5888a59a8f63a545ab6acdd29765be8c15258bf60cd385b097ae503efe6cc`. This is a component fixture using explicit synthetic frozen inputs, not a full installed live campaign.
+- Initial invalid-operation-ID log `/tmp/hm-admission-journal-canary-abe.log`, SHA-256 `865820fc136ca7302fb7ce46c9dfad1286b5b65ee8a0590274d8976b398ebe75`.
+- Original stale-cache canary under abe refusal log `/tmp/hm-verifier-pyc-canary-abe.log`, SHA-256 `1f900485a7d5f37db2ea7004758cd62fd015113252f5d4e6e38b8e3497ebe489`; expected refusal exits 1, not a test-suite failure.
+- Original attempt12 component read-only recheck log `/tmp/hm-original-admission-checkpoint12-independent-abe.log`, SHA-256 `95ee0cf790a9177c45a356e99f4d860f7ee916dbaa1cf2028db6bae7f93427db`.
+- Q08 matching/conflicting source-metadata control `/tmp/hm-q08-conflict-control-abe.log`: matching control PASS, fixed conflict rejected, SYNTHETIC_NOT_LIVE.
+
+The parent also reported the 142.40-second complete native six-invalid/two-root replay run, other 141/37/99 regressions, actual management kernel-child regression and ruff/format/strict pyright checks. Those reported results are not relabeled as independently rerun here. Repository status and tracked diff remained clean at review completion. The exact abe code remains blocked by the extra-publication P1; no Q04/Q08 actual-profile PASS, HM09 readiness, full hosted qualification or acceptance is granted.

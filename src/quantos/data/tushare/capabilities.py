@@ -9,7 +9,6 @@ from enum import StrEnum
 from typing import Literal, Protocol, cast
 
 import pandas as pd
-import tushare  # pyright: ignore[reportMissingTypeStubs]
 from pydantic import Field
 from pyrate_limiter import Duration, Limiter, Rate  # pyright: ignore[reportMissingTypeStubs]
 
@@ -301,7 +300,14 @@ class TushareSnapshotSource:
     def __init__(self, token: str, client: TushareQueryClient | None = None) -> None:
         if not token:
             raise ValueError("Tushare token is required")
-        self._client = client or cast(TushareQueryClient, tushare.pro_api(token))
+        if client is None:
+            # Offline users also import the capability report type. Loading that
+            # type must not initialize/import the vendor SDK outside acquisition.
+            import tushare  # pyright: ignore[reportMissingTypeStubs]
+
+            self._client = cast(TushareQueryClient, tushare.pro_api(token))
+        else:
+            self._client = client
         self._probe_limiters = (
             {}
             if client is not None

@@ -1,0 +1,50 @@
+{
+  "schema_version": "hm06-known-value-preflight/v1",
+  "scope": "IN_MEMORY_CANARY_NOT_PRODUCTION_SCANNER_QUALIFICATION",
+  "model": "gpt-6-sol",
+  "reasoning_effort": "high",
+  "attempt_count": 1,
+  "usage": "unavailable",
+  "source_sha256": "495cc2c44f54e57d0c9d54a5054290d2da1b53c7c1779f2bbfbb773c3bf241d7",
+  "canary_generation": "RANDOM_IN_MEMORY_NO_VALUE_OR_DIGEST_RETAINED",
+  "rejected_case_files_written": 0,
+  "facts": [
+    {
+      "case": "literal",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "base64",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "urlsafe_base64",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "base64_without_padding",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "hex",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "uppercase_hex",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "percent_encoded",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "json_decoded_value",
+      "rejected_before_publish": true
+    },
+    {
+      "case": "safe_control",
+      "allowed": true
+    }
+  ],
+  "qualification_granted": false
+}

@@ -8,9 +8,12 @@
 |---|---|
 | [快速上手](guides/quickstart.md) | 安装、环境检查、最小离线示例 |
 | [离线工作流](guides/offline-workflows.md) | 研究、回测、验证、Registry 与 Ledger |
+| [HM-MVP 快速上手](hosted/hm-mvp-quickstart.md) | 有界 Codex-hosted 交接、当前运行条件与 CLI 模板入口 |
+| [HM-MVP 故障恢复](hosted/hm-mvp-recovery.md) | 复用原件、预算与空间约束 |
 | [数据与 Evidence 采集](guides/acquisition.md) | Tushare 与公告采集边界、发布方法 |
 | [资格证据核验](guides/qualification.md) | 精确 checkout、保留证据、完整与 bundle 核验 |
 | [开发指南](guides/development.md) | 仓库结构、CI、文档维护 |
+| [实施与恢复约定](guides/implementation-discipline.md) | 后续任务必读：复用、验证范围、持久证据、容量与安全并行 |
 
 ## 系统设计
 
@@ -35,7 +38,10 @@
 | [实施路线图](../PLAN.md) | 依赖与下一项工作 |
 | [第一阶段验收](roadmap/stage-one.md) | P0–P7 和独立 DQ 轨道 |
 | [第二阶段验收](roadmap/stage-two.md) | P8–P14 与 FR 入口门 |
-| [发布记录](releases/README.md) | 当前 RC 修正和历次冻结记录 |
+| [HM-MVP 交付进度](hosted/hm-implementation-progress.md) | component-v2 已完成；接受与本地发布登记、历史追溯入口 |
+| [HM-MVP 实施复盘](hosted/hm-mvp-implementation-retrospective.md) | 超过10天的延误机制、证据限制、教训及改进对应 |
+| [Codex-hosted MVP 原始方案](roadmap/host-mediated-mvp.md) | 2026-09-29 历史审查输入，保留原字节；当前事实见交付进度 |
+| [发布记录](releases/README.md) | HM-MVP 本地发布、P14 RC 与历次冻结记录 |
 | [审查记录](reviews/README.md) | 契约批准、资格接受与历史评审 |
 | [历史文档](history/README.md) | 重组前的完整文档快照 |
 
@@ -54,6 +60,7 @@ docs/
 ├── guides/         操作方法
 ├── architecture/   设计规则与边界
 ├── status/         当前完成范围
+├── hosted/         HM-MVP 操作、交付与实施历史
 ├── roadmap/        阶段入口与验收
 ├── reference/      命令、术语、风险、资料
 ├── contracts/      冻结契约导航

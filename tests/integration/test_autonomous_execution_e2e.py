@@ -816,6 +816,32 @@ def test_scripted_autonomous_real_execution_restart_ledger_and_p14c(
     assert request.execution_identity == execution_requests[0].execution_identity
     assert len(workflow_runs) == 1
 
+    # The hosted recovery probe verifies saved authority without invoking execute
+    # or the Qlib Workflow. Workload reservation quotes use the existing policy.
+    probe_port = adapter()
+    probe_outcome = probe_port.verified_completed_execution(request)
+    assert probe_outcome == replayed_outcome
+    saved_inventory = {
+        path.relative_to(probe_port.output_root).as_posix(): sha256_file(path)
+        for path in probe_port.output_root.rglob("*")
+        if path.is_file()
+    }
+    assert probe_port.inspect_completed_execution(request) == replayed_outcome
+    assert saved_inventory == {
+        path.relative_to(probe_port.output_root).as_posix(): sha256_file(path)
+        for path in probe_port.output_root.rglob("*")
+        if path.is_file()
+    }
+    assert probe_port.execution_compute_charge(request) == replayed_outcome.compute_seconds
+    assert len(workflow_runs) == 1
+    missing_args = cast(dict[str, object], adapter_args).copy()
+    missing_args["output_root"] = tmp_path / "missing-receipt-probe"
+    missing_port = QuantosResearchExecutionAdapter(**missing_args)
+    assert missing_port.verified_completed_execution(request) is None
+    assert missing_port.inspect_completed_execution(request) is None
+    assert not tuple((tmp_path / "missing-receipt-probe").rglob("*.json"))
+    assert len(workflow_runs) == 1
+
     second_orchestrator = orchestrator(adapter())
     real_append = second_orchestrator.event_store.append
 

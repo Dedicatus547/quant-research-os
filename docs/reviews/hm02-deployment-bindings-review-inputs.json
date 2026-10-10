@@ -1,0 +1,66 @@
+{
+  "attempt_count": 1,
+  "inputs": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "a0b0cbbc4ab9615e933b6ceca391b2d6dfaeecfdc9323a6ea561119c9fa114c7",
+      "size_bytes": 1335
+    },
+    {
+      "path": "docs/hosted/hosted-contract-v1.md",
+      "sha256": "14704b9cbbe0f0ca281751833bc08248820da0c277a281a140bfd12bc6b102df",
+      "size_bytes": 24250
+    },
+    {
+      "path": "docs/hosted/hosted-acceptance-v1.md",
+      "sha256": "e5877b503259f6e758f22a6feb9307efdc45397155a9229527b2a8ae5dbfc55e",
+      "size_bytes": 10693
+    },
+    {
+      "path": "docs/hosted/hm02-freeze-manifest.json",
+      "sha256": "ac5a4c5e01e8c064906342607ff2ef9f3e9e9b98429188689e6873f76b2ee52e",
+      "size_bytes": 7824
+    },
+    {
+      "path": "src/quantos/contracts/hosted_inputs.py",
+      "sha256": "948f05074494e452ba2f6716af8294e40a75d63eba194800f2d7d01521bfad18",
+      "size_bytes": 6973
+    },
+    {
+      "path": "src/quantos/contracts/hosted_deployment.py",
+      "sha256": "a4b0766c5a9d7d6631d2269defceb0c74ca0cfe9c32092e19f93ae288f201665",
+      "size_bytes": 8758
+    },
+    {
+      "path": "src/quantos/application/hosted_inputs.py",
+      "sha256": "9b54d915002f3bb44e36a05bd625e8413c7f9c49a0ecfbd822a47758181653c3",
+      "size_bytes": 12610
+    },
+    {
+      "path": "src/quantos/infrastructure/hosted_deployment.py",
+      "sha256": "804c83935bcb3b2cd02c67ce9eaed52a41239ce1d4f69926c59aad8e6852b099",
+      "size_bytes": 15807
+    },
+    {
+      "path": "src/quantos/infrastructure/hosted_service.py",
+      "sha256": "ff6d488f2c43c01fa65d616125cb608cbc9939056825025b8ad3669f65478c00",
+      "size_bytes": 9542
+    },
+    {
+      "path": "src/quantos/infrastructure/hosted_launcher.py",
+      "sha256": "29b4dfac91fff98023eeb953aab8a64d642a1524b24e80360bd8045741cb094f",
+      "size_bytes": 21311
+    }
+  ],
+  "model": "gpt-6-astra",
+  "qualification_granted": false,
+  "reasoning_effort": "high",
+  "review": {
+    "path": "docs/reviews/hm02-deployment-bindings-review.md",
+    "sha256": "784b573fe47c4e5838a74d2ce39bbb420c707ca39d8d4743610ff55ac3782381",
+    "size_bytes": 9606
+  },
+  "schema_version": "hm02-deployment-bindings-review-inputs/v1",
+  "status": "APPROVED_IMPLEMENTATION_CLARIFICATION",
+  "usage": "unavailable"
+}

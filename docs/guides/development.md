@@ -3,6 +3,11 @@
 先阅读仓库根 [AGENTS.md](../../AGENTS.md)。当前工程范围见[状态页](../status/README.md)，
 验收与依赖见[路线图](../../PLAN.md)。
 
+后续实施与恢复还须遵守[实施约定](implementation-discipline.md)，包括默认复用、
+局部验证、正式证据持久化、完整资源预算和安全并行。依据见
+[HM-MVP 实施复盘](../hosted/hm-mvp-implementation-retrospective.md)。
+这些约定接入现有工作，不增加新的测试、审批或发布流水线。
+
 ## 环境
 
 ```bash
@@ -40,6 +45,10 @@ Contracts 不导入 Qlib、Tushare、Agent harness 或 LLM SDK。
 Normalization、PIT、执行、回测和 validation 不调用 LLM。
 
 ## CI 质量门
+
+用户未明确要求测试或验证实现时，不默认运行或新增测试。
+获授权的验证先按实际影响范围复用原结果及选择已有用例；完整 CI/矩阵/科学重执行
+须有具体必要性说明，不因格式、夹具或管理路径变化自动全量重跑。
 
 [CI 配置](../../.github/workflows/ci.yml)使用冻结依赖；pytest 默认禁网，
 line/branch 综合 coverage 门为 `85%`。显式要求验证实现时，可运行：

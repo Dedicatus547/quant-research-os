@@ -1,0 +1,92 @@
+"""Finite management fault windows; research requests cannot select them."""
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class HostedFaultWindow:
+    action: str
+    operation_kind: str | None
+    point: str
+    occurrence: int = 1
+    native_execution: bool = False
+    corruption: bool = False
+
+
+PROTOCOL_FAULT_WINDOWS = {
+    f"{action}-{point}-{number}": HostedFaultWindow(action, kind, point, number)
+    for action, kind, publications in (
+        ("register", "REGISTER", 3),
+        ("issue", "ISSUE", 4),
+        ("submit", "SUBMIT", 5),
+        ("reject", "SUBMIT", 2),
+        ("cancel", "TERMINATE", 1),
+        ("expire", "TERMINATE", 1),
+    )
+    for point, number in (
+        ("intent_published", 1),
+        *(("artifact_published", index) for index in range(1, publications + 1)),
+        ("completion_published", 1),
+    )
+}
+
+# These use the existing native schema-invalid proposal admission. Execution
+# windows below use a separate frozen valid-candidate fixture.
+ADMISSION_FAULT_WINDOWS = {
+    f"business-{point}": HostedFaultWindow(
+        "start" if point in ("research_initial", "request_checkpoint") else "resume",
+        None,
+        point,
+    )
+    for point in (
+        "research_initial",
+        "request_checkpoint",
+        "prepared",
+        "completed_intent",
+        "trial_event",
+        "ledger",
+        "step_completed",
+    )
+}
+
+EXECUTION_FAULT_WINDOWS = {
+    f"execution-{point}": HostedFaultWindow("execute_campaign", None, point, native_execution=True)
+    for point in (
+        "prepared",
+        "started",
+        "execution_receipt",
+        "completed_intent",
+        "trial_event",
+        "ledger",
+        "step_completed",
+        "selection_ledger",
+        "final_report",
+    )
+}
+
+HOSTED_FAULT_WINDOWS = {
+    **PROTOCOL_FAULT_WINDOWS,
+    **ADMISSION_FAULT_WINDOWS,
+    **EXECUTION_FAULT_WINDOWS,
+}
+CORRUPTION_FAULT_WINDOWS = {
+    f"corruption-{kind}": HostedFaultWindow("corrupt", None, kind, corruption=True)
+    for kind in (
+        "journal_fragment",
+        "wrong_sequence",
+        "double_pending",
+        "orphan_artifact",
+        "changed_artifact",
+    )
+}
+# Keep the durable-only matrix separately identifiable for retained diagnostics.
+MANAGEMENT_FAULT_WINDOWS = {**HOSTED_FAULT_WINDOWS, **CORRUPTION_FAULT_WINDOWS}
+FAULT_SNAPSHOT_PHASES = ("before", "crashed", "recovered", "after")
+
+# Physical intermediates use their own forensic reader and fixed worker. They
+# must never be passed to the canonical durable/corruption snapshot predicate.
+ATOMIC_FAULT_WINDOWS = {
+    f"atomic-{domain}-{window}": (domain, window)
+    for domain in ("spec", "journal", "object")
+    for window in ("file_fsynced", "file_linked", "file_published", "directory_fsynced")
+}

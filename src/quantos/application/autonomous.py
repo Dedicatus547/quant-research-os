@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import NoReturn, Protocol, cast
+from typing import Literal, NoReturn, Protocol, cast
 from uuid import UUID, uuid5
 
 from pydantic import ValidationError
@@ -57,6 +58,7 @@ from quantos.contracts.autonomous import (
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
     AutonomousLoopReport,
+    AutonomousLoopState,
     AutonomousSelectionFinalizationProfile,
     AutonomousStoppingReason,
     autonomous_execution_identity,
@@ -76,6 +78,7 @@ from quantos.contracts.campaign import (
 from quantos.contracts.campaign_selection import (
     CampaignSelectionEvent,
     CampaignSelectionEventType,
+    CampaignSelectionReport,
     CampaignSelectionVerdict,
 )
 from quantos.contracts.enumeration import (
@@ -111,6 +114,30 @@ _RESEARCH_OUTCOMES = {
 }
 
 
+@dataclass(frozen=True)
+class AutonomousProposalEvidence:
+    """Verified proposal identity without an SDK/runtime manifest."""
+
+    request: AutonomousAgentRequest
+    proposal_bytes: str
+    proposal_hash: str
+    agent_run_hash: str
+    provenance_kind: Literal["AGENT_MANIFEST", "HOSTED_EXCHANGE"]
+
+
+@dataclass(frozen=True)
+class AutonomousTrialPreparation:
+    """Pure admission and execution identity, before deterministic execution."""
+
+    evidence: AutonomousProposalEvidence
+    candidate: ResearchCandidateSpec
+    proposal: AutonomousCandidateProposal | None
+    execution_request: AutonomousExecutionRequest | None
+    terminal_outcome: TrialOutcome | None
+    idempotency_key: str
+    event_time: datetime
+
+
 class AutonomousAgentDriver(Protocol):
     """Runtime-neutral Agent port. Implementations return proposal bytes only."""
 
@@ -133,6 +160,26 @@ class DeterministicResearchExecutionPort(Protocol):
 
 def _raise(reason_code: ReasonCode, message: str) -> NoReturn:
     raise AutonomousOrchestrationError(reason_code, message)
+
+
+def _hosted_proposal_schema(schema: dict[str, object]) -> dict[str, object]:
+    """Require explicit fields in hosted structured output, including defaults."""
+    def adapt(value: object) -> object:
+        if isinstance(value, list):
+            return [adapt(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        result = {key: adapt(item) for key, item in value.items() if key != "default"}
+        properties = result.get("properties")
+        if result.get("type") == "object" and isinstance(properties, dict):
+            result["required"] = list(properties)
+        return result
+
+    return cast(dict[str, object], adapt(schema))
+
+
+def autonomous_trial_event_id(trial: CampaignTrial) -> UUID:
+    return uuid5(_AUTONOMOUS_EVENT_NAMESPACE, trial.idempotency_key)
 
 
 def _validate_response(
@@ -822,9 +869,10 @@ class AutonomousCampaignOrchestrator:
         )
         if not options:
             _raise(ReasonCode.RESEARCH_BUDGET_EXCEEDED, "no candidate remains for an Agent request")
-        proposal_schema_bytes = canonical_json_bytes(
-            AutonomousCandidateProposal.model_json_schema()
-        )
+        proposal_schema = AutonomousCandidateProposal.model_json_schema()
+        if self.agent_run_policy.harness_identifier == "host-mediated/v1":
+            proposal_schema = _hosted_proposal_schema(proposal_schema)
+        proposal_schema_bytes = canonical_json_bytes(proposal_schema)
         proposal_schema_hash = sha256_bytes(proposal_schema_bytes)
         relevant_policy_hashes = {
             self.campaign_policy.content_hash,
@@ -946,15 +994,17 @@ class AutonomousCampaignOrchestrator:
     def _parse_candidate_proposal(
         self, response: AutonomousAgentResponse
     ) -> AutonomousCandidateProposal | None:
+        return self._parse_proposal_bytes(response.proposal_bytes)
+
+    @staticmethod
+    def _parse_proposal_bytes(proposal_bytes: str) -> AutonomousCandidateProposal | None:
         try:
             proposal = AutonomousCandidateProposal.model_validate_json(
-                response.proposal_bytes.encode("utf-8")
+                proposal_bytes.encode("utf-8")
             )
         except (ValidationError, ValueError):
             return None
-        if proposal.canonical_bytes() != response.proposal_bytes.encode("utf-8"):
-            return None
-        return proposal
+        return proposal if proposal.canonical_bytes() == proposal_bytes.encode("utf-8") else None
 
     def _proposal_matches_candidate(
         self,
@@ -980,17 +1030,27 @@ class AutonomousCampaignOrchestrator:
         if response.invocation_hash != request.content_hash:
             _raise(ReasonCode.ARTIFACT_CORRUPTED, "Agent response is bound to a different request")
 
-    def _make_trial(
+    def prepare_trial(
         self,
+        evidence: AutonomousProposalEvidence,
         *,
-        request: AutonomousAgentRequest,
-        response: AutonomousAgentResponse,
-        proposal: AutonomousCandidateProposal | None,
-        candidate: ResearchCandidateSpec,
         events: tuple[CampaignChainEvent, ...],
         event_time: datetime,
-    ) -> CampaignTrial:
+    ) -> AutonomousTrialPreparation:
+        """Resolve only the frozen candidate and build an execution request; no execution."""
+        if sha256_bytes(evidence.proposal_bytes.encode("utf-8")) != evidence.proposal_hash:
+            _raise(ReasonCode.ARTIFACT_CORRUPTED, "proposal evidence hash differs")
+        if evidence.request.campaign_hash != self.campaign.content_hash:
+            _raise(ReasonCode.ARTIFACT_CORRUPTED, "proposal request campaign differs")
+        candidate = self._candidate_by_hash.get(
+            self._extract_candidate_hash(evidence.proposal_bytes)
+        )
+        if candidate is None:
+            _raise(ReasonCode.SCHEMA_INVALID, "proposal candidate is outside frozen manifest")
+        proposal = self._parse_proposal_bytes(evidence.proposal_bytes)
         proposal_valid = self._proposal_matches_candidate(proposal, candidate)
+        if proposal is not None and proposal.campaign_hash != self.campaign.content_hash:
+            _raise(ReasonCode.ARTIFACT_CORRUPTED, "proposal campaign binding is invalid")
         candidate_attempted = any(
             isinstance(event, ResearchCampaignEvent)
             and event.trial is not None
@@ -1000,78 +1060,123 @@ class AutonomousCampaignOrchestrator:
         same_expression_attempted = self._has_attempted_exact_expression(
             candidate, self._attempted_exact_expression_hashes(events)
         )
+        execution_request = None
+        terminal_outcome = None
         if not proposal_valid:
-            outcome = TrialOutcome.SCHEMA_INVALID
+            terminal_outcome = TrialOutcome.SCHEMA_INVALID
+        elif candidate_attempted or same_expression_attempted:
+            terminal_outcome = TrialOutcome.DUPLICATE_CANDIDATE
+        else:
+            execution_request = self._build_execution_request(
+                candidate, evidence.agent_run_hash, events
+            )
+        idempotency_key = sha256_bytes(
+            canonical_json_bytes(
+                {
+                    "agent_run_hash": evidence.agent_run_hash,
+                    "candidate_hash": candidate.content_hash,
+                    "proposal_hash": evidence.proposal_hash,
+                    "campaign_hash": self.campaign.content_hash,
+                    "segment": self.campaign_policy.trial_segment,
+                }
+            )
+        )
+        return AutonomousTrialPreparation(
+            evidence,
+            candidate,
+            proposal if proposal_valid else None,
+            execution_request,
+            terminal_outcome,
+            idempotency_key,
+            event_time,
+        )
+
+    def _build_execution_request(
+        self,
+        candidate: ResearchCandidateSpec,
+        run_hash: str,
+        events: tuple[CampaignChainEvent, ...],
+    ) -> AutonomousExecutionRequest:
+        projection = self.governor.project(self.campaign, self.budget, events)
+        trial_ordinal = projection.trial_count + 1
+        segment = {
+            CampaignSegment.DEVELOPMENT: self.campaign.development,
+            CampaignSegment.VALIDATION: self.campaign.validation,
+        }[self.campaign_policy.trial_segment]
+        execution_identity = autonomous_execution_identity(
+            campaign_hash=self.campaign.content_hash,
+            family_hash=self.family.content_hash,
+            budget_hash=self.budget.content_hash,
+            candidate_manifest_hash=self.manifest.content_hash,
+            candidate=candidate,
+            snapshot_hash=self.campaign.snapshot_hash,
+            qlib_view_hash=self.campaign.qlib_view_hash,
+            segment=self.campaign_policy.trial_segment,
+            segment_start=segment.start,
+            segment_end=segment.end,
+            trial_ordinal=trial_ordinal,
+            bindings=self.execution_bindings,
+        )
+        execution_request = AutonomousExecutionRequest(
+            idempotency_key=execution_identity,
+            execution_identity=execution_identity,
+            trial_ordinal=trial_ordinal,
+            campaign_hash=self.campaign.content_hash,
+            family_hash=self.family.content_hash,
+            budget_hash=self.budget.content_hash,
+            candidate_manifest_hash=self.manifest.content_hash,
+            candidate=candidate,
+            candidate_exact_expression_hash=candidate.exact_expression_hash,
+            candidate_structural_expression_hash=candidate.structural_expression_hash,
+            snapshot_hash=self.campaign.snapshot_hash,
+            dataset_id=self.execution_bindings.dataset_id,
+            qlib_view_hash=self.campaign.qlib_view_hash,
+            segment=self.campaign_policy.trial_segment,
+            segment_start=segment.start,
+            segment_end=segment.end,
+            agent_run_hash=run_hash,
+            execution_policy_hash=self.execution_bindings.execution_policy_hash,
+            pit_policy_hash=self.execution_bindings.pit_policy_hash,
+            authoring_hash=self.execution_bindings.authoring_hash,
+            research_policy_hash=self.execution_bindings.research_policy_hash,
+            validation_policy_hash=self.execution_bindings.validation_policy_hash,
+            cost_policy_hash=self.execution_bindings.cost_policy_hash,
+            backtest_policy_hash=self.execution_bindings.backtest_policy_hash,
+            code_commit_hash=self.execution_bindings.code_commit_hash,
+            lockfile_hash=self.execution_bindings.lockfile_hash,
+            qlib_version=self.execution_bindings.qlib_version,
+            remaining_executions=max(0, self.budget.max_executions - projection.execution_count),
+            remaining_validation_rounds=max(
+                0, self.budget.max_validation_rounds - projection.validation_round_count
+            ),
+            remaining_compute_seconds=max(
+                0, self.budget.max_compute_seconds - projection.compute_seconds
+            ),
+        )
+        return execution_request
+
+    def finish_trial(
+        self,
+        prepared: AutonomousTrialPreparation,
+        execution_result: AutonomousExecutionResult | None,
+        *,
+        events: tuple[CampaignChainEvent, ...],
+    ) -> CampaignTrial:
+        """Verify deterministic output and construct the existing campaign accounting object."""
+        candidate = prepared.candidate
+        execution_request = prepared.execution_request
+        projection = self.governor.project(self.campaign, self.budget, events)
+        if execution_request is None:
+            if execution_result is not None or prepared.terminal_outcome is None:
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "admission trial has execution output")
+            outcome = prepared.terminal_outcome
             execution_requested = False
             compute_seconds = 0
             evidence_hashes: tuple[str, ...] = ()
-        elif candidate_attempted or same_expression_attempted:
-            outcome = TrialOutcome.DUPLICATE_CANDIDATE
-            execution_requested = False
-            compute_seconds = 0
-            evidence_hashes = ()
         else:
-            run_hash = response.manifest.transcript_hash
-            projection = self.governor.project(self.campaign, self.budget, events)
-            trial_ordinal = projection.trial_count + 1
-            segment = {
-                CampaignSegment.DEVELOPMENT: self.campaign.development,
-                CampaignSegment.VALIDATION: self.campaign.validation,
-            }[self.campaign_policy.trial_segment]
-            execution_identity = autonomous_execution_identity(
-                campaign_hash=self.campaign.content_hash,
-                family_hash=self.family.content_hash,
-                budget_hash=self.budget.content_hash,
-                candidate_manifest_hash=self.manifest.content_hash,
-                candidate=candidate,
-                snapshot_hash=self.campaign.snapshot_hash,
-                qlib_view_hash=self.campaign.qlib_view_hash,
-                segment=self.campaign_policy.trial_segment,
-                segment_start=segment.start,
-                segment_end=segment.end,
-                trial_ordinal=trial_ordinal,
-                bindings=self.execution_bindings,
-            )
-            execution_request = AutonomousExecutionRequest(
-                idempotency_key=execution_identity,
-                execution_identity=execution_identity,
-                trial_ordinal=trial_ordinal,
-                campaign_hash=self.campaign.content_hash,
-                family_hash=self.family.content_hash,
-                budget_hash=self.budget.content_hash,
-                candidate_manifest_hash=self.manifest.content_hash,
-                candidate=candidate,
-                candidate_exact_expression_hash=candidate.exact_expression_hash,
-                candidate_structural_expression_hash=candidate.structural_expression_hash,
-                snapshot_hash=self.campaign.snapshot_hash,
-                dataset_id=self.execution_bindings.dataset_id,
-                qlib_view_hash=self.campaign.qlib_view_hash,
-                segment=self.campaign_policy.trial_segment,
-                segment_start=segment.start,
-                segment_end=segment.end,
-                agent_run_hash=run_hash,
-                execution_policy_hash=self.execution_bindings.execution_policy_hash,
-                pit_policy_hash=self.execution_bindings.pit_policy_hash,
-                authoring_hash=self.execution_bindings.authoring_hash,
-                research_policy_hash=self.execution_bindings.research_policy_hash,
-                validation_policy_hash=self.execution_bindings.validation_policy_hash,
-                cost_policy_hash=self.execution_bindings.cost_policy_hash,
-                backtest_policy_hash=self.execution_bindings.backtest_policy_hash,
-                code_commit_hash=self.execution_bindings.code_commit_hash,
-                lockfile_hash=self.execution_bindings.lockfile_hash,
-                qlib_version=self.execution_bindings.qlib_version,
-                remaining_executions=max(
-                    0, self.budget.max_executions - projection.execution_count
-                ),
-                remaining_validation_rounds=max(
-                    0, self.budget.max_validation_rounds - projection.validation_round_count
-                ),
-                remaining_compute_seconds=max(
-                    0, self.budget.max_compute_seconds - projection.compute_seconds
-                ),
-            )
+            if execution_result is None:
+                _raise(ReasonCode.ARTIFACT_CORRUPTED, "execution output is missing")
             try:
-                execution_result = self.execution_port.execute(execution_request)
                 execution_result = AutonomousExecutionResult.model_validate(
                     execution_result.model_dump(mode="python")
                 )
@@ -1149,30 +1254,48 @@ class AutonomousCampaignOrchestrator:
             execution_requested = execution_result.execution_requested
             compute_seconds = execution_result.compute_seconds
             evidence_hashes = execution_result.evidence_hashes
-        idempotency_key = sha256_bytes(
-            canonical_json_bytes(
-                {
-                    "agent_run_hash": response.manifest.transcript_hash,
-                    "candidate_hash": candidate.content_hash,
-                    "proposal_hash": response.proposal_hash,
-                    "campaign_hash": self.campaign.content_hash,
-                    "segment": self.campaign_policy.trial_segment,
-                }
-            )
-        )
-        trial_id = f"trial-{idempotency_key[:48]}"
         return CampaignTrial(
-            trial_id=trial_id,
-            idempotency_key=idempotency_key,
-            proposal_hash=response.proposal_hash,
+            trial_id=f"trial-{prepared.idempotency_key[:48]}",
+            idempotency_key=prepared.idempotency_key,
+            proposal_hash=prepared.evidence.proposal_hash,
             candidate_hash=candidate.content_hash,
             segment=self.campaign_policy.trial_segment,
             outcome=outcome,
-            agent_run_hash=response.manifest.transcript_hash,
+            agent_run_hash=prepared.evidence.agent_run_hash,
             execution_requested=execution_requested,
             compute_seconds=compute_seconds,
             evidence_hashes=evidence_hashes,
         )
+
+    def _make_trial(
+        self,
+        *,
+        request: AutonomousAgentRequest,
+        response: AutonomousAgentResponse,
+        proposal: AutonomousCandidateProposal | None,
+        candidate: ResearchCandidateSpec,
+        events: tuple[CampaignChainEvent, ...],
+        event_time: datetime,
+    ) -> CampaignTrial:
+        # Preserve the old driver validation upstream; shared business helpers receive
+        # only the already-validated identity and original proposal bytes.
+        prepared = self.prepare_trial(
+            AutonomousProposalEvidence(
+                request,
+                response.proposal_bytes,
+                response.proposal_hash,
+                response.manifest.transcript_hash,
+                "AGENT_MANIFEST",
+            ),
+            events=events,
+            event_time=event_time,
+        )
+        result = (
+            self.execution_port.execute(prepared.execution_request)
+            if prepared.execution_request is not None
+            else None
+        )
+        return self.finish_trial(prepared, result, events=events)
 
     def _stopping_reason(
         self,
@@ -1229,7 +1352,14 @@ class AutonomousCampaignOrchestrator:
         events: tuple[CampaignChainEvent, ...],
         snapshot: ResearchLedgerSnapshot,
         at: datetime,
+        *,
+        hosted_evidence: tuple[AutonomousProposalEvidence, ...] = (),
     ) -> tuple[tuple[CampaignChainEvent, ...], ResearchLedgerSnapshot]:
+        hosted_by_run = {item.agent_run_hash: item for item in hosted_evidence}
+        if len(hosted_by_run) != len(hosted_evidence) or any(
+            item.provenance_kind != "HOSTED_EXCHANGE" for item in hosted_evidence
+        ):
+            _raise(ReasonCode.ARTIFACT_CORRUPTED, "hosted proposal evidence conflicts")
         event_trials = tuple(
             event
             for event in events
@@ -1240,20 +1370,28 @@ class AutonomousCampaignOrchestrator:
         for event in event_trials:
             trial = cast(CampaignTrial, event.trial)
             if trial.agent_run_hash is not None:
-                exchange = self.exchange_store.for_run_hash(trial.agent_run_hash)
-                if exchange is not None:
-                    response = exchange.response
+                evidence = hosted_by_run.get(trial.agent_run_hash)
+                if evidence is None:
+                    exchange = self.exchange_store.for_run_hash(trial.agent_run_hash)
+                    if exchange is not None:
+                        evidence = AutonomousProposalEvidence(
+                            exchange.request,
+                            exchange.response.proposal_bytes,
+                            exchange.response.proposal_hash,
+                            exchange.response.manifest.transcript_hash,
+                            "AGENT_MANIFEST",
+                        )
+                if evidence is not None:
                     if (
-                        response.proposal_hash != trial.proposal_hash
-                        or response.manifest.transcript_hash != trial.agent_run_hash
-                        or self._extract_candidate_hash(response.proposal_bytes)
+                        evidence.proposal_hash != trial.proposal_hash
+                        or evidence.agent_run_hash != trial.agent_run_hash
+                        or self._extract_candidate_hash(evidence.proposal_bytes)
                         != trial.candidate_hash
                     ):
                         _raise(
-                            ReasonCode.ARTIFACT_CORRUPTED,
-                            "trial and retained Agent exchange disagree",
+                            ReasonCode.ARTIFACT_CORRUPTED, "trial and retained proposal disagree"
                         )
-                    parsed = self._parse_candidate_proposal(response)
+                    parsed = self._parse_proposal_bytes(evidence.proposal_bytes)
                     candidate = self._candidate_by_hash.get(trial.candidate_hash)
                     if (
                         parsed is not None
@@ -1263,8 +1401,8 @@ class AutonomousCampaignOrchestrator:
                     ):
                         snapshot = self._append_proposal_if_missing(
                             parsed,
-                            response,
-                            exchange.request.context_pack,
+                            evidence.agent_run_hash,
+                            evidence.request.context_pack,
                             snapshot,
                             event.occurred_at,
                         )
@@ -1446,7 +1584,7 @@ class AutonomousCampaignOrchestrator:
     def _append_proposal_if_missing(
         self,
         proposal: AutonomousCandidateProposal,
-        response: AutonomousAgentResponse,
+        agent_run_hash: str,
         context_pack: ResearchContextPack,
         snapshot: ResearchLedgerSnapshot,
         occurred_at: datetime,
@@ -1458,10 +1596,10 @@ class AutonomousCampaignOrchestrator:
             object_hash=proposal.content_hash,
             node_kind=ResearchLedgerNodeKind.FACTOR_PROPOSAL,
             authority=LedgerAssertionAuthority.AGENT_PROPOSAL,
-            node_id=f"candidate-proposal-{response.manifest.transcript_hash}-{proposal.content_hash}",
+            node_id=f"candidate-proposal-{agent_run_hash}-{proposal.content_hash}",
             occurred_at=occurred_at,
             campaign_access=LedgerObjectAccess.CAMPAIGN_INTERNAL,
-            agent_run_hash=response.manifest.transcript_hash,
+            agent_run_hash=agent_run_hash,
             parent_object_hashes=tuple(
                 sorted({item.object_ref.object_hash for item in context_pack.items})
             ),
@@ -1510,13 +1648,33 @@ class AutonomousCampaignOrchestrator:
         except ResearchLedgerError as error:
             raise AutonomousOrchestrationError(error.reason_code, str(error)) from error
 
-    def _selection_handoff(
+    def selection_evidence_handoff(
         self,
         events: tuple[CampaignChainEvent, ...],
         *,
-        started_at: datetime,
-        stopping_reason: AutonomousStoppingReason,
-    ) -> tuple[AutonomousLoopReport, tuple[CampaignChainEvent, ...]]:
+        hosted_evidence: tuple[AutonomousProposalEvidence, ...] = (),
+    ) -> tuple[
+        CampaignSelectionReport,
+        tuple[CampaignChainEvent, ...],
+        ResearchLedgerSnapshot,
+        AutonomousLoopState,
+        str | None,
+    ]:
+        """Publish the existing P14c evidence and Ledger facts independently of transport."""
+        # A crash may leave the deterministic closing/selection event without the
+        # outer loop report. Rebuild against its original report prefix; append
+        # below verifies and reuses the same terminal event rather than reclosing.
+        if events and (
+            (
+                isinstance(events[-1], ResearchCampaignEvent)
+                and events[-1].event_type is CampaignEventType.CLOSED
+            )
+            or (
+                isinstance(events[-1], CampaignSelectionEvent)
+                and events[-1].event_type is CampaignSelectionEventType.SELECTION_FROZEN
+            )
+        ):
+            events = events[:-1]
         if self.selection_finalization_profile == P14DQ_REPORT_ONLY_FINALIZATION_PROFILE:
             verify_dq = getattr(self.execution_port, "verify_preselection_dq_trials", None)
             if not callable(verify_dq):
@@ -1594,7 +1752,21 @@ class AutonomousCampaignOrchestrator:
                 if report.verdict is CampaignSelectionVerdict.SELECTED
                 else self.selection_finalization_profile.no_selection_state
             )
-        events, ledger_snapshot = self._reconcile_ledger(events, ledger_snapshot, event_time)
+        events, ledger_snapshot = self._reconcile_ledger(
+            events, ledger_snapshot, event_time, hosted_evidence=hosted_evidence
+        )
+        return report, events, ledger_snapshot, state, selection_event_hash
+
+    def _selection_handoff(
+        self,
+        events: tuple[CampaignChainEvent, ...],
+        *,
+        started_at: datetime,
+        stopping_reason: AutonomousStoppingReason,
+    ) -> tuple[AutonomousLoopReport, tuple[CampaignChainEvent, ...]]:
+        report, events, ledger_snapshot, state, selection_event_hash = (
+            self.selection_evidence_handoff(events)
+        )
         projection = self.governor.project(self.campaign, self.budget, events)
         exchanges = self._exchanges_for_events(events)
         trial_events = tuple(
@@ -1668,6 +1840,18 @@ class AutonomousCampaignOrchestrator:
             seen.add(run_hash)
             exchanges.append(exchange)
         return tuple(exchanges)
+
+    # Narrow business interfaces shared by hosted orchestration. Legacy private
+    # names remain available to the original synchronous path and its fixtures.
+    require_frozen_plan = _require_frozen_plan
+    current_ledger_snapshot = _current_snapshot
+    require_initial_snapshot_prefix = _require_initial_snapshot_prefix
+    access_scope = _access_scope
+    build_agent_request = _build_agent_request
+    parse_proposal_bytes = _parse_proposal_bytes
+    stopping_reason = _stopping_reason
+    next_event_time = _next_event_time
+    reconcile_ledger = _reconcile_ledger
 
 
 __all__ = [

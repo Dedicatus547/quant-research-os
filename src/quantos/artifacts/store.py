@@ -7,11 +7,12 @@ import json
 import os
 import stat
 import tempfile
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 from typing import Literal, Self
+from uuid import uuid4
 
 from pydantic import Field, model_validator
 
@@ -30,6 +31,120 @@ class ArtifactConflictError(ArtifactError):
 
 class ArtifactIntegrityError(ArtifactError):
     """Raised when content does not match its expected digest."""
+
+
+@contextmanager
+def opened_directory(path: Path, *, create: bool = False) -> Generator[int, None, None]:
+    """Pin a POSIX directory by traversing each component with openat/O_NOFOLLOW."""
+    absolute = path.absolute()
+    if ".." in absolute.parts:
+        raise ArtifactIntegrityError("authority directory cannot contain traversal")
+    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for component in absolute.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(component, mode=0o700, dir_fd=descriptor)
+                    os.fsync(descriptor)
+                except FileExistsError:
+                    pass
+            try:
+                child = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=descriptor,
+                )
+            except OSError as error:
+                raise ArtifactIntegrityError(
+                    "authority directory is unavailable or unsafe"
+                ) from error
+            os.close(descriptor)
+            descriptor = child
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def read_regular_bytes_at(directory_fd: int, name: str, *, max_bytes: int) -> bytes:
+    """Read bounded immutable bytes relative to a pinned directory, rejecting aliases."""
+    _safe_segment(name)
+    try:
+        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+    except OSError as error:
+        raise ArtifactIntegrityError("authority file is unavailable or unsafe") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise ArtifactIntegrityError("authority file must be regular and have one link")
+        if metadata.st_size > max_bytes:
+            raise ArtifactIntegrityError("authority file exceeds byte cap")
+        with os.fdopen(os.dup(descriptor), "rb") as stream:
+            data = stream.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ArtifactIntegrityError("authority file exceeds byte cap")
+        return data
+    finally:
+        os.close(descriptor)
+
+
+def atomic_write_bytes_at(
+    directory_fd: int,
+    name: str,
+    data: bytes,
+    *,
+    fault_hook: Callable[[str], None] | None = None,
+) -> str:
+    """The immutable create-if-absent/fsync primitive, using only anchored openat calls."""
+    _safe_segment(name)
+    digest = sha256_bytes(data)
+    try:
+        os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    else:
+        if read_regular_bytes_at(directory_fd, name, max_bytes=len(data)) != data:
+            raise ArtifactConflictError("immutable authority target conflicts")
+        return digest
+    temporary_name = f".publish-{uuid4().hex}"
+    descriptor = os.open(
+        temporary_name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+        dir_fd=directory_fd,
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+            if fault_hook is not None:
+                fault_hook("file_fsynced")
+        try:
+            os.link(
+                temporary_name,
+                name,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+        except FileExistsError:
+            if read_regular_bytes_at(directory_fd, name, max_bytes=len(data)) != data:
+                raise ArtifactConflictError("immutable authority target conflicts") from None
+        if fault_hook is not None:
+            fault_hook("file_linked")
+        os.unlink(temporary_name, dir_fd=directory_fd)
+        if fault_hook is not None:
+            fault_hook("file_published")
+        os.fsync(directory_fd)
+        if fault_hook is not None:
+            fault_hook("directory_fsynced")
+    finally:
+        try:
+            os.unlink(temporary_name, dir_fd=directory_fd)
+            os.fsync(directory_fd)
+        except FileNotFoundError:
+            pass
+    return digest
 
 
 def sha256_file(path: Path) -> str:

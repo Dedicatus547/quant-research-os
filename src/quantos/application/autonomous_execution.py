@@ -22,9 +22,11 @@ from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
     exclusive_directory_lock,
+    opened_directory,
+    read_regular_bytes_at,
     regular_tree_files,
 )
-from quantos.backtest import QlibBacktestService
+from quantos.backtest import QlibBacktestService, verify_backtest_artifact
 from quantos.contracts.autonomous import (
     AutonomousExecutionBindings,
     AutonomousExecutionFailureEvidence,
@@ -350,6 +352,58 @@ class QuantosResearchExecutionAdapter:
                 if audit.audit_hash not in outcome.evidence_hashes:
                     self._integrity("DQ export audit is absent before receipt publication")
             return self._publish_receipt(request, outcome)
+
+    def execution_compute_charge(self, request: AutonomousExecutionRequest) -> int:
+        """Quote the existing frozen workload units without running the pipeline."""
+        self._verify_request(request)
+        return self._deterministic_compute_charge(request)
+
+    def verified_completed_execution(
+        self, request: AutonomousExecutionRequest
+    ) -> AutonomousExecutionResult | None:
+        """Verify an existing receipt; never reserve a trial or run the pipeline.
+
+        An existing receipt may repair its content-addressed receipt index through
+        ``_read_receipt``. This is a recoverable publication, not a pure read. Missing
+        receipts produce no receipt, trial reservation, or execution.
+        """
+        self._verify_request(request)
+        with exclusive_directory_lock(
+            self.output_root / "execution-locks" / request.execution_identity
+        ):
+            receipt = self._read_receipt(request.execution_identity)
+            if receipt is None:
+                return None
+            if receipt.request != request:
+                self._integrity("completed execution is bound to different inputs")
+            self._verify_receipt(receipt)
+            return self._outcome_with_receipt(receipt)
+
+    def inspect_completed_execution(
+        self, request: AutonomousExecutionRequest
+    ) -> AutonomousExecutionResult | None:
+        """Bottom-up verify saved execution authority without repairing or publishing files.
+
+        Offline qualification uses this read-only boundary. Online crash recovery keeps
+        using ``verified_completed_execution`` and its existing receipt-index repair.
+        """
+        self._verify_request(request)
+        path = self._receipt_path(request.execution_identity)
+        if not path.exists():
+            return None
+        with opened_directory(path.parent) as parent:
+            encoded = read_regular_bytes_at(parent, path.name, max_bytes=16_777_216)
+        receipt = AutonomousExecutionReceipt.model_validate_json(encoded)
+        if receipt.canonical_bytes() != encoded or receipt.request != request:
+            self._integrity("saved execution receipt differs from exact request")
+        with opened_directory(self.output_root / "execution-record-artifacts") as parent:
+            indexed = read_regular_bytes_at(
+                parent, f"sha256-{receipt.content_hash}.json", max_bytes=16_777_216
+            )
+        if indexed != encoded:
+            self._integrity("saved execution receipt index differs from original bytes")
+        self._verify_receipt(receipt)
+        return self._outcome_with_receipt(receipt)
 
     def verify_preselection_dq_trials(self, events: tuple[ResearchCampaignEvent, ...]) -> None:
         """Reverify every DQ trial and its native-label audit before P14c reads it."""
@@ -885,8 +939,9 @@ class QuantosResearchExecutionAdapter:
         self._verify_request(request)
         if receipt.outcome.request_hash != request.content_hash:
             self._integrity("execution receipt outcome binds a different request")
+        result: ResearchResultManifest | None = None
         if receipt.outcome.research_result_hash is not None:
-            self._verify_result_for_request(request, receipt.outcome.research_result_hash)
+            result = self._verify_result_for_request(request, receipt.outcome.research_result_hash)
             if self.p14dq_v2_profile:
                 audit = self._verify_dq_audit_for_request(
                     request, receipt.outcome.research_result_hash
@@ -900,8 +955,105 @@ class QuantosResearchExecutionAdapter:
                 or report.qlib_view_hash != request.qlib_view_hash
                 or report.research_policy_hash != request.research_policy_hash
                 or report.validation_policy_hash != request.validation_policy_hash
+                or report.authoring_spec_hash != self._authoring(request).content_hash
+                or result is None
+                or report.resolved_experiment_hash != result.resolved_experiment_hash
+                or report.signal_artifact_hash != result.signal_artifact_hash
+                or report.backtest_result_hash is None
+                or report.backtest_result_hash not in receipt.outcome.evidence_hashes
             ):
                 self._integrity("published ValidationReport is bound to different inputs")
+            try:
+                backtest = verify_backtest_artifact(
+                    self.output_root
+                    / "executions"
+                    / request.execution_identity
+                    / "baseline"
+                    / "backtests"
+                    / f"sha256-{report.backtest_result_hash}"
+                )
+            except (QlibResearchError, OSError, ValueError) as error:
+                self._integrity("execution backtest failed bottom-up verification", error)
+            if (
+                backtest.resolved_experiment_hash != result.resolved_experiment_hash
+                or backtest.signal_artifact_hash != result.signal_artifact_hash
+                or backtest.snapshot_hash != request.snapshot_hash
+                or backtest.qlib_view_hash != request.qlib_view_hash
+                or backtest.cost_policy_hash != request.cost_policy_hash
+                or backtest.backtest_policy_hash != request.backtest_policy_hash
+            ):
+                self._integrity("execution backtest differs from the exact execution request")
+            expected_outcome = (
+                TrialOutcome.EXECUTION_FAILED
+                if report.run_status is RunStatus.FAILED
+                else TrialOutcome.PASS
+                if report.verdict is ValidationVerdict.PASS
+                else TrialOutcome.HARD_REJECT
+                if any(
+                    gate.severity is GateSeverity.HARD and gate.verdict is ValidationVerdict.REJECT
+                    for gate in report.gates
+                )
+                else TrialOutcome.SOFT_REJECT
+            )
+            expected_reason = next(
+                (gate.reason_code for gate in report.gates if gate.reason_code is not None), None
+            )
+            if (
+                receipt.outcome.outcome is not expected_outcome
+                or receipt.outcome.failure_reason_code is not expected_reason
+                or receipt.outcome.research_result_hash is None
+                or not receipt.outcome.execution_requested
+                or report.report_hash not in receipt.outcome.evidence_hashes
+                or result.artifact_hash not in receipt.outcome.evidence_hashes
+            ):
+                self._integrity("execution outcome differs from saved ValidationReport")
+        elif (
+            receipt.outcome.outcome not in (TrialOutcome.PIT_REJECT, TrialOutcome.EXECUTION_FAILED)
+            or receipt.outcome.failure_reason_code is None
+            or receipt.outcome.research_result_hash is not None
+        ):
+            self._integrity("execution without validation lacks classified native failure")
+        else:
+            self._verify_failure_for_receipt(receipt)
+
+    def _verify_failure_for_receipt(self, receipt: AutonomousExecutionReceipt) -> None:
+        """Pure, nonrecursive failure verification shared by every receipt reuse path."""
+        request = receipt.request
+        pit = receipt.outcome.outcome is TrialOutcome.PIT_REJECT
+        allowed = (
+            {ReasonCode.LOOK_AHEAD, ReasonCode.UNKNOWN_AVAILABILITY}
+            if pit
+            else {ReasonCode.QLIB_EXECUTION_FAILED, ReasonCode.SOURCE_INCOMPLETE}
+        )
+        if (
+            receipt.outcome.failure_reason_code not in allowed
+            or receipt.outcome.execution_requested == pit
+        ):
+            self._integrity("saved execution failure is outside native classification")
+        failures: list[AutonomousExecutionFailureEvidence] = []
+        for digest in receipt.outcome.evidence_hashes:
+            path = self.output_root / "execution-failures" / f"sha256-{digest}.json"
+            if not path.exists():
+                continue
+            try:
+                with opened_directory(path.parent) as parent:
+                    encoded = read_regular_bytes_at(parent, path.name, max_bytes=65536)
+                failure = AutonomousExecutionFailureEvidence.model_validate_json(encoded)
+            except (OSError, ValueError, ArtifactIntegrityError) as error:
+                self._integrity("saved execution failure evidence is invalid", error)
+            if failure.canonical_bytes() != encoded or failure.content_hash != digest:
+                self._integrity("saved execution failure canonical bytes differ")
+            failures.append(failure)
+        if len(failures) != 1 or (
+            failures[0].request_hash != request.content_hash
+            or failures[0].execution_identity != request.execution_identity
+            or failures[0].campaign_hash != request.campaign_hash
+            or failures[0].candidate_hash != request.candidate.content_hash
+            or failures[0].snapshot_hash != request.snapshot_hash
+            or failures[0].reason_code != receipt.outcome.failure_reason_code
+            or (failures[0].failure_kind == "PIT_REJECTED") != pit
+        ):
+            self._integrity("saved execution failure evidence is missing or mismatched")
 
     def _verify_result_for_request(
         self, request: AutonomousExecutionRequest, result_hash: str
