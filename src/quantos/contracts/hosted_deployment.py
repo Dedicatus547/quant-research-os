@@ -134,7 +134,7 @@ class HostedDeploymentProfile(HostedContract):
     bwrap_version: str = Field(min_length=1, max_length=100)
     seccomp_bpf_hash: Hash
     cli_binary_hash: Hash
-    cli_version: Literal["0.158.0"] = "0.158.0"
+    cli_version: Literal["0.158.0", "0.162.1"] = "0.162.1"
     model_configuration_hash: Hash
     extraction_rule_hash: Hash
     service_network: Literal["UNSHARED_OFFLINE"] = "UNSHARED_OFFLINE"
@@ -162,7 +162,9 @@ class HostedLauncherConfiguration(HostedContract):
     output_byte_cap: int = Field(gt=0, le=4_194_304)
     proposal_byte_cap: int = Field(gt=0, le=262144)
     runtime_timeout_seconds: int = Field(gt=0, le=3600)
-    extraction_rule: Literal["codex-jsonl-single-final/v1"] = "codex-jsonl-single-final/v1"
+    extraction_rule: Literal["codex-jsonl-single-final/v1", "codex-jsonl-single-final/v2"] = (
+        "codex-jsonl-single-final/v2"
+    )
     permission_observation: Literal["REQUESTED_ONLY_NOT_EFFECTIVE_ATTESTATION"] = (
         "REQUESTED_ONLY_NOT_EFFECTIVE_ATTESTATION"
     )

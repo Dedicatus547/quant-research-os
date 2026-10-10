@@ -52,12 +52,13 @@ from quantos.security import SecretArtifactRejected, validate_secret_free
 EXTRACTION_RULE_BYTES = canonical_json_bytes(
     {
         "schema_version": "hosted-extraction-rule/v1",
-        "rule": "codex-jsonl-single-final/v1",
+        "rule": "codex-jsonl-single-final/v2",
         "success_exit": 0,
         "completed_turns": 1,
         "completed_agent_messages": 1,
         "proposal_encoding": "UNMODIFIED_AGENT_MESSAGE_TEXT_UTF8",
         "tool_events": "REJECTED",
+        "nonfatal_startup_error_items": "TYPED_ITEM_COMPLETED_AFTER_THREAD_BEFORE_TURN",
         "malformed_or_duplicate_json_keys": "REJECTED",
     }
 )
@@ -245,7 +246,13 @@ def _safe_event(event: dict[str, object]) -> None:
             raise ValueError("CLI usage schema invalid")
         counts = cast(dict[str, object], usage)
         if not set(counts).issubset(
-            {"input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"}
+            {
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_input_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+            }
         ):
             raise ValueError("CLI usage contains unknown fields")
         if any(type(x) is not int or x < 0 for x in counts.values()):
@@ -290,6 +297,25 @@ def extract_proposal(
             if started != 1 or completed:
                 raise ValueError("CLI completion order invalid")
             completed += 1
+        elif (
+            configuration.extraction_rule == "codex-jsonl-single-final/v2"
+            and kind == "item.completed"
+            and thread_started == 1
+            and started == completed == 0
+            and isinstance(event.get("item"), dict)
+            and cast(dict[str, object], event["item"]).get("type") == "error"
+        ):
+            # Official exec ErrorItem is a nonfatal notification. Keep the full
+            # scanned event in the capture; it cannot supply proposal text.
+            notification = cast(dict[str, object], event["item"])
+            if (
+                set(event) != {"type", "item"}
+                or set(notification) != {"id", "type", "message"}
+                or not isinstance(notification["id"], str)
+                or not 0 < len(notification["id"]) <= 200
+                or not isinstance(notification["message"], str)
+            ):
+                raise ValueError("CLI nonfatal startup notification invalid")
         elif kind in ("item.started", "item.updated", "item.completed"):
             if started != 1 or completed:
                 raise ValueError("CLI item order invalid")
@@ -574,6 +600,7 @@ class TrustedCodexLauncher:
             profile.install_inventory_hash != install.content_hash
             or profile.model_configuration_hash != configuration.content_hash
             or profile.extraction_rule_hash != sha256_bytes(EXTRACTION_RULE_BYTES)
+            or configuration.extraction_rule != "codex-jsonl-single-final/v2"
         ):
             raise ArtifactIntegrityError("launcher frozen configuration binding invalid")
         executable = next((x for x in install.files if x.relative_path == "codex"), None)

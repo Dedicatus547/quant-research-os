@@ -411,6 +411,7 @@ def bootstrap_hosted_service(
     if (
         launcher_configuration.content_hash != profile.model_configuration_hash
         or sha256_bytes(EXTRACTION_RULE_BYTES) != profile.extraction_rule_hash
+        or launcher_configuration.extraction_rule != "codex-jsonl-single-final/v2"
     ):
         raise ArtifactIntegrityError("external model configuration or extraction rule changed")
     wheel_bytes = _hashed_wheel(configuration_root, profile.wheel_hash)
