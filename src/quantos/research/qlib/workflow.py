@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import pickle
@@ -24,12 +25,15 @@ from qlib.workflow.record_temp import (  # pyright: ignore[reportMissingTypeStub
     SignalRecord,
 )
 
-from quantos.artifacts.store import atomic_write_bytes
-from quantos.contracts.base import canonical_json_bytes
-from quantos.contracts.research import ResearchPolicy, ResolvedExperimentSpec
+from quantos.artifacts.store import atomic_write_bytes, sha256_file
+from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.model_data_split import QlibModelDataSegment, QlibModelDataSplitAudit
+from quantos.contracts.research import ResearchPolicy, ResearchSegment, ResolvedExperimentSpec
+from quantos.contracts.research_result import ResearchResultSourceFile
 from quantos.contracts.status import ReasonCode
 from quantos.data.qlib_view import verify_qlib_view
 from quantos.research.qlib.expression import translate_safe_expression
+from quantos.research.qlib.model_split import effective_model_segments, verify_model_data_split
 from quantos.research.qlib.result import ResearchResultArtifactBuilder, ResearchResultBuildResult
 from quantos.research.qlib.universe import (
     QlibResearchError,
@@ -48,6 +52,32 @@ class QlibWorkflowResearchResult:
     build: ResearchResultBuildResult
     recorder_id: str
     label_expression: str
+    model_data_split_hash: str
+
+
+def _sample_segment(
+    frame: Any, declared: ResearchSegment, effective: ResearchSegment
+) -> QlibModelDataSegment:
+    if len(frame) == 0 or not frame.index.is_unique:
+        raise ValueError("DatasetH returned empty or duplicate model samples")
+    days: set[date] = set()
+    digest = hashlib.sha256()
+    names = tuple(frame.index.names)
+    if set(names) != {"datetime", "instrument"}:
+        raise ValueError("DatasetH model samples lack native datetime/instrument keys")
+    date_index, instrument_index = names.index("datetime"), names.index("instrument")
+    for key in frame.index:
+        day = key[date_index].date()
+        days.add(day)
+        digest.update(canonical_json_bytes((day, str(key[instrument_index]))))
+        digest.update(b"\n")
+    return QlibModelDataSegment(
+        declared=declared,
+        effective=effective,
+        observed_sessions=tuple(sorted(days)),
+        sample_rows=len(frame),
+        sample_index_hash=digest.hexdigest(),
+    )
 
 
 def qlib_recorder_id(execution_identity: str) -> str:
@@ -206,6 +236,13 @@ class QlibWorkflowResearchService:
         runtime_root.mkdir(parents=True, exist_ok=True)
         runtime_uri = runtime_root.resolve().as_uri()
         native_root = output_root / "native-records" / f"sha256-{execution_identity}"
+        calendar = tuple(
+            date.fromisoformat(line.strip())
+            for line in (qlib_view_path / "calendars" / "day.txt").read_text().splitlines()
+            if line.strip()
+        )
+        segments = effective_model_segments(research_policy, resolved, calendar)
+        samples: dict[str, QlibModelDataSegment] = {}
 
         try:
             qlib_runtime = cast(Any, qlib)
@@ -281,16 +318,35 @@ class QlibWorkflowResearchService:
                             dataset = dataset_type(
                                 handler=handler,
                                 segments={
-                                    "train": (
-                                        research_policy.train.start,
-                                        research_policy.train.end,
-                                    ),
-                                    "valid": (
-                                        research_policy.validation.start,
-                                        research_policy.validation.end,
-                                    ),
-                                    "test": (resolved.evaluation_start, resolved.evaluation_end),
+                                    name: (part.start, part.end) for name, part in segments.items()
                                 },
+                            )
+                            declared = {
+                                "train": research_policy.train,
+                                "valid": research_policy.validation,
+                                "test": ResearchSegment(
+                                    start=resolved.evaluation_start, end=resolved.evaluation_end
+                                ),
+                            }
+                            for name in ("train", "valid", "test"):
+                                frame = dataset.prepare(
+                                    name,
+                                    col_set=["feature", "label"] if name != "test" else "feature",
+                                    data_key=data_handler_type.DK_L
+                                    if name != "test"
+                                    else data_handler_type.DK_I,
+                                )
+                                samples[name] = _sample_segment(
+                                    frame, declared[name], segments[name]
+                                )
+                                del frame
+                            recorder.save_objects(
+                                **{
+                                    "model-data-split-samples.pkl": {
+                                        name: part.model_dump(mode="json")
+                                        for name, part in samples.items()
+                                    }
+                                }
                             )
                             model = model_type(
                                 loss="mse",
@@ -311,6 +367,16 @@ class QlibWorkflowResearchService:
                                 model, dataset, recorder, signal_record_type
                             )
                             sigana_record_type(recorder, ana_long_short=True).generate()
+                        else:
+                            if "model-data-split-samples.pkl" not in artifacts:
+                                raise ValueError(
+                                    "resumed Qlib recorder lacks actual DatasetH split samples"
+                                )
+                            raw_samples = recorder.load_object("model-data-split-samples.pkl")
+                            samples = {
+                                name: QlibModelDataSegment.model_validate(raw_samples[name])
+                                for name in ("train", "valid", "test")
+                            }
                         _flush_recorder_logs(recorder)
                         prediction, target, ic, rank_ic, metrics = _native_objects(recorder)
                 finally:
@@ -326,6 +392,39 @@ class QlibWorkflowResearchService:
                 ic=ic,
                 rank_ic=rank_ic,
                 metrics=metrics,
+            )
+            split_audit = QlibModelDataSplitAudit(
+                resolved_spec_hash=resolved.content_hash,
+                code_commit_hash=resolved.code_commit_hash,
+                lockfile_hash=resolved.lockfile_hash,
+                snapshot_hash=resolved.snapshot_hash,
+                qlib_view_hash=resolved.qlib_view_hash,
+                research_policy_hash=research_policy.content_hash,
+                calendar_hash=sha256_bytes(canonical_json_bytes(calendar)),
+                purge_trading_days=research_policy.purge_trading_days,
+                label_horizon_trading_sessions=research_policy.label_horizon_trading_sessions,
+                train=samples["train"],
+                valid=samples["valid"],
+                test=samples["test"],
+                source_files=tuple(
+                    ResearchResultSourceFile(
+                        logical_path=name,
+                        sha256=sha256_file(native_root / name),
+                        size_bytes=(native_root / name).stat().st_size,
+                    )
+                    for name in (
+                        "label.pkl",
+                        "metrics.json",
+                        "pred.pkl",
+                        "sig_analysis/ic.pkl",
+                        "sig_analysis/ric.pkl",
+                    )
+                ),
+            )
+            split_path = native_root / "model-data-splits.json"
+            atomic_write_bytes(split_path, split_audit.canonical_bytes())
+            verify_model_data_split(
+                split_path, resolved=resolved, research_policy=research_policy, calendar=calendar
             )
             dq_calendar: tuple[date, ...] | None = None
             if dq_audit_root is not None:
@@ -357,7 +456,7 @@ class QlibWorkflowResearchService:
                 dq_calendar=dq_calendar,
                 dq_audit_root=dq_audit_root,
             )
-            return QlibWorkflowResearchResult(built, recorder_id, label)
+            return QlibWorkflowResearchResult(built, recorder_id, label, split_audit.content_hash)
         except QlibResearchError:
             raise
         except (OSError, ValueError, KeyError) as error:

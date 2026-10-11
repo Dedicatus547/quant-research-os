@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import math
+import shutil
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import pandas as pd
 import pyarrow as pa
@@ -20,12 +21,19 @@ from quantos.application.provenance import ProvenanceError, verify_code_provenan
 from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
+    confined_regular_file,
+    opened_directory,
     publish_directory,
     regular_tree_files,
     sha256_file,
     verify_file,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.native_adoption import (
+    AdoptedNativeFile,
+    NativeArtifactAdoptionReceipt,
+    verify_adoption_bindings,
+)
 from quantos.contracts.qlib_view import QlibViewSpec
 from quantos.contracts.refs import ArtifactRef
 from quantos.contracts.research import ResolvedExperimentSpec
@@ -342,6 +350,191 @@ def verify_signal_artifact(path: Path) -> SignalArtifactManifest:
 
 class FactorSignalArtifactBuilder:
     """Thin artifact adapter; Qlib remains the factor execution engine."""
+
+    def adopt_verified(
+        self,
+        resolved: ResolvedExperimentSpec,
+        original_signal_path: Path,
+        output_root: Path,
+        *,
+        source_adoption_record_hash: str,
+        source_workspace: Path,
+        workspace: Path,
+        adoption_root: Path,
+        original_execution_status: Literal["SUCCEEDED"],
+    ) -> SignalArtifactBuildResult:
+        """Adopt a completed signal stage; parent status and a new execution are not asserted."""
+        if original_execution_status != "SUCCEEDED":
+            raise QlibResearchError(
+                ReasonCode.SOURCE_INCOMPLETE, "original signal stage incomplete"
+            )
+        output_root, adoption_root = output_root.absolute(), adoption_root.absolute()
+        if any(
+            root.is_relative_to(original_signal_path.absolute())
+            for root in (output_root, adoption_root)
+        ):
+            raise QlibResearchError(
+                ReasonCode.ARTIFACT_CORRUPTED, "adoption cannot mutate original"
+            )
+        for root in (output_root, adoption_root):
+            if root.absolute().is_relative_to(Path("/tmp")) or root.absolute().is_relative_to(
+                Path("/var/tmp")
+            ):
+                raise QlibResearchError(
+                    ReasonCode.SOURCE_INCOMPLETE, "adoption roots must be durable"
+                )
+            with opened_directory(root, create=True):
+                pass
+        original = verify_signal_artifact(original_signal_path)
+        old_resolved = ResolvedExperimentSpec.model_validate_json(
+            confined_regular_file(original_signal_path, "resolved-experiment.json").read_bytes()
+        )
+        try:
+            verify_adoption_bindings(old_resolved, resolved)
+        except ValueError:
+            raise QlibResearchError(
+                ReasonCode.REPRODUCIBILITY_MISMATCH, "signal adoption changes bindings"
+            ) from None
+        verify_code_provenance(
+            source_workspace,
+            expected_commit_hash=old_resolved.code_commit_hash,
+            expected_lockfile_hash=old_resolved.lockfile_hash,
+        )
+        verify_code_provenance(
+            workspace,
+            expected_commit_hash=resolved.code_commit_hash,
+            expected_lockfile_hash=resolved.lockfile_hash,
+        )
+        native = next(item for item in original.files if item.logical_path == "signals.parquet")
+        for receipt_path in sorted(adoption_root.glob("sha256-*.json")):
+            saved_bytes = confined_regular_file(adoption_root, receipt_path.name).read_bytes()
+            saved = NativeArtifactAdoptionReceipt.model_validate_json(saved_bytes)
+            if (
+                saved_bytes != saved.canonical_bytes()
+                or receipt_path.name != f"sha256-{saved.content_hash}.json"
+            ):
+                raise QlibResearchError(
+                    ReasonCode.ARTIFACT_CORRUPTED, "adoption receipt identity differs"
+                )
+            if (
+                saved.artifact_kind == "FACTOR_SIGNAL"
+                and saved.source_adoption_record_hash == source_adoption_record_hash
+                and saved.original_artifact_hash == original.artifact_hash
+                and saved.adopted_resolved_hash == resolved.content_hash
+            ):
+                if (
+                    saved.original_resolved_hash != old_resolved.content_hash
+                    or saved.scientific_origin_commit != old_resolved.code_commit_hash
+                    or saved.adoption_commit != resolved.code_commit_hash
+                    or saved.lockfile_hash != resolved.lockfile_hash
+                ):
+                    raise QlibResearchError(
+                        ReasonCode.ARTIFACT_CORRUPTED, "adoption receipt origin differs"
+                    )
+                destination = output_root / f"sha256-{saved.adopted_artifact_hash}"
+                published = verify_signal_artifact(destination)
+                copied_native = next(
+                    item for item in published.files if item.logical_path == "signals.parquet"
+                )
+                if (
+                    published.resolved_experiment_hash != resolved.content_hash
+                    or copied_native.sha256 != native.sha256
+                ):
+                    raise QlibResearchError(ReasonCode.ARTIFACT_CORRUPTED, "adopted signal differs")
+                return SignalArtifactBuildResult(
+                    reference=ArtifactRef(
+                        kind="signal_artifact",
+                        sha256=published.artifact_hash,
+                        size_bytes=sum(
+                            path.stat().st_size for path in regular_tree_files(destination)
+                        ),
+                        media_type="application/vnd.quantos.signal-directory",
+                        logical_path=f"research/signals/{destination.name}",
+                    ),
+                    manifest=published,
+                    path=destination,
+                )
+        with tempfile.TemporaryDirectory(prefix=".signal-adoption-", dir=output_root) as temporary:
+            staging = Path(temporary) / "signal"
+            staging.mkdir()
+            for item in original.files:
+                if item.logical_path == "resolved-experiment.json":
+                    atomic_write_bytes(staging / item.logical_path, resolved.canonical_bytes())
+                else:
+                    shutil.copyfile(
+                        confined_regular_file(original_signal_path, item.logical_path),
+                        staging / item.logical_path,
+                    )
+                    verify_file(staging / item.logical_path, item.sha256)
+            now = datetime.now(UTC)
+            manifest = SignalArtifactManifest.create(
+                resolved_experiment_hash=resolved.content_hash,
+                source_expression_or_model_hash=original.source_expression_or_model_hash,
+                snapshot_hash=original.snapshot_hash,
+                qlib_version=original.qlib_version,
+                qlib_view_spec_hash=original.qlib_view_spec_hash,
+                qlib_view_hash=original.qlib_view_hash,
+                qlib_run_id=original.qlib_run_id,
+                pit_evidence_hash=original.pit_evidence_hash,
+                transform_lineage_hash=original.transform_lineage_hash,
+                expression_translation_hash=original.expression_translation_hash,
+                row_count=original.row_count,
+                signal_start=original.signal_start,
+                signal_end=original.signal_end,
+                signal_content_hash=original.signal_content_hash,
+                files=_artifact_files(staging),
+                created_at=now,
+            )
+            receipt = NativeArtifactAdoptionReceipt(
+                artifact_kind="FACTOR_SIGNAL",
+                source_adoption_record_hash=source_adoption_record_hash,
+                original_artifact_hash=original.artifact_hash,
+                adopted_artifact_hash=manifest.artifact_hash,
+                original_resolved_hash=old_resolved.content_hash,
+                adopted_resolved_hash=resolved.content_hash,
+                scientific_origin_commit=old_resolved.code_commit_hash,
+                adoption_commit=resolved.code_commit_hash,
+                lockfile_hash=resolved.lockfile_hash,
+                native_files=(
+                    AdoptedNativeFile(
+                        logical_path=native.logical_path,
+                        bytes_hash=native.sha256,
+                        size_bytes=native.size_bytes,
+                    ),
+                ),
+                metadata_rebindings=(
+                    "resolved-experiment.code_commit_hash",
+                    "resolved-experiment.experiment_id",
+                    "resolved-experiment.authoring_spec_hash",
+                    "manifest.resolved_experiment_hash",
+                ),
+                adopted_at=now,
+            )
+            atomic_write_bytes(
+                staging / "manifest.json", canonical_json_bytes(manifest.model_dump(mode="python"))
+            )
+            destination = output_root / f"sha256-{manifest.artifact_hash}"
+            if adoption_root.is_relative_to(destination):
+                raise QlibResearchError(
+                    ReasonCode.ARTIFACT_CORRUPTED, "receipt must be outside artifact"
+                )
+            if not destination.exists():
+                publish_directory(staging, destination)
+            published = verify_signal_artifact(destination)
+        atomic_write_bytes(
+            adoption_root / f"sha256-{receipt.content_hash}.json", receipt.canonical_bytes()
+        )
+        return SignalArtifactBuildResult(
+            reference=ArtifactRef(
+                kind="signal_artifact",
+                sha256=published.artifact_hash,
+                size_bytes=sum(path.stat().st_size for path in regular_tree_files(destination)),
+                media_type="application/vnd.quantos.signal-directory",
+                logical_path=f"research/signals/{destination.name}",
+            ),
+            manifest=published,
+            path=destination,
+        )
 
     def build(
         self,

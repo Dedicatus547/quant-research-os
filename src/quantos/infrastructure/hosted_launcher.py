@@ -21,6 +21,7 @@ from quantos.artifacts.store import (
     read_regular_bytes_at,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.discovery_hosted import HostedGenerationRequest
 from quantos.contracts.hosted import (
     HostedAgentRequest,
     HostedAgentResponse,
@@ -129,7 +130,7 @@ def _uses_proc_executable_hint(profile: HostedDeploymentProfile) -> bool:
 def probe_projection_mount(
     paths: HostedNamespacePaths,
     *,
-    request: HostedAgentRequest,
+    request: HostedAgentRequest | HostedGenerationRequest,
     profile: HostedDeploymentProfile,
     projection: HostedInstallInventory,
     seccomp_fd: int,

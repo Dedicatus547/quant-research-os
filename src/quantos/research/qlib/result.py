@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import math
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -49,6 +52,38 @@ _SOURCE_PATHS: tuple[SourcePath, ...] = (
     "sig_analysis/ric.pkl",
 )
 _METRIC_NAMES: tuple[MetricName, ...] = ("IC", "ICIR", "Rank IC", "Rank ICIR")
+
+
+@dataclass
+class _VerificationFacts:
+    results: dict[tuple[Path, str], ResearchResultManifest] = field(
+        default_factory=lambda: dict[tuple[Path, str], ResearchResultManifest]()
+    )
+    audits: dict[tuple[Path, Path, str], P14dqNativeLabelExportAudit] = field(
+        default_factory=lambda: dict[tuple[Path, Path, str], P14dqNativeLabelExportAudit]()
+    )
+
+
+_VERIFICATION_FACTS: ContextVar[_VerificationFacts | None] = ContextVar(
+    "research_result_verification_facts", default=None
+)
+
+
+@contextmanager
+def research_result_verification_scope() -> Generator[None, None, None]:
+    """Reuse parsed facts within one operation, rehashing original files on each use.
+
+    Only small verified facts survive inside the scope, never prediction/label objects.
+    There is no cross-operation cache and filesystem metadata is never evidence identity.
+    """
+    if _VERIFICATION_FACTS.get() is not None:
+        yield
+        return
+    token = _VERIFICATION_FACTS.set(_VerificationFacts())
+    try:
+        yield
+    finally:
+        _VERIFICATION_FACTS.reset(token)
 
 
 @dataclass(frozen=True)
@@ -240,7 +275,8 @@ def _load_rows(
 def verify_research_result(path: Path) -> ResearchResultManifest:
     try:
         tree = regular_tree_files(path)
-        manifest = ResearchResultManifest.model_validate_json((path / "manifest.json").read_bytes())
+        manifest_bytes = (path / "manifest.json").read_bytes()
+        manifest = ResearchResultManifest.model_validate_json(manifest_bytes)
         if path.name != f"sha256-{manifest.artifact_hash}":
             raise ValueError("ResearchResult directory name disagrees with its hash")
         actual = {
@@ -251,6 +287,12 @@ def verify_research_result(path: Path) -> ResearchResultManifest:
             raise ValueError("ResearchResult exact file set disagrees")
         for item in manifest.files:
             verify_file(path / item.logical_path, item.sha256)
+        # File set and every actual file digest are checked even on a cache hit.
+        # A changed manifest, policy, resolved input or row file cannot reuse old facts.
+        facts = _VERIFICATION_FACTS.get()
+        key = (path.resolve(), sha256_bytes(manifest_bytes))
+        if facts is not None and key in facts.results:
+            return facts.results[key]
         resolved = ResolvedExperimentSpec.model_validate_json(
             (path / "resolved-experiment.json").read_bytes()
         )
@@ -277,6 +319,8 @@ def verify_research_result(path: Path) -> ResearchResultManifest:
             or sha256_bytes(_row_bytes(rank_ic)) != manifest.rank_ic_content_hash
         ):
             raise ValueError("ResearchResult bindings are inconsistent")
+        if facts is not None:
+            facts.results[key] = manifest
     except (OSError, ValueError, TypeError, ArtifactIntegrityError) as error:
         raise QlibResearchError(
             ReasonCode.ARTIFACT_CORRUPTED, "ResearchResult artifact verification failed"
@@ -314,6 +358,10 @@ def verify_p14dq_native_label_audit(
         )
         if audit.source_files != source_files or result.source_files != source_files:
             raise ValueError("DQ audit native source files differ")
+        facts = _VERIFICATION_FACTS.get()
+        audit_key = (result_path.resolve(), native_root.resolve(), sha256_bytes(encoded))
+        if facts is not None and audit_key in facts.audits:
+            return facts.audits[audit_key]
         predictions, labels, ic, rank_ic, raw_count, omitted_hash = _dq_native_projection(
             native_root, calendar
         )
@@ -339,6 +387,8 @@ def verify_p14dq_native_label_audit(
             not math.isfinite(item.value) for item in exact_metrics
         ):
             raise ValueError("DQ audit summary metrics differ from native Qlib output")
+        if facts is not None:
+            facts.audits[audit_key] = audit
     except QlibResearchError:
         raise
     except (OSError, ValueError, TypeError, KeyError, ArtifactIntegrityError) as error:

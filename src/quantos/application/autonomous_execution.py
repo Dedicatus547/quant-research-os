@@ -2,21 +2,36 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from datetime import time as day_time
 from pathlib import Path
+from time import perf_counter, process_time
 from typing import Any, Literal, NoReturn
 from uuid import UUID, uuid5
 
-from pydantic import ValidationError
+from pydantic import Field, PositiveInt, ValidationError, field_validator
 
 from quantos.application import data_qualified_release as release
 from quantos.application.autonomous_errors import AutonomousOrchestrationError
+from quantos.application.data_qualified_release import (
+    _operator_delays as research_operator_delays,  # pyright: ignore[reportPrivateUsage]
+)
+from quantos.application.data_qualified_release import (
+    _schedule_hash as research_schedule_hash,  # pyright: ignore[reportPrivateUsage]
+)
+from quantos.application.data_qualified_release import (
+    _Variant as ResearchExecutionVariant,  # pyright: ignore[reportPrivateUsage]
+)
 from quantos.application.enumeration import (
     CandidateEnumerationError,
     verify_candidate_enumeration_manifest,
 )
+from quantos.application.provenance import capture_runtime_fingerprint, verify_code_provenance
 from quantos.application.schedules import resolve_weekly_decision_schedules
+from quantos.application.specs import resolve_experiment
 from quantos.artifacts.store import (
     ArtifactConflictError,
     ArtifactIntegrityError,
@@ -25,6 +40,7 @@ from quantos.artifacts.store import (
     opened_directory,
     read_regular_bytes_at,
     regular_tree_files,
+    sha256_file,
 )
 from quantos.backtest import QlibBacktestService, verify_backtest_artifact
 from quantos.contracts.autonomous import (
@@ -43,8 +59,18 @@ from quantos.contracts.campaign import (
     ResearchFamilySpec,
     TrialOutcome,
 )
+from quantos.contracts.discovery_adoption import (
+    DiscoveryAdoptedVariant,
+    DiscoveryEvaluationSourceAdoption,
+)
 from quantos.contracts.enumeration import CandidateEnumerationManifest, ResearchFactorTemplateSpec
+from quantos.contracts.model_data_split import QlibModelDataSplitAudit
+from quantos.contracts.native_adoption import (
+    NativeArtifactAdoptionReceipt,
+    verify_adoption_bindings,
+)
 from quantos.contracts.qlib_view import QlibViewManifest
+from quantos.contracts.refs import SHA256_PATTERN
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
     ResearchPolicy,
@@ -59,11 +85,16 @@ from quantos.contracts.temporal import DecisionSchedule
 from quantos.contracts.validation import GateSeverity, ValidationReport
 from quantos.data import QlibViewBuildError, SnapshotBuildError, verify_qlib_view, verify_snapshot
 from quantos.research.qlib import (
+    FactorSignalArtifactBuilder,
     QlibResearchError,
     QlibWorkflowResearchService,
+    verify_compact_pit_evidence,
     verify_p14dq_native_label_audit,
     verify_research_result,
+    verify_signal_artifact,
 )
+from quantos.research.qlib.model_split import verify_model_data_split
+from quantos.research.qlib.result import research_result_verification_scope
 from quantos.validation import (
     CostStressLocator,
     ParameterStabilityLocator,
@@ -97,6 +128,7 @@ _QLIB_WORKFLOW_POLICY = {
     "num_leaves": 7,
     "deterministic": True,
     "force_col_wise": True,
+    "model_data_split": "calendar-session-purge/v1",
 }
 
 # Frozen workload units for deterministic compute authority. These are policy units, not
@@ -122,6 +154,44 @@ def autonomous_compute_accounting_policy_hash() -> str:
     """Return the frozen deterministic compute-accounting policy hash."""
 
     return sha256_bytes(canonical_json_bytes(_COMPUTE_ACCOUNTING_POLICY))
+
+
+def quote_autonomous_workload(
+    authoring: ExperimentAuthoringSpec, validation_policy: ValidationPolicy
+) -> int:
+    """Quote frozen policy units from the workload shape; no scientific input is read."""
+    baseline_window = release.parameter_window(authoring)
+    parameters = sum(
+        1
+        for window in validation_policy.parameter_windows
+        for top_k in validation_policy.parameter_top_k
+        if (window, top_k) != (baseline_window, authoring.strategy.top_k)
+    )
+    costs = sum(1 for value in validation_policy.cost_stress_multipliers if value != 1.0)
+    return (
+        _COMPUTE_BASELINE_EXECUTION
+        + _COMPUTE_COST_STRESS_VARIANT * costs
+        + _COMPUTE_PARAMETER_VARIANT * parameters
+        + _COMPUTE_SUBPERIOD_VARIANT * len(validation_policy.subperiods)
+        + _COMPUTE_REPRODUCTION_BACKTEST
+        + _COMPUTE_VALIDATION_REPORT
+    )
+
+
+@dataclass(frozen=True, init=False)
+class VerifiedExecutionInputs:
+    """Internal same-operation proof produced solely by the existing full verifiers."""
+
+    snapshot_path: Path
+    view_path: Path
+    snapshot: DataSnapshotManifest
+    view: QlibViewManifest
+
+    def __init__(self, snapshot_path: Path, view_path: Path) -> None:
+        object.__setattr__(self, "snapshot_path", snapshot_path.resolve())
+        object.__setattr__(self, "view_path", view_path.resolve())
+        object.__setattr__(self, "snapshot", verify_snapshot(snapshot_path))
+        object.__setattr__(self, "view", verify_qlib_view(view_path))
 
 
 def build_autonomous_execution_bindings(
@@ -186,6 +256,41 @@ class AutonomousExecutionTrialIndex(CanonicalContract):
     request_hash: str
 
 
+class DiscoveryExecutionStageCheckpoint(CanonicalContract):
+    """Completed deterministic stage, with exact inputs and immutable output identities."""
+
+    schema_version: Literal["discovery-execution-stage-checkpoint/v1"] = (
+        "discovery-execution-stage-checkpoint/v1"
+    )
+    request_hash: str = Field(pattern=SHA256_PATTERN)
+    stage: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    inputs_hash: str = Field(pattern=SHA256_PATTERN)
+    reservation_hash: str = Field(pattern=SHA256_PATTERN)
+    attempt_ordinal: PositiveInt
+    outputs: dict[str, str]
+
+    @field_validator("outputs")
+    @classmethod
+    def output_identities_are_hashes(cls, values: dict[str, str]) -> dict[str, str]:
+        if not values or any(
+            len(value) != 64 or any(c not in "0123456789abcdef" for c in value)
+            for value in values.values()
+        ):
+            raise ValueError("checkpoint output identities must be SHA256 hashes")
+        return values
+
+
+def require_durable_execution_root(path: Path) -> None:
+    """Discovery authority must not reside in temporary or automatically cleaned storage."""
+    resolved = path.resolve()
+    if any(
+        root == resolved or root in resolved.parents for root in (Path("/tmp"), Path("/var/tmp"))
+    ):
+        raise ValueError("discovery execution authority requires durable storage")
+    if any(part in {".cache", "__pycache__"} for part in resolved.parts):
+        raise ValueError("discovery execution authority cannot use a cache directory")
+
+
 class QuantosResearchExecutionAdapter:
     """Carry frozen P14b candidates through PIT, Qlib, Validation and verified artifacts.
 
@@ -213,11 +318,27 @@ class QuantosResearchExecutionAdapter:
         workspace: Path,
         canonical_validation: bool = True,
         p14dq_v2_profile: bool = False,
+        discovery_stage_recovery: bool = False,
+        discovery_profile: Literal["singleton-full-chain/v1"] | None = None,
+        _verified_inputs: VerifiedExecutionInputs | None = None,
+        discovery_source_adoption: DiscoveryEvaluationSourceAdoption | None = None,
     ) -> None:
         try:
             verify_candidate_enumeration_manifest(family, template, manifest)
-            snapshot = verify_snapshot(snapshot_path)
-            view = verify_qlib_view(qlib_view_path)
+            if _verified_inputs is None:
+                snapshot = verify_snapshot(snapshot_path)
+                view = verify_qlib_view(qlib_view_path)
+            else:
+                if type(_verified_inputs) is not VerifiedExecutionInputs:
+                    raise ValueError(
+                        "internal verified inputs must originate in the full verifiers"
+                    )
+                if not discovery_stage_recovery or (
+                    _verified_inputs.snapshot_path != snapshot_path.resolve()
+                    or _verified_inputs.view_path != qlib_view_path.resolve()
+                ):
+                    raise ValueError("internal verified inputs escaped their operation paths")
+                snapshot, view = _verified_inputs.snapshot, _verified_inputs.view
         except (CandidateEnumerationError, SnapshotBuildError, QlibViewBuildError) as error:
             raise ValueError("autonomous execution input artifact failed verification") from error
         if (
@@ -278,6 +399,23 @@ class QuantosResearchExecutionAdapter:
         self.workspace = workspace
         self.canonical_validation = canonical_validation
         self.p14dq_v2_profile = p14dq_v2_profile
+        self.discovery_stage_recovery = discovery_stage_recovery
+        self.discovery_profile = discovery_profile
+        self.discovery_source_adoption = discovery_source_adoption
+        if discovery_source_adoption is not None and (
+            not discovery_stage_recovery
+            or discovery_source_adoption.evaluation_source_commit != bindings.code_commit_hash
+            or discovery_source_adoption.lockfile_hash != bindings.lockfile_hash
+            or discovery_source_adoption.evaluation_execution_policy_hash
+            != bindings.execution_policy_hash
+        ):
+            raise ValueError("origin adoption is outside its explicit successor execution")
+        if discovery_profile is not None and not discovery_stage_recovery:
+            raise ValueError("discovery full-chain profile requires explicit stage recovery")
+        self._discovery_runtime_hash: str | None = None
+        self._discovery_verified_pit_hashes: set[str] = set()
+        if discovery_stage_recovery:
+            require_durable_execution_root(output_root)
         self._candidate_by_hash = {item.content_hash: item for item in manifest.candidates}
 
     @property
@@ -285,6 +423,13 @@ class QuantosResearchExecutionAdapter:
         return self.output_root / "research-results"
 
     def execute(self, request: AutonomousExecutionRequest) -> AutonomousExecutionResult:
+        with research_result_verification_scope():
+            return self._execute(request)
+
+    def _execute(self, request: AutonomousExecutionRequest) -> AutonomousExecutionResult:
+        if self.discovery_stage_recovery:
+            self._discovery_runtime_hash = None
+            self._discovery_verified_pit_hashes.clear()
         self._verify_request(request)
         self._reserve_trial_identity(request)
         with exclusive_directory_lock(
@@ -298,6 +443,11 @@ class QuantosResearchExecutionAdapter:
                 return self._outcome_with_receipt(prior)
 
             compute_charge = self._deterministic_compute_charge(request)
+            if self.discovery_stage_recovery:
+                atomic_write_bytes(
+                    self.output_root / "execution-requests" / f"{request.execution_identity}.json",
+                    request.canonical_bytes(),
+                )
             try:
                 result, report, pit_hash, signal_hash, backtest_hash, audit_hash = (
                     self._execute_pipeline(request)
@@ -347,7 +497,7 @@ class QuantosResearchExecutionAdapter:
                 )
             except (SnapshotBuildError, QlibViewBuildError, ValidationError) as error:
                 self._integrity("existing research artifact failed authority verification", error)
-            if self.p14dq_v2_profile and outcome.research_result_hash is not None:
+            if self._native_label_audit_enabled and outcome.research_result_hash is not None:
                 audit = self._verify_dq_audit_for_request(request, outcome.research_result_hash)
                 if audit.audit_hash not in outcome.evidence_hashes:
                     self._integrity("DQ export audit is absent before receipt publication")
@@ -358,6 +508,10 @@ class QuantosResearchExecutionAdapter:
         self._verify_request(request)
         return self._deterministic_compute_charge(request)
 
+    @property
+    def _native_label_audit_enabled(self) -> bool:
+        return self.p14dq_v2_profile or self.discovery_profile == "singleton-full-chain/v1"
+
     def verified_completed_execution(
         self, request: AutonomousExecutionRequest
     ) -> AutonomousExecutionResult | None:
@@ -367,6 +521,12 @@ class QuantosResearchExecutionAdapter:
         ``_read_receipt``. This is a recoverable publication, not a pure read. Missing
         receipts produce no receipt, trial reservation, or execution.
         """
+        with research_result_verification_scope():
+            return self._verified_completed_execution(request)
+
+    def _verified_completed_execution(
+        self, request: AutonomousExecutionRequest
+    ) -> AutonomousExecutionResult | None:
         self._verify_request(request)
         with exclusive_directory_lock(
             self.output_root / "execution-locks" / request.execution_identity
@@ -387,6 +547,12 @@ class QuantosResearchExecutionAdapter:
         Offline qualification uses this read-only boundary. Online crash recovery keeps
         using ``verified_completed_execution`` and its existing receipt-index repair.
         """
+        with research_result_verification_scope():
+            return self._inspect_completed_execution(request)
+
+    def _inspect_completed_execution(
+        self, request: AutonomousExecutionRequest
+    ) -> AutonomousExecutionResult | None:
         self._verify_request(request)
         path = self._receipt_path(request.execution_identity)
         if not path.exists():
@@ -450,25 +616,7 @@ class QuantosResearchExecutionAdapter:
         observation of elapsed time.
         """
 
-        authoring = self._authoring(request)
-        baseline_window = release.parameter_window(authoring)
-        parameter_variants = sum(
-            1
-            for window in self.validation_policy.parameter_windows
-            for top_k in self.validation_policy.parameter_top_k
-            if (window, top_k) != (baseline_window, authoring.strategy.top_k)
-        )
-        cost_variants = sum(
-            1 for multiplier in self.validation_policy.cost_stress_multipliers if multiplier != 1.0
-        )
-        return (
-            _COMPUTE_BASELINE_EXECUTION
-            + _COMPUTE_COST_STRESS_VARIANT * cost_variants
-            + _COMPUTE_PARAMETER_VARIANT * parameter_variants
-            + _COMPUTE_SUBPERIOD_VARIANT * len(self.validation_policy.subperiods)
-            + _COMPUTE_REPRODUCTION_BACKTEST
-            + _COMPUTE_VALIDATION_REPORT
-        )
+        return quote_autonomous_workload(self._authoring(request), self.validation_policy)
 
     def _failure_outcome(
         self,
@@ -627,6 +775,474 @@ class QuantosResearchExecutionAdapter:
         payload["expression"] = request.candidate.expression.model_dump(mode="python")
         return ExperimentAuthoringSpec.model_validate(payload)
 
+    def _discovery_stage(
+        self,
+        request: AutonomousExecutionRequest,
+        stage: str,
+        inputs: dict[str, object],
+        build: Callable[[], dict[str, str]],
+        verify: Callable[[dict[str, str]], Any],
+        recover: Callable[[], dict[str, str] | None] | None = None,
+    ) -> Any:
+        """Persist each completed stage before proceeding, and verify originals on reuse.
+
+        An orphan output can be adopted only after a matching durable reservation. The
+        adoption record reports unavailable timing and never invents a historical exit.
+        All failed and interrupted attempt records remain immutable.
+        """
+        if self._discovery_runtime_hash is None:
+            verify_code_provenance(
+                self.workspace,
+                expected_commit_hash=request.code_commit_hash,
+                expected_lockfile_hash=request.lockfile_hash,
+            )
+            self._discovery_runtime_hash = capture_runtime_fingerprint().content_hash
+        inputs_hash = sha256_bytes(
+            canonical_json_bytes(
+                {
+                    "request_hash": request.content_hash,
+                    "runtime_fingerprint_hash": self._discovery_runtime_hash,
+                    "stage": stage,
+                    "inputs": inputs,
+                    "recovery_policy": "discovery-stage-original-verification/v1",
+                }
+            )
+        )
+        root = self.output_root / "execution-checkpoints" / request.execution_identity / stage
+        reservation = {
+            "schema_version": "discovery-stage-reservation/v1",
+            "request_hash": request.content_hash,
+            "stage": stage,
+            "inputs_hash": inputs_hash,
+            "inputs": inputs,
+            "runtime_fingerprint_hash": self._discovery_runtime_hash,
+        }
+        reservation_bytes = canonical_json_bytes(reservation)
+        checkpoint_path = root / f"sha256-{inputs_hash}.json"
+        if checkpoint_path.exists():
+            with opened_directory(root) as parent:
+                encoded = read_regular_bytes_at(parent, checkpoint_path.name, max_bytes=65536)
+            checkpoint = DiscoveryExecutionStageCheckpoint.model_validate_json(encoded)
+            if encoded != checkpoint.canonical_bytes() or (
+                checkpoint.request_hash != request.content_hash
+                or checkpoint.stage != stage
+                or checkpoint.inputs_hash != inputs_hash
+                or checkpoint.reservation_hash != sha256_bytes(reservation_bytes)
+            ):
+                self._integrity("discovery stage checkpoint differs from its exact inputs")
+            origin = root / inputs_hash / "attempts" / f"{checkpoint.attempt_ordinal:08d}"
+            with opened_directory(origin) as parent:
+                original = read_regular_bytes_at(parent, "reservation.json", max_bytes=16_777_216)
+            if original != reservation_bytes:
+                self._integrity("discovery stage checkpoint lacks its original reservation")
+            return verify(checkpoint.outputs)
+
+        attempts = root / inputs_hash / "attempts"
+        reservations = sorted(attempts.glob("*/reservation.json"))
+        for path in reservations:
+            with opened_directory(path.parent) as parent:
+                prior = read_regular_bytes_at(parent, path.name, max_bytes=16_777_216)
+            if prior != reservation_bytes:
+                self._integrity("discovery stage reservation differs from its exact inputs")
+        attempt = attempts / f"{len(reservations) + 1:08d}"
+        atomic_write_bytes(attempt / "reservation.json", reservation_bytes)
+        wall_start, cpu_start = perf_counter(), process_time()
+        adopted = False
+        try:
+            outputs = recover() if reservations and recover is not None else None
+            adopted = outputs is not None
+            if outputs is None:
+                outputs = build()
+            result = verify(outputs)
+            checkpoint = DiscoveryExecutionStageCheckpoint(
+                request_hash=request.content_hash,
+                stage=stage,
+                inputs_hash=inputs_hash,
+                reservation_hash=sha256_bytes(reservation_bytes),
+                attempt_ordinal=len(reservations) + 1,
+                outputs=outputs,
+            )
+            atomic_write_bytes(checkpoint_path, checkpoint.canonical_bytes())
+        except BaseException:
+            atomic_write_bytes(
+                attempt / "completion.json",
+                canonical_json_bytes(
+                    {
+                        "schema_version": "discovery-stage-attempt-completion/v1",
+                        "inputs_hash": inputs_hash,
+                        "status": "FAILED",
+                        "failure_code": "STAGE_EXCEPTION",
+                        "wall_seconds": max(0.0, perf_counter() - wall_start),
+                        "cpu_seconds": max(0.0, process_time() - cpu_start),
+                    }
+                ),
+            )
+            raise
+        atomic_write_bytes(
+            attempt / "completion.json",
+            canonical_json_bytes(
+                {
+                    "schema_version": "discovery-stage-attempt-completion/v1",
+                    "inputs_hash": inputs_hash,
+                    "status": "ADOPTED" if adopted else "SUCCEEDED",
+                    "checkpoint_hash": checkpoint.content_hash,
+                    "wall_seconds": None if adopted else max(0.0, perf_counter() - wall_start),
+                    "cpu_seconds": None if adopted else max(0.0, process_time() - cpu_start),
+                    "process_exit": None,
+                }
+            ),
+        )
+        return result
+
+    def _verify_adoption_origin(
+        self, request: AutonomousExecutionRequest, origin: DiscoveryAdoptedVariant
+    ) -> None:
+        adoption = self.discovery_source_adoption
+        if adoption is None:
+            self._integrity("origin adoption lacks its bound declaration")
+
+        def read(path: str, digest: str | None = None) -> bytes:
+            target = Path(path)
+            if not target.is_absolute():
+                self._integrity("origin adoption path must be absolute")
+            with opened_directory(target.parent) as parent:
+                encoded = read_regular_bytes_at(parent, target.name, max_bytes=16_777_216)
+            if digest is not None and sha256_bytes(encoded) != digest:
+                self._integrity("origin adoption original bytes differ")
+            return encoded
+
+        old = AutonomousExecutionRequest.model_validate_json(
+            read(origin.request_path, origin.request_hash)
+        )
+        scientific = (
+            "candidate",
+            "snapshot_hash",
+            "qlib_view_hash",
+            "segment_start",
+            "segment_end",
+            "pit_policy_hash",
+            "authoring_hash",
+            "research_policy_hash",
+            "validation_policy_hash",
+            "cost_policy_hash",
+            "backtest_policy_hash",
+            "lockfile_hash",
+            "qlib_version",
+        )
+        if old.code_commit_hash != adoption.original_source_commit or any(
+            getattr(old, field) != getattr(request, field) for field in scientific
+        ):
+            self._integrity("origin adoption changed an actual scientific dependency")
+
+        def checkpoint(path: str, digest: str, stage: str, output: str, output_hash: str) -> None:
+            encoded = read(path, digest)
+            record = json.loads(encoded)
+            if canonical_json_bytes(record) != encoded or (
+                record.get("request_hash") != old.content_hash
+                or record.get("stage") != stage
+                or record.get("outputs", {}).get(output) != output_hash
+            ):
+                self._integrity("origin stage checkpoint differs from its original request")
+            root = (
+                Path(path).parent
+                / record["inputs_hash"]
+                / "attempts"
+                / f"{record['attempt_ordinal']:08d}"
+            )
+            reservation_bytes = read(str(root / "reservation.json"), record["reservation_hash"])
+            reservation = json.loads(reservation_bytes)
+            completion = json.loads(read(str(root / "completion.json")))
+            if (
+                reservation.get("request_hash") != old.content_hash
+                or reservation.get("inputs_hash") != record["inputs_hash"]
+                or reservation.get("stage") != stage
+                or completion.get("checkpoint_hash") != digest
+                or completion.get("status") != "SUCCEEDED"
+                or completion.get("inputs_hash") != record["inputs_hash"]
+            ):
+                self._integrity("origin stage lacks its actual completed reservation")
+
+        checkpoint(
+            origin.signal_checkpoint_path,
+            origin.signal_checkpoint_hash,
+            f"{origin.stage}-signal",
+            "signal_hash",
+            origin.signal_hash,
+        )
+        signal = verify_signal_artifact(Path(origin.signal_path))
+        if signal.artifact_hash != origin.signal_hash or (
+            sha256_bytes(read(origin.pit_path, origin.pit_hash)) != signal.pit_evidence_hash
+        ):
+            self._integrity("origin PIT/signal source inventory differs")
+        if origin.backtest_path is not None:
+            if (
+                origin.backtest_checkpoint_path is None
+                or origin.backtest_checkpoint_hash is None
+                or origin.backtest_hash is None
+            ):
+                self._integrity("origin backtest requires its completed checkpoint")
+            checkpoint(
+                origin.backtest_checkpoint_path,
+                origin.backtest_checkpoint_hash,
+                origin.stage,
+                "backtest_hash",
+                origin.backtest_hash,
+            )
+            if (
+                verify_backtest_artifact(Path(origin.backtest_path)).result_hash
+                != origin.backtest_hash
+            ):
+                self._integrity("origin backtest differs from its original checkpoint")
+
+    def _discovery_variant(
+        self,
+        request: AutonomousExecutionRequest,
+        authoring: ExperimentAuthoringSpec,
+        cost_policy: release.CostPolicy,
+        schedules: tuple[DecisionSchedule, ...],
+        destination: Path,
+        evidence_cache: dict[tuple[str, str], PITCrossSectionEvidenceCollection],
+        evidence_override: PITCrossSectionEvidenceCollection | None,
+    ) -> Any:
+        """Resume full existing signal and backtest services without a new execution engine."""
+        provisional = resolve_experiment(
+            authoring,
+            snapshot_hash=request.snapshot_hash,
+            qlib_view_hash=request.qlib_view_hash,
+            qlib_version=self.view.qlib_version,
+            qlib_view_spec_hash=self.view.view_spec_hash,
+            pit_audit_evidence_hash="0" * 64,
+            research_policy_hash=self.research_policy.content_hash,
+            validation_policy_hash=self.validation_policy.content_hash,
+            cost_policy_hash=cost_policy.content_hash,
+            backtest_policy_hash=self.backtest_policy.content_hash,
+            code_commit_hash=request.code_commit_hash,
+            lockfile_hash=request.lockfile_hash,
+        )
+        stage = destination.name
+        adoption = self.discovery_source_adoption
+        origins = (
+            ()
+            if adoption is None
+            else tuple(
+                item
+                for item in adoption.variants
+                if item.stage == stage and item.subtask_hash == self.output_root.name
+            )
+        )
+        if len(origins) > 1:
+            self._integrity("origin adoption has ambiguous stage originals")
+        origin = origins[0] if origins else None
+        if origin is not None:
+            self._verify_adoption_origin(request, origin)
+        inputs: dict[str, object] = {
+            "provisional_resolved_hash": provisional.content_hash,
+            "schedule_hash": research_schedule_hash(schedules),
+            "evidence_override_hash": evidence_override.content_hash if evidence_override else None,
+        }
+
+        def verify_signal(outputs: dict[str, str]):
+            signal_path = destination / "signals" / f"sha256-{outputs['signal_hash']}"
+            manifest = verify_signal_artifact(signal_path)
+            resolved = ResolvedExperimentSpec.model_validate_json(
+                (signal_path / "resolved-experiment.json").read_bytes()
+            )
+            evidence = PITCrossSectionEvidenceCollection.model_validate_json(
+                (signal_path / "pit-evidence.json").read_bytes()
+            )
+            expected = ResolvedExperimentSpec.model_validate(
+                provisional.model_copy(
+                    update={"pit_audit_evidence_hash": evidence.content_hash}
+                ).model_dump(mode="python")
+            )
+            if resolved != expected or (
+                manifest.artifact_hash != outputs["signal_hash"]
+                or tuple(bundle.schedule for bundle in evidence.bundles) != schedules
+                or evidence.expression_spec_hash != provisional.expression.content_hash
+                or evidence.operator_delays != research_operator_delays(authoring)
+                or (evidence_override is not None and evidence != evidence_override)
+            ):
+                self._integrity("recovered variant signal escaped its exact inputs")
+            if evidence.content_hash not in self._discovery_verified_pit_hashes:
+                verify_compact_pit_evidence(evidence, self.snapshot_path, self.qlib_view_path)
+                self._discovery_verified_pit_hashes.add(evidence.content_hash)
+            return resolved, evidence, signal_path, manifest.artifact_hash
+
+        def recover_signal() -> dict[str, str] | None:
+            paths = sorted((destination / "signals").glob("sha256-*"))
+            if len(paths) > 1:
+                self._integrity("variant signal recovery has ambiguous originals")
+            return {"signal_hash": paths[0].name.removeprefix("sha256-")} if paths else None
+
+        def build_signal() -> dict[str, str]:
+            if origin is not None and adoption is not None:
+                evidence = PITCrossSectionEvidenceCollection.model_validate_json(
+                    Path(origin.pit_path).read_bytes()
+                )
+                resolved = ResolvedExperimentSpec.model_validate(
+                    provisional.model_copy(
+                        update={"pit_audit_evidence_hash": evidence.content_hash}
+                    ).model_dump(mode="python")
+                )
+                built = FactorSignalArtifactBuilder().adopt_verified(
+                    resolved,
+                    Path(origin.signal_path),
+                    destination / "signals",
+                    source_adoption_record_hash=adoption.content_hash,
+                    source_workspace=Path(adoption.original_workspace),
+                    workspace=self.workspace,
+                    adoption_root=self.output_root / "native-adoptions",
+                    original_execution_status="SUCCEEDED",
+                )
+                return {
+                    "signal_hash": built.manifest.artifact_hash,
+                    "source_adoption_record_hash": adoption.content_hash,
+                    "original_signal_hash": origin.signal_hash,
+                }
+            cache_key = (provisional.expression.content_hash, research_schedule_hash(schedules))
+            pit_root = self.output_root / "execution-pit-evidence"
+            produced_pit: PITCrossSectionEvidenceCollection | None = None
+
+            def build_pit() -> dict[str, str]:
+                nonlocal produced_pit
+                evidence = evidence_override or evidence_cache.get(cache_key)
+                if evidence is None:
+                    evidence = release.build_compact_pit_evidence_collection(
+                        self.snapshot_path,
+                        self.qlib_view_path,
+                        expected_snapshot_hash=request.snapshot_hash,
+                        expected_view_hash=request.qlib_view_hash,
+                        universe_index=provisional.strategy.universe_index,
+                        expression=provisional.expression,
+                        operator_delays=research_operator_delays(authoring),
+                        schedules=schedules,
+                    )
+                encoded = evidence.canonical_bytes()
+                digest = sha256_bytes(encoded)
+                atomic_write_bytes(pit_root / f"sha256-{digest}.json", encoded)
+                self._discovery_verified_pit_hashes.add(digest)
+                produced_pit = evidence
+                return {"pit_evidence_hash": digest}
+
+            def verify_pit(outputs: dict[str, str]) -> PITCrossSectionEvidenceCollection:
+                digest = outputs["pit_evidence_hash"]
+                with opened_directory(pit_root) as parent:
+                    encoded = read_regular_bytes_at(
+                        parent, f"sha256-{digest}.json", max_bytes=536_870_912
+                    )
+                evidence = produced_pit or PITCrossSectionEvidenceCollection.model_validate_json(
+                    encoded
+                )
+                if (
+                    sha256_bytes(encoded) != digest
+                    or (produced_pit is None and evidence.canonical_bytes() != encoded)
+                    or (
+                        evidence.snapshot_hash != request.snapshot_hash
+                        or evidence.qlib_view_hash != request.qlib_view_hash
+                        or evidence.expression != provisional.expression
+                        or evidence.universe_index != provisional.strategy.universe_index
+                        or evidence.operator_delays != research_operator_delays(authoring)
+                        or tuple(bundle.schedule for bundle in evidence.bundles) != schedules
+                        or (evidence_override is not None and evidence != evidence_override)
+                    )
+                ):
+                    self._integrity("PIT evidence differs from the variant inputs")
+                if digest not in self._discovery_verified_pit_hashes:
+                    verify_compact_pit_evidence(evidence, self.snapshot_path, self.qlib_view_path)
+                    self._discovery_verified_pit_hashes.add(digest)
+                return evidence
+
+            evidence = self._discovery_stage(
+                request,
+                f"{stage}-pit",
+                inputs,
+                build_pit,
+                verify_pit,
+            )
+            evidence_cache[cache_key] = evidence
+            resolved = ResolvedExperimentSpec.model_validate(
+                provisional.model_copy(
+                    update={"pit_audit_evidence_hash": evidence.content_hash}
+                ).model_dump(mode="python")
+            )
+            built = FactorSignalArtifactBuilder().build(
+                resolved,
+                evidence,
+                self.qlib_view_path,
+                destination / "signals",
+                workspace=self.workspace,
+            )
+            return {"signal_hash": built.manifest.artifact_hash}
+
+        resolved, evidence, signal_path, signal_hash = self._discovery_stage(
+            request, f"{stage}-signal", inputs, build_signal, verify_signal, recover_signal
+        )
+        evidence_cache[(resolved.expression.content_hash, research_schedule_hash(schedules))] = (
+            evidence
+        )
+
+        def verify_backtest(outputs: dict[str, str]):
+            path = destination / "backtests" / f"sha256-{outputs['backtest_hash']}"
+            manifest = verify_backtest_artifact(path)
+            if (
+                manifest.result_hash != outputs["backtest_hash"]
+                or manifest.resolved_experiment_hash != resolved.content_hash
+                or manifest.signal_artifact_hash != signal_hash
+                or manifest.cost_policy_hash != cost_policy.content_hash
+                or manifest.backtest_policy_hash != self.backtest_policy.content_hash
+            ):
+                self._integrity("recovered variant backtest escaped its exact inputs")
+            return ResearchExecutionVariant(
+                resolved, evidence, signal_path, signal_hash, path, manifest.result_hash
+            )
+
+        def build_backtest() -> dict[str, str]:
+            if origin is not None and adoption is not None and origin.backtest_path is not None:
+                built = QlibBacktestService().adopt_verified(
+                    resolved,
+                    Path(origin.backtest_path),
+                    Path(origin.signal_path),
+                    signal_path,
+                    cost_policy,
+                    self.backtest_policy,
+                    destination / "backtests",
+                    source_adoption_record_hash=adoption.content_hash,
+                    source_workspace=Path(adoption.original_workspace),
+                    workspace=self.workspace,
+                    adoption_root=self.output_root / "native-adoptions",
+                    original_execution_status="SUCCEEDED",
+                )
+                return {
+                    "backtest_hash": built.manifest.result_hash,
+                    "source_adoption_record_hash": adoption.content_hash,
+                    "original_backtest_hash": origin.backtest_hash or "",
+                }
+            built = QlibBacktestService().run(
+                resolved,
+                signal_path,
+                self.qlib_view_path,
+                cost_policy,
+                self.backtest_policy,
+                destination / "backtests",
+                workspace=self.workspace,
+            )
+            return {"backtest_hash": built.manifest.result_hash}
+
+        def recover_backtest() -> dict[str, str] | None:
+            paths = sorted((destination / "backtests").glob("sha256-*"))
+            if len(paths) > 1:
+                self._integrity("variant backtest recovery has ambiguous originals")
+            return {"backtest_hash": paths[0].name.removeprefix("sha256-")} if paths else None
+
+        return self._discovery_stage(
+            request,
+            stage,
+            {**inputs, "resolved_hash": resolved.content_hash, "signal_hash": signal_hash},
+            build_backtest,
+            verify_backtest,
+            recover_backtest,
+        )
+
     def _execute_pipeline(
         self, request: AutonomousExecutionRequest
     ) -> tuple[ResearchResultManifest, ValidationReport, str, str, str, str | None]:
@@ -648,6 +1264,16 @@ class QuantosResearchExecutionAdapter:
             evidence_override: PITCrossSectionEvidenceCollection | None = None,
             destination: Path,
         ):
+            if self.discovery_stage_recovery:
+                return self._discovery_variant(
+                    request,
+                    variant_authoring,
+                    cost_policy,
+                    variant_schedules,
+                    destination,
+                    evidence_cache,
+                    evidence_override,
+                )
             return release.build_research_variant(
                 authoring=variant_authoring,
                 research_policy=self.research_policy,
@@ -678,22 +1304,145 @@ class QuantosResearchExecutionAdapter:
         if baseline.resolved.snapshot_hash != request.snapshot_hash:
             self._integrity("resolved candidate changed the frozen snapshot")
 
-        workflow = QlibWorkflowResearchService().run(
-            baseline.resolved,
-            self.research_policy,
-            baseline.signal_path,
-            self.qlib_view_path,
-            execution_root / "qlib-workflow",
-            execution_identity=request.execution_identity,
-            research_result_root=self.research_results_root,
-            workspace=self.workspace,
-            dq_audit_root=(
-                self.output_root / "research-result-audits" if self.p14dq_v2_profile else None
-            ),
+        workflow_build: Any = None
+
+        def build_workflow() -> dict[str, str]:
+            nonlocal workflow_build
+            workflow = QlibWorkflowResearchService().run(
+                baseline.resolved,
+                self.research_policy,
+                baseline.signal_path,
+                self.qlib_view_path,
+                execution_root / "qlib-workflow",
+                execution_identity=request.execution_identity,
+                research_result_root=self.research_results_root,
+                workspace=self.workspace,
+                dq_audit_root=(
+                    self.output_root / "research-result-audits"
+                    if self._native_label_audit_enabled
+                    else None
+                ),
+            )
+            workflow_build = workflow
+            return {
+                "research_result_hash": workflow.build.manifest.artifact_hash,
+                "model_data_split_hash": workflow.model_data_split_hash,
+                **(
+                    {"audit_hash": workflow.build.export_audit_hash}
+                    if workflow.build.export_audit_hash is not None
+                    else {}
+                ),
+            }
+
+        def verify_workflow(outputs: dict[str, str]):
+            result = self._verify_result_for_request(request, outputs["research_result_hash"])
+            if result.resolved_experiment_hash != baseline.resolved.content_hash or (
+                result.signal_artifact_hash != baseline.signal_hash
+            ):
+                self._integrity("recovered Workflow differs from the verified baseline")
+            native = (
+                execution_root
+                / "qlib-workflow"
+                / "native-records"
+                / f"sha256-{request.execution_identity}"
+            )
+            regular_tree_files(native)
+            for source in result.source_files:
+                path = native / source.logical_path
+                if (
+                    path.is_symlink()
+                    or not path.is_file()
+                    or (
+                        path.stat().st_size != source.size_bytes
+                        or sha256_file(path) != source.sha256
+                    )
+                ):
+                    self._integrity("recovered Workflow lacks its original native record bytes")
+            split_audit = verify_model_data_split(
+                native / "model-data-splits.json",
+                resolved=baseline.resolved,
+                research_policy=self.research_policy,
+                calendar=tuple(
+                    date.fromisoformat(line.strip())
+                    for line in (self.qlib_view_path / "calendars" / "day.txt")
+                    .read_text()
+                    .splitlines()
+                    if line.strip()
+                ),
+                source_files=result.source_files,
+            )
+            if outputs.get("model_data_split_hash") != split_audit.content_hash:
+                self._integrity("recovered Workflow effective model split differs")
+            if self._native_label_audit_enabled:
+                audit = self._verify_dq_audit_for_request(request, result.artifact_hash)
+                if outputs.get("audit_hash") != audit.audit_hash:
+                    self._integrity("recovered Workflow audit differs")
+            return result, outputs.get("audit_hash")
+
+        def recover_workflow() -> dict[str, str] | None:
+            matches: list[ResearchResultManifest] = []
+            for path in sorted(self.research_results_root.glob("sha256-*/manifest.json")):
+                candidate = ResearchResultManifest.model_validate_json(path.read_bytes())
+                if candidate.qlib_run_id == request.execution_identity[:32]:
+                    matches.append(candidate)
+            if len(matches) > 1:
+                self._integrity("Workflow recovery has ambiguous originals")
+            if not matches:
+                return None
+            outputs = {"research_result_hash": matches[0].artifact_hash}
+            native = (
+                execution_root
+                / "qlib-workflow"
+                / "native-records"
+                / f"sha256-{request.execution_identity}"
+            )
+            split_audit = verify_model_data_split(
+                native / "model-data-splits.json",
+                resolved=baseline.resolved,
+                research_policy=self.research_policy,
+                calendar=tuple(
+                    date.fromisoformat(line.strip())
+                    for line in (self.qlib_view_path / "calendars" / "day.txt")
+                    .read_text()
+                    .splitlines()
+                    if line.strip()
+                ),
+                source_files=matches[0].source_files,
+            )
+            outputs["model_data_split_hash"] = split_audit.content_hash
+            if self._native_label_audit_enabled:
+                outputs["audit_hash"] = self._verify_dq_audit_for_request(
+                    request, matches[0].artifact_hash
+                ).audit_hash
+            return outputs
+
+        if self.discovery_stage_recovery:
+            result_manifest, audit_hash = self._discovery_stage(
+                request,
+                "workflow",
+                {
+                    "resolved_hash": baseline.resolved.content_hash,
+                    "signal_hash": baseline.signal_hash,
+                    "research_policy_hash": self.research_policy.content_hash,
+                },
+                build_workflow,
+                verify_workflow,
+                recover_workflow,
+            )
+        else:
+            workflow_outputs = build_workflow()
+            result_manifest = verify_research_result(workflow_build.build.path)
+            audit_hash = workflow_outputs.get("audit_hash")
+        research_result_path = (
+            self.research_results_root / f"sha256-{result_manifest.artifact_hash}"
+            if self.discovery_stage_recovery
+            else workflow_build.build.path
         )
-        result_manifest = verify_research_result(workflow.build.path)
         if (
-            result_manifest.artifact_hash != workflow.build.manifest.artifact_hash
+            (
+                workflow_build is not None
+                and result_manifest.artifact_hash != workflow_build.build.manifest.artifact_hash
+            )
             or result_manifest.expression_spec_hash != request.candidate.expression.content_hash
             or result_manifest.snapshot_hash != request.snapshot_hash
             or result_manifest.qlib_view_hash != request.qlib_view_hash
@@ -733,7 +1482,7 @@ class QuantosResearchExecutionAdapter:
 
         subperiod_variants: dict[str, Any] = {}
         for period in self.validation_policy.subperiods:
-            if self.p14dq_v2_profile:
+            if self.p14dq_v2_profile or self.discovery_profile == "singleton-full-chain/v1":
                 period_schedules = release.schedules_within_subperiod(
                     resolve_weekly_decision_schedules(
                         self.qlib_view_path,
@@ -750,7 +1499,9 @@ class QuantosResearchExecutionAdapter:
                     "2021-2023": 151,
                     "2024-2025": 103,
                 }
-                if len(period_schedules) != required.get(period.period_id):
+                if self.p14dq_v2_profile and len(period_schedules) != required.get(
+                    period.period_id
+                ):
                     self._integrity("P14-DQ subperiod schedule differs from the verified view")
                 period_evidence = None
             else:
@@ -771,22 +1522,63 @@ class QuantosResearchExecutionAdapter:
                 destination=execution_root / f"subperiod-{period.period_id}",
             )
 
-        reproduction = QlibBacktestService().run(
-            baseline.resolved,
-            baseline.signal_path,
-            self.qlib_view_path,
-            self.cost_policy,
-            self.backtest_policy,
-            execution_root / "reproduction",
-            workspace=self.workspace,
-        )
+        reproduction_build: Any = None
+
+        def build_reproduction() -> dict[str, str]:
+            nonlocal reproduction_build
+            reproduction = QlibBacktestService().run(
+                baseline.resolved,
+                baseline.signal_path,
+                self.qlib_view_path,
+                self.cost_policy,
+                self.backtest_policy,
+                execution_root / "reproduction",
+                workspace=self.workspace,
+            )
+            reproduction_build = reproduction
+            return {"backtest_hash": reproduction.manifest.result_hash}
+
+        def verify_reproduction(outputs: dict[str, str]) -> Path:
+            path = execution_root / "reproduction" / f"sha256-{outputs['backtest_hash']}"
+            manifest = verify_backtest_artifact(path)
+            if manifest.resolved_experiment_hash != baseline.resolved.content_hash or (
+                manifest.signal_artifact_hash != baseline.signal_hash
+                or manifest.cost_policy_hash != self.cost_policy.content_hash
+                or manifest.backtest_policy_hash != self.backtest_policy.content_hash
+            ):
+                self._integrity("reproduction backtest differs from its exact inputs")
+            return path
+
+        def recover_reproduction() -> dict[str, str] | None:
+            paths = sorted((execution_root / "reproduction").glob("sha256-*"))
+            if len(paths) > 1:
+                self._integrity("reproduction recovery has ambiguous originals")
+            return {"backtest_hash": paths[0].name.removeprefix("sha256-")} if paths else None
+
+        if self.discovery_stage_recovery:
+            reproduction_path = self._discovery_stage(
+                request,
+                "reproduction",
+                {
+                    "resolved_hash": baseline.resolved.content_hash,
+                    "signal_hash": baseline.signal_hash,
+                    "cost_policy_hash": self.cost_policy.content_hash,
+                    "backtest_policy_hash": self.backtest_policy.content_hash,
+                },
+                build_reproduction,
+                verify_reproduction,
+                recover_reproduction,
+            )
+        else:
+            build_reproduction()
+            reproduction_path = reproduction_build.path
         locators = ValidationRunLocators(
             snapshot_path=self.snapshot_path,
             qlib_view_path=self.qlib_view_path,
             signal_path=baseline.signal_path,
-            research_result_path=workflow.build.path,
+            research_result_path=research_result_path,
             baseline_backtest_path=baseline.backtest_path,
-            reproduction_backtest_path=reproduction.path,
+            reproduction_backtest_path=reproduction_path,
             cost_stress=tuple(
                 CostStressLocator(
                     multiplier=multiplier,
@@ -817,21 +1609,83 @@ class QuantosResearchExecutionAdapter:
             ),
         )
         event_time = datetime.combine(request.segment_end, day_time.min, tzinfo=UTC)
-        validation_build = ValidationService().run(
-            authoring,
-            self.validation_policy,
-            self.research_policy,
-            locators,
-            self.output_root / "validation",
-            self.output_root / "validation-events" / request.execution_identity,
-            workspace=self.workspace,
-            canonical=self.canonical_validation,
-            now=event_time,
-            event_id=uuid5(_EXECUTION_NAMESPACE, request.execution_identity),
-        )
-        report = verify_validation_report(validation_build.path)
+        validation_build: Any = None
+
+        def build_validation() -> dict[str, str]:
+            nonlocal validation_build
+            built = ValidationService().run(
+                authoring,
+                self.validation_policy,
+                self.research_policy,
+                locators,
+                self.output_root / "validation",
+                self.output_root / "validation-events" / request.execution_identity,
+                workspace=self.workspace,
+                canonical=self.canonical_validation,
+                now=event_time,
+                event_id=uuid5(_EXECUTION_NAMESPACE, request.execution_identity),
+            )
+            validation_build = built
+            return {"validation_report_hash": built.report.report_hash}
+
+        def verify_validation(outputs: dict[str, str]):
+            report = self._load_validation_report(outputs["validation_report_hash"])
+            if (
+                report.resolved_experiment_hash != baseline.resolved.content_hash
+                or report.authoring_spec_hash != authoring.content_hash
+                or report.signal_artifact_hash != baseline.signal_hash
+                or report.backtest_result_hash != baseline.backtest_hash
+                or report.research_policy_hash != self.research_policy.content_hash
+                or report.validation_policy_hash != self.validation_policy.content_hash
+                or report.canonical != self.canonical_validation
+                or report.runtime_fingerprint_hash != self._discovery_runtime_hash
+            ):
+                self._integrity("recovered ValidationReport escaped its exact inputs")
+            return report
+
+        def recover_validation() -> dict[str, str] | None:
+            matches: list[ValidationReport] = []
+            for path in sorted((self.output_root / "validation").glob("sha256-*/report.json")):
+                candidate = ValidationReport.model_validate_json(path.read_bytes())
+                if candidate.authoring_spec_hash == authoring.content_hash:
+                    matches.append(candidate)
+            if len(matches) > 1:
+                self._integrity("validation recovery has ambiguous originals")
+            return {"validation_report_hash": matches[0].report_hash} if matches else None
+
+        if self.discovery_stage_recovery:
+            report = self._discovery_stage(
+                request,
+                "validation",
+                {
+                    "authoring_hash": authoring.content_hash,
+                    "resolved_hash": baseline.resolved.content_hash,
+                    "research_result_hash": result_manifest.artifact_hash,
+                    "baseline_backtest_hash": baseline.backtest_hash,
+                    "reproduction_backtest_hash": reproduction_path.name.removeprefix("sha256-"),
+                    "cost_variant_hashes": {
+                        str(k): v.backtest_hash for k, v in cost_variants.items()
+                    },
+                    "parameter_variant_hashes": {
+                        f"{k[0]}-{k[1]}": v.backtest_hash for k, v in parameter_variants.items()
+                    },
+                    "subperiod_variant_hashes": {
+                        k: v.backtest_hash for k, v in subperiod_variants.items()
+                    },
+                    "canonical": self.canonical_validation,
+                },
+                build_validation,
+                verify_validation,
+                recover_validation,
+            )
+        else:
+            build_validation()
+            report = verify_validation_report(validation_build.path)
         if (
-            report.report_hash != validation_build.report.report_hash
+            (
+                validation_build is not None
+                and report.report_hash != validation_build.report.report_hash
+            )
             or report.resolved_experiment_hash != baseline.resolved.content_hash
             or report.snapshot_hash != request.snapshot_hash
             or report.qlib_view_hash != request.qlib_view_hash
@@ -843,7 +1697,7 @@ class QuantosResearchExecutionAdapter:
             baseline.evidence.content_hash,
             baseline.signal_hash,
             baseline.backtest_hash,
-            workflow.build.export_audit_hash,
+            audit_hash,
         )
 
     def _outcome_from_validation(
@@ -880,6 +1734,8 @@ class QuantosResearchExecutionAdapter:
                     pit_hash,
                     signal_hash,
                     backtest_hash,
+                    self._verify_model_split_for_request(request, result).content_hash,
+                    *self._native_adoption_hashes(request),
                     *((audit_hash,) if audit_hash is not None else ()),
                 }
             )
@@ -934,15 +1790,164 @@ class QuantosResearchExecutionAdapter:
             ).model_dump(mode="python")
         )
 
+    def _native_adoption_hashes(self, request: AutonomousExecutionRequest) -> tuple[str, ...]:
+        adoption = self.discovery_source_adoption
+        if adoption is None:
+            return ()
+        hashes: list[str] = []
+        receipts: list[NativeArtifactAdoptionReceipt] = []
+        for path in sorted((self.output_root / "native-adoptions").glob("sha256-*.json")):
+            with opened_directory(path.parent) as parent:
+                encoded = read_regular_bytes_at(parent, path.name, max_bytes=1 << 20)
+            receipt = NativeArtifactAdoptionReceipt.model_validate_json(encoded)
+            if (
+                encoded != receipt.canonical_bytes()
+                or path.name != f"sha256-{receipt.content_hash}.json"
+                or (
+                    receipt.source_adoption_record_hash != adoption.content_hash
+                    or receipt.scientific_origin_commit != adoption.original_source_commit
+                    or receipt.adoption_commit != request.code_commit_hash
+                    or receipt.lockfile_hash != request.lockfile_hash
+                )
+            ):
+                self._integrity("native origin receipt differs from its successor authority")
+            kind = receipt.artifact_kind
+            origins = tuple(
+                item
+                for item in adoption.variants
+                if item.subtask_hash == self.output_root.name
+                and (item.signal_hash if kind == "FACTOR_SIGNAL" else item.backtest_hash)
+                == receipt.original_artifact_hash
+            )
+            if len(origins) != 1:
+                self._integrity("native origin receipt has no unique retained stage")
+            origin = origins[0]
+            self._verify_adoption_origin(request, origin)
+            old_path = Path(
+                origin.signal_path if kind == "FACTOR_SIGNAL" else origin.backtest_path or ""
+            )
+            new_path = (
+                self.output_root
+                / "executions"
+                / request.execution_identity
+                / origin.stage
+                / ("signals" if kind == "FACTOR_SIGNAL" else "backtests")
+                / f"sha256-{receipt.adopted_artifact_hash}"
+            )
+            verified = (
+                verify_signal_artifact(new_path)
+                if kind == "FACTOR_SIGNAL"
+                else verify_backtest_artifact(new_path)
+            )
+            if verified.resolved_experiment_hash != receipt.adopted_resolved_hash:
+                self._integrity("native origin receipt differs from adopted experiment")
+            old_resolved = ResolvedExperimentSpec.model_validate_json(
+                (Path(origin.signal_path) / "resolved-experiment.json").read_bytes()
+            )
+            new_signal_path = (
+                self.output_root
+                / "executions"
+                / request.execution_identity
+                / origin.stage
+                / "signals"
+            )
+            new_signals = tuple(new_signal_path.glob("sha256-*/resolved-experiment.json"))
+            if len(new_signals) != 1:
+                self._integrity("native origin receipt has ambiguous adopted signal bindings")
+            new_resolved = ResolvedExperimentSpec.model_validate_json(new_signals[0].read_bytes())
+            verify_adoption_bindings(old_resolved, new_resolved)
+            if (
+                old_resolved.content_hash != receipt.original_resolved_hash
+                or new_resolved.content_hash != receipt.adopted_resolved_hash
+            ):
+                self._integrity("native origin receipt differs from original resolution")
+            for native in receipt.native_files:
+                for original_path in (
+                    old_path / native.logical_path,
+                    new_path / native.logical_path,
+                ):
+                    if (
+                        original_path.is_symlink()
+                        or not original_path.is_file()
+                        or (
+                            original_path.stat().st_size != native.size_bytes
+                            or sha256_file(original_path) != native.bytes_hash
+                        )
+                    ):
+                        self._integrity("native origin receipt lost its unchanged scientific bytes")
+            hashes.append(receipt.content_hash)
+            receipts.append(receipt)
+        for origin in adoption.variants:
+            if origin.subtask_hash != self.output_root.name:
+                continue
+            for kind, original_hash, subdirectory in (
+                ("FACTOR_SIGNAL", origin.signal_hash, "signals"),
+                ("QLIB_BACKTEST", origin.backtest_hash, "backtests"),
+            ):
+                artifacts = tuple(
+                    (
+                        self.output_root
+                        / "executions"
+                        / request.execution_identity
+                        / origin.stage
+                        / subdirectory
+                    ).glob("sha256-*/manifest.json")
+                )
+                if original_hash is None or not artifacts:
+                    continue
+                matching = tuple(
+                    item for item in receipts if item.original_artifact_hash == original_hash
+                )
+                if len(matching) != 1 or matching[0].artifact_kind != kind:
+                    self._integrity("completed adopted stage lost its unique native origin receipt")
+        return tuple(sorted(hashes))
+
+    def _verify_model_split_for_request(
+        self, request: AutonomousExecutionRequest, result: ResearchResultManifest
+    ) -> QlibModelDataSplitAudit:
+        resolved = ResolvedExperimentSpec.model_validate_json(
+            (
+                self.research_results_root
+                / f"sha256-{result.artifact_hash}"
+                / "resolved-experiment.json"
+            ).read_bytes()
+        )
+        native = (
+            self.output_root
+            / "executions"
+            / request.execution_identity
+            / "qlib-workflow"
+            / "native-records"
+            / f"sha256-{request.execution_identity}"
+        )
+        return verify_model_data_split(
+            native / "model-data-splits.json",
+            resolved=resolved,
+            research_policy=self.research_policy,
+            calendar=tuple(
+                date.fromisoformat(line.strip())
+                for line in (self.qlib_view_path / "calendars" / "day.txt").read_text().splitlines()
+                if line.strip()
+            ),
+            source_files=result.source_files,
+        )
+
     def _verify_receipt(self, receipt: AutonomousExecutionReceipt) -> None:
         request = receipt.request
         self._verify_request(request)
         if receipt.outcome.request_hash != request.content_hash:
             self._integrity("execution receipt outcome binds a different request")
+        if receipt.outcome.research_result_hash is not None and not set(
+            self._native_adoption_hashes(request)
+        ) <= set(receipt.outcome.evidence_hashes):
+            self._integrity("native origin receipt hash is absent from execution evidence")
         result: ResearchResultManifest | None = None
         if receipt.outcome.research_result_hash is not None:
             result = self._verify_result_for_request(request, receipt.outcome.research_result_hash)
-            if self.p14dq_v2_profile:
+            split = self._verify_model_split_for_request(request, result)
+            if split.content_hash not in receipt.outcome.evidence_hashes:
+                self._integrity("effective model split hash is absent from the execution receipt")
+            if self._native_label_audit_enabled:
                 audit = self._verify_dq_audit_for_request(
                     request, receipt.outcome.research_result_hash
                 )

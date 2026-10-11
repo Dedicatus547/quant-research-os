@@ -10,7 +10,10 @@ CODEX_RUNTIME_PACKAGE_VERSION = "0.154.0"
 CODEX_PROTOCOL_IDENTIFIER = "codex-app-server-jsonrpc-v2"
 
 CODEX_CANDIDATE_RUNTIME_PROFILES: Mapping[str, tuple[str, str]] = MappingProxyType(
-    {"openai-codex-0.156.1-p10-v3": ("0.156.1", "0.156.1")}
+    {
+        "openai-codex-0.156.1-p10-v3": ("0.156.1", "0.156.1"),
+        "openai-codex-0.162.1-p10-v3": ("0.162.1", "0.162.1"),
+    }
 )
 
 

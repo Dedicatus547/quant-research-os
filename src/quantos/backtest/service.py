@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import importlib
 import math
+import shutil
 import tempfile
 from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
 import pyarrow as pa
@@ -23,6 +24,8 @@ from quantos.application.provenance import ProvenanceError, verify_code_provenan
 from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
+    confined_regular_file,
+    opened_directory,
     publish_directory,
     regular_tree_files,
     sha256_file,
@@ -42,6 +45,11 @@ from quantos.contracts.event_research import (
     EventSignalArtifactManifest,
     EventSignalEvidence,
     ResolvedEventExperimentSpec,
+)
+from quantos.contracts.native_adoption import (
+    AdoptedNativeFile,
+    NativeArtifactAdoptionReceipt,
+    verify_adoption_bindings,
 )
 from quantos.contracts.qlib_view import QlibViewSpec
 from quantos.contracts.refs import ArtifactRef
@@ -976,6 +984,250 @@ def verify_backtest_artifact(path: Path) -> BacktestArtifactManifest:
 
 class QlibBacktestService:
     """Thin Qlib adapter; it does not match orders or account for a portfolio."""
+
+    def adopt_verified(
+        self,
+        resolved: ResolvedExperimentSpec,
+        original_backtest_path: Path,
+        original_signal_path: Path,
+        adopted_signal_path: Path,
+        cost_policy: CostPolicy,
+        backtest_policy: BacktestPolicy,
+        output_root: Path,
+        *,
+        source_adoption_record_hash: str,
+        source_workspace: Path,
+        workspace: Path,
+        adoption_root: Path,
+        original_execution_status: Literal["SUCCEEDED"],
+    ) -> BacktestArtifactBuildResult:
+        """Export verified native bytes with their original scientific execution origin."""
+        if original_execution_status != "SUCCEEDED":
+            raise QlibResearchError(
+                ReasonCode.SOURCE_INCOMPLETE, "original backtest stage incomplete"
+            )
+        output_root, adoption_root = output_root.absolute(), adoption_root.absolute()
+        for root in (output_root, adoption_root):
+            if root.is_relative_to(Path("/tmp")) or root.is_relative_to(Path("/var/tmp")):
+                raise QlibResearchError(
+                    ReasonCode.SOURCE_INCOMPLETE, "adoption roots must be durable"
+                )
+            if any(
+                root.is_relative_to(path.absolute())
+                for path in (original_backtest_path, original_signal_path, adopted_signal_path)
+            ):
+                raise QlibResearchError(
+                    ReasonCode.ARTIFACT_CORRUPTED, "adoption cannot mutate input artifacts"
+                )
+            with opened_directory(root, create=True):
+                pass
+        original = verify_backtest_artifact(original_backtest_path)
+        old_signal = verify_signal_artifact(original_signal_path)
+        new_signal = verify_signal_artifact(adopted_signal_path)
+        old_resolved = ResolvedExperimentSpec.model_validate_json(
+            confined_regular_file(original_signal_path, "resolved-experiment.json").read_bytes()
+        )
+        try:
+            verify_adoption_bindings(old_resolved, resolved)
+        except ValueError:
+            raise QlibResearchError(
+                ReasonCode.REPRODUCIBILITY_MISMATCH, "backtest adoption changes bindings"
+            ) from None
+        verify_code_provenance(
+            source_workspace,
+            expected_commit_hash=old_resolved.code_commit_hash,
+            expected_lockfile_hash=old_resolved.lockfile_hash,
+        )
+        verify_code_provenance(
+            workspace,
+            expected_commit_hash=resolved.code_commit_hash,
+            expected_lockfile_hash=resolved.lockfile_hash,
+        )
+        old_native = next(
+            item for item in old_signal.files if item.logical_path == "signals.parquet"
+        )
+        new_native = next(
+            item for item in new_signal.files if item.logical_path == "signals.parquet"
+        )
+        if (
+            old_native.sha256 != new_native.sha256
+            or old_signal.resolved_experiment_hash != old_resolved.content_hash
+            or new_signal.resolved_experiment_hash != resolved.content_hash
+            or original.resolved_experiment_hash != old_resolved.content_hash
+            or original.signal_artifact_hash != old_signal.artifact_hash
+            or cost_policy.content_hash != resolved.cost_policy_hash
+            or backtest_policy.content_hash != resolved.backtest_policy_hash
+            or original.cost_policy_hash != cost_policy.content_hash
+            or original.backtest_policy_hash != backtest_policy.content_hash
+        ):
+            raise QlibResearchError(
+                ReasonCode.REPRODUCIBILITY_MISMATCH, "backtest native or policy differs"
+            )
+        config = QlibBacktestConfig.model_validate_json(
+            confined_regular_file(original_backtest_path, "backtest-config.json").read_bytes()
+        )
+        payload = config.model_dump()
+        payload.update(
+            resolved_experiment_hash=resolved.content_hash,
+            signal_artifact_hash=new_signal.artifact_hash,
+        )
+        new_config = QlibBacktestConfig.model_validate(payload)
+        reconciliation = BacktestReconciliation.model_validate_json(
+            confined_regular_file(original_backtest_path, "reconciliation.json").read_bytes()
+        )
+        payload = reconciliation.model_dump()
+        payload["backtest_config_hash"] = new_config.content_hash
+        new_reconciliation = BacktestReconciliation.model_validate(payload)
+        for receipt_path in sorted(adoption_root.glob("sha256-*.json")):
+            saved_bytes = confined_regular_file(adoption_root, receipt_path.name).read_bytes()
+            saved = NativeArtifactAdoptionReceipt.model_validate_json(saved_bytes)
+            if (
+                saved_bytes != saved.canonical_bytes()
+                or receipt_path.name != f"sha256-{saved.content_hash}.json"
+            ):
+                raise QlibResearchError(
+                    ReasonCode.ARTIFACT_CORRUPTED, "adoption receipt identity differs"
+                )
+            if (
+                saved.artifact_kind == "QLIB_BACKTEST"
+                and saved.source_adoption_record_hash == source_adoption_record_hash
+                and saved.original_artifact_hash == original.result_hash
+                and saved.adopted_resolved_hash == resolved.content_hash
+            ):
+                if (
+                    saved.original_resolved_hash != old_resolved.content_hash
+                    or saved.scientific_origin_commit != old_resolved.code_commit_hash
+                    or saved.adoption_commit != resolved.code_commit_hash
+                    or saved.lockfile_hash != resolved.lockfile_hash
+                ):
+                    raise QlibResearchError(
+                        ReasonCode.ARTIFACT_CORRUPTED, "adoption receipt origin differs"
+                    )
+                destination = output_root / f"sha256-{saved.adopted_artifact_hash}"
+                published = verify_backtest_artifact(destination)
+                original_natives = tuple(
+                    (item.logical_path, item.sha256, item.size_bytes)
+                    for item in original.files
+                    if item.logical_path.endswith(".parquet")
+                )
+                published_natives = tuple(
+                    (item.logical_path, item.sha256, item.size_bytes)
+                    for item in published.files
+                    if item.logical_path.endswith(".parquet")
+                )
+                if (
+                    original_natives != published_natives
+                    or published.backtest_config_hash != new_config.content_hash
+                    or published.signal_artifact_hash != new_signal.artifact_hash
+                ):
+                    raise QlibResearchError(
+                        ReasonCode.ARTIFACT_CORRUPTED, "adopted backtest differs"
+                    )
+                return BacktestArtifactBuildResult(
+                    reference=ArtifactRef(
+                        kind="backtest_result",
+                        sha256=published.result_hash,
+                        size_bytes=sum(
+                            path.stat().st_size for path in regular_tree_files(destination)
+                        ),
+                        media_type="application/vnd.quantos.backtest-directory",
+                        logical_path=f"research/backtests/{destination.name}",
+                    ),
+                    manifest=published,
+                    path=destination,
+                )
+        with tempfile.TemporaryDirectory(
+            prefix=".backtest-adoption-", dir=output_root
+        ) as temporary:
+            staging = Path(temporary) / "backtest"
+            staging.mkdir()
+            natives: list[AdoptedNativeFile] = []
+            for item in original.files:
+                if item.logical_path == "backtest-config.json":
+                    atomic_write_bytes(staging / item.logical_path, new_config.canonical_bytes())
+                elif item.logical_path == "reconciliation.json":
+                    atomic_write_bytes(
+                        staging / item.logical_path, new_reconciliation.canonical_bytes()
+                    )
+                else:
+                    shutil.copyfile(
+                        confined_regular_file(original_backtest_path, item.logical_path),
+                        staging / item.logical_path,
+                    )
+                    verify_file(staging / item.logical_path, item.sha256)
+                    natives.append(
+                        AdoptedNativeFile(
+                            logical_path=item.logical_path,
+                            bytes_hash=item.sha256,
+                            size_bytes=item.size_bytes,
+                        )
+                    )
+            now = datetime.now(UTC)
+            manifest = BacktestArtifactManifest.create(
+                resolved_experiment_hash=resolved.content_hash,
+                signal_artifact_hash=new_signal.artifact_hash,
+                snapshot_hash=original.snapshot_hash,
+                qlib_view_hash=original.qlib_view_hash,
+                qlib_version=original.qlib_version,
+                cost_policy_hash=original.cost_policy_hash,
+                backtest_policy_hash=original.backtest_policy_hash,
+                backtest_config_hash=new_config.content_hash,
+                reconciliation_hash=new_reconciliation.content_hash,
+                start_date=original.start_date,
+                end_date=original.end_date,
+                portfolio_rows=original.portfolio_rows,
+                position_rows=original.position_rows,
+                trade_indicator_rows=original.trade_indicator_rows,
+                order_indicator_rows=original.order_indicator_rows,
+                risk_metric_rows=original.risk_metric_rows,
+                files=_artifact_files(staging),
+                known_limitations=original.known_limitations,
+                created_at=now,
+            )
+            receipt = NativeArtifactAdoptionReceipt(
+                artifact_kind="QLIB_BACKTEST",
+                source_adoption_record_hash=source_adoption_record_hash,
+                original_artifact_hash=original.result_hash,
+                adopted_artifact_hash=manifest.result_hash,
+                original_resolved_hash=old_resolved.content_hash,
+                adopted_resolved_hash=resolved.content_hash,
+                scientific_origin_commit=old_resolved.code_commit_hash,
+                adoption_commit=resolved.code_commit_hash,
+                lockfile_hash=resolved.lockfile_hash,
+                native_files=tuple(natives),
+                metadata_rebindings=(
+                    "backtest-config.resolved_experiment_hash",
+                    "backtest-config.signal_artifact_hash",
+                    "reconciliation.backtest_config_hash",
+                    "manifest.input_hashes",
+                ),
+                adopted_at=now,
+            )
+            atomic_write_bytes(
+                staging / "manifest.json", canonical_json_bytes(manifest.model_dump(mode="python"))
+            )
+            destination = output_root / f"sha256-{manifest.result_hash}"
+            if adoption_root.is_relative_to(destination):
+                raise QlibResearchError(
+                    ReasonCode.ARTIFACT_CORRUPTED, "receipt must be outside artifact"
+                )
+            if not destination.exists():
+                publish_directory(staging, destination)
+            published = verify_backtest_artifact(destination)
+        atomic_write_bytes(
+            adoption_root / f"sha256-{receipt.content_hash}.json", receipt.canonical_bytes()
+        )
+        return BacktestArtifactBuildResult(
+            reference=ArtifactRef(
+                kind="backtest_result",
+                sha256=published.result_hash,
+                size_bytes=sum(path.stat().st_size for path in regular_tree_files(destination)),
+                media_type="application/vnd.quantos.backtest-directory",
+                logical_path=f"research/backtests/{destination.name}",
+            ),
+            manifest=published,
+            path=destination,
+        )
 
     def run(
         self,
