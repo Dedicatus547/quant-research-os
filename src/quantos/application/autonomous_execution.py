@@ -150,6 +150,28 @@ _COMPUTE_ACCOUNTING_POLICY = {
 }
 
 
+def _discovery_failure_diagnostic(stage: str, error: BaseException) -> dict[str, str | None]:
+    """Classify known failures without persisting exception text or untrusted attributes.
+
+    These labels explain an exception that is still raised; they neither evaluate a
+    candidate nor change checkpoint reuse. Unknown errors remain unclassified.
+    """
+    reason: str | None = None
+    detail = "UNCLASSIFIED"
+    if isinstance(error, QlibResearchError):
+        reason = next((item.value for item in ReasonCode if error.reason_code is item), None)
+        if stage.endswith("-signal") and error.reason_code is ReasonCode.SOURCE_INCOMPLETE:
+            # Only these source-owned message shapes select fixed labels. Never copy
+            # their instrument suffix, arbitrary exception text, or chained errors.
+            message = error.args[0] if len(error.args) == 1 else None
+            if isinstance(message, str):
+                if message == "PIT member is absent from the Qlib view mapping":
+                    detail = "SIGNAL_PIT_MEMBER_UNMAPPED"
+                elif message.startswith("finite signal lacks tradability evidence for "):
+                    detail = "SIGNAL_FINITE_WITHOUT_TRADABILITY"
+    return {"failure_reason_code": reason, "failure_detail_code": detail}
+
+
 def autonomous_compute_accounting_policy_hash() -> str:
     """Return the frozen deterministic compute-accounting policy hash."""
 
@@ -863,15 +885,16 @@ class QuantosResearchExecutionAdapter:
                 outputs=outputs,
             )
             atomic_write_bytes(checkpoint_path, checkpoint.canonical_bytes())
-        except BaseException:
+        except BaseException as error:
             atomic_write_bytes(
                 attempt / "completion.json",
                 canonical_json_bytes(
                     {
-                        "schema_version": "discovery-stage-attempt-completion/v1",
+                        "schema_version": "discovery-stage-attempt-completion/v2",
                         "inputs_hash": inputs_hash,
                         "status": "FAILED",
                         "failure_code": "STAGE_EXCEPTION",
+                        **_discovery_failure_diagnostic(stage, error),
                         "wall_seconds": max(0.0, perf_counter() - wall_start),
                         "cpu_seconds": max(0.0, process_time() - cpu_start),
                     }
