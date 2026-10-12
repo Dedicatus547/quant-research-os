@@ -180,3 +180,140 @@ class DiscoveryBatch(CanonicalContract):
         if len({item.content_hash for item in self.subtasks}) != len(self.subtasks):
             raise ValueError("batch subtasks must be unique")
         return self
+
+
+class SequentialGenerationPolicy(CanonicalContract):
+    """Explicit successor policy; the v1 design and base requests remain unchanged."""
+
+    schema_version: Literal["discovery-sequential-policy/v2"] = "discovery-sequential-policy/v2"
+    profile: Literal["hm-discovery-sequential/v2"] = "hm-discovery-sequential/v2"
+    design_hash: str = Field(pattern=SHA256_PATTERN)
+    request_hashes: tuple[str, str, str]
+    history_rule: Literal["same-method-static-prefix/v1"] = "same-method-static-prefix/v1"
+    unfinished_rule: Literal["successor-reservation-seals-missing-response/v1"] = (
+        "successor-reservation-seals-missing-response/v1"
+    )
+    template_rule: Literal["return-mean-std-rank-round-robin/v1"] = (
+        "return-mean-std-rank-round-robin/v1"
+    )
+    random_rule: Literal["shared-space-without-replacement/v1"] = (
+        "shared-space-without-replacement/v1"
+    )
+    random_seed: Literal[1729] = 1729
+    max_attempts_per_method: PositiveInt = Field(default=5, le=5)
+
+    @model_validator(mode="after")
+    def identities_are_explicit(self) -> Self:
+        if len(set(self.request_hashes)) != 3 or any(
+            len(item) != 64 or any(c not in "0123456789abcdef" for c in item)
+            for item in self.request_hashes
+        ):
+            raise ValueError("policy requires three distinct SHA256 base request identities")
+        return self
+
+
+class SequentialHistoryEntry(CanonicalContract):
+    schema_version: Literal["discovery-sequential-history-entry/v1"] = (
+        "discovery-sequential-history-entry/v1"
+    )
+    reservation_hash: str = Field(pattern=SHA256_PATTERN)
+    ordinal: PositiveInt
+    response_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    status: Literal["ADMITTED", "DUPLICATE", "PARSE_FAILED", "REJECTED", "UNFINISHED", "FAILED"]
+    reason: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,99}$")
+    expression: SafeQlibExpressionSpec | None = None
+    structural_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+
+
+class SequentialGenerationHistory(CanonicalContract):
+    schema_version: Literal["discovery-sequential-history/v1"] = "discovery-sequential-history/v1"
+    policy_hash: str = Field(pattern=SHA256_PATTERN)
+    request_hash: str = Field(pattern=SHA256_PATTERN)
+    method: Literal["TEMPLATE", "RANDOM", "LLM"]
+    entries: tuple[SequentialHistoryEntry, ...]
+
+    @model_validator(mode="after")
+    def prefix_is_contiguous(self) -> Self:
+        if tuple(item.ordinal for item in self.entries) != tuple(range(1, len(self.entries) + 1)):
+            raise ValueError("history must contain the entire earlier method prefix")
+        return self
+
+
+class SequentialGenerationAttempt(CanonicalContract):
+    schema_version: Literal["discovery-sequential-attempt/v2"] = "discovery-sequential-attempt/v2"
+    reservation: GenerationReservation
+    history: SequentialGenerationHistory
+
+    @model_validator(mode="after")
+    def prefix_binds_reservation(self) -> Self:
+        if (
+            self.reservation.request_hash != self.history.request_hash
+            or self.reservation.ordinal != len(self.history.entries) + 1
+        ):
+            raise ValueError("attempt history differs from its reserved prefix")
+        return self
+
+
+class SequentialLaunchSource(CanonicalContract):
+    """Management pointers only; they confer no access or assertion of a model call."""
+
+    schema_version: Literal["discovery-sequential-launch-source/v1"] = (
+        "discovery-sequential-launch-source/v1"
+    )
+    request_hash: str = Field(pattern=SHA256_PATTERN)
+    reservation_hash: str = Field(pattern=SHA256_PATTERN)
+    manager_root: str = Field(min_length=1, max_length=4096)
+    evidence_root: str = Field(min_length=1, max_length=4096)
+    job_root: str = Field(min_length=1, max_length=4096)
+    authenticated_principal: str = Field(min_length=1, max_length=200)
+
+
+class SequentialLaunchObservation(CanonicalContract):
+    """Freeze only observed originals; a missing capture is unknown, never zero calls."""
+
+    schema_version: Literal["discovery-sequential-launch-observation/v1"] = (
+        "discovery-sequential-launch-observation/v1"
+    )
+    source_hash: str = Field(pattern=SHA256_PATTERN)
+    reservation_hash: str = Field(pattern=SHA256_PATTERN)
+    job_prelaunch_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    job_completion_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    launch_prelaunch_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    launch_completion_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    launcher_record_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    unobserved_semantics: Literal["UNKNOWN_AT_FREEZE"] = "UNKNOWN_AT_FREEZE"
+
+
+class SequentialDiscoveryBatch(CanonicalContract):
+    schema_version: Literal["discovery-sequential-batch/v2"] = "discovery-sequential-batch/v2"
+    policy: SequentialGenerationPolicy
+    batch: DiscoveryBatch
+    attempts: tuple[SequentialGenerationAttempt, ...]
+    launch_sources: tuple[SequentialLaunchSource, ...] = ()
+    launch_observations: tuple[SequentialLaunchObservation, ...] = ()
+
+    @model_validator(mode="after")
+    def successor_bindings_agree(self) -> Self:
+        if (
+            self.policy.design_hash != self.batch.design.content_hash
+            or self.policy.request_hashes
+            != tuple(item.content_hash for item in self.batch.requests)
+            or tuple(item.reservation for item in self.attempts) != self.batch.reservations
+            or any(item.history.policy_hash != self.policy.content_hash for item in self.attempts)
+            or len({item.reservation_hash for item in self.launch_sources})
+            != len(self.launch_sources)
+            or any(
+                not any(
+                    reservation.content_hash == source.reservation_hash
+                    and reservation.request_hash == source.request_hash
+                    for reservation in self.batch.reservations
+                )
+                for source in self.launch_sources
+            )
+            or tuple(item.source_hash for item in self.launch_observations)
+            != tuple(item.content_hash for item in self.launch_sources)
+            or tuple(item.reservation_hash for item in self.launch_observations)
+            != tuple(item.reservation_hash for item in self.launch_sources)
+        ):
+            raise ValueError("sequential batch policy or attempt bindings disagree")
+        return self

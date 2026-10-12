@@ -13,7 +13,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from quantos.application.discovery_hosted import generation_prompt, generation_schema_bytes
+from quantos.application.discovery_hosted import (
+    generation_prompt,
+    generation_schema_bytes,
+    parse_generation_request,
+)
 from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
@@ -27,6 +31,7 @@ from quantos.contracts.discovery import DiscoveryDesign
 from quantos.contracts.discovery_hosted import (
     HostedGenerationProjectionFact,
     HostedGenerationRequest,
+    HostedSequentialGenerationRequest,
 )
 from quantos.contracts.hosted import parse_hosted_contract
 from quantos.contracts.hosted_deployment import (
@@ -81,7 +86,7 @@ def _durable_root(root: Path) -> None:
 def verify_generation_projection_fact(
     fact: HostedGenerationProjectionFact,
     *,
-    request: HostedGenerationRequest,
+    request: HostedGenerationRequest | HostedSequentialGenerationRequest,
     design: DiscoveryDesign,
     profile: HostedDeploymentProfile,
     configuration: HostedLauncherConfiguration,
@@ -100,6 +105,14 @@ def verify_generation_projection_fact(
         request.proposal_schema_hash,
         *design.context_hashes,
     }
+    if isinstance(request, HostedSequentialGenerationRequest):
+        required.update(
+            (
+                request.policy.content_hash,
+                request.attempt.content_hash,
+                request.attempt.history.content_hash,
+            )
+        )
     if (
         fact.design_hash != design.content_hash
         or fact.design_hash != request.design_hash
@@ -151,6 +164,9 @@ def verify_generation_projection_fact(
         configuration.content_hash: configuration.canonical_bytes(),
         request.proposal_schema_hash: generation_schema_bytes(),
     }
+    if isinstance(request, HostedSequentialGenerationRequest):
+        for contract in (request.policy, request.attempt, request.attempt.history):
+            originals[contract.content_hash] = contract.canonical_bytes()
     if sha256_bytes(originals[request.proposal_schema_hash]) != request.proposal_schema_hash:
         raise ArtifactIntegrityError("generation proposal schema differs from current contract")
     for digest in (*request.projection_object_hashes, request.content_hash):
@@ -159,7 +175,7 @@ def verify_generation_projection_fact(
         if digest in originals and data != originals[digest]:
             raise ArtifactIntegrityError("generation mounted contract original differs")
         if digest == request.content_hash:
-            parse_hosted_contract(data, HostedGenerationRequest, max_bytes=_OBJECT_CAP)
+            parse_generation_request(data)
         elif digest == design.content_hash:
             try:
                 decoded_design = DiscoveryDesign.model_validate_json(data)
@@ -171,7 +187,7 @@ def verify_generation_projection_fact(
 
 
 def publish_generation_projection_fact(
-    request: HostedGenerationRequest,
+    request: HostedGenerationRequest | HostedSequentialGenerationRequest,
     design: DiscoveryDesign,
     *,
     profile: HostedDeploymentProfile,
@@ -216,7 +232,7 @@ def _capture_generation_projection(
     profile: HostedDeploymentProfile,
     configuration: HostedLauncherConfiguration,
     evidence: TrustedLauncherEvidenceStore,
-    request: HostedGenerationRequest,
+    request: HostedGenerationRequest | HostedSequentialGenerationRequest,
     projection: HostedInstallInventory,
     projection_fact_hash: str,
     host_instance: str,
@@ -431,7 +447,7 @@ class DiscoveryCodexLauncher:
 
     def capture(
         self,
-        request: HostedGenerationRequest,
+        request: HostedGenerationRequest | HostedSequentialGenerationRequest,
         design: DiscoveryDesign,
         projection: HostedInstallInventory,
         initial_inventory: HostedInstallInventory,

@@ -24,8 +24,16 @@ from quantos.contracts.discovery import (
     GenerationRequest,
     GenerationReservation,
     GenerationResponse,
+    SequentialDiscoveryBatch,
+    SequentialGenerationAttempt,
+    SequentialGenerationPolicy,
+    SequentialLaunchObservation,
+    SequentialLaunchSource,
 )
-from quantos.contracts.discovery_hosted import HostedGenerationOrigin
+from quantos.contracts.discovery_hosted import (
+    HostedGenerationOrigin,
+    HostedSequentialGenerationOrigin,
+)
 from quantos.contracts.harness import AgentEvent, AgentEventKind, HarnessExecutionRequest
 from quantos.contracts.pit import SafeQlibExpressionSpec
 from quantos.contracts.status import RunStatus
@@ -154,6 +162,379 @@ class GenerationStore:
             raise ArtifactIntegrityError("generation authority requires durable storage")
         self.root = resolved
 
+    def sequential_policy(self) -> SequentialGenerationPolicy | None:
+        marker = self.root / "policy.json"
+        if not marker.exists() and not marker.is_symlink():
+            return None
+        return _contract(self.root, "policy.json", SequentialGenerationPolicy)
+
+    def save_sequential_policy(self, policy: SequentialGenerationPolicy) -> None:
+        """Opt in before saving any requests; policy cannot be attached to old attempts."""
+        _safe(policy.model_dump(mode="json"))
+        with exclusive_directory_lock(self.root):
+            self._writable()
+            retained = self.sequential_policy()
+            if retained is not None:
+                if retained != policy:
+                    raise ArtifactIntegrityError("sequential policy is immutable")
+                return
+            if regular_tree_files(self.root):
+                raise ArtifactIntegrityError("sequential policy must precede all requests")
+            atomic_write_bytes(self.root / "policy.json", policy.canonical_bytes())
+
+    def _make_attempt(
+        self,
+        request: GenerationRequest,
+        reservation: GenerationReservation,
+        reservations: tuple[GenerationReservation, ...],
+        responses: tuple[GenerationResponse, ...],
+    ) -> SequentialGenerationAttempt:
+        from quantos.application.discovery_sequential import build_generation_history
+
+        policy = self.sequential_policy()
+        if policy is None:
+            raise ArtifactIntegrityError("sequential policy original is missing")
+        return SequentialGenerationAttempt(
+            reservation=reservation,
+            history=build_generation_history(
+                self._load(request), request, policy, reservations, responses
+            ),
+        )
+
+    def _verify_attempt(
+        self,
+        request: GenerationRequest,
+        attempt: SequentialGenerationAttempt,
+        reservations: tuple[GenerationReservation, ...],
+        responses: tuple[GenerationResponse, ...],
+    ) -> None:
+        if self._make_attempt(request, attempt.reservation, reservations, responses) != attempt:
+            raise ArtifactIntegrityError(
+                "sequential history differs from its exact original prefix"
+            )
+
+    def read_attempt(
+        self, request: GenerationRequest, reservation: GenerationReservation
+    ) -> SequentialGenerationAttempt:
+        """Rebuild only earlier raw originals, avoiding recursive runtime-source verification."""
+        directory = self._directory(request)
+        reservations: list[GenerationReservation] = []
+        responses: list[GenerationResponse] = []
+        for ordinal in range(1, reservation.ordinal + 1):
+            attempt = _contract(
+                directory, f"reservations/{ordinal:06d}.json", SequentialGenerationAttempt
+            )
+            self._verify_attempt(request, attempt, tuple(reservations), tuple(responses))
+            if ordinal == reservation.ordinal:
+                if attempt.reservation != reservation:
+                    raise ArtifactIntegrityError("sequential reservation original differs")
+                return attempt
+            reservations.append(attempt.reservation)
+            name = f"responses/{ordinal:06d}.json"
+            if (directory / name).exists() or (directory / name).is_symlink():
+                raw = _read(directory, name)
+                envelope: object = json.loads(raw)
+                if not isinstance(envelope, dict):
+                    raise ArtifactIntegrityError("sequential response original is not canonical")
+                fields = cast(dict[str, object], envelope)
+                if canonical_json_bytes(fields) != raw:
+                    raise ArtifactIntegrityError("sequential response original is not canonical")
+                response = GenerationResponse.model_validate(fields.get("response"))
+                if response.reservation != attempt.reservation:
+                    raise ArtifactIntegrityError(
+                        "sequential response binds a different reservation"
+                    )
+                responses.append(response)
+        raise ArtifactIntegrityError("sequential reservation is unavailable")
+
+    def save_launch_source(
+        self,
+        request: GenerationRequest,
+        reservation: GenerationReservation,
+        source: SequentialLaunchSource,
+    ) -> None:
+        """Bind management originals before launch; absence of completion remains unknown."""
+        with exclusive_directory_lock(self.root):
+            self._writable()
+            if self.sequential_policy() is None or request.method != "LLM":
+                raise ArtifactIntegrityError("launch-source pointers require sequential LLM scope")
+            reservations, responses = self._inventory(request)
+            if (
+                reservation not in reservations
+                or reservation != reservations[-1]
+                or any(item.reservation == reservation for item in responses)
+            ):
+                raise ArtifactIntegrityError(
+                    "launch-source pointer requires the final unfinished slot"
+                )
+            self._verify_launch_source(source, request, reservation)
+            _safe(source.model_dump(mode="json"))
+            atomic_write_bytes(
+                self._directory(request) / "sources" / f"{reservation.ordinal:06d}.json",
+                source.canonical_bytes(),
+            )
+
+    def launch_source(
+        self,
+        request: GenerationRequest,
+        reservation: GenerationReservation,
+    ) -> SequentialLaunchSource | None:
+        self._load(request)
+        name = f"sources/{reservation.ordinal:06d}.json"
+        path = self._directory(request) / name
+        if not path.exists() and not path.is_symlink():
+            return None
+        source = _contract(self._directory(request), name, SequentialLaunchSource)
+        self._verify_launch_source(source, request, reservation)
+        return source
+
+    @staticmethod
+    def _verify_launch_source(
+        source: SequentialLaunchSource,
+        request: GenerationRequest,
+        reservation: GenerationReservation,
+    ) -> None:
+        if (
+            source.request_hash != request.content_hash
+            or source.reservation_hash != reservation.content_hash
+        ):
+            raise ArtifactIntegrityError("launch source reservation binding differs")
+        for value in (source.manager_root, source.evidence_root, source.job_root):
+            root = Path(value)
+            if (
+                not root.is_absolute()
+                or root.resolve(strict=True) != root
+                or any(root.is_relative_to(base) for base in (Path("/tmp"), Path("/var/tmp")))
+            ):
+                raise ArtifactIntegrityError(
+                    "launch source original root is not durable and canonical"
+                )
+        retained = _contract(
+            Path(source.job_root), "generation-reservation.json", GenerationReservation
+        )
+        if retained != reservation:
+            raise ArtifactIntegrityError("launch source job reservation original differs")
+
+    def _check_sealed(
+        self,
+        reservation: GenerationReservation,
+        reservations: tuple[GenerationReservation, ...],
+        responses: tuple[GenerationResponse, ...],
+    ) -> None:
+        if self.sequential_policy() is not None and (
+            reservation.ordinal < len(reservations)
+            and not any(item.reservation == reservation for item in responses)
+        ):
+            raise ArtifactIntegrityError(
+                "successor history permanently sealed this unfinished slot"
+            )
+
+    @staticmethod
+    def _observe_launch_source(
+        source: SequentialLaunchSource,
+        frozen: SequentialLaunchObservation | None = None,
+    ) -> SequentialLaunchObservation:
+        """Read bounded management metadata; later completions never rewrite frozen unknowns."""
+        fields = (
+            ("job_prelaunch_hash", Path(source.job_root), "prelaunch.json"),
+            ("job_completion_hash", Path(source.job_root), "completion.json"),
+            (
+                "launch_prelaunch_hash",
+                Path(source.evidence_root) / "generation-launches" / source.reservation_hash,
+                "prelaunch.json",
+            ),
+            (
+                "launch_completion_hash",
+                Path(source.evidence_root) / "generation-launches" / source.reservation_hash,
+                "completion.json",
+            ),
+        )
+        observed: dict[str, object] = {}
+        completion: dict[str, object] | None = None
+        job_completion: dict[str, object] | None = None
+        launch: dict[str, object] | None = None
+        for key, root, name in fields:
+            expected = None if frozen is None else getattr(frozen, key)
+            path = root / name
+            if frozen is not None and expected is None:
+                observed[key] = None
+                continue
+            if not path.exists() and not path.is_symlink():
+                if expected is not None:
+                    raise ArtifactIntegrityError("frozen launch original is unavailable")
+                observed[key] = None
+                continue
+            data = _read(root, name)
+            value: object = json.loads(data)
+            if not isinstance(value, dict):
+                raise ArtifactIntegrityError("launch original must be canonical metadata")
+            record = cast(dict[str, object], value)
+            if canonical_json_bytes(record) != data:
+                raise ArtifactIntegrityError("launch original is not canonical")
+            digest = sha256_bytes(data)
+            if expected is not None and expected != digest:
+                raise ArtifactIntegrityError("frozen launch original identity changed")
+            if key == "job_prelaunch_hash" and record.get("request_hash") != source.request_hash:
+                raise ArtifactIntegrityError("job launch source base request differs")
+            if key == "launch_prelaunch_hash":
+                if record.get("reservation_hash") != source.reservation_hash:
+                    raise ArtifactIntegrityError("launcher prelaunch reservation differs")
+                launch = record
+            if key == "launch_completion_hash":
+                completion = record
+            if key == "job_completion_hash":
+                job_completion = record
+            observed[key] = digest
+        if job_completion is not None and job_completion.get("prelaunch_hash") != observed.get(
+            "job_prelaunch_hash"
+        ):
+            raise ArtifactIntegrityError("job completion does not bind observed prelaunch")
+        if completion is not None and completion.get("prelaunch_hash") != observed.get(
+            "launch_prelaunch_hash"
+        ):
+            raise ArtifactIntegrityError("launcher completion does not bind observed prelaunch")
+        if frozen is None:
+            digest = None if completion is None else completion.get("launcher_record_hash")
+        else:
+            digest = frozen.launcher_record_hash
+        if digest is not None:
+            from quantos.contracts.hosted import parse_hosted_contract
+            from quantos.contracts.hosted_deployment import HostedLauncherRecord
+            from quantos.infrastructure.hosted_deployment import KnownValueGuard
+            from quantos.infrastructure.hosted_launcher import TrustedLauncherEvidenceStore
+
+            if not isinstance(digest, str):
+                raise ArtifactIntegrityError("launcher completion record identity is invalid")
+            evidence = TrustedLauncherEvidenceStore(Path(source.evidence_root), KnownValueGuard(()))
+            launcher_record = parse_hosted_contract(
+                evidence.read_bytes(digest, max_bytes=65_536),
+                HostedLauncherRecord,
+                max_bytes=65_536,
+            )
+            if (
+                launcher_record.content_hash != digest
+                or launch is None
+                or launcher_record.request_hash != launch.get("request_hash")
+                or completion is None
+                or completion.get("launcher_record_hash") != digest
+            ):
+                raise ArtifactIntegrityError(
+                    "frozen launcher record differs from observed prelaunch"
+                )
+        if launch is not None:
+            from quantos.application.discovery_hosted import parse_generation_request
+            from quantos.contracts.discovery_hosted import HostedSequentialGenerationRequest
+            from quantos.infrastructure.hosted_deployment import KnownValueGuard
+            from quantos.infrastructure.hosted_launcher import TrustedLauncherEvidenceStore
+
+            request_hash = launch.get("request_hash")
+            if not isinstance(request_hash, str):
+                raise ArtifactIntegrityError("launcher request original identity is invalid")
+            evidence = TrustedLauncherEvidenceStore(Path(source.evidence_root), KnownValueGuard(()))
+            request = parse_generation_request(
+                evidence.read_bytes(request_hash, max_bytes=_FILE_CAP)
+            )
+            if (
+                not isinstance(request, HostedSequentialGenerationRequest)
+                or request.generation_request.content_hash != source.request_hash
+                or request.reservation.content_hash != source.reservation_hash
+            ):
+                raise ArtifactIntegrityError("launcher source request originals differ")
+        observed.update(
+            source_hash=source.content_hash,
+            reservation_hash=source.reservation_hash,
+            launcher_record_hash=digest,
+        )
+        return SequentialLaunchObservation.model_validate(observed)
+
+    def _sequential_batch(
+        self,
+        design: DiscoveryDesign,
+        frozen: SequentialDiscoveryBatch | None = None,
+    ) -> SequentialDiscoveryBatch:
+        from quantos.application.discovery_admission import build_discovery_batch
+
+        policy = self.sequential_policy()
+        if policy is None or policy.design_hash != design.content_hash:
+            raise ArtifactIntegrityError("sequential batch design/policy differs")
+        requests = tuple(
+            _contract(self.root, f"requests/{digest}/request.json", GenerationRequest)
+            for digest in policy.request_hashes
+        )
+        if tuple(item.method for item in requests) != ("LLM", "RANDOM", "TEMPLATE"):
+            raise ArtifactIntegrityError("policy base request order must be LLM/RANDOM/TEMPLATE")
+        reservations: list[GenerationReservation] = []
+        responses: list[GenerationResponse] = []
+        attempts: list[SequentialGenerationAttempt] = []
+        sources: list[SequentialLaunchSource] = []
+        expected = {self.root / "policy.json"}
+        expected_directories = {self.root / "requests"}
+        for request in requests:
+            self._bind(design, request)
+            saved_reservations, saved_responses = self._inventory(request)
+            reservations.extend(saved_reservations)
+            responses.extend(saved_responses)
+            attempts.extend(self.read_attempt(request, item) for item in saved_reservations)
+            directory = self._directory(request)
+            for item in saved_reservations:
+                name = f"sources/{item.ordinal:06d}.json"
+                if (directory / name).exists():
+                    sources.append(_contract(directory, name, SequentialLaunchSource))
+            expected.update(regular_tree_files(directory))
+            expected_directories.add(directory)
+            expected_directories.update(
+                directory / name
+                for name in ("reservations", "responses", "sources")
+                if (directory / name).is_dir()
+            )
+        marker = self.root / "frozen.json"
+        if marker.exists() or marker.is_symlink():
+            expected.add(marker)
+        if (
+            set(regular_tree_files(self.root)) != expected
+            or {path for path in self.root.rglob("*") if path.is_dir()} != expected_directories
+        ):
+            raise ArtifactIntegrityError("sequential authority inventory differs")
+        batch = build_discovery_batch(design, requests, tuple(reservations), tuple(responses))
+        by_hash = {item.reservation.content_hash: item for item in attempts}
+        sorted_sources = tuple(sorted(sources, key=lambda item: item.reservation_hash))
+        frozen_observations = (
+            {}
+            if frozen is None
+            else {item.source_hash: item for item in frozen.launch_observations}
+        )
+        if frozen is not None and set(frozen_observations) != {
+            item.content_hash for item in sorted_sources
+        }:
+            raise ArtifactIntegrityError("frozen launch source set differs")
+        return SequentialDiscoveryBatch(
+            policy=policy,
+            batch=batch,
+            attempts=tuple(by_hash[item.content_hash] for item in batch.reservations),
+            launch_sources=sorted_sources,
+            launch_observations=tuple(
+                self._observe_launch_source(item, frozen_observations.get(item.content_hash))
+                for item in sorted_sources
+            ),
+        )
+
+    def _verify_sequential_frozen(self, batch: SequentialDiscoveryBatch) -> None:
+        retained = _contract(self.root, "frozen.json", SequentialDiscoveryBatch)
+        if retained != batch or self._sequential_batch(batch.batch.design, retained) != retained:
+            raise ArtifactIntegrityError("frozen sequential histories differ from their originals")
+
+    def _freeze_sequential(self, design: DiscoveryDesign) -> SequentialDiscoveryBatch:
+        marker = self.root / "frozen.json"
+        if marker.exists() or marker.is_symlink():
+            retained = _contract(self.root, "frozen.json", SequentialDiscoveryBatch)
+            if retained.batch.design != design:
+                raise ArtifactIntegrityError("frozen sequential batch belongs to another design")
+            self._verify_sequential_frozen(retained)
+            return retained
+        batch = self._sequential_batch(design)
+        atomic_write_bytes(marker, batch.canonical_bytes())
+        return batch
+
     def _writable(self) -> None:
         if (self.root / "frozen.json").exists() or (self.root / "frozen.json").is_symlink():
             raise ArtifactIntegrityError("generation store is frozen")
@@ -172,6 +553,14 @@ class GenerationStore:
 
     def save_request(self, design: DiscoveryDesign, request: GenerationRequest) -> None:
         self._bind(design, request)
+        policy = self.sequential_policy()
+        if policy is not None and (
+            policy.design_hash != design.content_hash
+            or request.content_hash not in policy.request_hashes
+            or request.max_attempts != policy.max_attempts_per_method
+            or (request.method != "LLM" and request.seed != policy.random_seed)
+        ):
+            raise ArtifactIntegrityError("request differs from the sequential base policy")
         _safe(design.model_dump(mode="json"))
         _safe(request.model_dump(mode="json"))
         with exclusive_directory_lock(self.root):
@@ -193,12 +582,20 @@ class GenerationStore:
             raise ArtifactIntegrityError("generation request identity mismatch")
         design = _contract(directory, "design.json", DiscoveryDesign)
         self._bind(design, request)
+        policy = self.sequential_policy()
+        if policy is not None and (
+            policy.design_hash != design.content_hash
+            or request.content_hash not in policy.request_hashes
+            or request.max_attempts != policy.max_attempts_per_method
+            or (request.method != "LLM" and request.seed != policy.random_seed)
+        ):
+            raise ArtifactIntegrityError("request differs from the sequential base policy")
         _safe(design.model_dump(mode="json"))
         _safe(request.model_dump(mode="json"))
         return design
 
-    @staticmethod
     def _agent_binding(
+        self,
         design: DiscoveryDesign,
         request: GenerationRequest,
         response: GenerationResponse,
@@ -207,12 +604,14 @@ class GenerationStore:
         normalized_transcript: bytes | None,
         execution_request: HarnessExecutionRequest | None,
         model_configuration: bytes | None,
-        hosted_origin: HostedGenerationOrigin | None = None,
+        hosted_origin: HostedGenerationOrigin | HostedSequentialGenerationOrigin | None = None,
     ) -> None:
         """Bind captured SDK originals; this does not grant Hosted qualification."""
         if response.producer != "HOSTED_HANDOFF" and hosted_origin is not None:
             raise ArtifactIntegrityError("non-Hosted capture cannot claim Hosted originals")
         if response.producer == "SDK_CAPTURE":
+            if self.sequential_policy() is not None:
+                raise ArtifactIntegrityError("sequential SDK captures do not bind Hosted history")
             sources = {request.content_hash, request.design_hash, response.reservation.content_hash}
             if (
                 request.method != "LLM"
@@ -348,6 +747,30 @@ class GenerationStore:
                     "Hosted capture requires independent launcher originals"
                 )
             hosted_request, hosted_response, record = verify_generation_origin(hosted_origin)
+            policy = self.sequential_policy()
+            if policy is not None:
+                from quantos.contracts.discovery_hosted import HostedSequentialGenerationRequest
+
+                source = _contract(
+                    self._directory(request),
+                    f"sources/{response.reservation.ordinal:06d}.json",
+                    SequentialLaunchSource,
+                )
+                if (
+                    source.manager_root != hosted_origin.manager_root
+                    or source.evidence_root != hosted_origin.evidence_root
+                    or source.authenticated_principal != hosted_origin.authenticated_principal
+                    or not isinstance(hosted_request, HostedSequentialGenerationRequest)
+                    or not isinstance(hosted_origin, HostedSequentialGenerationOrigin)
+                    or hosted_origin.generation_root != str(self.root)
+                    or hosted_request.policy != policy
+                    or hosted_request.attempt != self.read_attempt(request, response.reservation)
+                ):
+                    raise ArtifactIntegrityError(
+                        "Hosted source does not bind retained sequential history"
+                    )
+            elif isinstance(hosted_origin, HostedSequentialGenerationOrigin):
+                raise ArtifactIntegrityError("legacy store cannot claim sequential provenance")
             if (
                 hosted_request.generation_request != request
                 or hosted_request.design_hash != design.content_hash
@@ -382,7 +805,14 @@ class GenerationStore:
                     "non-runtime generation cannot claim AgentRun provenance"
                 )
             if response.producer == "BASELINE":
-                expected = generate_baseline(design, request)[response.reservation.ordinal - 1]
+                policy = self.sequential_policy()
+                if policy is None:
+                    proposals = generate_baseline(design, request)
+                else:
+                    from quantos.application.discovery_sequential import sequential_baseline
+
+                    proposals = sequential_baseline(design, request, policy)
+                expected = proposals[response.reservation.ordinal - 1]
                 if response.failure_code is not None or response.text != expected:
                     raise ArtifactIntegrityError(
                         "baseline output differs from the frozen seed and ordinal"
@@ -412,7 +842,12 @@ class GenerationStore:
         files = {path.relative_to(directory).as_posix() for path in regular_tree_files(directory)}
         if any(
             path.is_dir()
-            and path.relative_to(directory).as_posix() not in {"reservations", "responses"}
+            and path.relative_to(directory).as_posix()
+            not in (
+                {"reservations", "responses"}
+                if self.sequential_policy() is None
+                else {"reservations", "responses", "sources"}
+            )
             for path in directory.rglob("*")
         ):
             raise ArtifactIntegrityError("generation directory set is invalid")
@@ -425,7 +860,13 @@ class GenerationStore:
             if name not in files:
                 break
             expected.add(name)
-            reservation = _contract(directory, name, GenerationReservation)
+            policy = self.sequential_policy()
+            if policy is None:
+                reservation = _contract(directory, name, GenerationReservation)
+            else:
+                attempt = _contract(directory, name, SequentialGenerationAttempt)
+                reservation = attempt.reservation
+                self._verify_attempt(request, attempt, tuple(reservations), tuple(responses))
             if (
                 reservation.request_hash != request.content_hash
                 or reservation.ordinal != ordinal
@@ -436,6 +877,14 @@ class GenerationStore:
             ):
                 raise ArtifactIntegrityError("generation reservation identity mismatch")
             reservations.append(reservation)
+            source_name = f"sources/{ordinal:06d}.json"
+            if source_name in files:
+                if policy is None or request.method != "LLM":
+                    raise ArtifactIntegrityError("launch source is outside sequential LLM scope")
+                expected.add(source_name)
+                self._verify_launch_source(
+                    _contract(directory, source_name, SequentialLaunchSource), request, reservation
+                )
             completion = f"responses/{ordinal:06d}.json"
             if completion not in files:
                 continue
@@ -488,7 +937,13 @@ class GenerationStore:
                     else None
                 )
                 hosted_origin = (
-                    HostedGenerationOrigin.model_validate(envelope["hosted_origin"])
+                    (
+                        HostedSequentialGenerationOrigin
+                        if isinstance(envelope["hosted_origin"], dict)
+                        and cast(dict[str, object], envelope["hosted_origin"]).get("schema_version")
+                        == "hosted-sequential-generation-origin/v2"
+                        else HostedGenerationOrigin
+                    ).model_validate(envelope["hosted_origin"])
                     if envelope.get("hosted_origin") is not None
                     else None
                 )
@@ -562,7 +1017,13 @@ class GenerationStore:
             )
             atomic_write_bytes(
                 self._directory(request) / "reservations" / f"{reservation.ordinal:06d}.json",
-                reservation.canonical_bytes(),
+                (
+                    reservation.canonical_bytes()
+                    if self.sequential_policy() is None
+                    else self._make_attempt(
+                        request, reservation, reservations, responses
+                    ).canonical_bytes()
+                ),
             )
             return reservation
 
@@ -579,7 +1040,7 @@ class GenerationStore:
         normalized_transcript: bytes | None = None,
         execution_request: HarnessExecutionRequest | None = None,
         model_configuration: bytes | None = None,
-        hosted_origin: HostedGenerationOrigin | None = None,
+        hosted_origin: HostedGenerationOrigin | HostedSequentialGenerationOrigin | None = None,
         wall_seconds: float | None = None,
         usage_input_units: int | None = None,
         usage_output_units: int | None = None,
@@ -593,6 +1054,11 @@ class GenerationStore:
             if reservation not in reservations:
                 raise ArtifactIntegrityError(
                     "generation completion requires a retained reservation"
+                )
+            self._check_sealed(reservation, reservations, completions)
+            if self.sequential_policy() is not None and producer == "SDK_CAPTURE":
+                raise ArtifactIntegrityError(
+                    "sequential runtime capture requires the Hosted history path"
                 )
             try:
                 if len(text.encode("utf-8")) > design.max_output_bytes_per_attempt or (
@@ -678,6 +1144,7 @@ class GenerationStore:
             reservations, completions = self._inventory(request)
             if reservation not in reservations:
                 raise ArtifactIntegrityError("capture rejection requires a retained reservation")
+            self._check_sealed(reservation, reservations, completions)
             return self._reject_capture(request, reservation, completions, code)
 
     def _reject_capture(
@@ -713,12 +1180,19 @@ class GenerationStore:
         )
         return response
 
-    def verify_frozen(self, batch: DiscoveryBatch) -> None:
+    def verify_frozen(self, batch: DiscoveryBatch | SequentialDiscoveryBatch) -> None:
         """Read original producer materials and check the entire frozen denominator."""
         if not self.root.is_dir():
             raise ArtifactIntegrityError("frozen generation originals are unavailable")
         with exclusive_directory_lock(self.root):
-            self._verify_frozen_unlocked(batch)
+            if self.sequential_policy() is not None:
+                if not isinstance(batch, SequentialDiscoveryBatch):
+                    raise ArtifactIntegrityError("sequential freeze requires the successor wrapper")
+                self._verify_sequential_frozen(batch)
+            else:
+                if isinstance(batch, SequentialDiscoveryBatch):
+                    raise ArtifactIntegrityError("legacy freeze cannot accept a sequential wrapper")
+                self._verify_frozen_unlocked(batch)
 
     def _verify_frozen_unlocked(self, batch: DiscoveryBatch) -> None:
         from quantos.application.discovery_admission import build_discovery_batch
@@ -743,10 +1217,12 @@ class GenerationStore:
         ):
             raise ArtifactIntegrityError("frozen generation inventory or producer binding differs")
 
-    def freeze(self, design: DiscoveryDesign) -> DiscoveryBatch:
+    def freeze(self, design: DiscoveryDesign) -> DiscoveryBatch | SequentialDiscoveryBatch:
         from quantos.application.discovery_admission import build_discovery_batch
 
         with exclusive_directory_lock(self.root):
+            if self.sequential_policy() is not None:
+                return self._freeze_sequential(design)
             marker = self.root / "frozen.json"
             if marker.exists() or marker.is_symlink():
                 batch = _contract(self.root, "frozen.json", DiscoveryBatch)

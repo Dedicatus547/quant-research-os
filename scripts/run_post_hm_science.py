@@ -30,7 +30,11 @@ from quantos.artifacts.store import (
     sha256_file,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
-from quantos.contracts.discovery_evaluation import DiscoveryEvaluationDeclaration
+from quantos.contracts.discovery_evaluation import (
+    DiscoveryEvaluationDeclaration,
+    ScientificEvaluationDeclaration,
+    ScientificSchedulingCutoff,
+)
 from quantos.contracts.hosted import strict_json_object, unique_json_object_pairs
 from quantos.contracts.provenance import CodeProvenance
 from quantos.infrastructure.hosted_deployment import NAMESPACE_TMPFS_BYTES, KnownValueGuard
@@ -50,6 +54,7 @@ _SOURCE_INVENTORY_HASH = "6241ce9821708b76e8c622d54e7f34db7531017becfd0f80fb86ac
 _LOG_CAP = 16 << 20
 _MEMORY_RESERVE = 2 << 30
 _META_CAP = 16 << 20
+_Evaluation = DiscoveryEvaluationDeclaration | ScientificEvaluationDeclaration
 
 
 def _read(path: Path, cap: int = _META_CAP) -> bytes:
@@ -170,18 +175,22 @@ def _summary(output: bytes) -> dict[str, object] | None:
     return None
 
 
-def _evaluation(args: argparse.Namespace) -> DiscoveryEvaluationDeclaration | None:
+def _evaluation(args: argparse.Namespace) -> _Evaluation | None:
     if args.evaluation_declaration is None:
         return None
     data = _read(args.evaluation_declaration)
-    declaration = DiscoveryEvaluationDeclaration.model_validate_json(data)
+    value = strict_json_object(data, max_bytes=_META_CAP)
+    if value.get("schema_version") == "discovery-scientific-evaluation-declaration/v2":
+        declaration: _Evaluation = ScientificEvaluationDeclaration.model_validate_json(data)
+    else:
+        declaration = DiscoveryEvaluationDeclaration.model_validate_json(data)
     if declaration.canonical_bytes() != data:
         raise ArtifactIntegrityError("evaluation declaration must use canonical bytes")
     return declaration
 
 
 def _science_source(
-    args: argparse.Namespace, evaluation: DiscoveryEvaluationDeclaration | None
+    args: argparse.Namespace, evaluation: _Evaluation | None
 ) -> tuple[CodeProvenance, str, dict[str, object] | None]:
     workspace = cast(Path, args.workspace)
     inventory_bytes = _read(workspace.parent / "source-inventory.json")
@@ -199,6 +208,10 @@ def _science_source(
         raise ArtifactIntegrityError("successor science source requires an evaluation declaration")
     declaration_bytes = _read(args.source_declaration)
     declaration = strict_json_object(declaration_bytes, max_bytes=_META_CAP)
+    if isinstance(evaluation, ScientificEvaluationDeclaration) and (
+        sha256_bytes(declaration_bytes) != evaluation.evaluation_source_declaration_hash
+    ):
+        raise ArtifactIntegrityError("scientific source capsule differs from its authority")
     if (
         canonical_json_bytes(declaration) != declaration_bytes
         or declaration.get("schema_version") != "post-hm-source-capsule/v1"
@@ -260,8 +273,10 @@ def _supersession_cutoff(
     args: argparse.Namespace,
     frozen_bytes: bytes,
     provenance: CodeProvenance,
-    evaluation: DiscoveryEvaluationDeclaration | None,
+    evaluation: _Evaluation | None,
 ) -> dict[str, object] | None:
+    if isinstance(evaluation, ScientificEvaluationDeclaration):
+        return _scientific_scheduling_cutoff(args, frozen_bytes, evaluation)
     path = cast(Path | None, args.supersession_cutoff)
     if evaluation is not None and path is None:
         raise ArtifactIntegrityError("successor evaluation requires its explicit scheduling cutoff")
@@ -383,10 +398,38 @@ def _supersession_cutoff(
     return {"path": str(path), "bytes_hash": sha256_bytes(cutoff_bytes)}
 
 
+def _scientific_scheduling_cutoff(
+    args: argparse.Namespace,
+    frozen_bytes: bytes,
+    evaluation: ScientificEvaluationDeclaration,
+) -> dict[str, object]:
+    """Bind the independent A-only scheduling cutoff without historical exit claims."""
+    from quantos.contracts.discovery import SequentialDiscoveryBatch
+
+    path = cast(Path | None, args.supersession_cutoff)
+    if path is None:
+        raise ArtifactIntegrityError("scientific evaluation requires its scheduling cutoff")
+    cutoff_bytes = _read(path)
+    cutoff = ScientificSchedulingCutoff.model_validate_json(cutoff_bytes)
+    wrapper = SequentialDiscoveryBatch.model_validate_json(frozen_bytes)
+    if (
+        cutoff.canonical_bytes() != cutoff_bytes
+        or cutoff.content_hash != evaluation.scientific_scheduling_cutoff_hash
+        or cutoff.original_sequential_batch_hash != wrapper.content_hash
+        or cutoff.original_batch_hash != wrapper.batch.content_hash
+        or cutoff.original_design_hash != wrapper.batch.design.content_hash
+        or cutoff.authorization_hash != evaluation.authorization_hash
+        or evaluation.original_sequential_batch_hash != wrapper.content_hash
+        or evaluation.original_generation_policy_hash != wrapper.policy.content_hash
+    ):
+        raise ArtifactIntegrityError("scientific scheduling cutoff differs from frozen proposals")
+    return {"path": str(path), "bytes_hash": sha256_bytes(cutoff_bytes)}
+
+
 def _runtime_layout(
     args: argparse.Namespace,
     frozen_bytes: bytes,
-    evaluation: DiscoveryEvaluationDeclaration | None,
+    evaluation: _Evaluation | None,
 ) -> dict[str, object]:
     """Redirect only non-authoritative MLflow paths inside the mount namespace.
 
@@ -396,9 +439,15 @@ def _runtime_layout(
     scientific code therefore keep their original identities.
     """
     from quantos.application.discovery_execution import DiscoveryExecutionService
-    from quantos.contracts.discovery import DiscoveryBatch
+    from quantos.contracts.discovery import DiscoveryBatch, SequentialDiscoveryBatch
 
-    batch = DiscoveryBatch.model_validate_json(frozen_bytes)
+    frozen = strict_json_object(frozen_bytes, max_bytes=_META_CAP)
+    sequential = None
+    if frozen.get("schema_version") == "discovery-sequential-batch/v2":
+        sequential = SequentialDiscoveryBatch.model_validate_json(frozen_bytes)
+        batch = sequential.batch
+    else:
+        batch = DiscoveryBatch.model_validate_json(frozen_bytes)
     service = DiscoveryExecutionService(
         batch=batch,
         snapshot_path=args.snapshot,
@@ -407,6 +456,7 @@ def _runtime_layout(
         workspace=args.workspace,
         generation_root=args.generation_root,
         evaluation_declaration=evaluation,
+        sequential_batch=sequential,
     )
     layout_root = args.output_root / "management-mlflow-layout"
     runtime_root = layout_root / "runtime"
@@ -414,7 +464,12 @@ def _runtime_layout(
     guard.require_root(layout_root)
     runtime_root.mkdir(parents=True, exist_ok=True)
     mappings: list[dict[str, str]] = []
-    for task in batch.subtasks:
+    runtime_tasks = (
+        service.scientific_new_subtasks()
+        if isinstance(evaluation, ScientificEvaluationDeclaration)
+        else batch.subtasks
+    )
+    for task in runtime_tasks:
         identity = service.task_request(task.content_hash).execution_identity
         original = args.output_root / "tasks" / task.content_hash / "executions" / identity
         workflow_root = original / "qlib-workflow"
@@ -456,6 +511,13 @@ def _runtime_layout(
         "native_exports_keep_original_paths": True,
         "mlflow_runtime_is_authority": False,
     }
+    if sequential is not None:
+        receipt.update(
+            sequential_batch_hash=sequential.content_hash,
+            generation_policy_hash=sequential.policy.content_hash,
+            scheduled_new_subtask_hashes=[task.content_hash for task in runtime_tasks],
+            adopted_subtasks_have_new_runtime=False,
+        )
     atomic_write_bytes(args.job_root / "mlflow-layout.json", canonical_json_bytes(receipt))
     return receipt
 
@@ -477,12 +539,34 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     components = growth.get("growth_components")
     if not isinstance(components, dict):
         raise ArtifactIntegrityError("science growth estimate is incomplete")
-    estimate = cast(dict[str, object], components).get("expected_new_durable_bytes")
+    component_values = cast(dict[str, object], components)
+    evaluation = _evaluation(args)
+    minimum_growth = 18 << 30
+    if isinstance(evaluation, ScientificEvaluationDeclaration):
+        attempt_count = (
+            evaluation.budget.max_new_candidate_executions
+            + evaluation.budget.max_failed_task_resumes
+        )
+        minimum_components = {
+            "complete_attempt_envelopes_bytes": attempt_count * (512 << 20),
+            "independent_origin_prediction_import_and_comparison_bytes": 2 << 30,
+            "shared_metadata_runtime_authority_logs_bytes": 512 << 20,
+            "safe_finish_and_unobserved_growth_margin_bytes": 1 << 30,
+        }
+        envelope_count = growth.get("complete_attempt_envelope_count")
+        if type(envelope_count) is not int or envelope_count != attempt_count:
+            raise ArtifactIntegrityError("independent scientific growth envelope is incomplete")
+        for name, minimum in minimum_components.items():
+            component_value = component_values.get(name)
+            if type(component_value) is not int or component_value < minimum:
+                raise ArtifactIntegrityError("independent scientific growth envelope is incomplete")
+        minimum_growth = sum(cast(int, component_values[name]) for name in minimum_components)
+    estimate = component_values.get("expected_new_durable_bytes")
     reserved = lease.get("expected_new_bytes")
     expected = cast(int, args.expected_new_bytes)
     if (
         type(estimate) is not int
-        or estimate < 18 << 30
+        or estimate < minimum_growth
         or expected < estimate
         or type(reserved) is not int
         or reserved < expected
@@ -515,10 +599,14 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             raise ArtifactIntegrityError(
                 "science declarations must remain canonical readonly inputs"
             )
-    evaluation = _evaluation(args)
     provenance, inventory_hash, source_declaration = _science_source(args, evaluation)
     frozen_bytes = _read(args.generation_root / "frozen.json")
     frozen = strict_json_object(frozen_bytes, max_bytes=_META_CAP)
+    if frozen.get("schema_version") == "discovery-sequential-batch/v2":
+        inner_value = frozen.get("batch")
+        if not isinstance(inner_value, dict):
+            raise ArtifactIntegrityError("science requires the completed sequential batch")
+        frozen = cast(dict[str, object], inner_value)
     design_value = frozen.get("design")
     if not isinstance(design_value, dict):
         raise ArtifactIntegrityError("science requires the completed frozen discovery batch")

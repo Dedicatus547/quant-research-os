@@ -29,8 +29,18 @@ from quantos.artifacts.store import (
     sha256_file,
 )
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
-from quantos.contracts.discovery import DiscoveryDesign, GenerationRequest, GenerationReservation
-from quantos.contracts.discovery_hosted import HostedGenerationOrigin, HostedGenerationResponse
+from quantos.contracts.discovery import (
+    DiscoveryDesign,
+    GenerationRequest,
+    GenerationReservation,
+    SequentialGenerationPolicy,
+    SequentialLaunchSource,
+)
+from quantos.contracts.discovery_hosted import (
+    HostedGenerationOrigin,
+    HostedGenerationResponse,
+    HostedSequentialGenerationOrigin,
+)
 from quantos.contracts.hosted import (
     HostObservation,
     HostReportedUsage,
@@ -101,6 +111,7 @@ class Inputs:
     configuration: HostedLauncherConfiguration
     contexts: dict[str, bytes]
     preparation_hash: str
+    policy: SequentialGenerationPolicy | None = None
 
 
 def _inputs(root: Path, store: GenerationStore) -> Inputs:
@@ -166,7 +177,27 @@ def _inputs(root: Path, store: GenerationStore) -> Inputs:
         contexts[digest] = original
     if sum(map(len, contexts.values())) > 65_536:
         raise ArtifactIntegrityError("managed generation context exceeds its frozen bound")
-    return Inputs(design, request, configuration, contexts, preparation_hash)
+    version = preparation.get("schema_version")
+    policy = None
+    if version == "discovery-input-preparation/v2":
+        data = _bytes(root / "sequential-policy.json")
+        policy = parse_hosted_contract(data, SequentialGenerationPolicy, max_bytes=_CAP)
+        identity_value = inventory.get("sequential-policy.json")
+        if not isinstance(identity_value, dict):
+            raise ArtifactIntegrityError("sequential preparation policy inventory is missing")
+        identity = cast(dict[str, object], identity_value)
+        if (
+            identity.get("bytes_hash") != policy.content_hash
+            or identity.get("size_bytes") != len(data)
+            or policy.design_hash != design.content_hash
+            or policy.request_hashes[0] != request.content_hash
+        ):
+            raise ArtifactIntegrityError("sequential preparation policy differs")
+    elif version != "discovery-input-preparation/v1":
+        raise ArtifactIntegrityError("unsupported generation preparation version")
+    if store.sequential_policy() != policy:
+        raise ArtifactIntegrityError("generation authority policy differs from preparation")
+    return Inputs(design, request, configuration, contexts, preparation_hash, policy)
 
 
 @dataclass(frozen=True)
@@ -326,6 +357,11 @@ def _growth(inputs: Inputs, runtime: RuntimeView) -> int:
         + len(inputs.request.canonical_bytes())
         + len(inputs.configuration.canonical_bytes())
         + sum(map(len, inputs.contexts.values()))
+        + (
+            0
+            if inputs.policy is None
+            else len(inputs.policy.canonical_bytes()) + 2 * inputs.request.max_attempts * 65_536
+        )
     )
     return (
         runtime.inventory_bytes
@@ -420,10 +456,41 @@ def _worker(args: argparse.Namespace, inputs: Inputs, runtime: RuntimeView) -> d
             adopted_profile=runtime.adopted_profile,
             accepted_component_record_path=args.accepted_component_record,
         )
-        reservation = store.reserve(inputs.request)
+        if args.reserved_ordinal is None:
+            reservation = store.reserve(inputs.request)
+        else:
+            reservations, responses = store.inventory(inputs.request)
+            reservation = next(
+                item for item in reservations if item.ordinal == args.reserved_ordinal
+            )
+            if (
+                any(item.reservation == reservation for item in responses)
+                or reservation != reservations[-1]
+            ):
+                raise ArtifactIntegrityError(
+                    "reserved-slot recovery requires the final unfinished slot"
+                )
         atomic_write_bytes(
             args.job_root / "generation-reservation.json", reservation.canonical_bytes()
         )
+        if inputs.policy is not None:
+            original_source = store.launch_source(inputs.request, reservation)
+            if original_source is None:
+                original_source = SequentialLaunchSource(
+                    request_hash=inputs.request.content_hash,
+                    reservation_hash=reservation.content_hash,
+                    manager_root=str(manager.root),
+                    evidence_root=str(evidence.root.absolute()),
+                    job_root=str(args.job_root),
+                    authenticated_principal=args.authenticated_principal,
+                )
+            elif (
+                original_source.manager_root != str(manager.root)
+                or original_source.evidence_root != str(evidence.root.absolute())
+                or original_source.authenticated_principal != args.authenticated_principal
+            ):
+                raise ArtifactIntegrityError("reserved-slot recovery management origins differ")
+            store.save_launch_source(inputs.request, reservation, original_source)
         now = datetime.now(UTC)
         request = manager.prepare(
             inputs.design,
@@ -434,6 +501,10 @@ def _worker(args: argparse.Namespace, inputs: Inputs, runtime: RuntimeView) -> d
             context_objects=inputs.contexts,
             issued_at=now,
             expires_at=now + timedelta(seconds=inputs.configuration.runtime_timeout_seconds + 600),
+            policy=inputs.policy,
+            attempt=None
+            if inputs.policy is None
+            else store.read_attempt(inputs.request, reservation),
         )
         # Origin re-verification reads these trusted originals, never a caller's
         # response claim or files named by provider output.
@@ -524,7 +595,7 @@ def _worker(args: argparse.Namespace, inputs: Inputs, runtime: RuntimeView) -> d
             profile=successor,
             launcher_record_hash=record.content_hash,
         )
-        origin = HostedGenerationOrigin(
+        origin_payload: dict[str, object] = dict(
             manager_root=str(manager.root),
             evidence_root=str(evidence.root.absolute()),
             authenticated_principal=args.authenticated_principal,
@@ -534,6 +605,14 @@ def _worker(args: argparse.Namespace, inputs: Inputs, runtime: RuntimeView) -> d
             configuration_hash=inputs.configuration.content_hash,
             deployment_profile_hash=successor.content_hash,
         )
+        if inputs.policy is None:
+            origin = HostedGenerationOrigin.model_validate(origin_payload)
+        else:
+            origin_payload.update(
+                generation_root=str(store.root),
+                attempt_hash=store.read_attempt(inputs.request, reservation).content_hash,
+            )
+            origin = HostedSequentialGenerationOrigin.model_validate(origin_payload)
         retained = store.complete(
             inputs.request,
             reservation,
@@ -711,6 +790,14 @@ def main() -> int:
     parser.add_argument("--expected-new-bytes", type=int, required=True)
     parser.add_argument("--authenticated-principal", required=True)
     parser.add_argument("--host-instance", required=True)
+    parser.add_argument(
+        "--reserved-ordinal",
+        type=int,
+        help=(
+            "resume a final unfinished slot before its single launcher prelaunch; "
+            "never repeat an existing launch"
+        ),
+    )
     parser.add_argument("--inside-runtime", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:

@@ -10,6 +10,46 @@
 
 后继终态记账177单位，加旧已启动工作的保守承诺72为249，不超过原360上限；后继上限288。旧初始预留177与恢复预留18合计195继续留存，不称实际支出或退款。其中7个从未启动任务的旧计划为123单位。后继使用新实际评价代码与声明，完成原10个候选评价；下文保留旧阶段记录与当时状态。
 
+## 后继实施调度（2026-10-12）
+
+按[后续指南](post-hm-discovery-next-steps.md)第5节实施；首轮原件只读复用，不重新执行科学批次。主 agent 负责 D04、公共接口、状态和集成；最多两个工作子代理，不派生下级代理。开发阶段只做必要静态检查；随后D10/A取得五次研究调用与具体接收端/载荷授权，D10/B取得用户直接科学授权。未新增或运行测试。
+
+| 任务 | 请求配置 / 状态 | 写入归属与交付 |
+|---|---|---|
+| D01 | `/root/discovery_local_closeout`，Luna / low，完成 | 两个指定格式文件、PLAN.md；[局部检查](../../artifacts/post-hm-next/closeout/D01-N0.md) |
+| D02 | `/root/discovery_failure_diagnosis`，Sol / high，完成 | [五失败诊断](post-hm-next-failure-diagnosis.md)；后继小型原件与实际退出持久保存 |
+| D03 | `/root/discovery_cost_analysis`，Luna / medium，完成 | [成本说明](post-hm-next-cost-analysis.md)、[阶段来源记录](../../artifacts/post-hm-next/cost/d03-cost-analysis.json) |
+| D04 | 主 agent，实施及B事前比较政策已定案 | [后继决策设计](post-hm-next-decision-design.md)；参数和额度冻结后用于实际报告 |
+| D05 | D02 同配置负责人，完成实现 | [预测证据接口](post-hm-next-prediction-evidence.md)；独立导入/核验/比较，不改旧失败或 Result 门 |
+| D06 | `/root/discovery_sequential_core`，Sol / high，完成实现 | [顺序生成](post-hm-next-sequential-generation.md)；原件前缀、历史投影、捕获恢复与冻结 wrapper |
+| D07 | `/root/discovery_baselines_counts`，Sol / medium，完成实现 | [基线与计数](post-hm-next-baselines-counts.md)；轮转/无放回及三个分母 |
+| D08 | 有依据暂缓 | D03 未隔离可避免成本或窄路径边际收益，D05 仍复用原 full-chain 来源核验；不另跑性能批次 |
+| D09 | 主 agent，完成有范围集成与静态核对 | service/campaign 绑定 wrapper/policy；独立批次预测比较保留全部方法机会；[最终局部核对](../../artifacts/post-hm-next/integration/static-checks-recovery.json) |
+| D10/A | `/root/discovery_generation_run`，Sol / medium；`/root/discovery_generation_summary`，Luna / medium，完成 | 五槽生成、冻结、来源重建分析及守卫清理完成；[后继生成报告](post-hm-next-generation-report.md) |
+| D10/B | Sol / medium管理；Sol / high接口修复；Luna / medium报告汇总，完成 | 采用八个旧origin、四个新任务终态；9项可比预测/3项缺源/708共同日；[科学报告](post-hm-next-scientific-report.md)、[主代理原件核对](../../artifacts/post-hm-next/science-02/main-review.json) |
+
+配置为派发工具显式请求，返回身份如上；工具未单独返回服务端实际模型配置或费用，均不推测。D01→D03 因强度变化新建后继实例。主 agent 配置无法由派发工具查询，不声称会话内已切换模型。
+
+诊断确认四份 source04 的 native Rank IC 无定义日均为有限配对中的常数预测；原生 Pearson 有限不自动表示数学有定义。一个 signal 失败仍缺触发分数与细分来源证据，根因 UNKNOWN。保留旧失败和实际退出；没有改写科学裁决。
+
+D09 对主 agent 修改的四个集成文件做 Ruff 0.16.5 与 strict Pyright；初次发现一个输入 map 的 Unknown 类型，修复后局部复查退出0。早期失败、最终源码哈希和实际进程输出均保留于 [integration](../../artifacts/post-hm-next/integration/)。D01/D05/D06/D07 各自有范围的最终静态核对已采用；不重复全库扫描。旧 v1 契约和旧 baseline 函数 AST 与 HEAD 基线相同，这是静态证明，不是运行时序列化或恢复资格。没有运行测试、完整 CI、首轮重跑、研究模型、第二轮科学或预测原件导入/比较。工程实现、运行资格及探索性科学结论保持分列。
+
+D09 已通过便宜的 `identity` 入口保存当前新预测 verifier 的源码/数值环境依赖，实际进程退出0；[依赖原件](../../artifacts/post-hm-next/integration/prediction-verifier-identity.json) SHA256 为 `d4c53e2d69957515ff78beed7215e4028bbe4dd1a9b0eb91b3cfcf8ee7970099`，来源/输出与普通包导入 warning 分别留存。这不扫描预测、数据或PIT，不生成已准入 evidence/profile，也不与旧源码04运行身份混同。
+
+D10/A 后继采用新独立源码 capsule `123109e4b99500f2917b3596252d2bf964a2c76a`，lock `0f5cd349fb32eed64a0cb907242f0ddd333f69efdc77461bdff90602e5bed7ca`，库存hash `b427afe3256ae435ddb364929c0752bef5e9a6a7ccae48e6bb3430233a3bd3fe`；正式原件位于主仓 `artifacts/hosted-evidence/post-hm-discovery-02/`，与当前worktree的短交接分离。既有policy/全局lease未扩大，freeze增长预留48,234,496字节、生成作业201,326,592字节；runtime/install/provenance只读采用，不复制市场数据或旧模型产物。设计科学cap显式1，仅满足生成设计schema，不授予科学执行；首轮余额未采用。
+
+自动审批曾在进程创建前两次拒绝真实调用，要求当前对话明确具体接收端；用户随后回复“允许”向OpenAI ChatGPT Hosted（`chatgpt.com/backend-api`）发送所列载荷，[后继接收端授权](../../artifacts/post-hm-next/generation-02/destination-authorization.json)落盘后第三次准许。原拒绝、载荷核对、独立已完成步骤及实际退出见[短交接](../../artifacts/post-hm-next/generation-02/handoff.json)，未改route或绕过审查；后继运行复用全部离线产物。输入库存hash `578574bcf94dbdd8d3a0eacea8322f2d0f6e4149140ace4879727b8847f81cd2`。
+
+D10/A 终态：三方法各5/5机会、各5个静态准入的不同结构、方法内重复0；全局12个结构，两基线并集9，LLM新增3。五个真实管理入口均退出0，无失败、补发、重试或恢复；冻结/analysis及守卫退出0，清理已核验。wrapper hash `82159f9a25910f48a0f83b6184d8eea47aaafa0341125f012b25d38ba6563433`，正式生成报告hash `58359df633fafb477635df3a13637faad4c7eb71d2906af16a43de97256383c5`；[主代理小原件核对](../../artifacts/post-hm-next/generation-02/main-review.json)复核报告、冻结、capsule和实际guard exit字节hash，不重复全部生成来源扫描。随后按队列派发Luna/medium完成报告汇总。
+
+五次LLM入口wall合计145.802448秒，完整生成管理作业461.456204秒，范围包含关系不能相加；usage、费用和实际provider模型身份未知。已用完本次五次调用额度。主代理投入建议：当前结构多样性改善已观察，暂不增加同类生成调用；科学质量、可评价率及有意义的Rank IC增量尚未评价，若继续则先定授权的后继科学评价范围。A的科学cap1已冻结，B不能原样启动或提高原cap；必须显式后继评价authority/版本采用这些proposal、独立冻结预算和来源，不重发LLM。本次没有科学、测试、预测导入/比较或工作区Git提交。
+
+D10/B 科学执行已完成：实际源码 `33b0ed0463a9154c33bbbd7073eb1afb1c1743f6`，四个新任务、四次attempt、全局恢复0；rank5与新LLM window10完成原full-chain并SOFT_REJECT，mean5/std5在signal阶段因 `SIGNAL_FINITE_WITHOUT_TRADABILITY` 以SOURCE_INCOMPLETE失败。该新触发不补写旧std10的UNKNOWN根因。管理wall为4084.5129645秒，actual exit0及guard清理已保存，新增策略Validation PASS为0。[实测执行摘要](../../artifacts/post-hm-next/science-02/management/science-execution-observation-01.json)。
+
+首次独立预测导入因producer派生authoring与workflow完整envelope的接口绑定错误拒绝九个有native来源，三项无native；不可用比较及原件保留。Sol/high修复严格来源重建，九个metadata前缀均核对后在数据读取前停止，未改变来源、日期、覆盖、阈值或分母。后继统计源码已独立冻结为 `1657c2286f3bcfbcb1bb5e0b5d40ced56557d8dd`；导入02实际退出0，发布9项预测证据、保留3项缺源，wall1093.342528秒。比较02启动后被守卫以 `STORAGE_ESTIMATE_EXCEEDED / -15` 中止，清理已核验；原32MiB步骤包络不足，后继比较03采用既定2GiB预测组件包络、复用已完成导入，总6GiB与原安全底线不变。
+
+比较03 producer、observer及guard实际退出均为0，清理已核验，entrypoint wall1108.463955秒。正式报告SHA256 `0d0f925443dc0b129bf6cab9b6c778c615550c7cb23cdd1c84fb83dc471206a0`：全12候选/15机会，9项coverage准入/3项缺源、708共同日；LLM 5/5、RANDOM 4/5、TEMPLATE 3/5可比。LLM与RANDOM最佳共同日Rank IC同为0.02269698340587893，TEMPLATE为−0.007293875871142516，LLM增量0低于事前0.002；两项wall参考上限均满足，金额费用未知。主代理按冻结规则采纳暂停扩大当前空间同类LLM生成的投入建议。原12项科学裁决为6个SOFT_REJECT、6个EXECUTION_FAILED，Validation PASS仍为0；本次探索性比较不授确认、P14c或Registry晋级。[结果与成本](post-hm-next-scientific-report.md)；[当前短交接](../../artifacts/post-hm-next/science-02/main-handoff.json)。没有新增/运行测试、全量CI或首轮科学重跑。科学评价与报告收尾时尚未创建工作区Git提交；后续提交不改变已冻结运行的来源身份。
+
 ## T0：先固定问题与路径
 
 改动是冻结前有界生成、候选映射、合法单候选子任务、阶段恢复与只读预测比较；复用原 Parquet snapshot、Qlib view、DSL、枚举、Governor、Workflow、Record Templates、Exchange/Simulator、Validation 和 receipt。只新增首轮需要的管理入口与记录，不建设通用 AST campaign、预测专用执行器或新选择体系。
