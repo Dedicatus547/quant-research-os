@@ -34,7 +34,7 @@ P14d-B 和 P14-DQ 的当前资格报告均绑定生产提交
 P14-DQ 工程结果为 `SUCCEEDED / PASS`；自然研究结果为
 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`，零个合格候选，未执行选择。
 FR-03 的 SDK/runtime `0.162.1 + gpt-6.1-sol / medium` 已在本工作线完成资格
-`GO`；[接受范围与原件](docs/status/fr03.md)绑定明确后继，main 尚未集成。
+`GO`；[接受范围与原件](docs/status/fr03.md)绑定明确后继，实现已合入本地 main，尚未部署。
 默认 canonical dependency pin 仍为 `0.154.0`；P14d-C 为 `BLOCKED_UNIMPLEMENTED`。
 
 有界 Codex-hosted MVP（component-v2）已完成工程实施、真实交接与离线回放、

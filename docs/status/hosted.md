@@ -20,6 +20,6 @@ Campaign 已 `COMPLETED`，正式模型额度 8/8、独立诊断 2 次、全部�
 
 ## 不变的上游边界
 
-FR03 SDK 仍为 `NO_GO / THIN_MAINTENANCE`，P14d-C 仍为 `BLOCKED_UNIMPLEMENTED`；component-v2 hosted 是单独登记的工程轨道。P14-DQ/ScriptedReplay 的既有状态不变。Agent review 不是科学证据；科学权威仍是原确定性不可变 artifact。没有历史 vendor-vintage PIT、盈利、alpha 或投资适用性声明。
+FR-03 SDK/runtime 已取得[确切组合 GO](fr03.md)，P14d-C 仍为 `BLOCKED_UNIMPLEMENTED`；component-v2 hosted 是单独登记的工程轨道。P14-DQ/ScriptedReplay 的既有状态不变。Agent review 不是科学证据；科学权威仍是原确定性不可变 artifact。没有历史 vendor-vintage PIT、盈利、alpha 或投资适用性声明。
 
 操作入口见 [快速上手](../hosted/hm-mvp-quickstart.md) 与[故障恢复](../hosted/hm-mvp-recovery.md)。

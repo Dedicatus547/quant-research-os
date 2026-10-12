@@ -170,5 +170,6 @@ The FR-03 workline records GO with source-bound incremental regression, unchange
 threshold and immutable exits. See the [acceptance record and limits](../reviews/fr03-go-acceptance-20261012.md).
 The finite named profile already connects to the existing SDK adapter; Apps are disabled at
 launch/thread and actual MCP inventory is checked before the turn. Historical failure entries
-above retain their original tuples. Default canonical pin remains0.154.0; main integration,
-deployment, P14d-C and discovery/campaign entry qualification are separate unfinished scopes.
+above retain their original tuples. Default canonical pin remains0.154.0. The implementation is
+integrated into local main with the Discovery successor; see the [merge review](../reviews/two-worktrees-merge-20261012.md).
+Deployment, P14d-C and discovery/campaign entry qualification remain unfinished scopes.

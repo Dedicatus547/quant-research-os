@@ -1,6 +1,6 @@
 # 当前状态
 
-状态基准：2026-10-10。各轨道状态按其独立记录和精确适用范围读取。
+状态基准：2026-10-12。各轨道状态按其独立记录和精确适用范围读取。
 
 ## 工程与研究结果
 
@@ -35,7 +35,7 @@
 | P14c | Holm / circular-block-bootstrap 选择工程资格 | 有限 synthetic 范围；无市场选择或 sealed 资格 |
 | P14d-A / P14d-B | Scripted/Replay 编排、预算、失败分类、restart/replay 与双根工程资格 | 无 live Agent runtime |
 | P14-DQ | 既有合格数据上的完整自主工程核验 | 零个合格候选；未执行选择 |
-| FR-03 / P14d-C | 本工作线 `0.162.1 + gpt-6.1-sol / medium` 资格 `GO`；main 未集成 | 确切后继接受 / `BLOCKED_UNIMPLEMENTED` |
+| FR-03 / P14d-C | 工作线 `0.162.1 + gpt-6.1-sol / medium` 资格 `GO`；实现已合入本地 main | 确切后继接受 / `BLOCKED_UNIMPLEMENTED` |
 | HM-MVP component-v2 | 真实模型交接、campaign 终态、离线回放、独立接受及 HM10/HM11 交付 | 有限候选家族；旧证明按原 tuple 采用，当前服务已清理，业务调用额度已耗尽 |
 
 ## 未获得的权威
@@ -46,6 +46,7 @@
 
 FR-03 的确切组合接受与证据见 [FR-03 状态](fr03.md)。hosted component-v2 保留独立身份；
 FR-03 接受不授予 P14d-C 资格，后者仍为 `BLOCKED_UNIMPLEMENTED`。
+两分支的源码集成、局部验证及历史证明采用范围见[合并审核记录](../reviews/two-worktrees-merge-20261012.md)。
 
 ## 证据入口
 
