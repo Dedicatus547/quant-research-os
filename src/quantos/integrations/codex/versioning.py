@@ -13,6 +13,8 @@ CODEX_CANDIDATE_RUNTIME_PROFILES: Mapping[str, tuple[str, str]] = MappingProxyTy
     {
         "openai-codex-0.156.1-p10-v3": ("0.156.1", "0.156.1"),
         "openai-codex-0.162.1-p10-v3": ("0.162.1", "0.162.1"),
+        "openai-codex-0.162.1-p10-v4": ("0.162.1", "0.162.1"),
+        "openai-codex-0.162.1-gpt61-fr03": ("0.162.1", "0.162.1"),
     }
 )
 

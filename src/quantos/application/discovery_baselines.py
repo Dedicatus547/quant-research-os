@@ -83,10 +83,12 @@ def baseline_expression_space(design: DiscoveryDesign) -> tuple[SafeQlibExpressi
                 if SafeQlibOperator.ABS in allowed:
                     candidates.append(_expression(operator, window, ratio=True, absolute=True))
     return tuple(
-        SafeQlibExpressionSpec.model_validate({
-            **expression.model_dump(mode="python"),
-            "input_lag_trading_days": design.authoring.strategy.input_lag_trading_days,
-        })
+        SafeQlibExpressionSpec.model_validate(
+            {
+                **expression.model_dump(mode="python"),
+                "input_lag_trading_days": design.authoring.strategy.input_lag_trading_days,
+            }
+        )
         for expression in candidates
         if len(expression.nodes) <= design.max_nodes
         and all(node.operator in allowed for node in expression.nodes)

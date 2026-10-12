@@ -488,3 +488,29 @@ def test_p13_agent_runner_classifies_process_start_failure_as_execution_failure(
     assert manifest["sdk_version"] is None
     assert manifest["runtime_package_version"] is None
     assert manifest["runtime_version"] is None
+
+
+def test_successor_profile_binds_actual_request_and_spec(tmp_path: Path) -> None:
+    inputs, _ = _inputs(tmp_path)
+    old = runner._execution_request(tmp_path, inputs)
+    new = runner._execution_request(
+        tmp_path,
+        inputs,
+        qualification_profile=runner.GPT61_PROFILE,
+        mcp_python=Path("/usr/bin/python3"),
+    )
+    assert new.model == "gpt-6.1-sol" and new.reasoning_effort == "medium"
+    assert new.runtime_policy == old.runtime_policy
+    assert new.max_attempts == old.max_attempts == 1
+    assert new.mcp_servers[0].command == "/usr/bin/python3"
+    old_spec = runner._run_spec(inputs, "a" * 64, old)
+    new_spec = runner._run_spec(inputs, "a" * 64, new, qualification_profile=runner.GPT61_PROFILE)
+    assert old_spec.input_artifact_hashes == new_spec.input_artifact_hashes
+    assert (
+        old_spec.requested_model_configuration_hash != new_spec.requested_model_configuration_hash
+    )
+    config = runner._model_configuration(inputs, qualification_profile=runner.GPT61_PROFILE)
+    assert config["sdk_version"] == config["runtime_package_version"] == "0.162.1"
+    assert config["apps_enabled"] is False
+    with pytest.raises(runner.P13AgentRunnerError, match="unsupported P13 qualification profile"):
+        runner._execution_request(tmp_path, inputs, qualification_profile="auto")

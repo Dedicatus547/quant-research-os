@@ -394,6 +394,12 @@ def test_actual_qlib_receipts_events_and_ledger_are_read_only_verified(
             assert phase_inventories == {
                 phase: raw_inventory(root) for phase, root in roots.items()
             }
+            atomic_write_bytes(
+                local_channel / "predicate-checkpoint.json",
+                canonical_json_bytes(
+                    {"case": window, "checked_hashes": checked, "scope": "PREDICATE_COMPLETED"}
+                ),
+            )
             if window == "corruption-journal_fragment":
                 checkpoint, native_o, native_events = (
                     verification.build_verified_business_orchestrator(

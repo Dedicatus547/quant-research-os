@@ -491,3 +491,20 @@ class HarnessCapabilitySpikeReportV2(_HarnessCapabilitySpikeReportBase):
 
 class HarnessCapabilitySpikeReportV3(_HarnessCapabilitySpikeReportBase):
     schema_version: Literal["agent-harness-spike-report/v3"] = "agent-harness-spike-report/v3"
+
+
+class HarnessCapabilitySpikeSpecV4(_HarnessCapabilitySpikeSpecBase):
+    """Finite Linux socket-creation successor; historical predicates are unchanged."""
+
+    schema_version: Literal["agent-harness-spike-spec/v4"] = "agent-harness-spike-spec/v4"
+    parent_secret_marker_hash: str = Field(pattern=SHA256_PATTERN)
+    network_probe_hash: str = Field(pattern=SHA256_PATTERN)
+    interpreter_hash: str = Field(pattern=SHA256_PATTERN)
+    implementation_hash: str = Field(pattern=SHA256_PATTERN)
+    runtime_binary_hash: str = Field(pattern=SHA256_PATTERN)
+    candidate_version: Literal["0.162.1"] = "0.162.1"
+
+
+class HarnessCapabilitySpikeReportV4(_HarnessCapabilitySpikeReportBase):
+    schema_version: Literal["agent-harness-spike-report/v4"] = "agent-harness-spike-report/v4"
+    management_receipt_hash: str = Field(pattern=SHA256_PATTERN)

@@ -193,6 +193,11 @@ class CodexSdkAdapter:
                 provider_transcript=provider_transcript,
                 runtime=runtime,
                 attempt=attempt_index,
+                qualification_observations=(
+                    cast(Mapping[str, object], body["qualification_observations"])
+                    if isinstance(body.get("qualification_observations"), dict)
+                    else None
+                ),
             )
         thread_id = body.get("thread_id")
         if runtime is None or not isinstance(thread_id, str):
@@ -253,6 +258,11 @@ class CodexSdkAdapter:
             runtime=runtime,
             terminal_error=None,
             provider_transcript=provider_transcript,
+            qualification_observations=(
+                cast(Mapping[str, object], body["qualification_observations"])
+                if isinstance(body.get("qualification_observations"), dict)
+                else None
+            ),
         )
 
     def _link_authentication(self, isolated_home: Path) -> None:
@@ -325,6 +335,7 @@ class CodexSdkAdapter:
         provider_transcript: bytes | None = None,
         runtime: HarnessRuntimeIdentity | HarnessRuntimeIdentityV2 | None = None,
         attempt: int = 1,
+        qualification_observations: Mapping[str, object] | None = None,
     ) -> HarnessAttemptResult:
         digest = message_hash or sha256_bytes(
             f"{type(error).__name__}: {error}".encode("utf-8", errors="replace")
@@ -359,6 +370,7 @@ class CodexSdkAdapter:
             runtime=runtime,
             terminal_error=terminal,
             provider_transcript=provider_transcript,
+            qualification_observations=qualification_observations,
         )
 
 

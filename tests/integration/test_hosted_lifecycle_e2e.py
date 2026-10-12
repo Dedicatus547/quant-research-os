@@ -31,9 +31,9 @@ from quantos.application.hosted_inputs import HostedProposalOnlyDriver
 from quantos.application.hosted_protocol import HostedProtocolService
 from quantos.application.ledger import ResearchLedgerService
 from quantos.application.provenance import capture_code_provenance
-from quantos.artifacts.store import regular_tree_files
+from quantos.artifacts.store import atomic_write_bytes, regular_tree_files
 from quantos.contracts.autonomous import P14DQ_REPORT_ONLY_FINALIZATION_PROFILE
-from quantos.contracts.base import sha256_bytes
+from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.hosted import HostedBudgetPolicy, HostedSubmissionReceipt
 from quantos.contracts.hosted_inputs import (
     HostedCampaignRecipe,
@@ -444,6 +444,12 @@ def test_native_lifecycle_accounting_and_tampered_process_records(
             verdict="PASS",
             reason="SYNTHETIC_BUDGET_HASH_BOUNDARY",
             checked_artifact_hashes=checked,
+        )
+        atomic_write_bytes(
+            channel / "predicate-checkpoint.json",
+            canonical_json_bytes(
+                {"case": case, "checked_hashes": checked, "scope": "PREDICATE_COMPLETED"}
+            ),
         )
         assert gate.checked_artifact_hashes == checked
         for field, replacement in (

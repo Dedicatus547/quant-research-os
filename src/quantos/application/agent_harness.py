@@ -93,6 +93,7 @@ class HarnessAttemptResult:
     runtime: HarnessRuntimeIdentity | HarnessRuntimeIdentityV2 | None
     terminal_error: HarnessTerminalError | None
     provider_transcript: bytes | None
+    qualification_observations: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
