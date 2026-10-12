@@ -1,6 +1,9 @@
 # ADR-0002: Official Codex Python SDK execution boundary
 
-Status: implemented, qualification **NO_GO**; amended 2026-09-22.
+Status: implemented; successor `0.162.1 + gpt-6.1-sol / medium` qualified **GO**
+in the FR-03 workline on 2026-10-12; main integration pending.
+See [current acceptance scope](../status/fr03.md). The entries below retain their historical tuples
+and failure decisions; the default canonical dependency pin remains `0.154.0`.
 
 ## Decision
 
@@ -158,3 +161,14 @@ v3 run with `gpt-5.6-sol` and `max_attempts=1`. P10 `9/9` opens P13 qualificatio
 itself unblock P14d-C; the full frozen FR-03 contract still applies. See the [0.156.1
 requalification record](../fr03-codex-0.156.1-requalification.md) and the [thin-maintenance
 policy](../fr03-code-mode-aware-p10.md).
+
+## 2026-10-12 exact-profile acceptance
+
+SDK/runtime `0.162.1 + gpt-6.1-sol / medium`, successor `v4-env1-apps-isolated1`,
+completes P10 9/9, P13 live and offline qualification, and the original20 exit criteria.
+The FR-03 workline records GO with source-bound incremental regression, unchanged85% coverage
+threshold and immutable exits. See the [acceptance record and limits](../reviews/fr03-go-acceptance-20261012.md).
+The finite named profile already connects to the existing SDK adapter; Apps are disabled at
+launch/thread and actual MCP inventory is checked before the turn. Historical failure entries
+above retain their original tuples. Default canonical pin remains0.154.0; main integration,
+deployment, P14d-C and discovery/campaign entry qualification are separate unfinished scopes.

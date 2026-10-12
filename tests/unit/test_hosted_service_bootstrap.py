@@ -146,7 +146,8 @@ def test_bootstrap_refuses_changed_frozen_bindings_before_channel_readiness(
         "HostedFrozenBusinessInputs": bundle,
         "HostedInstallInventory": None,
         "HostedLauncherConfiguration": SimpleNamespace(
-            content_hash=profile.model_configuration_hash
+            content_hash=profile.model_configuration_hash,
+            extraction_rule="codex-jsonl-single-final/v2",
         ),
     }
 

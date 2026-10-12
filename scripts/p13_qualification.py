@@ -61,9 +61,10 @@ from quantos.contracts import (
 from quantos.contracts.evidence import EvidenceExtractionProposal, ExtractedTextArtifact
 from quantos.contracts.evidence_acquisition import ExtractionStatus
 from quantos.contracts.research import ResearchPolicy, ValidationPolicy
-from quantos.data import QlibViewBuilder
+from quantos.data import QlibViewBuilder, verify_qlib_view
 from quantos.data.snapshot import verify_snapshot
 from quantos.evidence.publisher import EvidencePublicationError, verify_evidence_store
+from quantos.integrations.qlib.tools import verify_official_qlib_tools
 from quantos.research import build_event_study, verify_event_study
 from quantos.research.qlib import (
     EventSignalArtifactBuilder,
@@ -238,6 +239,7 @@ def _real_pipeline(
     snapshot_path: Path,
     qlib_source: Path,
     output_root: Path,
+    retained_view_path: Path | None = None,
 ) -> dict[str, str | int | bool]:
     provenance = capture_code_provenance(workspace)
     runtime = capture_runtime_fingerprint()
@@ -247,11 +249,44 @@ def _real_pipeline(
         raise ValueError("qualified P13 Evidence has no extracted text")
     extracted_artifact: ExtractedTextArtifact = extracted
     results: list[dict[str, str | int]] = []
+    snapshot = snapshot_path.resolve(strict=True)
+    snapshot_manifest = verify_snapshot(snapshot)
+    retained_view = verify_qlib_view(retained_view_path) if retained_view_path else None
+    if retained_view is not None:
+        tools = verify_official_qlib_tools(qlib_source)
+        if (
+            retained_view.source_snapshot_hash != snapshot_manifest.snapshot_hash
+            or retained_view.qlib_version != tools.version
+            or retained_view.qlib_source_commit != tools.commit
+            or retained_view.dump_bin_sha256 != tools.dump_bin_sha256
+            or retained_view.health_check_sha256 != tools.health_check_sha256
+            or not retained_view.health_check_passed
+        ):
+            raise ValueError("retained Qlib view dependencies differ from frozen snapshot/tools")
+
+    def save_step(root: Path, stage: str, artifact_path: Path, artifact_hash: str) -> None:
+        atomic_write_bytes(
+            root / "stage-checkpoints" / (stage + ".json"),
+            canonical_json_bytes(
+                {
+                    "stage": stage,
+                    "artifact_path": str(artifact_path),
+                    "artifact_hash": artifact_hash,
+                    "code_commit_hash": provenance.commit_hash,
+                    "runtime_fingerprint_hash": runtime.content_hash,
+                    "proposal_hash": proposal.content_hash,
+                }
+            ),
+        )
+
     for name in ("run-a", "run-b"):
         root = output_root / name
-        snapshot = snapshot_path.resolve(strict=True)
-        snapshot_manifest = verify_snapshot(snapshot)
-        view = QlibViewBuilder().build(snapshot, root / "qlib-views", qlib_source)
+        if retained_view is not None and retained_view_path is not None:
+            view_manifest, view_path = retained_view, retained_view_path
+        else:
+            view = QlibViewBuilder().build(snapshot, root / "qlib-views", qlib_source)
+            view_manifest, view_path = view.manifest, view.path
+        save_step(root, "qlib-view", view_path, view_manifest.view_hash)
         feature: EventFeatureBuildResult = publish_event_feature_artifact(
             evidence=evidence,
             extracted_text=extracted_artifact,
@@ -265,6 +300,7 @@ def _real_pipeline(
             runtime_fingerprint_hash=runtime.content_hash,
             limitations=("SINGLE_SOURCE_NON_VINTAGE",),
         )
+        save_step(root, "event-feature", feature.path, feature.manifest.artifact_hash)
         study_spec = EventStudySpec(
             study_id="share-repurchase-600010-post-event-v1",
             event_feature_artifact_hash=feature.manifest.artifact_hash,
@@ -282,13 +318,14 @@ def _real_pipeline(
             spec=study_spec,
             output_root=root / "event-studies",
         )
+        save_step(root, "event-study", study.path, study.manifest.artifact_hash)
         event_signal_evidence = build_event_signal_evidence(
             event_feature_path=feature.path,
-            view_path=view.path,
+            view_path=view_path,
             alignment_policy=alignment,
             expected_event_feature_artifact_hash=feature.manifest.artifact_hash,
             expected_snapshot_hash=snapshot_manifest.snapshot_hash,
-            expected_qlib_view_hash=view.manifest.view_hash,
+            expected_qlib_view_hash=view_manifest.view_hash,
             evaluation_start=EVENT_EVALUATION_START,
             evaluation_end=EVENT_EVALUATION_END,
         )
@@ -300,9 +337,9 @@ def _real_pipeline(
             evaluation_start=EVENT_EVALUATION_START,
             evaluation_end=EVENT_EVALUATION_END,
             snapshot_hash=snapshot_manifest.snapshot_hash,
-            qlib_view_hash=view.manifest.view_hash,
-            qlib_version=view.manifest.qlib_version,
-            qlib_view_spec_hash=view.manifest.view_spec_hash,
+            qlib_view_hash=view_manifest.view_hash,
+            qlib_version=view_manifest.qlib_version,
+            qlib_view_spec_hash=view_manifest.view_spec_hash,
             strategy=ResolvedStrategySpec(
                 universe_index="000300.SH",
                 top_k=1,
@@ -321,29 +358,31 @@ def _real_pipeline(
             resolved,
             event_signal_evidence,
             feature.path,
-            view.path,
+            view_path,
             alignment,
             root / "signals",
             workspace=workspace,
         )
+        save_step(root, "event-signal", signal.path, signal.manifest.artifact_hash)
         backtest = QlibBacktestService().run(
             resolved,
             signal.path,
-            view.path,
+            view_path,
             cost,
             backtest_policy,
             root / "backtests",
             workspace=workspace,
         )
+        save_step(root, "backtest", backtest.path, backtest.manifest.result_hash)
         verified_feature = feature.manifest.artifact_hash
         verified_study = verify_event_study(study.path).artifact_hash
         verify_event_signal_artifact(signal.path)
-        verify_event_signal_pit(signal.path, view.path)
+        verify_event_signal_pit(signal.path, view_path)
         verify_backtest_artifact(backtest.path)
         results.append(
             {
                 "snapshot_hash": snapshot_manifest.snapshot_hash,
-                "qlib_view_hash": view.manifest.view_hash,
+                "qlib_view_hash": view_manifest.view_hash,
                 "feature_artifact_hash": verified_feature,
                 "event_study_hash": verified_study,
                 "event_signal_artifact_hash": signal.manifest.artifact_hash,

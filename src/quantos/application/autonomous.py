@@ -164,15 +164,17 @@ def _raise(reason_code: ReasonCode, message: str) -> NoReturn:
 
 def _hosted_proposal_schema(schema: dict[str, object]) -> dict[str, object]:
     """Require explicit fields in hosted structured output, including defaults."""
+
     def adapt(value: object) -> object:
         if isinstance(value, list):
-            return [adapt(item) for item in value]
+            return [adapt(item) for item in cast(list[object], value)]
         if not isinstance(value, dict):
             return value
-        result = {key: adapt(item) for key, item in value.items() if key != "default"}
+        typed_value = cast(dict[str, object], value)
+        result = {key: adapt(item) for key, item in typed_value.items() if key != "default"}
         properties = result.get("properties")
         if result.get("type") == "object" and isinstance(properties, dict):
-            result["required"] = list(properties)
+            result["required"] = list(cast(dict[str, object], properties))
         return result
 
     return cast(dict[str, object], adapt(schema))

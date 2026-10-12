@@ -1,0 +1,10 @@
+{
+  "source": "/home/zjw/quant-research-os/artifacts/hosted-evidence/post-hm-discovery-01/generation/requests/21f3f97ce4212f7e92d576560cb80558a638524d46090c59e8e21d81cceb3665/design.json",
+  "sha256": "c88f6fcb9170933200164cbc4b01972e0d65029ae0ed1ce10880e4459250b613",
+  "scope": "Retained typed input as offline regression fixture. No campaign, data acquisition, SDK or model invocation.",
+  "accepted_component_fixture": {
+    "source": "/home/zjw/quant-research-os/artifacts/hosted-evidence/recovery-continue01/hm09-component-v2-acceptance-01.json",
+    "sha256": "e31361d38f324db11cb5dec759bd3ad7079745a824fff1998d8763c4886727ec",
+    "scope": "Historical bytes as unit source-binding fixture; qualification never transferred to mocked transport."
+  }
+}

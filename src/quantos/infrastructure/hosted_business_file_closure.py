@@ -38,6 +38,7 @@ from quantos.contracts.hosted import (
 from quantos.contracts.hosted_inputs import HostedFrozenBusinessInputs
 from quantos.contracts.hosted_qualification import HostedQualificationFile
 from quantos.contracts.ledger import ResearchLedgerEventV2
+from quantos.contracts.model_data_split import QlibModelDataSplitAudit
 from quantos.contracts.research_result import P14dqNativeLabelExportAudit
 from quantos.infrastructure.hosted_business_verification import (
     HostedVerifiedBusiness,
@@ -549,6 +550,20 @@ def verify_native_authority_file_closure(
             )
             for file in manifest.source_files:
                 include_hash(f"{native}/{file.logical_path}", file.sha256, file.size_bytes)
+            # The verified receipt already checks this audit's calendar, inputs and
+            # native source files. Attribute its exact bytes only through that receipt.
+            split_path = f"{native}/model-data-splits.json"
+            split = QlibModelDataSplitAudit.model_validate_json(
+                read_relative(authority, split_path)
+            )
+            if (
+                split.content_hash not in result.evidence_hashes
+                or split.content_hash not in receipt.outcome.evidence_hashes
+            ):
+                raise HostedQualificationError(
+                    "native model split audit lacks its receipt reference"
+                )
+            include_contract(split_path, split)
             ledger_node(
                 manifest,
                 "RESEARCH_RESULT",

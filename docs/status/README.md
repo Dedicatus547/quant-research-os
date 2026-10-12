@@ -35,7 +35,7 @@
 | P14c | Holm / circular-block-bootstrap 选择工程资格 | 有限 synthetic 范围；无市场选择或 sealed 资格 |
 | P14d-A / P14d-B | Scripted/Replay 编排、预算、失败分类、restart/replay 与双根工程资格 | 无 live Agent runtime |
 | P14-DQ | 既有合格数据上的完整自主工程核验 | 零个合格候选；未执行选择 |
-| FR-03 / P14d-C | FR-03 离线实现完成；live SDK `NO_GO` | `THIN_MAINTENANCE` / `BLOCKED_UNIMPLEMENTED` |
+| FR-03 / P14d-C | 本工作线 `0.162.1 + gpt-6.1-sol / medium` 资格 `GO`；main 未集成 | 确切后继接受 / `BLOCKED_UNIMPLEMENTED` |
 | HM-MVP component-v2 | 真实模型交接、campaign 终态、离线回放、独立接受及 HM10/HM11 交付 | 有限候选家族；旧证明按原 tuple 采用，当前服务已清理，业务调用额度已耗尽 |
 
 ## 未获得的权威
@@ -44,7 +44,8 @@
 和无限制自主研究均未取得当前资格。HM-MVP component-v2 的有限工程接受见[独立状态页](hosted.md)。P14d-B 的 synthetic `SELECTED` 与
 `READY_FOR_SEALED_CONFIRMATION` 仅是工程用例。
 
-FR-03 的候选 runtime 与重新进入条件见 [FR-03 状态](fr03.md)。hosted component-v2 是独立轨道，不更改 FR-03 SDK `NO_GO / THIN_MAINTENANCE` 或 P14d-C `BLOCKED_UNIMPLEMENTED`。
+FR-03 的确切组合接受与证据见 [FR-03 状态](fr03.md)。hosted component-v2 保留独立身份；
+FR-03 接受不授予 P14d-C 资格，后者仍为 `BLOCKED_UNIMPLEMENTED`。
 
 ## 证据入口
 

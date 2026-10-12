@@ -245,3 +245,107 @@ def test_adapter_timeout_terminates_the_complete_host_process_group(tmp_path: Pa
     while Path(f"/proc/{child_pid}").exists() and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not Path(f"/proc/{child_pid}").exists()
+
+
+@pytest.mark.parametrize("actual_model", ["gpt-6.1-sol", "different-model"])
+@pytest.mark.parametrize("expanded_inventory", [False, True])
+def test_gpt61_host_retains_provider_identity_and_inventory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    actual_model: str,
+    expanded_inventory: bool,
+) -> None:
+    import codex_cli_bin
+    import openai_codex
+
+    import quantos.integrations.codex.sdk_host as host
+
+    marker = SimpleNamespace(model_dump=lambda **_: {"type": "readOnly", "networkAccess": False})
+    response = SimpleNamespace(
+        model=actual_model,
+        model_provider="openai",
+        reasoning_effort=SimpleNamespace(value="medium"),
+        sandbox=marker,
+        approval_policy=marker,
+        cwd=str(tmp_path),
+    )
+    called: list[str] = []
+    client = SimpleNamespace(
+        thread_start=lambda _: response,
+        request=lambda *_, **__: SimpleNamespace(
+            data=[
+                SimpleNamespace(
+                    name="probe",
+                    tools={"read_fixture": {}},
+                    tools_error=None,
+                )
+            ]
+            + (
+                [SimpleNamespace(name="extra", tools={"write": {}}, tools_error=None)]
+                if expanded_inventory
+                else []
+            ),
+            next_cursor=None,
+        ),
+    )
+
+    class FakeCodex:
+        def __init__(self, _: object) -> None:
+            assert _.config_overrides == ("features.apps=false",)
+            self._client = client
+            self.metadata = SimpleNamespace(serverInfo=SimpleNamespace(version="0.162.1"))
+
+        def __enter__(self) -> FakeCodex:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def account(self, **kwargs: object) -> object:
+            return SimpleNamespace(account=object())
+
+        def thread_start(self, **kwargs: object) -> object:
+            self._client.thread_start(kwargs)
+            return SimpleNamespace(id="thread", turn=self.turn)
+
+        def turn(self, *args: object, **kwargs: object) -> object:
+            called.append("turn")
+            return SimpleNamespace(stream=lambda: iter(()))
+
+    monkeypatch.setenv("QUANTOS_CODEX_RUNTIME_CANDIDATE_ID", "openai-codex-0.162.1-gpt61-fr03")
+    monkeypatch.setattr(openai_codex, "__version__", "0.162.1")
+    monkeypatch.setattr(openai_codex, "Codex", FakeCodex)
+    monkeypatch.setattr(codex_cli_bin, "bundled_codex_path", lambda: tmp_path)
+    monkeypatch.setattr(host, "version", lambda _: "0.162.1")
+    monkeypatch.setattr(host, "_sha256_file", lambda _: "a" * 64)
+    request = _request(tmp_path).model_copy(
+        update={"model": "gpt-6.1-sol", "reasoning_effort": "medium"}
+    )
+    request = request.model_copy(
+        update={
+            "runtime_policy": request.runtime_policy.model_copy(
+                update={"shell_tool_enabled": False}
+            )
+        }
+    )
+    result = sdk_host_execute(request)
+    assert _sdk_config(request)["features"] == {"shell_tool": False, "apps": False}
+    if actual_model == "gpt-6.1-sol" and expanded_inventory:
+        assert called == []
+        assert cast(dict[str, object], result["error"])["kind"] == "PERMISSION_DENIED"
+        observation = cast(dict[str, object], result["qualification_observations"])
+        assert observation["exact_mcp_inventory_matches"] is False
+        assert observation["model_turn_started"] is False
+        assert result["sdk_version"] == result["runtime_package_version"] == "0.162.1"
+    elif actual_model == "gpt-6.1-sol":
+        assert called == ["turn"]
+        observation = cast(dict[str, object], result["qualification_observations"])
+        assert observation["provider_model_identifier"] == actual_model
+        assert observation["provider_reasoning_effort"] == "medium"
+        assert observation["mcp_inventory"] == {
+            "servers": [{"name": "probe", "tools": ["read_fixture"], "tools_error": None}],
+            "next_cursor": None,
+        }
+    else:
+        assert called == []
+        assert cast(dict[str, object], result["error"])["kind"] == "CONFIGURATION_INVALID"

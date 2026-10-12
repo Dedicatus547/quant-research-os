@@ -1,0 +1,36 @@
+{
+  "schema_version": "fr03-qualified-runtime-binding/v1",
+  "status": "QUALIFIED_GO_WORKLINE",
+  "sdk_distribution": "openai-codex",
+  "sdk_version": "0.162.1",
+  "runtime_distribution": "openai-codex-cli-bin",
+  "runtime_package_version": "0.162.1",
+  "runtime_binary_sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+  "model_identifier": "gpt-6.1-sol",
+  "model_snapshot_immutable": false,
+  "reasoning_effort": "medium",
+  "successor": "v4-env1-apps-isolated1",
+  "p10_runtime_profile": "openai-codex-0.162.1-p10-v4",
+  "p13_runtime_profile": "openai-codex-0.162.1-gpt61-fr03",
+  "sdk_launch_overrides": [
+    "features.apps=false"
+  ],
+  "thread_apps_enabled": false,
+  "automatic_retries": 0,
+  "max_model_attempts_each_stage": 1,
+  "acceptance_thresholds": {
+    "seconds_each": 900,
+    "input_tokens_each": 250000,
+    "output_tokens_each": 4096,
+    "provider_billing_hard_caps": false
+  },
+  "p10_report_bundle_hash": "a037501a0e1ee15ee1e4eb181ba318660c30cff761aeed1d08bad59efb162253",
+  "p13_agent_run_hash": "bebbf6b286af1b3df72eab789c98e1a09c01e6ca3f94fa52e811007b5af55c21",
+  "p13_qualification_bundle_hash": "00eb007683fea7f4e014dc244a379b99ee928faf3f33f935477016672762e7c2",
+  "p13_requested_model_configuration_hash": "2314295e2d6c962060eb67125760476ea5fa73c6db8809c7c6d715d16adbf2f1",
+  "activation": "EXPLICIT_NAMED_PROFILE_REQUIRED",
+  "default_canonical_dependency_pin": "0.154.0",
+  "main_integrated": false,
+  "p14d_c": "BLOCKED_UNIMPLEMENTED",
+  "scope": "Frozen FR-03 benchmark and this exact environment/configuration; no general network security or profitability claim."
+}

@@ -42,7 +42,10 @@ def _sdk_config(request: HarnessExecutionRequest) -> dict[str, object]:
         }
     return {
         "allow_login_shell": policy.login_shell_allowed,
-        "features": {"shell_tool": policy.shell_tool_enabled},
+        "features": {
+            "shell_tool": policy.shell_tool_enabled,
+            **({"apps": False} if request.model == "gpt-6.1-sol" else {}),
+        },
         "history": {"persistence": policy.history_persistence},
         "mcp_servers": servers,
         "model_reasoning_effort": request.reasoning_effort,
@@ -103,6 +106,8 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
         return _failure(HarnessErrorKind.RUNTIME_MISMATCH, error, retryable=False)
 
     provider_events: list[dict[str, object]] = []
+    observations: dict[str, object] = {}
+    runtime_facts: dict[str, object] = {}
     try:
         profile_id = os.environ.get("QUANTOS_CODEX_RUNTIME_CANDIDATE_ID")
         expected_versions = expected_codex_versions(profile_id)
@@ -130,7 +135,10 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
         child_environment = {
             item.name: item.value for item in request.runtime_policy.child_environment
         }
-        with Codex(CodexConfig(cwd=request.cwd, env=child_environment)) as codex:
+        launch_overrides = ("features.apps=false",) if request.model == "gpt-6.1-sol" else ()
+        with Codex(
+            CodexConfig(cwd=request.cwd, env=child_environment, config_overrides=launch_overrides)
+        ) as codex:
             account = codex.account(refresh_token=False)
             if account.account is None:
                 return _failure(
@@ -152,6 +160,52 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                     RuntimeError("reported Codex runtime version does not match the pin"),
                     retryable=False,
                 )
+            runtime_facts = {
+                "runtime_version": runtime_version,
+                "runtime_package_version": runtime_package_version,
+                "runtime_binary_hash": runtime_binary_hash,
+                "sdk_version": openai_codex.__version__,
+            }
+            client: Any = None
+            if request.model == "gpt-6.1-sol":
+                # The high-level SDK discards ThreadStartResponse. Observe that exact
+                # pinned SDK boundary in memory; never patch installed SDK files.
+                client = cast(Any, codex)._client
+                original_start = client.thread_start
+
+                def observed_start(params: object) -> object:
+                    response = original_start(params)
+                    observations.update(
+                        {
+                            "provider_model_identifier": response.model,
+                            "provider_model_provider": response.model_provider,
+                            "provider_reasoning_effort": (
+                                response.reasoning_effort.value
+                                if response.reasoning_effort is not None
+                                else None
+                            ),
+                            "provider_sandbox": response.sandbox.model_dump(mode="json"),
+                            "provider_approval_policy": response.approval_policy.model_dump(
+                                mode="json"
+                            ),
+                            "provider_cwd": str(getattr(response.cwd, "root", response.cwd)),
+                            "host_environment_names": sorted(os.environ),
+                            "child_environment": child_environment,
+                            "requested_sdk_config": _sdk_config(request),
+                            "sdk_launch_config_overrides": list(launch_overrides),
+                            "sdk_response_boundary": (
+                                "CodexClient.thread_start / ThreadStartResponse"
+                            ),
+                        }
+                    )
+                    if (
+                        response.model != request.model
+                        or observations["provider_reasoning_effort"] != request.reasoning_effort
+                    ):
+                        raise ValueError("provider model/effort differs from qualification tuple")
+                    return response
+
+                client.thread_start = observed_start
             thread = codex.thread_start(
                 approval_mode=ApprovalMode.deny_all,
                 config=cast(Any, _sdk_config(request)),
@@ -160,6 +214,57 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                 model=request.model,
                 sandbox=Sandbox.read_only,
             )
+            if request.model == "gpt-6.1-sol":
+                from openai_codex.generated.v2_all import ListMcpServerStatusResponse
+
+                observations["provider_thread_id"] = thread.id
+
+                inventory = client.request(
+                    "mcpServerStatus/list",
+                    {"threadId": thread.id},
+                    response_model=ListMcpServerStatusResponse,
+                )
+                observations["mcp_inventory"] = {
+                    "servers": [
+                        {
+                            "name": item.name,
+                            "tools": sorted(item.tools),
+                            "tools_error": item.tools_error,
+                        }
+                        for item in inventory.data
+                    ],
+                    "next_cursor": inventory.next_cursor,
+                }
+                if request.model == "gpt-6.1-sol":
+                    actual = sorted(
+                        (item.name, tuple(sorted(item.tools))) for item in inventory.data
+                    )
+                    expected = sorted(
+                        (item.name, tuple(sorted(item.enabled_tools)))
+                        for item in request.mcp_servers
+                    )
+                    inventory_matches = (
+                        inventory.next_cursor is None
+                        and all(item.tools_error is None for item in inventory.data)
+                        and actual == expected
+                    )
+                    observations["exact_mcp_inventory_matches"] = inventory_matches
+                    observations["model_turn_started"] = False
+                    if not inventory_matches:
+                        observations["pre_model_rejection"] = "QUALIFICATION_MCP_SURFACE_EXPANDED"
+                        return {
+                            **_failure(
+                                HarnessErrorKind.PERMISSION_DENIED,
+                                RuntimeError(
+                                    "qualification actual MCP inventory differs "
+                                    "from its exact allowlist"
+                                ),
+                                retryable=False,
+                                provider_events=provider_events,
+                            ),
+                            **runtime_facts,
+                            "qualification_observations": observations,
+                        }
             output_schema = (
                 cast(JsonObject, json.loads(request.output_schema_json))
                 if request.output_schema_json is not None
@@ -173,6 +278,8 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                 output_schema=output_schema,
                 sandbox=Sandbox.read_only,
             )
+            if observations:
+                observations["model_turn_started"] = True
             for notification in handle.stream():
                 provider_events.append(_provider_event(notification.method, notification.payload))
                 if len(canonical_json_bytes(provider_events)) > request.max_transcript_bytes:
@@ -185,10 +292,15 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
             "runtime_binary_hash": runtime_binary_hash,
             "sdk_version": openai_codex.__version__,
             "thread_id": thread.id,
+            **({"qualification_observations": observations} if observations else {}),
         }
     except BaseException as error:
         kind, retryable = _error_kind(error)
-        return _failure(kind, error, retryable=retryable, provider_events=provider_events)
+        return {
+            **_failure(kind, error, retryable=retryable, provider_events=provider_events),
+            **runtime_facts,
+            **({"qualification_observations": observations} if observations else {}),
+        }
 
 
 def _failure(

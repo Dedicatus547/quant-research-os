@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from quantos.application.agent_harness import (
     HarnessCapture,
+    LocalAgentHarness,
     captures_from_agent_events,
     parse_agent_events,
 )
@@ -55,9 +56,8 @@ from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
 from quantos.integrations.codex.versioning import (
     CODEX_PROTOCOL_IDENTIFIER,
     CODEX_RUNTIME_DISTRIBUTION,
-    CODEX_RUNTIME_PACKAGE_VERSION,
     CODEX_SDK_DISTRIBUTION,
-    CODEX_SDK_VERSION,
+    expected_codex_versions,
 )
 
 MODEL_IDENTIFIER = "gpt-5.6-sol"
@@ -68,6 +68,7 @@ MAX_INPUT_TOKENS = 250_000
 MAX_OUTPUT_TOKENS = 4_096
 TIMEOUT_SECONDS = 900
 SERVER_NAME = "quantosP13"
+GPT61_PROFILE = "openai-codex-0.162.1-gpt61-fr03"
 
 
 class P13AgentRunnerError(RuntimeError):
@@ -271,42 +272,72 @@ def load_p13_agent_inputs(
     )
 
 
-def _model_configuration(inputs: P13AgentInputs) -> dict[str, object]:
+def _model_configuration(
+    inputs: P13AgentInputs, *, qualification_profile: str | None = None
+) -> dict[str, object]:
+    if qualification_profile not in {None, GPT61_PROFILE}:
+        raise P13AgentRunnerError("unsupported P13 qualification profile")
+    versions = expected_codex_versions(qualification_profile)
+    assert versions is not None
     return {
         "approval_policy": "never",
         "adapter": "openai-codex-python-sdk",
         "ephemeral": True,
-        "model_identifier": MODEL_IDENTIFIER,
+        "model_identifier": MODEL_IDENTIFIER if qualification_profile is None else "gpt-6.1-sol",
         "model_reasoning_effort": MODEL_REASONING_EFFORT,
         "network_allowed": False,
         "output_schema_hash": inputs.output_schema_hash,
         "protocol_identifier": CODEX_PROTOCOL_IDENTIFIER,
         "runtime_distribution": CODEX_RUNTIME_DISTRIBUTION,
-        "runtime_package_version": CODEX_RUNTIME_PACKAGE_VERSION,
+        "runtime_package_version": versions[1],
         "sandbox_mode": "read-only",
         "sdk_distribution": CODEX_SDK_DISTRIBUTION,
-        "sdk_version": CODEX_SDK_VERSION,
+        "sdk_version": versions[0],
         "shell_environment_inherit": "none",
         "shell_tool_enabled": False,
         "allow_login_shell": False,
         "shell_environment": SHELL_ENVIRONMENT,
         "tool_schema_hash": inputs.tool_schema_hash,
+        **({"apps_enabled": False} if qualification_profile is not None else {}),
     }
 
 
-def _execution_request(workspace: Path, inputs: P13AgentInputs) -> HarnessExecutionRequest:
+def _execution_request(
+    workspace: Path,
+    inputs: P13AgentInputs,
+    *,
+    qualification_profile: str | None = None,
+    mcp_python: Path | None = None,
+) -> HarnessExecutionRequest:
+    configuration = _model_configuration(inputs, qualification_profile=qualification_profile)
     environment = (
         HarnessEnvironmentVariable(name="LANG", value=SHELL_ENVIRONMENT["LANG"]),
         HarnessEnvironmentVariable(name="PATH", value=SHELL_ENVIRONMENT["PATH"]),
         HarnessEnvironmentVariable(name="TZ", value=SHELL_ENVIRONMENT["TZ"]),
     )
     server = workspace / "scripts/p13_evidence_mcp_server.py"
-    python = workspace / ".venv/bin/python"
+    python = mcp_python or workspace / ".venv/bin/python"
+    server_args = (str(server),)
+    if qualification_profile is not None:
+        server_args = (
+            "-I",
+            "-B",
+            "-c",
+            "import sys,runpy;sys.path.insert(0,"
+            + repr(str(workspace / "src"))
+            + ");runpy.run_path("
+            + repr(str(server))
+            + ",run_name='__main__')",
+        )
     return HarnessExecutionRequest(
-        run_id="p13-codex-sdk-sse-600010-20250805",
+        run_id=(
+            "p13-codex-sdk-sse-600010-20250805"
+            if qualification_profile is None
+            else "p13-gpt61-01621-sse-600010-apps-isolated1"
+        ),
         cwd=str(inputs.fixture_root),
         prompt=inputs.task_text,
-        model=MODEL_IDENTIFIER,
+        model=cast(str, configuration["model_identifier"]),
         reasoning_effort=MODEL_REASONING_EFFORT,
         runtime_policy=HarnessRuntimePolicy(
             host_environment=environment,
@@ -319,7 +350,7 @@ def _execution_request(workspace: Path, inputs: P13AgentInputs) -> HarnessExecut
                 name=SERVER_NAME,
                 command=str(python),
                 args=(
-                    str(server),
+                    *server_args,
                     str(inputs.store_path),
                     inputs.store.store_hash,
                     inputs.evidence_hash,
@@ -342,15 +373,19 @@ def _run_spec(
     inputs: P13AgentInputs,
     benchmark_policy_hash: str,
     request: HarnessExecutionRequest,
+    *,
+    qualification_profile: str | None = None,
 ) -> AgentRunSpecV3:
     policy = evidence_mcp_policy()
     return AgentRunSpecV3(
-        run_id="p13-codex-sdk-sse-600010-20250805",
+        run_id=request.run_id,
         role=AgentRole.RESEARCHER,
         capability_policy_hash=policy.content_hash,
         campaign_hash=sha256_bytes(canonical_json_bytes({"benchmark": benchmark_policy_hash})),
         requested_model_configuration_hash=sha256_bytes(
-            canonical_json_bytes(_model_configuration(inputs))
+            canonical_json_bytes(
+                _model_configuration(inputs, qualification_profile=qualification_profile)
+            )
         ),
         requested_runtime_policy_hash=request.runtime_policy.content_hash,
         transcript_policy_hash=sha256_bytes(
@@ -482,6 +517,9 @@ def load_p13_agent_run(
     expected_store_hash: str,
     expected_evidence_hash: str,
     benchmark_policy_hash: str,
+    qualification_profile: str | None = None,
+    mcp_python: Path | None = None,
+    fixture_root: Path | None = None,
 ) -> P13AgentRunResult:
     """Replay a specifically addressed successful extraction without calling the model."""
     inputs = load_p13_agent_inputs(
@@ -489,12 +527,15 @@ def load_p13_agent_run(
         store_path,
         expected_store_hash=expected_store_hash,
         expected_evidence_hash=expected_evidence_hash,
+        fixture_root=fixture_root,
     )
 
     def read(name: str) -> bytes:
         return confined_regular_file(run_path, name).read_bytes()
 
-    request = _execution_request(workspace, inputs)
+    request = _execution_request(
+        workspace, inputs, qualification_profile=qualification_profile, mcp_python=mcp_python
+    )
     manifest_bytes = read("agent-run-manifest.json")
     try:
         manifest_payload = json.loads(manifest_bytes)
@@ -508,7 +549,9 @@ def load_p13_agent_run(
         manifest: AgentRunManifestV2 | AgentRunManifestV3 = AgentRunManifestV3.model_validate(
             typed_manifest_payload
         )
-        spec: AgentRunSpecV2 | AgentRunSpecV3 = _run_spec(inputs, benchmark_policy_hash, request)
+        spec: AgentRunSpecV2 | AgentRunSpecV3 = _run_spec(
+            inputs, benchmark_policy_hash, request, qualification_profile=qualification_profile
+        )
     elif schema_version == "agent-run-manifest/v2":
         manifest = AgentRunManifestV2.model_validate(typed_manifest_payload)
         spec = _run_spec_v2(inputs, benchmark_policy_hash, request)
@@ -609,6 +652,9 @@ def execute_p13_agent(
     expected_evidence_hash: str,
     benchmark_policy_hash: str,
     fixture_root: Path | None = None,
+    qualification_profile: str | None = None,
+    mcp_python: Path | None = None,
+    harness: LocalAgentHarness | None = None,
 ) -> P13AgentRunResult:
     inputs = load_p13_agent_inputs(
         workspace,
@@ -617,11 +663,17 @@ def execute_p13_agent(
         expected_evidence_hash=expected_evidence_hash,
         fixture_root=fixture_root,
     )
-    request = _execution_request(workspace, inputs)
-    spec = _run_spec(inputs, benchmark_policy_hash, request)
+    request = _execution_request(
+        workspace, inputs, qualification_profile=qualification_profile, mcp_python=mcp_python
+    )
+    spec = _run_spec(
+        inputs, benchmark_policy_hash, request, qualification_profile=qualification_profile
+    )
     output_root.mkdir(parents=True, exist_ok=True)
     started_at = datetime.now(UTC)
-    execution = CodexSdkAdapter().execute(request)
+    if qualification_profile is not None and harness is None:
+        raise P13AgentRunnerError("candidate P13 requires its explicitly bound SDK harness")
+    execution = (harness or CodexSdkAdapter()).execute(request)
     completed_at = datetime.now(UTC)
     capture = execution.capture
     draft, proposal = _parse_success(
@@ -676,7 +728,7 @@ def execute_p13_agent(
     )
     manifest = AgentRunManifestV3(
         run_spec_hash=spec.content_hash,
-        provider_model_identifier=MODEL_IDENTIFIER,
+        provider_model_identifier=request.model,
         sdk_version=runtime.sdk_version if runtime else None,
         runtime_package_version=(
             runtime.runtime_package_version
@@ -767,6 +819,13 @@ def execute_p13_agent(
             staging / "harness-capability-observation.json", observation.canonical_bytes()
         )
         atomic_write_bytes(staging / "harness-request.json", request.canonical_bytes())
+        if runtime is not None and qualification_profile is not None:
+            atomic_write_bytes(staging / "harness-runtime.json", runtime.canonical_bytes())
+        if execution.attempts[-1].qualification_observations is not None:
+            atomic_write_bytes(
+                staging / "host-observations.json",
+                canonical_json_bytes(execution.attempts[-1].qualification_observations),
+            )
         if execution.provider_transcript is not None:
             atomic_write_bytes(staging / "provider-events.jsonl", execution.provider_transcript)
         atomic_write_bytes(

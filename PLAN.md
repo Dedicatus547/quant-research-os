@@ -18,7 +18,7 @@
 | P14d-A / P14d-B | 确定性编排与 synthetic 自主工程资格完成 |
 | P14-DQ | 精确冻结输入和环境内工程资格完成；研究结果仍未进入选择 |
 | P14 RC | 冻结于 `p14-rc-v1`，精确目标 `3a4a898`，生产基线 `e318dc4` |
-| FR-03 / P14d-C | `NO_GO / THIN_MAINTENANCE` / `BLOCKED_UNIMPLEMENTED` |
+| FR-03 / P14d-C | 本工作线 `0.162.1 + gpt-6.1-sol / medium` 资格 `GO`，main 未集成 / `BLOCKED_UNIMPLEMENTED` |
 | HM-MVP component-v2 | `FROZEN`；tag `hm-mvp-component-v2` → `59c25ac`；有界工程交付完成 |
 
 HM-MVP 当前接受的是固定 C15 的 component-v2 工程组合；精确身份、复用范围和限制见
@@ -34,7 +34,8 @@ HM-MVP 实施与发布交接已完成，目前没有必须重跑的验收或待�
 
 MCP 封装、standalone worker、其他 harness 或 SDK 重资格属于可选后续工作，
 见[原始方案第9节](docs/roadmap/host-mediated-mvp.md#9-发布回退与后续工作)，由具体需求决定是否启动。
-FR-03 继续遵守 [THIN_MAINTENANCE 政策](docs/status/fr03.md)；
+FR-03 确切后继已完成本工作线资格接受；默认 dependency pin 与 main 集成另行处理，
+见 [FR-03 接受范围](docs/status/fr03.md)；
 P14 主线的重开条件沿用其[发布标记](docs/releases/p14-rc-v1-freeze-marker.md)。
 
 ## 实施依赖
