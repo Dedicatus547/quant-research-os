@@ -20,15 +20,24 @@ from quantos.artifacts.store import (
     read_regular_bytes_at,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
-from quantos.contracts.discovery import DiscoveryDesign, GenerationRequest, GenerationReservation
+from quantos.contracts.discovery import (
+    DiscoveryDesign,
+    GenerationRequest,
+    GenerationReservation,
+    GenerationResponse,
+    SequentialGenerationAttempt,
+    SequentialGenerationPolicy,
+)
 from quantos.contracts.discovery_hosted import (
     HostedGenerationOrigin,
     HostedGenerationProjectionFact,
     HostedGenerationRequest,
     HostedGenerationResponse,
     HostedGenerationSourceReceipt,
+    HostedSequentialGenerationOrigin,
+    HostedSequentialGenerationRequest,
 )
-from quantos.contracts.hosted import parse_hosted_contract
+from quantos.contracts.hosted import HostObservation, HostReportedUsage, parse_hosted_contract
 from quantos.contracts.hosted_deployment import (
     HostedDeploymentProfile,
     HostedExecutableHintMountObservation,
@@ -103,9 +112,11 @@ def _scan_safe(value: object) -> None:
     validate_secret_free(scan_view(value), file_name="hosted-generation.json")
 
 
-def generation_prompt(request: HostedGenerationRequest) -> bytes:
+def generation_prompt(
+    request: HostedGenerationRequest | HostedSequentialGenerationRequest,
+) -> bytes:
     """A single AST proposal, without a preselected candidate list or a future campaign."""
-    return (
+    base = (
         "Use the shared context originals included below; the same originals are mounted "
         "read-only in /projection for source verification. Produce exactly one JSON "
         "object conforming to the projected SafeQlibExpressionSpec schema. Propose one "
@@ -118,6 +129,19 @@ def generation_prompt(request: HostedGenerationRequest) -> bytes:
         f"Schema: {request.proposal_schema_hash}\n"
         f"Generation instruction: {request.generation_request.prompt}\n"
     ).encode()
+    if isinstance(request, HostedSequentialGenerationRequest):
+        base += (
+            (
+                "Sequential policy: " + request.policy.content_hash + "\n"
+                "Attempt: " + request.attempt.content_hash + "\n"
+                "Same-method static history: " + request.attempt.history.content_hash + "\n"
+                "Prior proposals are unvalidated. Avoid structural duplicates in this method's "
+                "history; do not use scientific feedback or infer quality from static admission.\n"
+            ).encode()
+            + request.attempt.history.canonical_bytes()
+            + b"\n"
+        )
+    return base
 
 
 class HostedGenerationManager:
@@ -162,7 +186,9 @@ class HostedGenerationManager:
         context_objects: Mapping[str, bytes],
         issued_at: datetime,
         expires_at: datetime,
-    ) -> HostedGenerationRequest:
+        policy: SequentialGenerationPolicy | None = None,
+        attempt: SequentialGenerationAttempt | None = None,
+    ) -> HostedGenerationRequest | HostedSequentialGenerationRequest:
         if (
             request.method != "LLM"
             or request.design_hash != design.content_hash
@@ -185,8 +211,14 @@ class HostedGenerationManager:
         view["bindings"] = binding
         _scan_safe(view)
         _scan_safe(request.model_dump(mode="json"))
+        if (policy is None) != (attempt is None):
+            raise ArtifactIntegrityError("sequential preparation requires both policy and attempt")
         schema = generation_schema_bytes()
         objects = dict(context_objects)
+        if policy is not None and attempt is not None:
+            for contract in (policy, attempt, attempt.history):
+                _scan_safe(contract.model_dump(mode="json"))
+                objects[contract.content_hash] = contract.canonical_bytes()
         for contract in (design, request, reservation, configuration, profile):
             objects[contract.content_hash] = contract.canonical_bytes()
         objects[sha256_bytes(schema)] = schema
@@ -198,7 +230,7 @@ class HostedGenerationManager:
             self.guard(data)
             if digest in context_objects:
                 _scan_safe(data.decode("utf-8"))
-        hosted = HostedGenerationRequest(
+        payload: dict[str, object] = dict(
             generation_request=request,
             reservation=reservation,
             design_hash=design.content_hash,
@@ -211,6 +243,11 @@ class HostedGenerationManager:
             issued_at=issued_at,
             expires_at=expires_at,
         )
+        if policy is not None and attempt is not None:
+            payload.update(policy=policy, attempt=attempt)
+            hosted = HostedSequentialGenerationRequest.model_validate(payload)
+        else:
+            hosted = HostedGenerationRequest.model_validate(payload)
         self.guard(hosted.canonical_bytes())
         prompt = generation_prompt(hosted)
         self.guard(prompt)
@@ -229,7 +266,7 @@ class HostedGenerationManager:
                 directory / "status.json",
                 canonical_json_bytes(
                     {
-                        "profile": "hm-discovery/v1",
+                        "profile": hosted.profile,
                         "qualification": "NOT_EVALUATED",
                         "status": "PREPARED_OFFLINE",
                         "request_hash": hosted.content_hash,
@@ -244,7 +281,7 @@ class HostedGenerationManager:
         self,
         response: HostedGenerationResponse,
         *,
-        request: HostedGenerationRequest,
+        request: HostedGenerationRequest | HostedSequentialGenerationRequest,
         configuration: HostedLauncherConfiguration,
         profile: HostedDeploymentProfile,
         launcher_record_hash: str,
@@ -481,8 +518,12 @@ class HostedGenerationManager:
 
 
 def verify_generation_origin(
-    origin: HostedGenerationOrigin,
-) -> tuple[HostedGenerationRequest, HostedGenerationResponse, HostedLauncherRecord]:
+    origin: HostedGenerationOrigin | HostedSequentialGenerationOrigin,
+) -> tuple[
+    HostedGenerationRequest | HostedSequentialGenerationRequest,
+    HostedGenerationResponse,
+    HostedLauncherRecord,
+]:
     """Re-read the trusted launcher originals; a captured proposal is still a proposal."""
     guard = KnownValueGuard(())
     manager_root, evidence_root = Path(origin.manager_root), Path(origin.evidence_root)
@@ -496,11 +537,31 @@ def verify_generation_origin(
         with opened_directory(root):
             pass
     evidence = TrustedLauncherEvidenceStore(evidence_root, guard)
-    request = parse_hosted_contract(
-        evidence.read_bytes(origin.request_hash, max_bytes=_OBJECT_CAP),
-        HostedGenerationRequest,
-        max_bytes=_OBJECT_CAP,
+    request = parse_generation_request(
+        evidence.read_bytes(origin.request_hash, max_bytes=_OBJECT_CAP)
     )
+    if isinstance(origin, HostedSequentialGenerationOrigin):
+        from quantos.application.discovery_generation import GenerationStore
+
+        store = GenerationStore(Path(origin.generation_root))
+        if str(store.root) != origin.generation_root or not isinstance(
+            request, HostedSequentialGenerationRequest
+        ):
+            raise ArtifactIntegrityError("sequential source authority/profile differs")
+        attempt = store.read_attempt(request.generation_request, request.reservation)
+        source = store.launch_source(request.generation_request, request.reservation)
+        if (
+            source is None
+            or source.manager_root != origin.manager_root
+            or source.evidence_root != origin.evidence_root
+            or source.authenticated_principal != origin.authenticated_principal
+            or store.sequential_policy() != request.policy
+            or attempt != request.attempt
+            or attempt.content_hash != origin.attempt_hash
+        ):
+            raise ArtifactIntegrityError("sequential Hosted source history originals differ")
+    elif isinstance(request, HostedSequentialGenerationRequest):
+        raise ArtifactIntegrityError("sequential Hosted source requires a sequential origin")
     response = parse_hosted_contract(
         evidence.read_bytes(origin.response_hash, max_bytes=_OBJECT_CAP),
         HostedGenerationResponse,
@@ -542,3 +603,144 @@ def verify_generation_origin(
         max_bytes=65_536,
     )
     return request, response, record
+
+
+def parse_generation_request(
+    data: bytes,
+) -> HostedGenerationRequest | HostedSequentialGenerationRequest:
+    """Only explicit supported versions are accepted; no fallback reinterpretation."""
+    from quantos.contracts.hosted import strict_json_object
+
+    value = strict_json_object(data, max_bytes=_OBJECT_CAP)
+    version = value.get("schema_version")
+    if version == "hosted-generation-request/v1":
+        return parse_hosted_contract(data, HostedGenerationRequest, max_bytes=_OBJECT_CAP)
+    if version == "hosted-sequential-generation-request/v2":
+        return parse_hosted_contract(data, HostedSequentialGenerationRequest, max_bytes=_OBJECT_CAP)
+    raise ArtifactIntegrityError("unsupported Hosted generation request schema")
+
+
+def recover_generation_capture(
+    generation_root: Path,
+    request: GenerationRequest,
+    reservation: GenerationReservation,
+) -> GenerationResponse:
+    """Complete a captured unfinished slot from actual originals without invoking a model."""
+    from quantos.application.discovery_generation import GenerationStore
+    from quantos.contracts.hosted import strict_json_object
+
+    store = GenerationStore(generation_root)
+    reservations, responses = store.inventory(request)
+    existing = next((item for item in responses if item.reservation == reservation), None)
+    if existing is not None:
+        if existing.producer != "HOSTED_HANDOFF":
+            raise ArtifactIntegrityError("a completed failure or import cannot be rewritten")
+        return existing
+    if not reservations or reservation != reservations[-1]:
+        raise ArtifactIntegrityError("Hosted recovery requires the final unfinished slot")
+    source = store.launch_source(request, reservation)
+    if source is None or store.sequential_policy() is None:
+        raise ArtifactIntegrityError("Hosted recovery needs retained sequential management sources")
+    guard = KnownValueGuard(())
+    evidence = TrustedLauncherEvidenceStore(Path(source.evidence_root), guard)
+    attempt_root = evidence.root / "generation-launches" / reservation.content_hash
+    with opened_directory(attempt_root) as directory:
+        prelaunch = strict_json_object(
+            read_regular_bytes_at(directory, "prelaunch.json", max_bytes=65_536), max_bytes=65_536
+        )
+        completion = strict_json_object(
+            read_regular_bytes_at(directory, "completion.json", max_bytes=65_536), max_bytes=65_536
+        )
+    request_hash, record_hash = (
+        prelaunch.get("request_hash"),
+        completion.get("launcher_record_hash"),
+    )
+    if not isinstance(request_hash, str) or not isinstance(record_hash, str):
+        raise ArtifactIntegrityError("captured launcher originals are unavailable")
+    hosted = parse_generation_request(evidence.read_bytes(request_hash, max_bytes=_OBJECT_CAP))
+    if (
+        not isinstance(hosted, HostedSequentialGenerationRequest)
+        or hosted.generation_request != request
+        or hosted.reservation != reservation
+        or hosted.policy != store.sequential_policy()
+        or hosted.attempt != store.read_attempt(request, reservation)
+    ):
+        raise ArtifactIntegrityError("recovered request history differs from retained authority")
+    record = parse_hosted_contract(
+        evidence.read_bytes(record_hash, max_bytes=65_536), HostedLauncherRecord, max_bytes=65_536
+    )
+    configuration = parse_hosted_contract(
+        evidence.read_bytes(hosted.configuration_hash, max_bytes=65_536),
+        HostedLauncherConfiguration,
+        max_bytes=65_536,
+    )
+    profile = parse_hosted_contract(
+        evidence.read_bytes(hosted.deployment_profile_hash, max_bytes=65_536),
+        HostedDeploymentProfile,
+        max_bytes=65_536,
+    )
+    if (
+        record.outcome != "CAPTURED"
+        or record.raw_output_hash is None
+        or not record.raw_output_complete
+    ):
+        raise ArtifactIntegrityError("no complete original model capture is available for recovery")
+    proposal, _ = extract_proposal(
+        evidence.read_bytes(record.raw_output_hash, max_bytes=configuration.output_byte_cap),
+        configuration,
+        guard=guard,
+    )
+    response = HostedGenerationResponse(
+        request_hash=hosted.content_hash,
+        design_hash=hosted.design_hash,
+        reservation_hash=reservation.content_hash,
+        proposal_json=proposal.decode("utf-8"),
+        proposal_hash=sha256_bytes(proposal),
+        host_observation=HostObservation(
+            requested_configuration_hash=configuration.content_hash,
+            reported_model_identifier=record.actual_model_identifier,
+            reported_reasoning_effort=configuration.reasoning_effort,
+            reported_usage=HostReportedUsage(unavailable_reason="HOST_INTERNAL_USAGE_UNAVAILABLE"),
+            external_evidence_hashes=(record.content_hash,),
+            unavailable_reasons=(
+                "HOST_EFFECTIVE_POLICY_NOT_ATTESTED",
+                "MODEL_IDENTIFIER_NOT_IMMUTABLE",
+                "HOST_INTERNAL_USAGE_UNAVAILABLE",
+                "HOST_TRANSCRIPT_UNAVAILABLE",
+            ),
+        ),
+    )
+    manager = HostedGenerationManager(
+        Path(source.manager_root),
+        evidence=evidence,
+        authenticated_principal=source.authenticated_principal,
+        guard=guard,
+    )
+    # Principal is management authority, never a host observation or provider field.
+    receipt = manager.verify_existing_capture(
+        response,
+        request=hosted,
+        configuration=configuration,
+        profile=profile,
+        launcher_record_hash=record.content_hash,
+    )
+    origin = HostedSequentialGenerationOrigin(
+        manager_root=source.manager_root,
+        evidence_root=source.evidence_root,
+        authenticated_principal=manager.principal,
+        request_hash=hosted.content_hash,
+        response_hash=response.content_hash,
+        source_receipt_hash=receipt.content_hash,
+        configuration_hash=configuration.content_hash,
+        deployment_profile_hash=profile.content_hash,
+        generation_root=str(store.root),
+        attempt_hash=hosted.attempt.content_hash,
+    )
+    return store.complete(
+        request,
+        reservation,
+        proposal.decode("utf-8"),
+        producer="HOSTED_HANDOFF",
+        hosted_origin=origin,
+        wall_seconds=(record.terminated_at - record.started_at).total_seconds(),
+    )

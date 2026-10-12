@@ -164,6 +164,7 @@ def _raise(reason_code: ReasonCode, message: str) -> NoReturn:
 
 def _hosted_proposal_schema(schema: dict[str, object]) -> dict[str, object]:
     """Require explicit fields in hosted structured output, including defaults."""
+
     def adapt(value: object) -> object:
         if isinstance(value, list):
             return [adapt(item) for item in value]

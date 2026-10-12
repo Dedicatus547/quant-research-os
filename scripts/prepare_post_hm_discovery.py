@@ -15,7 +15,11 @@ from quantos.artifacts.store import atomic_write_bytes, confined_regular_file
 from quantos.contracts.autonomous import AutonomousExecutionBindings
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import ResearchCampaignEvent, TrialOutcome
-from quantos.contracts.discovery import DiscoveryDesign, GenerationRequest
+from quantos.contracts.discovery import (
+    DiscoveryDesign,
+    GenerationRequest,
+    SequentialGenerationPolicy,
+)
 from quantos.contracts.hosted_deployment import HostedLauncherConfiguration
 from quantos.contracts.hosted_inputs import HostedFrozenBusinessInputs
 from quantos.contracts.ledger import ResearchLedgerSearchPolicy
@@ -92,8 +96,20 @@ def prepare_inputs(
     view_manifest: Path,
     launcher_configuration: Path,
     output_root: Path,
+    generation_policy: Literal["legacy-v1", "sequential-v2"] = "legacy-v1",
+    max_compute_units: int | None = None,
 ) -> Path:
     """Write immutable input originals bound to the code actually running this function."""
+    if generation_policy == "sequential-v2":
+        if max_compute_units is None or max_compute_units <= 0:
+            raise ValueError(
+                "sequential preparation requires an explicit positive compute design cap"
+            )
+        declared_compute_units = max_compute_units
+    else:
+        if max_compute_units not in (None, 360):
+            raise ValueError("legacy preparation retains its original compute design cap")
+        declared_compute_units = 360
     workspace = workspace.resolve()
     output_root = output_root.resolve()
     if any(output_root.is_relative_to(path) for path in (Path("/tmp"), Path("/var/tmp"))):
@@ -204,6 +220,13 @@ def prepare_inputs(
         "Sealed 2026-01-01 through 2026-01-30 is a retained declaration; this preparation "
         "does not access its data. No new sealed access is authorized by these inputs.",
     )
+    if generation_policy == "sequential-v2":
+        exposure += (
+            "First Discovery report "
+            "b96c14eeee6637bd7ca67b02dbc2ff148aaddec385057e6ca51a76f8028d33be "
+            "was consumed by this successor design; the 2023-2025 period remains "
+            "retrospective exploratory, not an independent confirmation window.",
+        )
     methodology: dict[str, object] = {
         "schema_version": "discovery-shared-context/v1",
         "research_policy": policy.model_dump(mode="json"),
@@ -219,7 +242,7 @@ def prepare_inputs(
         "composition": "Exactly one field and one window node; optional abs, or "
         "divide(adjusted_close, rolling_mean(adjusted_close, window)), optionally abs.",
         "opportunities_per_method": 5,
-        "maximum_compute_units": 360,
+        "maximum_compute_units": declared_compute_units,
         "baseline_seed": 1729,
         "exposure_history": list(exposure),
         "past_events_are_source_records_not_new_validation": True,
@@ -288,7 +311,7 @@ def prepare_inputs(
                 key=str,
             )
         ),
-        max_compute_units=360,
+        max_compute_units=declared_compute_units,
     )
     originals["design.json"] = design.canonical_bytes()
     prompt = (
@@ -303,6 +326,13 @@ def prepare_inputs(
             f"{digest}: {data.decode('utf-8')}" for digest, data in sorted(contexts.items())
         )
     )
+    if generation_policy == "sequential-v2":
+        prompt += (
+            "\nUse the versioned same-method static history supplied with each attempt. "
+            "Avoid prior structural duplicates. No scientific feedback is available."
+        )
+    elif generation_policy != "legacy-v1":
+        raise ValueError("unsupported generation policy")
     request_hashes: dict[str, str] = {}
     methods: tuple[Literal["LLM", "RANDOM", "TEMPLATE"], ...] = ("LLM", "RANDOM", "TEMPLATE")
     for method in methods:
@@ -311,10 +341,18 @@ def prepare_inputs(
             if method == "LLM"
             else canonical_json_bytes(
                 {
-                    "schema_version": "discovery-baseline-configuration/v1",
+                    "schema_version": (
+                        "discovery-baseline-configuration/v2"
+                        if generation_policy == "sequential-v2"
+                        else "discovery-baseline-configuration/v1"
+                    ),
                     "method": method,
                     "seed": 1729,
-                    "generator": "quantos.application.discovery_baselines.generate_baseline",
+                    "generator": (
+                        "quantos.application.discovery_baselines.generate_sequential_baseline"
+                        if generation_policy == "sequential-v2"
+                        else "quantos.application.discovery_baselines.generate_baseline"
+                    ),
                     "max_attempts": 5,
                     "space": "field-window-optional-ratio-abs/v1",
                 }
@@ -333,10 +371,24 @@ def prepare_inputs(
         originals[f"{method.lower()}-request.json"] = request.canonical_bytes()
         originals[f"{method.lower()}-configuration.json"] = config_bytes
         request_hashes[method] = request.content_hash
+    if generation_policy == "sequential-v2":
+        policy = SequentialGenerationPolicy(
+            design_hash=design.content_hash,
+            request_hashes=(
+                request_hashes["LLM"],
+                request_hashes["RANDOM"],
+                request_hashes["TEMPLATE"],
+            ),
+        )
+        originals["sequential-policy.json"] = policy.canonical_bytes()
     for digest, data in contexts.items():
         originals[f"contexts/sha256-{digest}.json"] = data
     inventory: dict[str, object] = {
-        "schema_version": "discovery-input-preparation/v1",
+        "schema_version": (
+            "discovery-input-preparation/v2"
+            if generation_policy == "sequential-v2"
+            else "discovery-input-preparation/v1"
+        ),
         "status": "MANAGEMENT_INPUTS_ONLY",
         "design_hash": design.content_hash,
         "request_hashes": request_hashes,
@@ -379,6 +431,14 @@ def main() -> int:
         "output-root",
     ):
         parser.add_argument(f"--{name}", type=Path, required=True)
+    parser.add_argument(
+        "--generation-policy", choices=("legacy-v1", "sequential-v2"), default="legacy-v1"
+    )
+    parser.add_argument(
+        "--max-compute-units",
+        type=int,
+        help="explicit sequential design cap; grants no execution authority",
+    )
     parser.add_argument("--code-commit", required=True)
     parser.add_argument("--lockfile-hash", required=True)
     args = parser.parse_args()

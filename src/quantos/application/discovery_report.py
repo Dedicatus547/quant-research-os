@@ -92,6 +92,9 @@ def render_discovery_report(report: dict[str, object]) -> str:
     else:
         lines.append("  unavailable")
 
+    if report.get("schema_version") == "discovery-comparison/v2":
+        lines.extend(("", "Generation counts:", _display(report.get("generation_counts"))))
+
     lines.extend(("", "Limitations:"))
     limitations = report.get("limitations", ())
     if isinstance(limitations, (tuple, list)) and limitations:
@@ -101,3 +104,24 @@ def render_discovery_report(report: dict[str, object]) -> str:
     else:
         lines.append("  unavailable")
     return "\n".join(lines)
+
+
+def render_generation_analysis(report: dict[str, object]) -> str:
+    """Present frozen generation counts without calculating science values."""
+    lines = [
+        f"Generation analysis: {_display(report.get('schema_version'))}",
+        f"Sequential batch: {_display(report.get('sequential_batch_hash'))}",
+        f"Scope: {_display(report.get('scope'))}",
+    ]
+    counts = report.get("counts")
+    if isinstance(counts, dict):
+        values = cast(dict[str, object], counts)
+        for key in (
+            "management_model_entries",
+            "candidate_opportunities",
+            "scientific_execution",
+            "methods",
+        ):
+            lines.append(f"{key}: {_display(values.get(key))}")
+    lines.append(f"Limitations: {_display(report.get('limitations'))}")
+    return "\n".join(lines) + "\n"

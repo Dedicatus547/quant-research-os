@@ -5,7 +5,11 @@ from __future__ import annotations
 import random
 
 from quantos.contracts.base import canonical_json_bytes
-from quantos.contracts.discovery import DiscoveryDesign, GenerationRequest
+from quantos.contracts.discovery import (
+    DiscoveryDesign,
+    GenerationRequest,
+    SequentialGenerationPolicy,
+)
 from quantos.contracts.pit import SafeExpressionNode, SafeQlibExpressionSpec, SafeQlibOperator
 
 _TEMPLATE_ORDER = (
@@ -83,10 +87,12 @@ def baseline_expression_space(design: DiscoveryDesign) -> tuple[SafeQlibExpressi
                 if SafeQlibOperator.ABS in allowed:
                     candidates.append(_expression(operator, window, ratio=True, absolute=True))
     return tuple(
-        SafeQlibExpressionSpec.model_validate({
-            **expression.model_dump(mode="python"),
-            "input_lag_trading_days": design.authoring.strategy.input_lag_trading_days,
-        })
+        SafeQlibExpressionSpec.model_validate(
+            {
+                **expression.model_dump(mode="python"),
+                "input_lag_trading_days": design.authoring.strategy.input_lag_trading_days,
+            }
+        )
         for expression in candidates
         if len(expression.nodes) <= design.max_nodes
         and all(node.operator in allowed for node in expression.nodes)
@@ -127,3 +133,42 @@ def generate_baseline(design: DiscoveryDesign, request: GenerationRequest) -> tu
             raise ValueError("baseline expression exceeds per-attempt output byte limit")
         output.append(encoded.decode("utf-8"))
     return tuple(output)
+
+
+def generate_sequential_baseline(
+    design: DiscoveryDesign, request: GenerationRequest, policy: SequentialGenerationPolicy
+) -> tuple[str, ...]:
+    """Successor coverage policy; each output is tied to its original opportunity."""
+    if request.method not in ("TEMPLATE", "RANDOM"):
+        raise ValueError("sequential baseline requires TEMPLATE or RANDOM")
+    if (
+        request.design_hash != design.content_hash
+        or policy.design_hash != design.content_hash
+        or request.content_hash not in policy.request_hashes
+        or request.max_attempts > policy.max_attempts_per_method
+        or request.max_attempts > design.evaluation_opportunities_per_method
+        or request.seed is None
+    ):
+        raise ValueError("sequential baseline identities or opportunity limits differ")
+    space = baseline_expression_space(design)
+    if request.max_attempts > len(space):
+        raise ValueError("sequential baseline exhausts the common expression space")
+    if request.method == "RANDOM":
+        if request.seed != policy.random_seed:
+            raise ValueError("sequential random request must bind policy seed 1729")
+        selected = random.Random(policy.random_seed).sample(space, request.max_attempts)
+    else:
+        layers = [
+            [expression for expression in space if expression.nodes[1].operator is operator]
+            for operator in _TEMPLATE_ORDER
+        ]
+        ordered: list[SafeQlibExpressionSpec] = []
+        while any(layers):
+            for layer in layers:
+                if layer:
+                    ordered.append(layer.pop(0))
+        selected = ordered[: request.max_attempts]
+    encoded = tuple(canonical_json_bytes(expression) for expression in selected)
+    if any(len(value) > design.max_output_bytes_per_attempt for value in encoded):
+        raise ValueError("baseline expression exceeds per-attempt output byte limit")
+    return tuple(value.decode("utf-8") for value in encoded)

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from math import isfinite
 from pathlib import Path
 from time import perf_counter, process_time
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid5
 
 from quantos.application.autonomous_execution import (
@@ -48,9 +48,15 @@ from quantos.contracts.discovery import (
     DiscoverySubtask,
     GenerationResponse,
     ProposalMapping,
+    SequentialDiscoveryBatch,
 )
 from quantos.contracts.discovery_adoption import DiscoveryEvaluationSourceAdoption
-from quantos.contracts.discovery_evaluation import DiscoveryEvaluationDeclaration
+from quantos.contracts.discovery_evaluation import (
+    DiscoveryEvaluationDeclaration,
+    ScientificEvaluationDeclaration,
+    ScientificExecutionAuthorization,
+    ScientificSchedulingCutoff,
+)
 from quantos.contracts.research import ExperimentAuthoringSpec
 from quantos.infrastructure.hosted_storage import (
     LEASE_ENV,
@@ -59,6 +65,10 @@ from quantos.infrastructure.hosted_storage import (
     configured_guard,
 )
 from quantos.research.qlib.result import research_result_verification_scope
+
+if TYPE_CHECKING:
+    from quantos.application.discovery_scientific_adoption import ScientificVerifiedAdoption
+    from quantos.contracts.discovery_scientific_adoption import ScientificSourceDependencyAdoption
 
 _NAMESPACE = UUID("be71054c-78f5-45a1-a931-01573a8e009d")
 _UNSET = object()
@@ -76,6 +86,24 @@ def _read_json(path: Path) -> dict[str, object]:
     if canonical_json_bytes(value) != encoded:
         raise ArtifactIntegrityError("discovery execution record is not canonical")
     return value
+
+
+def quote_discovery_tasks(batch: DiscoveryBatch) -> dict[str, int]:
+    """Quote frozen singleton shapes without constructing authority or reading datasets."""
+    verify_discovery_batch(batch)
+    charges: dict[str, int] = {}
+    for task in batch.subtasks:
+        payload = batch.design.authoring.model_dump(mode="python")
+        payload["expression"] = task.manifest.candidates[0].expression.model_dump(mode="python")
+        charges[task.content_hash] = quote_autonomous_workload(
+            ExperimentAuthoringSpec.model_validate(payload), batch.design.validation_policy
+        )
+    return charges
+
+
+def quote_discovery_workload(batch: DiscoveryBatch) -> int:
+    """Full-workload reference quote, not a new budget or permission to rerun adopted work."""
+    return sum(quote_discovery_tasks(batch).values())
 
 
 @dataclass(frozen=True)
@@ -104,19 +132,27 @@ class DiscoveryExecutionService:
         output_root: Path,
         workspace: Path,
         generation_root: Path | None = None,
-        evaluation_declaration: DiscoveryEvaluationDeclaration | None = None,
+        evaluation_declaration: DiscoveryEvaluationDeclaration
+        | ScientificEvaluationDeclaration
+        | None = None,
+        sequential_batch: SequentialDiscoveryBatch | None = None,
     ) -> None:
         verify_discovery_batch(batch)
         if generation_root is None:
             raise ArtifactIntegrityError(
                 "discovery execution requires the retained generation originals"
             )
-        GenerationStore(generation_root).verify_frozen(batch)
+        if sequential_batch is not None and sequential_batch.batch != batch:
+            raise ArtifactIntegrityError("sequential wrapper differs from the execution batch")
+        GenerationStore(generation_root).verify_frozen(
+            batch if sequential_batch is None else sequential_batch
+        )
         absolute = output_root.absolute()
         if any(part.is_symlink() for part in (absolute, *absolute.parents)):
             raise ArtifactIntegrityError("discovery execution root must not contain symbolic links")
         require_durable_execution_root(absolute)
         self.batch = batch
+        self.sequential_batch = sequential_batch
         self.snapshot_path = snapshot_path
         self.qlib_view_path = qlib_view_path
         self.output_root = absolute.resolve()
@@ -134,13 +170,39 @@ class DiscoveryExecutionService:
             else evaluation_declaration.max_compute_units
         )
         self.evaluation_identity = (
-            batch.content_hash
+            (batch.content_hash if sequential_batch is None else sequential_batch.content_hash)
             if evaluation_declaration is None
             else evaluation_declaration.content_hash
         )
         self._verify_evaluation_declaration()
         self.source_adoption: DiscoveryEvaluationSourceAdoption | None = None
-        if evaluation_declaration is not None:
+        self.scientific_dependency_adoption: ScientificSourceDependencyAdoption | None = None
+        if isinstance(evaluation_declaration, ScientificEvaluationDeclaration):
+            if evaluation_declaration.source_adoption_record_hash is not None:
+                from quantos.contracts.discovery_scientific_adoption import (
+                    ScientificSourceDependencyAdoption,
+                )
+
+                dependency = ScientificSourceDependencyAdoption.model_validate(
+                    _read_json(self.output_root / "source-adoption.json")
+                )
+                if (
+                    dependency.content_hash != evaluation_declaration.source_adoption_record_hash
+                    or dependency.original_batch_hash != batch.content_hash
+                    or dependency.original_design_hash != batch.design.content_hash
+                    or dependency.original_source_commit
+                    != evaluation_declaration.original_scientific_source_commit
+                    or dependency.evaluation_source_commit
+                    != self.evaluation_bindings.code_commit_hash
+                    or dependency.lockfile_hash != self.evaluation_bindings.lockfile_hash
+                    or dependency.evaluation_execution_policy_hash
+                    != self.evaluation_bindings.execution_policy_hash
+                ):
+                    raise ArtifactIntegrityError(
+                        "scientific source dependency adoption differs from its declaration"
+                    )
+                self.scientific_dependency_adoption = dependency
+        elif evaluation_declaration is not None:
             adopted = DiscoveryEvaluationSourceAdoption.model_validate(
                 _read_json(self.output_root / "source-adoption.json")
             )
@@ -172,14 +234,87 @@ class DiscoveryExecutionService:
         self._campaigns: dict[str, ResearchCampaignSpec] = {}
         self._budgets: dict[str, ResearchBudgetSpec] = {}
         self._governors: dict[str, ResearchCampaignGovernor] = {}
+        self._scientific_verified_adoption: ScientificVerifiedAdoption | None = None
         for task in batch.subtasks:
             self._prepare_task(task, self._mappings[task.content_hash])
+        if isinstance(evaluation_declaration, ScientificEvaluationDeclaration) and (
+            evaluation_declaration.scientific_adoption_plan_hash is not None
+        ):
+            self._verify_scientific_adoption()
+
+    def _verify_scientific_adoption(self) -> None:
+        from quantos.application.discovery_scientific_adoption import (
+            verify_scientific_adoption_plan,
+        )
+
+        declaration = self.evaluation_declaration
+        if not isinstance(declaration, ScientificEvaluationDeclaration):
+            raise ArtifactIntegrityError("scientific adoption requires the independent declaration")
+        adoption = verify_scientific_adoption_plan(self)
+        keys = adoption.new_subtask_hashes
+        charges = quote_discovery_tasks(self.batch)
+        if (
+            len(set(keys)) != len(keys)
+            or not set(keys).issubset(charges)
+            or len(keys) != declaration.budget.max_new_candidate_executions
+            or sum(charges[key] for key in keys) != declaration.budget.new_execution_compute_units
+        ):
+            raise ArtifactIntegrityError(
+                "scientific adoption work subset differs from its new budget"
+            )
+        self._scientific_verified_adoption = adoption
+
+    def scientific_new_subtasks(self) -> tuple[DiscoverySubtask, ...]:
+        """Only new executions; reused origins retain their actual old request and outputs."""
+        adoption = self._scientific_verified_adoption
+        if adoption is None:
+            return self.batch.subtasks
+        keys = set(adoption.new_subtask_hashes)
+        return tuple(task for task in self.batch.subtasks if task.content_hash in keys)
+
+    def scientific_execution_subtask_hashes(self) -> tuple[str, ...]:
+        return tuple(task.content_hash for task in self.scientific_new_subtasks())
+
+    def scientific_verified_adoption(self) -> ScientificVerifiedAdoption | None:
+        return self._scientific_verified_adoption
 
     def _verify_evaluation_declaration(self) -> None:
         declaration = self.evaluation_declaration
         if declaration is None:
             return
         original = self.batch.design.bindings
+        if isinstance(declaration, ScientificEvaluationDeclaration):
+            wrapper = self.sequential_batch
+            if (
+                wrapper is None
+                or declaration.original_sequential_batch_hash != wrapper.content_hash
+                or declaration.original_generation_policy_hash != wrapper.policy.content_hash
+                or declaration.original_batch_hash != self.batch.content_hash
+                or declaration.original_design_hash != self.batch.design.content_hash
+                or declaration.original_generation_source_commit != original.code_commit_hash
+                or declaration.snapshot_hash != self.batch.design.snapshot_hash
+                or declaration.qlib_view_hash != self.batch.design.qlib_view_hash
+                or declaration.bindings.model_dump(
+                    exclude={"code_commit_hash", "execution_policy_hash"}
+                )
+                != original.model_dump(exclude={"code_commit_hash", "execution_policy_hash"})
+                or declaration.budget.full_batch_compute_units
+                != quote_discovery_workload(self.batch)
+                or declaration.budget.max_distinct_candidates != len(self.batch.subtasks)
+            ):
+                raise ArtifactIntegrityError(
+                    "scientific authority changed its frozen generation/scientific inputs"
+                )
+            if declaration.scientific_adoption_plan_hash is None and (
+                declaration.budget.new_execution_compute_units
+                != declaration.budget.full_batch_compute_units
+                or declaration.budget.max_new_candidate_executions != len(self.batch.subtasks)
+            ):
+                raise ArtifactIntegrityError(
+                    "reduced scientific workload requires an explicit adoption plan"
+                )
+            self._verify_scientific_authority(declaration)
+            return
         if (
             declaration.original_batch_hash != self.batch.content_hash
             or declaration.original_design_hash != self.batch.design.content_hash
@@ -193,9 +328,57 @@ class DiscoveryExecutionService:
         ):
             raise ArtifactIntegrityError("successor evaluation changed its frozen proposal inputs")
 
+    def _verify_scientific_authority(self, declaration: ScientificEvaluationDeclaration) -> None:
+        authorization = ScientificExecutionAuthorization.model_validate(
+            _read_json(self.output_root / "scientific-authorization.json")
+        )
+        cutoff = ScientificSchedulingCutoff.model_validate(
+            _read_json(self.output_root / "scientific-scheduling-cutoff.json")
+        )
+        if (
+            authorization.content_hash != declaration.authorization_hash
+            or authorization.original_sequential_batch_hash
+            != declaration.original_sequential_batch_hash
+            or cutoff.content_hash != declaration.scientific_scheduling_cutoff_hash
+            or cutoff.authorization_hash != authorization.content_hash
+            or cutoff.original_sequential_batch_hash != declaration.original_sequential_batch_hash
+            or cutoff.original_batch_hash != declaration.original_batch_hash
+            or cutoff.original_design_hash != declaration.original_design_hash
+        ):
+            raise ArtifactIntegrityError(
+                "scientific authorization or scheduling cutoff originals disagree"
+            )
+        for name, digest, commit in (
+            (
+                "original-generation-source.json",
+                declaration.original_generation_source_declaration_hash,
+                declaration.original_generation_source_commit,
+            ),
+            (
+                "evaluation-source.json",
+                declaration.evaluation_source_declaration_hash,
+                declaration.bindings.code_commit_hash,
+            ),
+        ):
+            source = _read_json(self.output_root / name)
+            if (
+                sha256_bytes(canonical_json_bytes(source)) != digest
+                or source.get("schema_version") != "post-hm-source-capsule/v1"
+                or source.get("actual_commit") != commit
+                or source.get("lockfile_hash") != declaration.bindings.lockfile_hash
+            ):
+                raise ArtifactIntegrityError("scientific source capsule original binding differs")
+        if declaration.scientific_adoption_plan_hash is not None:
+            plan = _read_json(self.output_root / "scientific-adoption-plan.json")
+            if (
+                sha256_bytes(canonical_json_bytes(plan))
+                != declaration.scientific_adoption_plan_hash
+            ):
+                raise ArtifactIntegrityError("scientific adoption plan original identity differs")
+
     def evaluation_metadata(self) -> dict[str, object]:
         declaration = self.evaluation_declaration
-        return {
+        metadata: dict[str, object] = {
             "schema_version": "discovery-evaluation-authority/v1",
             "evaluation_identity": self.evaluation_identity,
             "evaluation_declaration_hash": None
@@ -216,8 +399,42 @@ class DiscoveryExecutionService:
             "no_new_generation": True,
             "sealed_confirmation_accessed": False,
         }
+        if self.sequential_batch is not None:
+            metadata.update(
+                schema_version="discovery-evaluation-authority/v2",
+                sequential_batch_hash=self.sequential_batch.content_hash,
+                generation_policy_hash=self.sequential_batch.policy.content_hash,
+            )
+        if isinstance(declaration, ScientificEvaluationDeclaration):
+            metadata.update(
+                schema_version="discovery-scientific-evaluation-authority/v2",
+                authorization_hash=declaration.authorization_hash,
+                scientific_budget_hash=declaration.budget.content_hash,
+                scientific_budget=declaration.budget.model_dump(mode="json"),
+                original_generation_compute_cap=self.batch.design.max_compute_units,
+                original_generation_source_declaration_hash=declaration.original_generation_source_declaration_hash,
+                evaluation_source_declaration_hash=declaration.evaluation_source_declaration_hash,
+                original_scientific_source_commit=declaration.original_scientific_source_commit,
+                scientific_adoption_plan_hash=declaration.scientific_adoption_plan_hash,
+                scientific_scheduling_cutoff_hash=declaration.scientific_scheduling_cutoff_hash,
+                authority_scope="NEW_SCIENTIFIC_EXECUTION_ONLY",
+                old_generation_cap_amended=False,
+                original_qualification_transferred=False,
+            )
+        return metadata
 
     def _verify_evaluation_authority(self) -> None:
+        sequential_path = self.output_root / "sequential-batch.json"
+        if self.sequential_batch is None:
+            if sequential_path.exists():
+                raise ArtifactIntegrityError("sequential output requires its generation wrapper")
+        elif sequential_path.exists():
+            if _read_json(sequential_path) != self.sequential_batch.model_dump(mode="json"):
+                raise ArtifactIntegrityError("output binds a different sequential generation")
+        elif (self.output_root / "batch.json").exists() or any(
+            (self.output_root / "tasks").glob("*/request.json")
+        ):
+            raise ArtifactIntegrityError("existing execution lacks its sequential generation")
         declaration_path = self.output_root / "evaluation-declaration.json"
         authority_path = self.output_root / "evaluation-authority.json"
         declaration = self.evaluation_declaration
@@ -241,6 +458,10 @@ class DiscoveryExecutionService:
 
     def _save_evaluation_authority(self) -> None:
         self._verify_evaluation_authority()
+        if self.sequential_batch is not None:
+            atomic_write_bytes(
+                self.output_root / "sequential-batch.json", self.sequential_batch.canonical_bytes()
+            )
         if self.evaluation_declaration is not None:
             atomic_write_bytes(
                 self.output_root / "evaluation-declaration.json",
@@ -250,6 +471,12 @@ class DiscoveryExecutionService:
                 self.output_root / "evaluation-authority.json",
                 canonical_json_bytes(self.evaluation_metadata()),
             )
+            if isinstance(self.evaluation_declaration, ScientificEvaluationDeclaration):
+                self._verify_scientific_authority(self.evaluation_declaration)
+                atomic_write_bytes(
+                    self.output_root / "scientific-budget.json",
+                    self.evaluation_declaration.budget.canonical_bytes(),
+                )
 
     def _task_root(self, subtask_hash: str) -> Path:
         if subtask_hash not in self._subtasks:
@@ -317,10 +544,40 @@ class DiscoveryExecutionService:
                     mapping.reservation_hash,
                     *(
                         ()
+                        if self.sequential_batch is None
+                        else (
+                            self.sequential_batch.content_hash,
+                            self.sequential_batch.policy.content_hash,
+                        )
+                    ),
+                    *(
+                        ()
                         if self.evaluation_declaration is None
                         else (
                             self.evaluation_identity,
-                            self.evaluation_declaration.source_adoption_record_hash,
+                            *(
+                                ()
+                                if self.evaluation_declaration.source_adoption_record_hash is None
+                                else (self.evaluation_declaration.source_adoption_record_hash,)
+                            ),
+                        )
+                    ),
+                    *(
+                        ()
+                        if not isinstance(
+                            self.evaluation_declaration, ScientificEvaluationDeclaration
+                        )
+                        else (
+                            self.evaluation_declaration.authorization_hash,
+                            self.evaluation_declaration.budget.content_hash,
+                            self.evaluation_declaration.scientific_scheduling_cutoff_hash,
+                            self.evaluation_declaration.original_generation_source_declaration_hash,
+                            self.evaluation_declaration.evaluation_source_declaration_hash,
+                            *(
+                                ()
+                                if self.evaluation_declaration.scientific_adoption_plan_hash is None
+                                else (self.evaluation_declaration.scientific_adoption_plan_hash,)
+                            ),
                         )
                     ),
                 }
@@ -394,6 +651,8 @@ class DiscoveryExecutionService:
 
     def task_adapter(self, subtask_hash: str) -> QuantosResearchExecutionAdapter:
         self._task_root(subtask_hash)
+        if subtask_hash not in self.scientific_execution_subtask_hashes():
+            raise ArtifactIntegrityError("adopted origin cannot create a new execution adapter")
         if subtask_hash not in self._adapters:
             task, design = self._subtasks[subtask_hash], self.batch.design
             self._adapters[subtask_hash] = QuantosResearchExecutionAdapter(
@@ -421,6 +680,9 @@ class DiscoveryExecutionService:
 
     def inspect_completed_execution(self, subtask_hash: str) -> DiscoveryExecutionInspection | None:
         """Read-only bottom-up verification; inspection never creates task authority."""
+        self._task_root(subtask_hash)
+        if subtask_hash not in self.scientific_execution_subtask_hashes():
+            return None
         with research_result_verification_scope():
             request, adapter = self.task_request(subtask_hash), self.task_adapter(subtask_hash)
             outcome = adapter.inspect_completed_execution(request)
@@ -580,6 +842,8 @@ class DiscoveryExecutionService:
         records: dict[tuple[str, int], int] = {}
         for path in sorted((self.output_root / "recovery-reservations").glob("*/*.json")):
             key = path.parent.name
+            if key not in self.scientific_execution_subtask_hashes():
+                raise ArtifactIntegrityError("adopted origin cannot reserve new recovery compute")
             request = self.task_request(key)
             value = _read_json(path)
             ordinal = value.get("ordinal")
@@ -603,6 +867,12 @@ class DiscoveryExecutionService:
                     "recovery reservation escaped the frozen attempt budget"
                 )
             records[(key, ordinal)] = self._task_charge(key)
+        if isinstance(self.evaluation_declaration, ScientificEvaluationDeclaration) and (
+            len(records) > self.evaluation_declaration.budget.max_failed_task_resumes
+        ):
+            raise ArtifactIntegrityError(
+                "scientific recovery reservations exceed the global resume limit"
+            )
         return records
 
     def task_state(
@@ -690,8 +960,8 @@ class DiscoveryExecutionService:
         )
 
     def quote(self) -> int:
-        """Return the entire frozen batch workload quote without writes or dataset scans."""
-        return sum(self._task_charge(task.content_hash) for task in self.batch.subtasks)
+        """Quote new work; the full retained-batch reference quote remains separate."""
+        return sum(self._task_charge(task.content_hash) for task in self.scientific_new_subtasks())
 
     def batch_state(self) -> dict[str, object]:
         """Read total measured execution cost, including shared input verification.
@@ -757,8 +1027,23 @@ class DiscoveryExecutionService:
             "cpu_measurement_scope": "CALLING_PROCESS",
             "child_cpu_seconds": None,
             "recovery_reserved_compute_units": sum(recoveries.values()),
-            "quoted_full_batch_compute_units": self.quote(),
+            "quoted_full_batch_compute_units": (
+                quote_discovery_workload(self.batch)
+                if isinstance(self.evaluation_declaration, ScientificEvaluationDeclaration)
+                else self.quote()
+            ),
             "maximum_compute_units": self.max_compute_units,
+            **(
+                {}
+                if not isinstance(self.evaluation_declaration, ScientificEvaluationDeclaration)
+                else {
+                    "quoted_new_execution_compute_units": self.quote(),
+                    "scientific_new_subtask_hashes": self.scientific_execution_subtask_hashes(),
+                    "scientific_adoption_plan_hash": (
+                        self.evaluation_declaration.scientific_adoption_plan_hash
+                    ),
+                }
+            ),
         }
 
     def run(
@@ -770,6 +1055,10 @@ class DiscoveryExecutionService:
         """Run only under a guarded lease covering complete batch/concurrent growth."""
         if type(resume_failed_attempts) is not bool:
             raise ValueError("failed-attempt resume must be an explicit Boolean")
+        if isinstance(self.evaluation_declaration, ScientificEvaluationDeclaration):
+            self._verify_scientific_authority(self.evaluation_declaration)
+            if self.evaluation_declaration.scientific_adoption_plan_hash is not None:
+                self._verify_scientific_adoption()
         guard, storage_authority = self._storage_authority(expected_new_bytes)
         with exclusive_directory_lock(self.output_root):
             self._save_evaluation_authority()
@@ -879,17 +1168,18 @@ class DiscoveryExecutionService:
         with research_result_verification_scope():
             atomic_write_bytes(self.output_root / "batch.json", self.batch.canonical_bytes())
             self._adapters.clear()
-            if self.batch.subtasks:
+            execution_subtasks = self.scientific_new_subtasks()
+            if execution_subtasks:
                 self._verified_inputs = VerifiedExecutionInputs(
                     self.snapshot_path, self.qlib_view_path
                 )
             charges = {
                 task.content_hash: self._task_charge(task.content_hash)
-                for task in self.batch.subtasks
+                for task in execution_subtasks
             }
             allocated: dict[str, bool] = {}
             reserved = 0
-            for task in self.batch.subtasks:
+            for task in execution_subtasks:
                 charge = charges[task.content_hash]
                 fits = reserved + charge <= self.max_compute_units
                 allocated[task.content_hash] = fits
@@ -915,14 +1205,14 @@ class DiscoveryExecutionService:
                                 "quoted_compute_units": charges[task.content_hash],
                                 "allocated": allocated[task.content_hash],
                             }
-                            for task in self.batch.subtasks
+                            for task in execution_subtasks
                         ],
                         "policy": "autonomous-deterministic-compute-accounting/v1",
                     }
                 ),
             )
             outcomes: list[AutonomousExecutionResult] = []
-            for task in self.batch.subtasks:
+            for task in execution_subtasks:
                 guard.require_lease()
                 guard.check()
                 key = task.content_hash
@@ -974,7 +1264,14 @@ class DiscoveryExecutionService:
                     if ordinal > 1 + self.batch.design.max_execution_resumes_per_subtask:
                         blocked = "RECOVERY_LIMIT_EXHAUSTED"
                     elif (key, ordinal) not in recovery_reservations:
-                        if reserved + recovery_reserved + charges[key] > self.max_compute_units:
+                        if isinstance(
+                            self.evaluation_declaration, ScientificEvaluationDeclaration
+                        ) and (
+                            len(recovery_reservations)
+                            >= self.evaluation_declaration.budget.max_failed_task_resumes
+                        ):
+                            blocked = "GLOBAL_RECOVERY_LIMIT_EXHAUSTED"
+                        elif reserved + recovery_reserved + charges[key] > self.max_compute_units:
                             blocked = "RECOVERY_BUDGET_EXHAUSTED"
                         else:
                             atomic_write_bytes(
