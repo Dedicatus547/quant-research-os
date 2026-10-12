@@ -34,15 +34,17 @@
 |---|---|
 | [当前状态](status/README.md) | 各阶段资格范围与未资格化能力 |
 | [P14 状态](status/p14.md) | 当前报告、工程/研究结果、一致性范围 |
-| [FR-03 状态](status/fr03.md) | `NO_GO`、薄维护、候选 runtime 重资格条件 |
+| [FR-03 状态](status/fr03.md) | SDK/runtime 确切组合 GO、显式 profile 与未资格化入口 |
+| [Discovery 状态](status/discovery.md) | 两轮探索性研究、第二轮投入建议与实现检查范围 |
 | [实施路线图](../PLAN.md) | 依赖与下一项工作 |
+| [路线与研究文档索引](roadmap/README.md) | Discovery 结果、接口、历史设计与证据位置 |
 | [第一阶段验收](roadmap/stage-one.md) | P0–P7 和独立 DQ 轨道 |
 | [第二阶段验收](roadmap/stage-two.md) | P8–P14 与 FR 入口门 |
 | [HM-MVP 交付进度](hosted/hm-implementation-progress.md) | component-v2 已完成；接受与本地发布登记、历史追溯入口 |
 | [HM-MVP 实施复盘](hosted/hm-mvp-implementation-retrospective.md) | 超过10天的延误机制、证据限制、教训及改进对应 |
 | [Codex-hosted MVP 原始方案](roadmap/host-mediated-mvp.md) | 2026-09-29 历史审查输入，保留原字节；当前事实见交付进度 |
 | [发布记录](releases/README.md) | HM-MVP 本地发布、P14 RC 与历次冻结记录 |
-| [审查记录](reviews/README.md) | 契约批准、资格接受与历史评审 |
+| [审查记录](reviews/README.md) | 源码合并审核、FR-03 接受、契约批准与历史评审 |
 | [历史文档](history/README.md) | 重组前的完整文档快照 |
 
 ## 参考
@@ -61,7 +63,7 @@ docs/
 ├── architecture/   设计规则与边界
 ├── status/         当前完成范围
 ├── hosted/         HM-MVP 操作、交付与实施历史
-├── roadmap/        阶段入口与验收
+├── roadmap/        阶段路线、研究设计、结果与实施历史
 ├── reference/      命令、术语、风险、资料
 ├── contracts/      冻结契约导航
 ├── adr/            决策原始记录
@@ -76,8 +78,9 @@ docs/
 ## 阅读与维护约定
 
 - 日常查阅使用 `guides/`、`architecture/`、`status/`；完整哈希与历史结论查阅记录。
-- 资格与完成状态集中维护在 `status/` 和路线图，其他页面链接引用。
+- 资格与完成状态集中维护在 `status/`；根路线图只维护后续顺序与触发条件。
   历史记录的“当前/下一步”属于原记录日期；技术说明按明确实现基线读取。
 - 相同技术事实在一处维护，其他页面链接引用。
 - 契约修订、批准、资格接受与冻结使用新记录；不把失败或旧报告改写为当前 PASS。
 - `artifacts/` 是授权工作区中的证据目录，缺失本地数据不能由文档声明替代。
+  分支原件可能留在原 worktree，Discovery 的路径映射见[研究文档索引](roadmap/README.md#本地证据与历史路径)。

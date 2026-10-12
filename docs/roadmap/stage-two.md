@@ -27,11 +27,12 @@ M0 为工程入口，Data-qualified 是独立资格轨道；
 |---|---|
 | FR-01 | 已 admitted DSL/field 穿过 compiler、resolution、PIT、Signal、Validation |
 | FR-02 | Qlib native IC/Rank IC 序列与摘要成为 immutable ResearchResult |
-| FR-03 | 官方 Codex SDK/runtime 按冻结 P10 v3 rubric 通过 9/9，才进入 live P13 |
+| FR-03 | 官方 Codex SDK/runtime 通过适用的冻结 P10 9/9 后进入 live P13，并满足完整退出条件；原 v3 与 v4 后继分别绑定 |
 
 FR-01/FR-02 是 P14 入口，已完成；不新增公开 DSL 运算或统计语义。
-FR-03 当前 `NO_GO / THIN_MAINTENANCE`。实现 adapter、shadow chain 或离线 Replay
-不替代真实 runtime capability。下一候选的触发条件见[维护政策](../status/fr03.md)。
+FR-03 已取得 `0.162.1 + gpt-6.1-sol / medium` 的确切组合 GO，接受范围见[状态页](../status/fr03.md)。
+实现已合入本地 main，P14d-C 和 SDK discovery/campaign 入口仍未资格化；
+adapter、shadow chain 或离线 Replay 本身不替代实际 runtime 证明。
 
 ## P14 最终验收规则
 

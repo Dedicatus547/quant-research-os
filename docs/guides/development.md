@@ -20,7 +20,8 @@ UV_CACHE_DIR=/tmp/quantos-uv-cache uv sync --frozen
 UV_CACHE_DIR=/tmp/quantos-uv-cache uv sync --frozen --extra agent-openai
 ```
 
-版本以 `uv.lock` 为准。SDK 安装成功不改变 [FR-03 NO_GO](../status/fr03.md)。
+版本以 `uv.lock` 为准，默认 SDK pin 仍为 `0.154.0`。
+已接受的 `0.162.1` 后继需显式命名 profile；安装成功本身不授予运行资格，见[FR-03 范围](../status/fr03.md)。
 Canonical 数值结果还绑定 Python、OS/kernel、架构、libc、依赖和运行环境记录。
 
 ## 目录职责
@@ -73,11 +74,14 @@ git diff --check
 | 操作步骤 | `docs/guides/` |
 | 技术规则 | `docs/architecture/` |
 | 当前资格与阻塞项 | `docs/status/` |
+| Discovery 结果、接口与阶段记录导航 | `docs/roadmap/README.md` |
 | 契约、批准、冻结、失败 | 原始记录与新补充记录 |
 | 重组前原文 | `docs/history/` |
 
 新文档需从 `docs/README.md` 或对应索引可达。
 避免把历史运行日志再次复制到 README、PLAN 和状态页。
+当前状态页先给结论，再链接精确记录；阶段文档的旧待办由索引明确后继关系。
+本地 evidence 链接需说明原工作区位置，不能假定 worktree 合并会迁移未跟踪原件。
 
 P14 qualification 脚本按精确路径/hash 读取少量契约、批准记录和 policy。
 这些文件保持原位；修订应新增明确的 superseding record，而不改写旧证据。

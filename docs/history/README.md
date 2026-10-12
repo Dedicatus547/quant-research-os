@@ -41,6 +41,12 @@
 
 ## 冻结原件与后继关系
 
+Discovery 的[完整实施历史](../roadmap/post-hm-mvp-implementation-history-20261012.md)和
+[原后继指南](../roadmap/post-hm-discovery-next-steps-history-20261012.md)于 2026-10-12 按原字节留存。
+归档位于原 `roadmap/` 目录以保持相对路径语义，旧路径改为简短入口；
+原大小、SHA256 和来源提交分别见[实施入口](../roadmap/post-hm-mvp-implementation.md)及
+[指南入口](../roadmap/post-hm-discovery-next-steps.md)。当前结果见[Discovery 状态](../status/discovery.md)。
+
 2026-10-10 后继实施规则追加前的根 [AGENTS.md 原文](2026-10-10/AGENTS.md)
 保留 HM02 审查输入的1335字节和原 SHA256；根文件的新规则只适用于后续工作。
 

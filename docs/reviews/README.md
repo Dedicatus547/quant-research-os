@@ -3,6 +3,20 @@
 审查记录绑定特定契约、实现或历史状态。标题中的 approved/accepted
 不能脱离其 hash 和作用域使用。当前资格由[状态页](../status/README.md)指向。
 
+## 2026-10-12 源码集成与 FR-03 接受
+
+| 记录 | 作用与边界 |
+|---|---|
+| [两个 worktree 合并审核](two-worktrees-merge-20261012.md) | FR-03 与 Discovery 源码合入本地 main；245 项定向离线测试及静态检查，不代表全量 CI 或新运行资格 |
+| [FR-03 GO 接受](fr03-go-acceptance-20261012.md) | 确切 SDK/runtime、模型、环境与 benchmark 的工程接受；其中未集成状态属于接受时点 |
+| [Apps 隔离结果](fr03-apps-isolation-result.md) | GO 前的工程阶段记录 |
+| [gpt-6.1 资格尝试](fr03-gpt61-qualification-result.md) | 早期实际 MCP 目录扩张拒绝，保留失败身份 |
+| [P10 环境后继](fr03-p10-env1-live-result.md) | 原模型与独立环境组合结果，不转为后继模型资格 |
+| [P10 v4 设计与实现](fr03-p10-network-probe-design-review.md) | [实现](fr03-p10-v4-implementation.md)、[live](fr03-p10-v4-live-result.md)、[续接](fr03-p10-v4-resume-result.md)、[环境修复](fr03-p10-environment-fix.md) |
+
+当前集成状态见[FR-03 状态](../status/fr03.md)。Discovery 的生成和科学结果从
+[研究索引](../roadmap/README.md)进入，研究报告与工程审查分别解释。
+
 ## P14 RC 文档后继
 
 [文档修订审阅](p14-rc-documentation-successor-review.md)记录对 `1e76aff` 的核对、

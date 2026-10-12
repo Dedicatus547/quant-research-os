@@ -57,10 +57,13 @@ Hash-addressed 输入必须使用显式完整路径，不能解析 mutable alias
 | P13 qualification | `scripts/p13_qualification.py`；[P13 冻结](../p13-v2-freeze.md) |
 | P14a / c / d qualification | `scripts/p14a_qualification.py`、`p14c_qualification.py`、`p14d_qualification.py` |
 | P14-DQ | `scripts/p14dq_qualification.py run / verify / verify-bundle` |
-| FR-03 diagnostics | 历史固定 runner；入口受[薄维护政策](../status/fr03.md)限制 |
+| FR-03 qualification | `scripts/fr03_p10_v4.py`、`fr03_p13_candidate_01621.py`；[确切组合及显式 profile](../status/fr03.md) |
+| Discovery 管理 | `scripts/post_hm_discovery.py`、`prepare_post_hm_discovery.py`、`run_post_hm_generation.py`、`run_post_hm_science.py`；[实现及运行范围](../roadmap/README.md) |
+| 后继预测证据与比较 | `scripts/post_hm_prediction_evidence.py`、`post_hm_prediction_comparison.py`、`post_hm_scientific_prediction.py`；[接口索引](../roadmap/README.md#discovery设计与接口记录) |
 
 资格 verifier 是否重建、对 HEAD 的要求和环境范围见[核验指南](../guides/qualification.md)。
 旧计划中的概念命令不作为已实现 CLI。
+以上是管理脚本索引；真实模型或科学任务仍需相应授权、额度和存储 lease。
 
 ## 常用任务
 

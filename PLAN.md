@@ -9,55 +9,26 @@
 
 ## 当前落点
 
-| 工作 | 当前范围 |
-|---|---|
-| P0–P7 | Offline Engineering 与 Data-qualified 工程发布完成 |
-| P8–P13 | 已完成各自批准范围；不合并推导额外 Agent 能力 |
-| FR-01 / FR-02 | P14 的 DSL 贯通与不可变 ResearchResult 入口已完成 |
-| P14a / P14b / P14c | Ledger、有限候选枚举、有限工程选择资格完成 |
-| P14d-A / P14d-B | 确定性编排与 synthetic 自主工程资格完成 |
-| P14-DQ | 精确冻结输入和环境内工程资格完成；研究结果仍未进入选择 |
-| P14 RC | 冻结于 `p14-rc-v1`，精确目标 `3a4a898`，生产基线 `e318dc4` |
-| FR-03 / P14d-C | 本工作线 `0.162.1 + gpt-6.1-sol / medium` 资格 `GO`，main 未集成 / `BLOCKED_UNIMPLEMENTED` |
-| HM-MVP component-v2 | `FROZEN`；tag `hm-mvp-component-v2` → `59c25ac`；有界工程交付完成 |
+2026-10-12：FR-03 与 Discovery 后继实现已合入本地 main，见[合并审核](docs/reviews/two-worktrees-merge-20261012.md)。
+各轨道的资格、科学结果和运行限制集中在[当前状态](docs/status/README.md)；
+精确历史身份见[发布记录](docs/releases/README.md)。
 
-HM-MVP 当前接受的是固定 C15 的 component-v2 工程组合；精确身份、复用范围和限制见
-[发布记录](docs/releases/hm-mvp-component-v2-freeze-marker.md)。两项科学结果均为 `SOFT_REJECT`。
-P14 原资格继续绑定 `e318dc4`；RC 文档复审对象及冻结身份见
-[P14 发布标记](docs/releases/p14-rc-v1-freeze-marker.md)。
+Discovery 已完成两轮有界研究，第二轮按冻结规则建议暂停扩大当前空间同类 LLM 生成。
+结果及 D01–D10 完成范围见[Discovery 状态](docs/status/discovery.md)，
+设计、接口、阶段报告和实施历史见[研究文档索引](docs/roadmap/README.md)。
 
-## 下一项工作
+## 后续工作与触发条件
 
-2026-10-12 后继 Discovery 已完成 D01–D07 实施及 D09 有范围集成；
-D08 因尚无可避免成本依据而暂缓。顺序历史/恢复、覆盖基线、完整机会计数和独立预测证据接口已接入。
-四份统计失败归因为常数预测，一个 signal 失败仍 UNKNOWN。
-必要 Ruff、局部 strict Pyright 与旧定义 AST 核对完成；未运行测试或完整 CI，也未取得新运行资格。
+| 工作 | 当前处理 | 启动条件 |
+|---|---|---|
+| 扩大当前空间的 LLM 生成 | 暂停扩大；本轮调用额度已耗尽 | 新研究理由、预声明比较设计及明确的新授权与额度 |
+| D08 / N4b 预测专用窄路径 | 暂缓 | 既有成本证据能够说明可避免工作及实现收益；见[成本分析](docs/roadmap/post-hm-next-cost-analysis.md) |
+| FR-03 后续部署或 SDK discovery/campaign 入口 | 尚未部署；该生成入口未资格化 | 针对实际使用需求、配置与接口完成相应范围的接入和验证；见[FR-03 状态](docs/status/fr03.md) |
+| P14d-C | `BLOCKED_UNIMPLEMENTED` | 独立实现及资格化，不从 FR-03 GO 自动继承 |
+| HM-MVP 运行扩展 | 既有 HM09–HM11 已完成 | 新运行或新能力需求；按[快速上手](docs/hosted/hm-mvp-quickstart.md)与[恢复手册](docs/hosted/hm-mvp-recovery.md)确定范围 |
 
-首轮结果见[探索性研究报告](docs/roadmap/post-hm-mvp-discovery-report.md)；后继调度、具体交付与检查原件见
-[实施记录](docs/roadmap/post-hm-mvp-implementation.md#后继实施调度2026-10-12)。
-D10/A 已完成五次顺序模型调用、两组baseline、冻结与来源重建生成分析：各组5个不同结构、方法内重复0，
-全局12个结构，LLM相对两基线并集新增3个。生成/分析/守卫均实际退出0，清理已核验，调用额度已耗尽。
-事实、成本和继续投入限制见[后继生成报告](docs/roadmap/post-hm-next-generation-report.md)；当前建议暂不扩大生成。
-B 已在独立v2评价authority下采用八个旧origin并完成四个新任务：两项SOFT_REJECT、
-两项SOURCE_INCOMPLETE执行失败，新策略Validation PASS为0，未恢复或重训旧任务。
-新预算72加全局一次失败恢复18、cap90；科学管理实际退出0、清理已核验，wall约68.1分钟。
-后继统计来源已冻结，独立导入及正式比较03完成：9项可比预测、3项缺源，共同日期708天。
-比较02被存储守卫中止，−15退出与清理原件保留；03采用原2GiB预测组件包络，
-完整增长6GiB及原宿主安全底线保持。LLM与随机最佳共同日Rank IC均为0.0226969834，
-增量0低于事前0.002，按冻结规则暂停扩大当前空间的同类生成；
-[后继科学报告](docs/roadmap/post-hm-next-scientific-report.md)保留完整分母、失败、成本和探索性限制。
-[事前比较政策与实际接续](docs/roadmap/post-hm-next-decision-design.md#d10b-科学授权后的实际接续)已记录；
-科学结果尚未发布。A的cap1不改，新科学预算独立冻结，旧额度均不作余额，不重新生成。
-
-HM-MVP 实施与发布交接已完成，目前没有必须重跑的验收或待完成的 HM09–HM11。
-使用入口为[快速上手](docs/hosted/hm-mvp-quickstart.md)和[故障恢复](docs/hosted/hm-mvp-recovery.md)。
-已完成 campaign 的调用额度已耗尽，后续运行需要新的授权与额度。
-
-MCP 封装、standalone worker、其他 harness 或 SDK 重资格属于可选后续工作，
-见[原始方案第9节](docs/roadmap/host-mediated-mvp.md#9-发布回退与后续工作)，由具体需求决定是否启动。
-FR-03 确切后继已完成本工作线资格接受；默认 dependency pin 与 main 集成另行处理，
-见 [FR-03 接受范围](docs/status/fr03.md)；
-P14 主线的重开条件沿用其[发布标记](docs/releases/p14-rc-v1-freeze-marker.md)。
+旧执行队列、失败恢复和历史待授权记录按各自时点读取，不自动启动下一轮工作。
+本地源码合并完成不表示全量 CI、覆盖率或新发布资格已通过；具体检查见合并审核。
 
 ## 实施依赖
 
@@ -78,7 +49,7 @@ flowchart LR
 |---|---|
 | P0–P7：确定性数据、研究、回测、验证与 Registry | [第一阶段](docs/roadmap/stage-one.md) |
 | P8–P14：Evidence、proposal、admission 与有界 campaign | [第二阶段](docs/roadmap/stage-two.md) |
-| FR-03：官方 Codex SDK/runtime | [冻结维护政策与重资格入口](docs/status/fr03.md) |
+| FR-03：官方 Codex SDK/runtime | [确切组合接受与使用边界](docs/status/fr03.md) |
 | HM-MVP：有界 Codex-hosted 工作流 | [当前交付与接受范围](docs/hosted/hm-implementation-progress.md)；[2026-09-29 原始方案](docs/roadmap/host-mediated-mvp.md) |
 
 原始方案已作为 HM02 的历史审查输入绑定哈希，保留原字节。

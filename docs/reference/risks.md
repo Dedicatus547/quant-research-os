@@ -30,7 +30,7 @@
 | 多重检验与反复 OOS | 选择偏差与污染 | P14c frozen policy、access events、污染继承；sealed 仍未资格化 |
 | 单实验 PASS 推导 selection | 研究权威越界 | 独立 CampaignSelectionReport 与完整 trials |
 | 工程 PASS 推导盈利 | 错误市场结论 | 分别报告工程、Validation、自然研究和 non-claims |
-| 当前 SDK execution 未观察到 | live Agent 组合未证 | FR-03 `NO_GO / THIN_MAINTENANCE`；不降 9/9 gate |
+| 将有限 SDK 接受扩大到未验证入口 | 通用 discovery/campaign 能力被误授资格 | [FR-03 GO](../status/fr03.md)限定确切组合与 benchmark；P14d-C 和 SDK 生成入口仍未资格化 |
 
 ## 发布与证据
 

@@ -1,5 +1,8 @@
 # HM-MVP hosted 当前状态
 
+本页是 2026-10-12 的状态导航后继。HM10 发布时的原文及其哈希绑定于
+`hm-mvp-component-v2:docs/status/hosted.md`；本页后续状态更新不改变该冻结版本。
+
 当前记录接受 `hosted-component-full12-composition/v2` 的有限工程范围：`ACCEPT_COMPONENT_V2`，C15 commit `a47e5a95db15f51e748c1343d96e124fc5b04d8c`，绑定 B `4d577d6521d7413202f41c1d8260b2bace2cebb82e0b33438220b6a004deb829`、D `1677613786da6ac50b98f6520b8affb38548523f7fa4d66e1734975a1cfb8fbf`、I `cabd9c952f30dc92e689879087a0d564f5b40d9b210b08ad313aef76567d1624`。
 
 权威记录是 [HM09 接受 JSON](../../artifacts/hosted-evidence/recovery-continue01/hm09-component-v2-acceptance-01.json)（SHA-256 `e31361d38f324db11cb5dec759bd3ad7079745a824fff1998d8763c4886727ec`）及[独立复审报告](../reviews/hm09-component-v2-final-review.md)（SHA-256 `ba4557868c2d1f98fc87a19564d666e85ca9673b3c0266327c66d881237f7a33`）。执行摘要见 [live completion summary](../../artifacts/hosted-evidence/recovery-continue01/hosted-canonical-live-completion-summary-01.json)。

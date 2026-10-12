@@ -5,7 +5,7 @@ ADR 保留决策时的上下文、候选和限制；当前资格见[状态页](.
 
 | 记录 | 内容 | 阅读边界 |
 |---|---|---|
-| [0001：GPT + Codex Harness](0001-gpt-codex-harness.md) | 冻结 CLI capability spike 与 provenance | 历史 CLI 9/9，不解除当前 SDK NO_GO |
+| [0001：GPT + Codex Harness](0001-gpt-codex-harness.md) | 冻结 CLI capability spike 与 provenance | 历史 CLI 9/9；后继 SDK 资格以独立 FR-03 记录为准 |
 | [0002：公告 acquisition](0002-exchange-evidence-acquisition.md) | Collector/Publisher、官方来源、许可与完整性 | 来源权限和 downstream admission 分开 |
 | [0002：官方 Python SDK](0002-official-codex-python-sdk.md) | SDK runtime、Code Mode 和失败证据 | 离线实现不等于 live qualification |
 | [0003：Host-mediated MVP](0003-host-mediated-mvp.md) | 外部宿主有限提案交接例外 | 原实施决策保留；后继 component-v2 接受见 [发布记录](../releases/hm-mvp-component-v2-freeze-marker.md) |
@@ -13,6 +13,6 @@ ADR 保留决策时的上下文、候选和限制；当前资格见[状态页](.
 两个 `0002` 是已有记录的编号，链接以完整文件名区分，保持原文件不重编号。
 新 ADR 使用新的唯一编号，并记录 superseding 关系。
 
-- [FR-03 当前维护政策](../status/fr03.md)
+- [FR-03 当前接受范围](../status/fr03.md)
 - [Evidence 采集操作](../guides/acquisition.md)
 - [审查记录索引](../reviews/README.md)

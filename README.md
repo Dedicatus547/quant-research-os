@@ -25,30 +25,18 @@ UV_CACHE_DIR=/tmp/quantos-uv-cache uv run --frozen quantos doctor
 | 查看完成范围与阻塞项 | [当前状态](docs/status/README.md) |
 | 查看后续工作和验收条件 | [路线图](PLAN.md) |
 
-## 当前工程范围
+## 当前完成范围
 
-P0–P7 工程发布与批准范围内的 P8–P14 功能已完成。
-P14d-B 和 P14-DQ 的当前资格报告均绑定生产提交
-`e318dc450e5c02f1120da7644250767bf682b6f9`。
+| 工作 | 状态与入口 |
+|---|---|
+| P0–P14 确定性研究链 | 已完成各自批准范围；[当前资格与科学结果](docs/status/README.md) |
+| HM-MVP component-v2 | 已冻结，campaign 已结束、额度耗尽；[使用与运行限制](docs/status/hosted.md) |
+| FR-03 SDK/runtime | `0.162.1 + gpt-6.1-sol / medium` 确切组合 GO，实现已合入本地 main、尚未部署；[接受范围](docs/status/fr03.md) |
+| Discovery 探索性研究 | 两轮有界比较已完成；第二轮未观察到相对最佳基线的质量增量，暂停扩大当前空间同类生成；[结果与后续](docs/status/discovery.md) |
 
-P14-DQ 工程结果为 `SUCCEEDED / PASS`；自然研究结果为
-`FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`，零个合格候选，未执行选择。
-FR-03 的 SDK/runtime `0.162.1 + gpt-6.1-sol / medium` 已在本工作线完成资格
-`GO`；[接受范围与原件](docs/status/fr03.md)绑定明确后继，实现已合入本地 main，尚未部署。
-默认 canonical dependency pin 仍为 `0.154.0`；P14d-C 为 `BLOCKED_UNIMPLEMENTED`。
-
-有界 Codex-hosted MVP（component-v2）已完成工程实施、真实交接与离线回放、
-独立接受、操作文档及本地发布登记。精确 C15 源码和组件采用范围见
-[HM-MVP 发布记录](docs/releases/hm-mvp-component-v2-freeze-marker.md)。
-正式冻结标签为 `hm-mvp-component-v2`，目标提交 `59c25ac`；原接受源码 C15 的身份与历史保留。
-两项科学执行均为 `SOFT_REJECT`，原 ValidationReport 均为 `SUCCEEDED / REJECT`。
-已完成 campaign 的额度已用完、服务已清理；后续新运行按
-[快速上手](docs/hosted/hm-mvp-quickstart.md)和[恢复手册](docs/hosted/hm-mvp-recovery.md)办理。
-
-RC 的逐字节一致性表述已在[修正记录](docs/releases/p14-rc-v1-equality-correction.md)中澄清。
-P14 v1 已冻结；本地 annotated tag `p14-rc-v1` 指向独立复审批准的提交 `3a4a898`。
-审查报告和冻结边界见[独立复审](docs/reviews/p14-rc-3a4a898-independent-review.md)
-及[freeze marker](docs/releases/p14-rc-v1-freeze-marker.md)。
+默认 SDK 依赖仍为 `0.154.0`；使用已接受的后继需显式命名 profile。
+P14d-C 仍为 `BLOCKED_UNIMPLEMENTED`。合并后的定向检查与资格边界见
+[合并审核](docs/reviews/two-worktrees-merge-20261012.md)，历史发布身份见[发布记录](docs/releases/README.md)。
 
 ## 使用边界
 

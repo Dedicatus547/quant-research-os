@@ -1,6 +1,6 @@
 # HM-MVP 新会话交接
 
-更新：2026-10-10（Asia/Singapore）。**MVP 实施与 HM09→HM10→HM11 交接已完成**，
+更新：2026-10-12（Asia/Singapore）。**MVP 实施与 HM09→HM10→HM11 交接已完成**，
 当前范围为 `ACCEPTED_COMPONENT_V2_ENGINEERING / FROZEN`。
 正式 tag `hm-mvp-component-v2` → `59c25ac`；原接受 C15 保留在 Git 历史中。
 
@@ -24,8 +24,8 @@
   业务 CLI合计10/10余额0；后续运行需要新的授权和额度。
 - 两项科学执行均 `SOFT_REJECT`，原 ValidationReport 均 `SUCCEEDED / REJECT`。
   工程接受不赋予 alpha、盈利、投资适用性、sealed 或历史 vendor-vintage PIT 资格。
-- FR-03 SDK 仍 `NO_GO / THIN_MAINTENANCE`，P14d-C 仍 `BLOCKED_UNIMPLEMENTED`；
-  其他 P14/ScriptedReplay 轨道保持原身份。
+- FR-03 SDK 已有[确切组合 GO](../status/fr03.md)，P14d-C 仍 `BLOCKED_UNIMPLEMENTED`；
+  后继研究见[Discovery 状态](../status/discovery.md)，其他 P14/ScriptedReplay 轨道保持原身份。
 
 ## 后续工作原则
 

@@ -13,6 +13,8 @@
 | P14-DQ | `SUCCEEDED / PASS`，基线 `e318dc4` | 精确冻结输入和运行环境内的自主工程；研究 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE` |
 | P14 RC v1 | `FROZEN`，tag `p14-rc-v1` → `3a4a898` | 精确文档审阅及继承资格见 [freeze marker](../releases/p14-rc-v1-freeze-marker.md) |
 | HM-MVP hosted component-v2 | MVP 已完成并 `FROZEN`；`ACCEPT_COMPONENT_V2`，tag `hm-mvp-component-v2` | 两项科学执行均 `SOFT_REJECT`；组件采用范围见 [发布记录](../releases/hm-mvp-component-v2-freeze-marker.md)及 [hosted 状态](hosted.md) |
+| FR-03 SDK/runtime | `0.162.1 + gpt-6.1-sol / medium` 确切组合 GO | 实现已合入本地 main、尚未部署；[接受范围与限制](fr03.md) |
+| Discovery 后继研究 | 实现及源码集成完成；定向检查不授新的全流程资格 | 第二轮 9 项可比预测、3 项缺源；按冻结规则暂停扩大当前空间同类生成；[研究状态](discovery.md) |
 
 完整 P14 哈希与权威矩阵见 [P14 状态](p14.md)及[RC 修正记录](../releases/p14-rc-v1-equality-correction.md)。
 独立复审结论与实际核验范围见[复审报告](../reviews/p14-rc-3a4a898-independent-review.md)。

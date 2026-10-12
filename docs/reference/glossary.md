@@ -32,7 +32,7 @@
 | Qualification hash | 报告的 canonical 内容 hash，排除自身 qualification_hash；区别于原始文件 SHA-256 |
 | Projected inventory | 按批准字段规则投影后的比较域，不等于原始文件树 |
 | Canonical run | 显式 hash、干净实现与完整冻结 provenance 的运行 |
-| THIN_MAINTENANCE | FR-03 停止重复调试，只按已冻结触发条件重资格 |
+| THIN_MAINTENANCE | FR-03 历史薄维护状态：停止重复调试，只按冻结触发条件重资格；后继接受见[当前状态](../status/fr03.md) |
 
 状态组合和哈希规则见[Contracts](../architecture/contracts.md)；
 完整资格边界见[当前状态](../status/README.md)。
