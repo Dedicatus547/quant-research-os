@@ -54,13 +54,23 @@ _P14D_DEFAULT_LIMITATIONS = (
 )
 
 
+SDK_BOUNDED_LIMITATIONS = (
+    "EFFECTIVE_RUNTIME_POLICY_NOT_ATTESTED",
+    "MODEL_IDENTIFIER_NOT_IMMUTABLE",
+    "SDK_BOUNDED_CAMPAIGN_EXPLORATORY_ONLY",
+    "SDK_CAMPAIGN_LIVE_QUALIFICATION_NOT_GRANTED",
+    "SEALED_CONFIRMATION_NOT_EXECUTED",
+    "SINGLE_SOURCE_NON_VINTAGE",
+)
+
+
 class AutonomousSelectionFinalizationProfile(CanonicalContract):
     """Frozen selected-report handoff policy for the autonomous campaign runner."""
 
     schema_version: Literal["autonomous-selection-finalization-profile/v1"] = (
         "autonomous-selection-finalization-profile/v1"
     )
-    profile_id: Literal["p14d-default/v1", "p14dq-report-only/v1"]
+    profile_id: Literal["p14d-default/v1", "p14dq-report-only/v1", "sdk-bounded-report-only/v1"]
     selected_action: Literal["FREEZE_SELECTION", "CLOSE_REPORT_ONLY"]
     selected_state: Literal[
         AutonomousLoopState.READY_FOR_SEALED_CONFIRMATION,
@@ -78,6 +88,11 @@ class AutonomousSelectionFinalizationProfile(CanonicalContract):
                 "FREEZE_SELECTION",
                 AutonomousLoopState.READY_FOR_SEALED_CONFIRMATION,
                 _P14D_DEFAULT_LIMITATIONS,
+            ),
+            "sdk-bounded-report-only/v1": (
+                "CLOSE_REPORT_ONLY",
+                AutonomousLoopState.SELECTION_COMPLETE,
+                SDK_BOUNDED_LIMITATIONS,
             ),
             "p14dq-report-only/v1": (
                 "CLOSE_REPORT_ONLY",
@@ -104,6 +119,14 @@ P14DQ_REPORT_ONLY_FINALIZATION_PROFILE = AutonomousSelectionFinalizationProfile(
     selected_action="CLOSE_REPORT_ONLY",
     selected_state=AutonomousLoopState.SELECTION_COMPLETE,
     limitations=P14DQ_LIMITATIONS,
+)
+
+
+SDK_BOUNDED_FINALIZATION_PROFILE = AutonomousSelectionFinalizationProfile(
+    profile_id="sdk-bounded-report-only/v1",
+    selected_action="CLOSE_REPORT_ONLY",
+    selected_state=AutonomousLoopState.SELECTION_COMPLETE,
+    limitations=SDK_BOUNDED_LIMITATIONS,
 )
 
 

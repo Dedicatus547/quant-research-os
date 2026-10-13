@@ -46,6 +46,7 @@ from quantos.contracts.agent import (
 from quantos.contracts.autonomous import (
     AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE,
     P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
+    SDK_BOUNDED_FINALIZATION_PROFILE,
     AutonomousAgentExchangeArtifact,
     AutonomousAgentRequest,
     AutonomousAgentResponse,
@@ -122,7 +123,7 @@ class AutonomousProposalEvidence:
     proposal_bytes: str
     proposal_hash: str
     agent_run_hash: str
-    provenance_kind: Literal["AGENT_MANIFEST", "HOSTED_EXCHANGE"]
+    provenance_kind: Literal["AGENT_MANIFEST", "HOSTED_EXCHANGE", "SDK_EXCHANGE"]
 
 
 @dataclass(frozen=True)
@@ -629,6 +630,7 @@ class AutonomousCampaignOrchestrator:
         if selection_finalization_profile not in (
             AUTONOMOUS_DEFAULT_FINALIZATION_PROFILE,
             P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
+            SDK_BOUNDED_FINALIZATION_PROFILE,
         ):
             _raise(
                 ReasonCode.ARTIFACT_CORRUPTED,
@@ -1359,7 +1361,8 @@ class AutonomousCampaignOrchestrator:
     ) -> tuple[tuple[CampaignChainEvent, ...], ResearchLedgerSnapshot]:
         hosted_by_run = {item.agent_run_hash: item for item in hosted_evidence}
         if len(hosted_by_run) != len(hosted_evidence) or any(
-            item.provenance_kind != "HOSTED_EXCHANGE" for item in hosted_evidence
+            item.provenance_kind not in ("HOSTED_EXCHANGE", "SDK_EXCHANGE")
+            for item in hosted_evidence
         ):
             _raise(ReasonCode.ARTIFACT_CORRUPTED, "hosted proposal evidence conflicts")
         event_trials = tuple(

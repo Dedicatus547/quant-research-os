@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from quantos.application.discovery_baselines import baseline_expression_space
 from quantos.application.enumeration import (
@@ -12,7 +13,8 @@ from quantos.application.enumeration import (
 from quantos.contracts.campaign import ParameterDimension, ResearchFamilySpec
 from quantos.contracts.discovery import (
     DiscoveryBatch,
-    DiscoveryDesign,
+    DiscoveryCompositionDesign,
+    DiscoveryDesignContract,
     DiscoverySubtask,
     GenerationRequest,
     GenerationReservation,
@@ -27,7 +29,9 @@ from quantos.contracts.enumeration import (
 from quantos.contracts.pit import SafeQlibExpressionSpec, SafeQlibOperator
 
 
-def capability_rejection(design: DiscoveryDesign, expression: SafeQlibExpressionSpec) -> str | None:
+def capability_rejection(
+    design: DiscoveryDesignContract, expression: SafeQlibExpressionSpec
+) -> str | None:
     """Static support checks; these never substitute for execution-time PIT."""
     if len(expression.nodes) > design.max_nodes:
         return "NODE_LIMIT"
@@ -41,6 +45,19 @@ def capability_rejection(design: DiscoveryDesign, expression: SafeQlibExpression
     ):
         return "FIELD_PIT_SOURCE_UNSUPPORTED"
     windows = [node for node in expression.nodes if node.window is not None]
+    if isinstance(design, DiscoveryCompositionDesign):
+        from quantos.application.discovery_composition import (
+            composition_structural_hashes,
+            expression_depth,
+        )
+
+        if expression_depth(expression) > design.max_depth:
+            return "DEPTH_LIMIT"
+        if any(node.window not in design.allowed_windows for node in windows):
+            return "WINDOW_UNSUPPORTED"
+        if structural_expression_hash(expression) not in composition_structural_hashes(design):
+            return "OUTSIDE_SHARED_GRAMMAR"
+        return None
     if len(windows) != 1:
         return "EXACTLY_ONE_WINDOW_REQUIRED"
     if windows[0].window not in design.allowed_windows:
@@ -58,8 +75,59 @@ def capability_rejection(design: DiscoveryDesign, expression: SafeQlibExpression
     return None
 
 
-def _subtask(design: DiscoveryDesign, expression: SafeQlibExpressionSpec) -> DiscoverySubtask:
+def _subtask(
+    design: DiscoveryDesignContract, expression: SafeQlibExpressionSpec
+) -> DiscoverySubtask:
     fingerprint = structural_expression_hash(expression)
+    if isinstance(design, DiscoveryCompositionDesign):
+        # Inventory order/names make parameter slots invariant to proposal node naming/order.
+        expression = next(
+            item
+            for item in baseline_expression_space(design)
+            if structural_expression_hash(item) == fingerprint
+        )
+        window_nodes = tuple(node for node in expression.nodes if node.window is not None)
+        slots = tuple(
+            ResearchTemplateParameterSlot(
+                name=f"window_{index:03d}", node_id=node.node_id, field="window"
+            )
+            for index, node in enumerate(window_nodes)
+        )
+        template = ResearchFactorTemplateSpec(
+            template_id=f"discovery-{fingerprint}",
+            expression_schema_version=expression.schema_version,
+            nodes=tuple(
+                ResearchFactorTemplateNode(
+                    node_id=n.node_id,
+                    operator=n.operator,
+                    inputs=n.inputs,
+                    field_name=n.field_name,
+                    window=None,
+                )
+                for n in expression.nodes
+            ),
+            output_node_id=expression.output_node_id,
+            input_lag_trading_days=expression.input_lag_trading_days,
+            parameter_slots=slots,
+        )
+        family = ResearchFamilySpec(
+            family_id=f"discovery-{fingerprint}",
+            research_question=design.research_question,
+            hypothesis_hash=design.content_hash,
+            factor_template_hash=template.content_hash,
+            allowed_operators=design.allowed_operators,
+            parameter_space=tuple(
+                ParameterDimension(name=slot.name, values=(cast(int, node.window),))
+                for slot, node in zip(slots, window_nodes, strict=True)
+            ),
+            declared_candidate_count=1,
+        )
+        return DiscoverySubtask(
+            design_hash=design.content_hash,
+            template=template,
+            family=family,
+            manifest=enumerate_research_family(family, template),
+        )
     window_node = next(node for node in expression.nodes if node.window is not None)
     if window_node.window is None:
         raise ValueError("singleton template requires one bounded window")
@@ -102,7 +170,7 @@ def _subtask(design: DiscoveryDesign, expression: SafeQlibExpressionSpec) -> Dis
 
 
 def build_discovery_batch(
-    design: DiscoveryDesign,
+    design: DiscoveryDesignContract,
     requests: tuple[GenerationRequest, ...],
     reservations: tuple[GenerationReservation, ...],
     responses: tuple[GenerationResponse, ...],

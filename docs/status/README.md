@@ -1,6 +1,8 @@
 # 当前状态
 
-状态基准：2026-10-12。各轨道状态按其独立记录和精确适用范围读取。
+状态基准：2026-10-13。各轨道状态按其独立记录和精确适用范围读取。
+新增 [A1/B2 授权后运行状态](a1-b2-authorized-preparation.md)：V4后继r10两步工程闭环完成，控制器/守卫exit0；本轮两科学SOFT_REJECT，科学汇总FAILED/NOT_EVALUATED。累计SDK11/11、科学5次/90units，零重试；原r9失败保留，B2已完成，无追加预算。
+B2已完成并复用，新增模型和科学执行0；LLM相对最佳基线无正增量。
 
 ## 工程与研究结果
 
@@ -49,6 +51,14 @@
 FR-03 的确切组合接受与证据见 [FR-03 状态](fr03.md)。hosted component-v2 保留独立身份；
 FR-03 接受不授予 P14d-C 资格，后者仍为 `BLOCKED_UNIMPLEMENTED`。
 两分支的源码集成、局部验证及历史证明采用范围见[合并审核记录](../reviews/two-worktrees-merge-20261012.md)。
+
+## 下一阶段离线工作
+
+2026-10-12：A0、B0/B1 源码与离线集成准备完成（工作区未提交），使用与设计见
+[SDK 接入](../guides/sdk-campaign-offline.md)和[有界价格组合](../roadmap/bounded-price-composition-offline.md)。
+[本轮原件](../../artifacts/next-stage-offline-20261012/)与既有科学证据分开保存。
+上述2026-10-12离线交接时点A1/B2未启动；后续实际结果见页首当前状态。
+P14d-C与SDK Discovery资格保持原状态。
 
 ## 证据入口
 

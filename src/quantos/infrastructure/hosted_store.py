@@ -22,7 +22,6 @@ from quantos.artifacts.store import (
 from quantos.contracts.base import CanonicalContract, sha256_bytes
 from quantos.contracts.hosted import (
     REQUEST_BYTE_CAP,
-    HostedAgentExchange,
     HostedAgentRequest,
     HostedBudgetJournalFact,
     HostedCampaignSpec,
@@ -33,6 +32,11 @@ from quantos.contracts.hosted import (
     HostedSubmissionReceipt,
     parse_hosted_contract,
     strict_json_object,
+)
+from quantos.contracts.sdk_producer import (
+    parse_agent_exchange,
+    parse_agent_request,
+    parse_campaign_spec,
 )
 
 ContractT = TypeVar("ContractT", bound=CanonicalContract)
@@ -100,7 +104,7 @@ class HostedStoreSnapshot:
             raise ArtifactIntegrityError("hosted artifact is missing or invalid") from error
 
     def request(self, digest: str) -> HostedAgentRequest:
-        return self.artifact(digest, HostedAgentRequest)
+        return parse_agent_request(self.artifacts[_hash(digest)], max_bytes=AUTHORITY_BYTE_CAP)
 
     def accepted_receipt(self, request_hash: str) -> HostedSubmissionReceipt | None:
         accepted = tuple(
@@ -165,6 +169,11 @@ class HostedProtocolStore:
         ):
             raise ArtifactIntegrityError("unexpected hosted spec artifact")
 
+    @property
+    def root(self) -> Path:
+        """Trusted local storage reservation scope; never channel input."""
+        return self._root
+
     def register_spec(self, spec: HostedCampaignSpec) -> str:
         with opened_directory(self._root) as root_fd, _child(root_fd, "specs") as specs_fd:
             flock(specs_fd, LOCK_EX)
@@ -190,7 +199,7 @@ class HostedProtocolStore:
                 )
             finally:
                 flock(specs_fd, LOCK_UN)
-        value = parse_hosted_contract(data, HostedCampaignSpec, max_bytes=REQUEST_BYTE_CAP)
+        value = parse_campaign_spec(data, max_bytes=REQUEST_BYTE_CAP)
         if value.content_hash != spec_hash:
             raise ArtifactIntegrityError("hosted spec hash mismatch")
         return value
@@ -435,24 +444,20 @@ class HostedProtocolStore:
                 schema = strict_json_object(data, max_bytes=AUTHORITY_BYTE_CAP).get(
                     "schema_version"
                 )
-                if schema == "hosted-campaign-spec/v1":
-                    specs.append(
-                        parse_hosted_contract(
-                            data, HostedCampaignSpec, max_bytes=AUTHORITY_BYTE_CAP
-                        )
-                    )
+                if schema in ("hosted-campaign-spec/v1", "sdk-campaign-spec/v1"):
+                    specs.append(parse_campaign_spec(data, max_bytes=AUTHORITY_BYTE_CAP))
                 elif schema == "hosted-budget-journal-fact/v1":
                     budgets.append(
                         parse_hosted_contract(
                             data, HostedBudgetJournalFact, max_bytes=AUTHORITY_BYTE_CAP
                         )
                     )
-                elif schema == "hosted-agent-request/v1":
-                    requests.append(
-                        parse_hosted_contract(
-                            data, HostedAgentRequest, max_bytes=AUTHORITY_BYTE_CAP
-                        )
-                    )
+                elif schema in (
+                    "hosted-agent-request/v1",
+                    "sdk-agent-request/v1",
+                    "sdk-agent-request/v3",
+                ):
+                    requests.append(parse_agent_request(data, max_bytes=AUTHORITY_BYTE_CAP))
                 elif schema == "hosted-submission-receipt/v1":
                     receipts.append(
                         parse_hosted_contract(
@@ -540,7 +545,9 @@ class HostedProtocolStore:
                 if receipt.attempt_identity != request.attempt_identity:
                     raise ArtifactIntegrityError("hosted receipt attempt mismatch")
             if receipt.accepted_exchange_hash is not None:
-                exchange = snapshot.artifact(receipt.accepted_exchange_hash, HostedAgentExchange)
+                exchange = parse_agent_exchange(
+                    artifacts[receipt.accepted_exchange_hash], max_bytes=AUTHORITY_BYTE_CAP
+                )
                 if (
                     exchange.request_hash != receipt.request_hash
                     or exchange.response_hash != receipt.submission_bytes_hash

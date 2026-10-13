@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -11,6 +13,7 @@ import tempfile
 import time
 from collections.abc import Mapping
 from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -35,15 +38,86 @@ from quantos.contracts.harness import (
 from quantos.integrations.codex.event_normalizer import (
     CodexEventNormalizationError,
     normalize_provider_events,
+    normalize_provider_failure_events,
 )
 from quantos.integrations.codex.versioning import (
     CODEX_CANDIDATE_RUNTIME_PROFILES,
 )
+from quantos.security import validate_secret_free
 
 _HOST_MODULE = "quantos.integrations.codex.sdk_host"
 _SENSITIVE_PARENT_NAMES = frozenset({"P10_FORBIDDEN_SECRET"})
 _SENSITIVE_PARENT_PREFIXES = ("TUSHARE_",)
 _RUNTIME_CANDIDATE_ENV = "QUANTOS_CODEX_RUNTIME_CANDIDATE_ID"
+
+
+_HOST_TRANSPORT_CAPTURE_MAX_BYTES = 65_536
+_HOST_FAILURE_PHASES = frozenset(
+    {
+        "REQUEST_PARSE",
+        "SDK_IMPORT",
+        "VERSION_CHECK",
+        "BINARY_HASH",
+        "SDK_STARTUP",
+        "ACCOUNT_READ",
+        "RUNTIME_METADATA",
+        "THREAD_START",
+        "MCP_INVENTORY",
+        "OUTPUT_SCHEMA_PARSE",
+        "TURN_START",
+        "TURN_STREAM",
+    }
+)
+
+
+def _host_transport_capture(
+    stdout: bytes | None,
+    stderr: bytes | None,
+    *,
+    phase: str,
+    exception_class: str | None,
+    complete: bool,
+) -> dict[str, object]:
+    """Bound and scan originals before attaching local failure observations."""
+    streams: list[dict[str, object]] = []
+    for name, payload in (("host-stdout.txt", stdout), ("host-stderr.txt", stderr)):
+        item: dict[str, object] = {"file": name, "complete": complete}
+        if payload is None:
+            item["retention"] = "UNOBSERVED"
+        else:
+            item.update(bytes=len(payload), sha256=sha256_bytes(payload))
+            if len(payload) > _HOST_TRANSPORT_CAPTURE_MAX_BYTES:
+                item["retention"] = "OVER_BYTE_CAP"
+            else:
+                try:
+                    if _contains_parent_secret(payload):
+                        raise ValueError("forbidden parent value")
+                    decoded = payload.decode("utf-8")
+                    validate_secret_free(decoded, file_name=name)
+                    # Structured failure output is scanned with the existing typed
+                    # protocol view so credential fields cannot hide inside JSON.
+                    try:
+                        value = json.loads(decoded)
+                    except json.JSONDecodeError:
+                        value = None
+                    if value is not None:
+                        if _contains_parent_secret(canonical_json_bytes(value)):
+                            raise ValueError("forbidden decoded parent value")
+                        from quantos.application.hosted_protocol import scan_protocol_artifact
+
+                        scan_protocol_artifact(value)
+                except (ValueError, UnicodeError):
+                    item["retention"] = "CREDENTIAL_OR_ENCODING_GUARD"
+                else:
+                    item["retention"] = "RETAINED"
+                    item["base64"] = base64.b64encode(payload).decode("ascii")
+        streams.append(item)
+    return {
+        "schema_version": "sdk-host-transport/v1",
+        "phase": phase,
+        "exception_class": exception_class,
+        "streams": streams,
+    }
 
 
 class CodexSdkAdapter:
@@ -102,6 +176,56 @@ class CodexSdkAdapter:
         attempt_index: int,
         timeout_seconds: float,
     ) -> HarnessAttemptResult:
+        stdout: bytes | None = None
+        stderr: bytes | None = None
+        phase = "HOST_SPAWN"
+        complete = False
+        host_failure: Mapping[str, object] | None = None
+
+        def failed(
+            kind: HarnessErrorKind,
+            error: BaseException | None,
+            *,
+            message_hash: str | None = None,
+            retryable: bool = False,
+            provider_transcript: bytes | None = None,
+            runtime: HarnessRuntimeIdentity | HarnessRuntimeIdentityV2 | None = None,
+            attempt: int = 1,
+            qualification_observations: Mapping[str, object] | None = None,
+        ) -> HarnessAttemptResult:
+            failure_phase = phase
+            error_class = type(error).__name__ if error is not None else None
+            if host_failure is not None:
+                reported_phase = host_failure.get("phase")
+                if isinstance(reported_phase, str) and reported_phase in _HOST_FAILURE_PHASES:
+                    failure_phase = reported_phase
+                value = host_failure.get("exception_class")
+                if isinstance(value, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", value):
+                    error_class = value
+            result = self._failed_result(
+                kind,
+                error,
+                message_hash=message_hash,
+                retryable=retryable,
+                provider_transcript=provider_transcript,
+                runtime=runtime,
+                attempt=attempt,
+                qualification_observations=qualification_observations,
+            )
+            return replace(
+                result,
+                qualification_observations={
+                    **(qualification_observations or {}),
+                    "host_transport": _host_transport_capture(
+                        stdout,
+                        stderr,
+                        phase=failure_phase,
+                        exception_class=error_class,
+                        complete=complete,
+                    ),
+                },
+            )
+
         with tempfile.TemporaryDirectory(prefix="quantos-codex-sdk-") as temporary:
             isolated_home = Path(temporary)
             self._link_authentication(isolated_home)
@@ -122,25 +246,30 @@ class CodexSdkAdapter:
                     start_new_session=True,
                 )
             except OSError as error:
-                return self._failed_result(
-                    HarnessErrorKind.TRANSPORT_START_FAILED, error, attempt=attempt_index
-                )
+                return failed(HarnessErrorKind.TRANSPORT_START_FAILED, error, attempt=attempt_index)
             try:
+                phase = "HOST_COMMUNICATE"
                 stdout, stderr = process.communicate(
                     request.canonical_bytes(), timeout=timeout_seconds
                 )
+                complete = True
             except subprocess.TimeoutExpired as error:
+                stdout = error.output if isinstance(error.output, bytes) else None
+                stderr = error.stderr if isinstance(error.stderr, bytes) else None
                 self._terminate_process_group(process)
-                return self._failed_result(HarnessErrorKind.TIMEOUT, error, attempt=attempt_index)
+                return failed(HarnessErrorKind.TIMEOUT, error, attempt=attempt_index)
 
+        assert stdout is not None and stderr is not None
+        phase = "HOST_OUTPUT_GUARD"
         if _contains_parent_secret(stdout, stderr):
-            return self._failed_result(
+            return failed(
                 HarnessErrorKind.PERMISSION_DENIED,
                 ValueError("forbidden parent environment value observed in SDK host output"),
                 attempt=attempt_index,
             )
+        phase = "HOST_EXIT"
         if process.returncode != 0:
-            return self._failed_result(
+            return failed(
                 HarnessErrorKind.TRANSPORT_CLOSED,
                 RuntimeError(
                     f"SDK host exited {process.returncode}; stderr={sha256_bytes(stderr)}"
@@ -148,28 +277,41 @@ class CodexSdkAdapter:
                 attempt=attempt_index,
             )
         if len(stdout) > request.max_transcript_bytes + 1_000_000:
-            return self._failed_result(
+            return failed(
                 HarnessErrorKind.OUTPUT_INVALID,
                 ValueError("SDK host response exceeds its bound"),
                 attempt=attempt_index,
             )
+        phase = "HOST_JSON_PARSE"
         try:
             response = cast(object, json.loads(stdout))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            return self._failed_result(
-                HarnessErrorKind.OUTPUT_INVALID, error, attempt=attempt_index
-            )
+            return failed(HarnessErrorKind.OUTPUT_INVALID, error, attempt=attempt_index)
+        try:
+            if _contains_parent_secret(canonical_json_bytes(response)):
+                return failed(
+                    HarnessErrorKind.PERMISSION_DENIED,
+                    ValueError("forbidden decoded parent value observed in SDK host output"),
+                    attempt=attempt_index,
+                )
+        except ValueError as error:
+            return failed(HarnessErrorKind.OUTPUT_INVALID, error, attempt=attempt_index)
         if not isinstance(response, dict):
-            return self._failed_result(
+            return failed(
                 HarnessErrorKind.OUTPUT_INVALID,
                 ValueError("SDK host response is not an object"),
                 attempt=attempt_index,
             )
         body = cast(Mapping[str, object], response)
+        diagnostic = body.get("failure_diagnostic")
+        host_failure = (
+            cast(Mapping[str, object], diagnostic) if isinstance(diagnostic, dict) else None
+        )
+        phase = "HOST_PROVIDER_PARSE"
         terminal_error = self._terminal_error(body.get("error"))
         provider_events = self._provider_events(body.get("provider_events"))
         if provider_events is None:
-            return self._failed_result(
+            return failed(
                 HarnessErrorKind.OUTPUT_INVALID,
                 ValueError("SDK host provider events are malformed"),
                 attempt=attempt_index,
@@ -178,14 +320,14 @@ class CodexSdkAdapter:
             canonical_json_bytes(event) + b"\n" for event in provider_events
         )
         if len(provider_transcript) > request.max_transcript_bytes:
-            return self._failed_result(
+            return failed(
                 HarnessErrorKind.OUTPUT_INVALID,
                 ValueError("provider transcript exceeds its bound"),
                 attempt=attempt_index,
             )
         runtime = self._runtime_identity(body)
         if terminal_error is not None:
-            return self._failed_result(
+            return failed(
                 terminal_error.kind,
                 None,
                 message_hash=terminal_error.message_hash,
@@ -199,27 +341,58 @@ class CodexSdkAdapter:
                     else None
                 ),
             )
+        phase = "HOST_RUNTIME_IDENTITY"
         thread_id = body.get("thread_id")
         if runtime is None or not isinstance(thread_id, str):
-            return self._failed_result(
+            return failed(
                 HarnessErrorKind.RUNTIME_MISMATCH,
                 ValueError("SDK runtime identity or thread id is unavailable"),
                 provider_transcript=provider_transcript,
                 attempt=attempt_index,
             )
+        phase = "HOST_EVENT_NORMALIZATION"
         try:
+            provider_failure = normalize_provider_failure_events(
+                provider_events, thread_id=thread_id, attempt=attempt_index
+            )
+            if provider_failure is not None:
+                capture = capture_from_agent_events(
+                    provider_failure.events,
+                    max_bytes=request.max_normalized_transcript_bytes
+                    or request.max_transcript_bytes,
+                )
+                return HarnessAttemptResult(
+                    capture=capture,
+                    runtime=runtime,
+                    terminal_error=provider_failure.terminal_error,
+                    provider_transcript=provider_transcript,
+                    qualification_observations={
+                        "provider_failure": provider_failure.observation,
+                        "host_transport": _host_transport_capture(
+                            stdout,
+                            stderr,
+                            phase="HOST_PROVIDER_FAILURE_NORMALIZATION",
+                            exception_class=None,
+                            complete=complete,
+                        ),
+                    },
+                )
             events = normalize_provider_events(
                 provider_events, thread_id=thread_id, attempt=attempt_index
             )
-            capture = capture_from_agent_events(events, max_bytes=request.max_transcript_bytes)
+            capture = capture_from_agent_events(
+                events,
+                max_bytes=request.max_normalized_transcript_bytes or request.max_transcript_bytes,
+            )
         except (CodexEventNormalizationError, HarnessCaptureError, ValidationError) as error:
-            return self._failed_result(
+            return failed(
                 HarnessErrorKind.PROTOCOL_UNSUPPORTED,
                 error,
                 provider_transcript=provider_transcript,
                 runtime=runtime,
                 attempt=attempt_index,
             )
+        phase = "HOST_CAPTURE_VALIDATION"
         validation_error: tuple[HarnessErrorKind, str] | None = None
         if (
             not capture.turn_started
@@ -252,6 +425,11 @@ class CodexSdkAdapter:
                     kind=kind, message_hash=sha256_bytes(message.encode("utf-8"))
                 ),
                 provider_transcript=provider_transcript,
+                qualification_observations={
+                    "host_transport": _host_transport_capture(
+                        stdout, stderr, phase=phase, exception_class=None, complete=complete
+                    )
+                },
             )
         return HarnessAttemptResult(
             capture=capture,
@@ -387,3 +565,7 @@ def _contains_parent_secret(*payloads: bytes) -> bool:
         )
     )
     return any(marker in payload for marker in markers for payload in payloads)
+
+
+# Public in-memory check for producer capture persistence; never exposes values.
+contains_parent_secret = _contains_parent_secret

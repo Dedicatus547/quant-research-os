@@ -113,6 +113,9 @@ class ScientificEvaluationDeclaration(CanonicalContract):
     source_adoption_record_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
     original_scientific_source_commit: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     scientific_adoption_plan_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    native_variant_adoption_hash: str | None = Field(
+        default=None, pattern=SHA256_PATTERN, exclude_if=lambda value: value is None
+    )
     reason: Literal["AUTHORIZED_SCIENCE_FROM_FROZEN_SEQUENTIAL_GENERATION"] = (
         "AUTHORIZED_SCIENCE_FROM_FROZEN_SEQUENTIAL_GENERATION"
     )
@@ -131,9 +134,9 @@ class ScientificEvaluationDeclaration(CanonicalContract):
             not item.strip() or len(item) > 4096 for item in self.exposure_history_append
         ):
             raise ValueError("scientific evaluation must append actual exposure history")
-        if (self.source_adoption_record_hash is None) != (
-            self.original_scientific_source_commit is None
-        ):
+        if (
+            self.source_adoption_record_hash is None and self.native_variant_adoption_hash is None
+        ) != (self.original_scientific_source_commit is None):
             raise ValueError("stage adoption requires its actual scientific source commit")
         return self
 

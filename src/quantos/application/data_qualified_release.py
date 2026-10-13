@@ -75,10 +75,16 @@ def _operator_delays(authoring: ExperimentAuthoringSpec) -> tuple[OperatorDelayP
     )
 
 
-def parameter_window(authoring: ExperimentAuthoringSpec) -> int:
+def parameter_window(
+    authoring: ExperimentAuthoringSpec, *, window_node_id: str | None = None
+) -> int:
     if isinstance(authoring.expression, ExpressionAuthoringSpec):
         return authoring.expression.window
-    windows = [node.window for node in authoring.expression.nodes if node.window is not None]
+    windows = [
+        node.window
+        for node in authoring.expression.nodes
+        if node.window is not None and (window_node_id is None or node.node_id == window_node_id)
+    ]
     if len(windows) != 1:
         raise ValueError("parameter stability requires exactly one windowed DAG node")
     return windows[0]
@@ -146,6 +152,7 @@ def variant_authoring(
     baseline: ExperimentAuthoringSpec,
     *,
     window: int | None = None,
+    window_node_id: str | None = None,
     top_k: int | None = None,
     evaluation_start: date | None = None,
     evaluation_end: date | None = None,
@@ -155,12 +162,17 @@ def variant_authoring(
     payload["evaluation_end"] = evaluation_end or baseline.evaluation_end
     expression = dict(payload["expression"])
     strategy = dict(payload["strategy"])
-    selected_window = window or parameter_window(baseline)
+    selected_window = window or parameter_window(baseline, window_node_id=window_node_id)
     if isinstance(baseline.expression, ExpressionAuthoringSpec):
         expression["window"] = selected_window
     else:
         nodes = list(expression["nodes"])
-        windowed = [index for index, node in enumerate(nodes) if node.get("window") is not None]
+        windowed = [
+            index
+            for index, node in enumerate(nodes)
+            if node.get("window") is not None
+            and (window_node_id is None or node.get("node_id") == window_node_id)
+        ]
         if len(windowed) != 1:
             raise ValueError("parameter stability requires exactly one windowed DAG node")
         nodes[windowed[0]] = {**nodes[windowed[0]], "window": selected_window}

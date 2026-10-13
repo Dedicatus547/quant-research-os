@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import BinaryIO, cast
 
 from quantos.artifacts.store import ArtifactIntegrityError
@@ -23,6 +24,16 @@ from quantos.contracts.hosted import (
     HostedRequestTerminalReceipt,
     HostedSubmissionReceipt,
     parse_hosted_contract,
+)
+from quantos.contracts.sdk_producer import (
+    SdkAgentExchange,
+    SdkAgentRequest,
+    SdkAgentRequestV3,
+    SdkAgentResponse,
+    SdkCampaignSpec,
+    SdkProducerProfileV3,
+    parse_agent_exchange,
+    parse_sdk_response,
 )
 from quantos.contracts.validation import ReproducibilityComparison
 from quantos.infrastructure.hosted_store import HostedProtocolStore, HostedStoreSnapshot
@@ -71,7 +82,7 @@ def _scan_safe(value: object) -> None:
     if isinstance(value, dict):
         root = dict(cast(dict[str, object], value))
         schema = root.get("schema_version")
-        if schema == "hosted-campaign-spec/v1":
+        if schema in ("hosted-campaign-spec/v1", "sdk-campaign-spec/v1"):
             binding = dict(cast(dict[str, object], root["execution_bindings"]))
             commit = binding.pop("code_commit_hash")
             if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
@@ -94,7 +105,7 @@ def _scan_safe(value: object) -> None:
                 raise ValueError("typed step execution commit identity is invalid")
             execution["code_commit_identity"] = commit
             root["execution_request"] = execution
-        elif schema == "hosted-agent-request/v1":
+        elif schema in ("hosted-agent-request/v1", "sdk-agent-request/v1", "sdk-agent-request/v3"):
             business = dict(cast(dict[str, object], root["business_request"]))
             declaration = business["allowed_proposal_schema_json"]
             if not isinstance(declaration, str):
@@ -103,9 +114,41 @@ def _scan_safe(value: object) -> None:
             root["business_request"] = business
         value = root
 
+    if isinstance(value, dict):
+        sdk_scan_value = dict(cast(dict[str, object], value))
+        if sdk_scan_value.get("schema_version") in (
+            "sdk-agent-response/v1",
+            "sdk-agent-response/v2",
+            "sdk-agent-response/v3",
+        ):
+            sdk_scan_value["semantic_response_text"] = sdk_scan_value.pop("raw_response")
+        value = sdk_scan_value
+
     def prepare(item: object) -> object:
         if isinstance(item, dict):
             mapping = cast(dict[str, object], item)
+            schema_kind = mapping.get("schema_version")
+            scalar_fields = {
+                "sdk-producer-profile/v1": ("max_input_tokens", "max_output_tokens"),
+                "sdk-producer-profile/v2": ("max_input_tokens", "max_output_tokens"),
+                "sdk-producer-profile/v3": ("max_input_tokens", "max_output_tokens"),
+                "sdk-producer-profile/v4": ("max_input_tokens", "max_output_tokens"),
+                "harness-execution-request/v2": ("max_input_tokens", "max_output_tokens"),
+                "agent-usage/v1": ("input_tokens", "output_tokens", "cached_input_tokens"),
+            }.get(schema_kind if isinstance(schema_kind, str) else "", ())
+            if mapping.get("schema_version") == "harness-capability-observation/v1":
+                mapping = dict(mapping)
+                absence = mapping.pop("parent_secret_absence_observed")
+                if absence is not None and type(absence) is not bool:
+                    raise ValueError("SDK typed credential-absence observation is invalid")
+                mapping["parent_sensitive_value_absence_observed"] = absence
+            if scalar_fields:
+                mapping = dict(mapping)
+                for field in scalar_fields:
+                    scalar = mapping.pop(field)
+                    if type(scalar) is not int or scalar < 0:
+                        raise ValueError("SDK typed usage/budget scalar is invalid")
+                    mapping[field.replace("tokens", "count")] = scalar
             if mapping.get("schema_version") == "reproducibility-comparison/v1":
                 comparison = ReproducibilityComparison.model_validate(mapping)
                 if type(
@@ -274,36 +317,48 @@ class HostedProtocolService:
                 ),
                 recorded_at=now,
             )
-            request = HostedAgentRequest(
-                campaign_hash=spec.campaign_hash,
-                hosted_spec_hash=spec_hash,
-                transport_ordinal=ordinal,
-                business_request=business_request,
-                business_request_hash=business_request.content_hash,
-                context_pack_hash=business_request.context_pack.content_hash,
-                candidate_manifest_hash=spec.candidate_manifest_hash,
-                input_hashes=tuple(
-                    sorted(
-                        set(
-                            (
-                                *spec.frozen_input_hashes,
-                                *business_request.agent_run_spec.input_artifact_hashes,
+            request_type: type[HostedAgentRequest] = HostedAgentRequest
+            sdk_fields: dict[str, object] = {}
+            if isinstance(spec, SdkCampaignSpec):
+                request_type = (
+                    SdkAgentRequestV3
+                    if isinstance(spec.sdk_profile, SdkProducerProfileV3)
+                    else SdkAgentRequest
+                )
+                sdk_fields["sdk_profile_hash"] = spec.sdk_profile.content_hash
+            request = request_type.model_validate(
+                dict(
+                    **sdk_fields,
+                    campaign_hash=spec.campaign_hash,
+                    hosted_spec_hash=spec_hash,
+                    transport_ordinal=ordinal,
+                    business_request=business_request,
+                    business_request_hash=business_request.content_hash,
+                    context_pack_hash=business_request.context_pack.content_hash,
+                    candidate_manifest_hash=spec.candidate_manifest_hash,
+                    input_hashes=tuple(
+                        sorted(
+                            set(
+                                (
+                                    *spec.frozen_input_hashes,
+                                    *business_request.agent_run_spec.input_artifact_hashes,
+                                )
                             )
                         )
-                    )
-                ),
-                policy_hashes=business_request.relevant_policy_hashes,
-                budget_reservation_hash=after.content_hash,
-                proposal_schema_hash=business_request.proposal_schema_hash,
-                max_request_bytes=spec.hosted_budget.max_request_bytes,
-                max_response_bytes=spec.hosted_budget.max_response_bytes,
-                max_proposal_bytes=spec.hosted_budget.max_proposal_bytes,
-                attempt_identity=hosted_protocol_operation_id(
-                    spec.campaign_hash, "ATTEMPT", ordinal
-                ),
-                projection_object_hashes=projection_object_hashes,
-                issued_at=now,
-                expires_at=now + timedelta(seconds=spec.hosted_budget.request_ttl_seconds),
+                    ),
+                    policy_hashes=business_request.relevant_policy_hashes,
+                    budget_reservation_hash=after.content_hash,
+                    proposal_schema_hash=business_request.proposal_schema_hash,
+                    max_request_bytes=spec.hosted_budget.max_request_bytes,
+                    max_response_bytes=spec.hosted_budget.max_response_bytes,
+                    max_proposal_bytes=spec.hosted_budget.max_proposal_bytes,
+                    attempt_identity=hosted_protocol_operation_id(
+                        spec.campaign_hash, "ATTEMPT", ordinal
+                    ),
+                    projection_object_hashes=projection_object_hashes,
+                    issued_at=now,
+                    expires_at=now + timedelta(seconds=spec.hosted_budget.request_ttl_seconds),
+                )
             )
             if len(request.canonical_bytes()) > request.max_request_bytes:
                 raise ValueError("hosted request exceeds frozen byte cap")
@@ -446,7 +501,7 @@ class HostedProtocolService:
             )
             terminal = state.terminal(request_hash)
             accepted = state.accepted_receipt(request_hash)
-            response: HostedAgentResponse | None = None
+            response: HostedAgentResponse | SdkAgentResponse | None = None
             outcome = "REJECTED"
             reason = "FRAME_BYTE_CAP_EXCEEDED"
             extra: tuple[CanonicalContract, ...] = ()
@@ -470,8 +525,12 @@ class HostedProtocolService:
                 try:
                     if self._scan_submission is not None:
                         self._scan_submission(observed)
-                    response = parse_hosted_contract(
-                        observed, HostedAgentResponse, max_bytes=request.max_response_bytes
+                    response = (
+                        parse_sdk_response(observed, max_bytes=request.max_response_bytes)
+                        if isinstance(state.spec, SdkCampaignSpec)
+                        else parse_hosted_contract(
+                            observed, HostedAgentResponse, max_bytes=request.max_response_bytes
+                        )
                     )
                     _scan_safe(response.model_dump(mode="json"))
                     reason = self._response_reason(state.spec, request, response)
@@ -483,14 +542,34 @@ class HostedProtocolService:
                     reason = "SCHEMA_INVALID"
             exchange: HostedAgentExchange | None = None
             if outcome == "ACCEPTED" and response is not None:
-                exchange = HostedAgentExchange(
-                    request_hash=request_hash,
-                    response_hash=response.content_hash,
-                    proposal_hash=response.proposal_hash,
-                    authenticated_principal=principal,
-                    host_observation_hash=response.host_observation.content_hash,
-                )
-                extra = (*extra, response.host_observation, response, exchange)
+                if isinstance(response, SdkAgentResponse):
+                    exchange = SdkAgentExchange(
+                        request_hash=request_hash,
+                        response_hash=response.content_hash,
+                        proposal_hash=response.proposal_hash,
+                        authenticated_principal=principal,
+                        host_observation_hash=response.manifest.content_hash,
+                        manifest_hash=response.manifest.content_hash,
+                        sdk_profile_hash=response.sdk_profile_hash,
+                        raw_response_hash=response.raw_response_hash,
+                    )
+                    extra = (
+                        *extra,
+                        response.reservation,
+                        response.reservation.run_spec,
+                        response.manifest,
+                        response,
+                        exchange,
+                    )
+                else:
+                    exchange = HostedAgentExchange(
+                        request_hash=request_hash,
+                        response_hash=response.content_hash,
+                        proposal_hash=response.proposal_hash,
+                        authenticated_principal=principal,
+                        host_observation_hash=response.host_observation.content_hash,
+                    )
+                    extra = (*extra, response.host_observation, response, exchange)
             receipt = HostedSubmissionReceipt(
                 campaign_hash=campaign,
                 request_hash=request_hash,
@@ -521,16 +600,34 @@ class HostedProtocolService:
     def _response_reason(
         spec: HostedCampaignSpec,
         request: HostedAgentRequest,
-        response: HostedAgentResponse,
+        response: HostedAgentResponse | SdkAgentResponse,
     ) -> str:
+        if isinstance(response, SdkAgentResponse):
+            if not isinstance(spec, SdkCampaignSpec) or not isinstance(request, SdkAgentRequest):
+                return "RESPONSE_BINDING_MISMATCH"
+            from quantos.application.sdk_producer import SdkCampaignProducer
+
+            try:
+                published = SdkCampaignProducer(
+                    Path(spec.sdk_profile.evidence_root)
+                ).read_published(request, spec)
+            except (ArtifactIntegrityError, OSError, ValueError):
+                return "SDK_SOURCE_UNAVAILABLE"
+            if published != response:
+                return "SDK_SOURCE_PUBLICATION_MISMATCH"
+        elif isinstance(spec, SdkCampaignSpec):
+            return "RESPONSE_BINDING_MISMATCH"
         if (
             response.request_hash != request.content_hash
             or response.campaign_hash != request.campaign_hash
             or response.transport_ordinal != request.transport_ordinal
             or response.context_pack_hash != request.context_pack_hash
             or response.attempt_identity != request.attempt_identity
-            or response.host_observation.requested_configuration_hash
-            != spec.requested_model_configuration_hash
+            or (
+                isinstance(response, HostedAgentResponse)
+                and response.host_observation.requested_configuration_hash
+                != spec.requested_model_configuration_hash
+            )
         ):
             return "RESPONSE_BINDING_MISMATCH"
         if len(response.proposal_json.encode("utf-8")) > request.max_proposal_bytes:
@@ -631,17 +728,53 @@ class HostedProtocolService:
     def accepted_exchange(
         self,
         request_hash: str,
-    ) -> tuple[HostedAgentRequest, HostedAgentResponse, HostedAgentExchange] | None:
+    ) -> (
+        tuple[HostedAgentRequest, HostedAgentResponse | SdkAgentResponse, HostedAgentExchange]
+        | None
+    ):
         state = self.store.snapshot(self.store.locate_request(request_hash))
         receipt = state.accepted_receipt(request_hash)
         if receipt is None or receipt.accepted_exchange_hash is None:
             return None
-        exchange = state.artifact(receipt.accepted_exchange_hash, HostedAgentExchange)
-        return (
-            state.request(request_hash),
-            state.artifact(exchange.response_hash, HostedAgentResponse),
-            exchange,
+        exchange = parse_agent_exchange(
+            state.artifacts[receipt.accepted_exchange_hash], max_bytes=16 * 1_048_576
         )
+        request = state.request(request_hash)
+        response = (
+            parse_sdk_response(
+                state.artifacts[exchange.response_hash], max_bytes=request.max_response_bytes
+            )
+            if isinstance(exchange, SdkAgentExchange)
+            else state.artifact(exchange.response_hash, HostedAgentResponse)
+        )
+        if isinstance(response, SdkAgentResponse):
+            if not isinstance(request, SdkAgentRequest) or not isinstance(
+                state.spec, SdkCampaignSpec
+            ):
+                raise ArtifactIntegrityError("SDK exchange escaped successor profile")
+            from quantos.application.sdk_producer import SdkCampaignProducer
+
+            try:
+                published = SdkCampaignProducer(
+                    Path(state.spec.sdk_profile.evidence_root)
+                ).read_published(request, state.spec)
+            except (ArtifactIntegrityError, OSError, ValueError):
+                raise ArtifactIntegrityError(
+                    "SDK accepted exchange source publication unavailable"
+                ) from None
+            if published != response:
+                raise ArtifactIntegrityError(
+                    "SDK accepted exchange differs from source publication"
+                )
+            if (
+                exchange.proposal_hash != response.proposal_hash
+                or not isinstance(exchange, SdkAgentExchange)
+                or exchange.manifest_hash != response.manifest.content_hash
+                or exchange.raw_response_hash != response.raw_response_hash
+                or exchange.sdk_profile_hash != response.sdk_profile_hash
+            ):
+                raise ArtifactIntegrityError("SDK exchange source binding differs")
+        return request, response, exchange
 
     def publish_business(
         self,
@@ -698,3 +831,7 @@ LiteralStatus = Literal[
 ]
 LiteralOutcome = Literal["ACCEPTED", "REJECTED", "CONFLICT", "EXHAUSTED"]
 LiteralTerminal = Literal["CANCELLED", "EXPIRED", "CANCEL_REJECTED", "STEP_COMPLETED"]
+
+
+# Shared bounded credential scan used by the SDK producer before persistence.
+scan_protocol_artifact = _scan_safe

@@ -38,6 +38,15 @@ def render_discovery_report(report: dict[str, object]) -> str:
         "  actual_evaluation_bindings: " + _display(report.get("actual_evaluation_bindings"))
     )
     lines.extend(("", "Rows:"))
+    if "discovery_profile" in report:
+        lines.extend(
+            (
+                "",
+                "Composition profile: " + _display(report["discovery_profile"]),
+                "Grammar: " + _display(report.get("candidate_grammar")),
+                "Parameter sensitivity: " + _display(report.get("parameter_stability_rule")),
+            )
+        )
     row_fields = (
         "method",
         "reservation_hash",
@@ -60,6 +69,8 @@ def render_discovery_report(report: dict[str, object]) -> str:
         "validation_pass",
         "p14c_selectable",
     )
+    if "discovery_profile" in report:
+        row_fields += ("composition_role", "parameter_stability_node_id")
     rows = report.get("rows", ())
     if isinstance(rows, (tuple, list)):
         for index, row in enumerate(cast(tuple[object, ...] | list[object], rows), start=1):

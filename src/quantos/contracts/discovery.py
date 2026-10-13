@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, Self
 
-from pydantic import ConfigDict, Field, NonNegativeInt, PositiveInt, model_validator
+from pydantic import ConfigDict, Field, NonNegativeInt, PositiveInt, TypeAdapter, model_validator
 
 from quantos.contracts.autonomous import AutonomousExecutionBindings
 from quantos.contracts.base import CanonicalContract
@@ -21,9 +21,7 @@ from quantos.contracts.research import (
 )
 
 
-class DiscoveryDesign(CanonicalContract):
-    schema_version: Literal["discovery-design/v1"] = "discovery-design/v1"
-    profile_id: Literal["singleton-full-chain/v1"] = "singleton-full-chain/v1"
+class _DiscoveryDesignInputs(CanonicalContract):
     research_question: str = Field(min_length=1, max_length=4096)
     primary_metric: Literal["Rank IC"] = "Rank IC"
     direction: Literal["maximize"] = "maximize"
@@ -42,9 +40,6 @@ class DiscoveryDesign(CanonicalContract):
     backtest_policy: BacktestPolicy
     bindings: AutonomousExecutionBindings
     allowed_operators: tuple[SafeQlibOperator, ...]
-    candidate_grammar: Literal["field-window-optional-ratio-abs/v1"] = (
-        "field-window-optional-ratio-abs/v1"
-    )
     allowed_windows: tuple[PositiveInt, ...] = (5, 10, 20)
     max_nodes: PositiveInt = 4
     evaluation_opportunities_per_method: PositiveInt = 5
@@ -80,6 +75,68 @@ class DiscoveryDesign(CanonicalContract):
         ):
             raise ValueError("operators must be explicitly sorted and unique")
         return self
+
+
+class DiscoveryDesign(_DiscoveryDesignInputs):
+    schema_version: Literal["discovery-design/v1"] = "discovery-design/v1"
+    profile_id: Literal["singleton-full-chain/v1"] = "singleton-full-chain/v1"
+    candidate_grammar: Literal["field-window-optional-ratio-abs/v1"] = (
+        "field-window-optional-ratio-abs/v1"
+    )
+
+
+class DiscoveryCompositionDesign(_DiscoveryDesignInputs):
+    """Finite successor: legacy design bytes and interpretation stay unchanged."""
+
+    schema_version: Literal["discovery-design/v3"] = "discovery-design/v3"
+    profile_id: Literal["bounded-price-composition/v1"] = "bounded-price-composition/v1"
+    candidate_grammar: Literal["price-return-volatility-trend/v1"] = (
+        "price-return-volatility-trend/v1"
+    )
+    allowed_windows: tuple[PositiveInt, ...] = (1, 5, 10, 20, 60)
+    max_nodes: PositiveInt = Field(default=8, le=8)
+    max_depth: PositiveInt = Field(default=4, le=4)
+    evaluation_opportunities_per_method: PositiveInt = Field(default=3, le=555)
+    parameter_stability_rule: Literal["first-window-node/v1"] = "first-window-node/v1"
+    baseline_sampling: Literal["structural-uniform-without-replacement/v1"] = (
+        "structural-uniform-without-replacement/v1"
+    )
+    template_order: Literal["composition-component-round-robin/v1"] = (
+        "composition-component-round-robin/v1"
+    )
+
+    @model_validator(mode="after")
+    def composition_capabilities_are_bounded(self) -> Self:
+        permitted = {
+            SafeQlibOperator.FIELD,
+            SafeQlibOperator.RETURN,
+            SafeQlibOperator.ROLLING_MEAN,
+            SafeQlibOperator.ROLLING_STD,
+            SafeQlibOperator.DIVIDE,
+            SafeQlibOperator.MULTIPLY,
+        }
+        if not set(self.allowed_operators).issubset(permitted):
+            raise ValueError("composition profile permits only bounded price operators")
+        if not {SafeQlibOperator.FIELD, SafeQlibOperator.RETURN}.issubset(self.allowed_operators):
+            raise ValueError("composition profile requires field and return")
+        if not self.allowed_windows or not set(self.allowed_windows).issubset({1, 5, 10, 20, 60}):
+            raise ValueError("composition windows must use the finite profile set")
+        if self.max_nodes < 2 or self.max_depth < 2:
+            raise ValueError("composition profile must permit a return component")
+        return self
+
+
+DiscoveryDesignContract = DiscoveryCompositionDesign | DiscoveryDesign
+
+
+class DiscoveryDesignReader:
+    @staticmethod
+    def model_validate(value: object) -> DiscoveryDesignContract:
+        return TypeAdapter[DiscoveryDesignContract](DiscoveryDesignContract).validate_python(value)
+
+    @staticmethod
+    def model_validate_json(value: str | bytes) -> DiscoveryDesignContract:
+        return TypeAdapter[DiscoveryDesignContract](DiscoveryDesignContract).validate_json(value)
 
 
 class GenerationRequest(CanonicalContract):
@@ -164,7 +221,7 @@ class ProposalMapping(CanonicalContract):
 
 class DiscoveryBatch(CanonicalContract):
     schema_version: Literal["discovery-batch/v1"] = "discovery-batch/v1"
-    design: DiscoveryDesign
+    design: DiscoveryDesignContract
     requests: tuple[GenerationRequest, ...]
     reservations: tuple[GenerationReservation, ...]
     responses: tuple[GenerationResponse, ...]
@@ -210,6 +267,49 @@ class SequentialGenerationPolicy(CanonicalContract):
         ):
             raise ValueError("policy requires three distinct SHA256 base request identities")
         return self
+
+
+class CompositionGenerationPolicy(CanonicalContract):
+    design_hash: str = Field(pattern=SHA256_PATTERN)
+    request_hashes: tuple[str, str, str]
+    history_rule: Literal["same-method-static-prefix/v1"] = "same-method-static-prefix/v1"
+    unfinished_rule: Literal["successor-reservation-seals-missing-response/v1"] = (
+        "successor-reservation-seals-missing-response/v1"
+    )
+    schema_version: Literal["discovery-sequential-policy/v3"] = "discovery-sequential-policy/v3"
+    profile: Literal["composition-discovery-sequential/v1"] = "composition-discovery-sequential/v1"
+    template_rule: Literal["composition-component-round-robin/v1"] = (
+        "composition-component-round-robin/v1"
+    )
+    random_rule: Literal["structural-uniform-without-replacement/v1"] = (
+        "structural-uniform-without-replacement/v1"
+    )
+    random_seed: NonNegativeInt = 1729
+    max_attempts_per_method: PositiveInt = 3
+
+    @model_validator(mode="after")
+    def identities_are_explicit(self) -> Self:
+        if len(set(self.request_hashes)) != 3 or any(
+            len(item) != 64 or any(c not in "0123456789abcdef" for c in item)
+            for item in self.request_hashes
+        ):
+            raise ValueError("policy requires three distinct SHA256 request identities")
+        return self
+
+
+SequentialPolicyContract = CompositionGenerationPolicy | SequentialGenerationPolicy
+
+
+class SequentialPolicyReader:
+    @staticmethod
+    def model_validate_json(value: str | bytes) -> SequentialPolicyContract:
+        return TypeAdapter[SequentialPolicyContract](SequentialPolicyContract).validate_json(value)
+
+    @staticmethod
+    def model_validate(value: object) -> SequentialPolicyContract:
+        return TypeAdapter[SequentialPolicyContract](SequentialPolicyContract).validate_python(
+            value
+        )
 
 
 class SequentialHistoryEntry(CanonicalContract):
@@ -286,7 +386,7 @@ class SequentialLaunchObservation(CanonicalContract):
 
 class SequentialDiscoveryBatch(CanonicalContract):
     schema_version: Literal["discovery-sequential-batch/v2"] = "discovery-sequential-batch/v2"
-    policy: SequentialGenerationPolicy
+    policy: SequentialPolicyContract
     batch: DiscoveryBatch
     attempts: tuple[SequentialGenerationAttempt, ...]
     launch_sources: tuple[SequentialLaunchSource, ...] = ()
@@ -294,6 +394,10 @@ class SequentialDiscoveryBatch(CanonicalContract):
 
     @model_validator(mode="after")
     def successor_bindings_agree(self) -> Self:
+        if isinstance(self.batch.design, DiscoveryCompositionDesign) != isinstance(
+            self.policy, CompositionGenerationPolicy
+        ):
+            raise ValueError("sequential design and policy profiles differ")
         if (
             self.policy.design_hash != self.batch.design.content_hash
             or self.policy.request_hashes

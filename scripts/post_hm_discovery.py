@@ -15,10 +15,12 @@ from quantos.contracts.agent import AgentRunManifestV3, AgentRunSpecV3
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.discovery import (
     DiscoveryBatch,
-    DiscoveryDesign,
+    DiscoveryDesignContract,
+    DiscoveryDesignReader,
     GenerationRequest,
     SequentialDiscoveryBatch,
-    SequentialGenerationPolicy,
+    SequentialPolicyContract,
+    SequentialPolicyReader,
 )
 from quantos.contracts.discovery_evaluation import (
     DiscoveryEvaluationDeclaration,
@@ -34,14 +36,34 @@ from quantos.contracts.harness import HarnessExecutionRequest
 _C = TypeVar("_C", bound=CanonicalContract)
 
 
-def _read(path: Path, kind: type[_C]) -> _C:
+def _input_bytes(path: Path) -> bytes:
     path = confined_regular_file(path.absolute().parent, path.name)
     if path.stat().st_size > 16_777_216:
         raise ValueError("management input exceeds byte bound")
-    data = path.read_bytes()
+    return path.read_bytes()
+
+
+def _read(path: Path, kind: type[_C]) -> _C:
+    data = _input_bytes(path)
     contract = kind.model_validate_json(data)
     if contract.canonical_bytes() != data:
         raise ValueError("management input must use canonical bytes")
+    return contract
+
+
+def _read_design(path: Path) -> DiscoveryDesignContract:
+    data = _input_bytes(path)
+    contract = DiscoveryDesignReader.model_validate_json(data)
+    if contract.canonical_bytes() != data:
+        raise ValueError("management design must use canonical bytes")
+    return contract
+
+
+def _read_policy(path: Path) -> SequentialPolicyContract:
+    data = _input_bytes(path)
+    contract = SequentialPolicyReader.model_validate_json(data)
+    if contract.canonical_bytes() != data:
+        raise ValueError("management policy must use canonical bytes")
     return contract
 
 
@@ -113,11 +135,9 @@ def main() -> int:
     store = GenerationStore(args.generation_root)
     try:
         if args.command == "prepare":
-            design = _read(args.design, DiscoveryDesign)
+            design = _read_design(args.design)
             if args.sequential_policy is not None:
-                store.save_sequential_policy(
-                    _read(args.sequential_policy, SequentialGenerationPolicy)
-                )
+                store.save_sequential_policy(_read_policy(args.sequential_policy))
             for method in ("llm", "random", "template"):
                 store.save_request(
                     design, _read(getattr(args, f"{method}_request"), GenerationRequest)
@@ -125,9 +145,7 @@ def main() -> int:
             result: object = {"design_hash": design.content_hash, "status": "PREPARED"}
         elif args.command == "baselines":
             request = _read(args.request, GenerationRequest)
-            design = _read(
-                store.root / "requests" / request.content_hash / "design.json", DiscoveryDesign
-            )
+            design = _read_design(store.root / "requests" / request.content_hash / "design.json")
             policy = store.sequential_policy()
             if policy is None:
                 proposals = generate_baseline(design, request)
@@ -250,7 +268,7 @@ def main() -> int:
                 "historical_balance_transferred": False,
             }
         elif args.command == "freeze":
-            batch = store.freeze(_read(args.design, DiscoveryDesign))
+            batch = store.freeze(_read_design(args.design))
             store.verify_frozen(batch)
             result = {
                 "batch_hash": batch.content_hash,

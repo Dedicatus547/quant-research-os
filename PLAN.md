@@ -17,6 +17,12 @@ Discovery 已完成两轮有界研究，第二轮按冻结规则建议暂停扩�
 结果及 D01–D10 完成范围见[Discovery 状态](docs/status/discovery.md)，
 设计、接口、阶段报告和实施历史见[研究文档索引](docs/roadmap/README.md)。
 
+2026-10-12 后续授权的 A0 与 B0/B1 离线实施及集成准备已完成（未提交），使用入口见
+[下一阶段索引](docs/roadmap/README.md#下一阶段离线实施)。2026-10-13 已授权 A1/B2 的所交付预算，
+具体外发授权已复用；B2本次单LLM3补跑及报告收尾完成，科学结果为SOFT_REJECT。
+A1 V4后继r10两步工程闭环完成，控制器/守卫exit0、清理核验通过；本轮两科学SOFT_REJECT，科学汇总FAILED/NOT_EVALUATED。累计SDK11/11、科学5次/90units，零重试、A保留约1.394GB≤4GiB。B2完成结果复用；原r9失败保留，不追加预算。
+见 [A1/B2 当前准备状态](docs/status/a1-b2-authorized-preparation.md)。
+
 ## 后续工作与触发条件
 
 | 工作 | 当前处理 | 启动条件 |

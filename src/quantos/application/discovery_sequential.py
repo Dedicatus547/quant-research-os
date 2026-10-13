@@ -7,21 +7,21 @@ import json
 from quantos.application.discovery_admission import capability_rejection
 from quantos.application.enumeration import structural_expression_hash
 from quantos.contracts.discovery import (
-    DiscoveryDesign,
+    DiscoveryDesignContract,
     GenerationRequest,
     GenerationReservation,
     GenerationResponse,
     SequentialGenerationHistory,
-    SequentialGenerationPolicy,
     SequentialHistoryEntry,
+    SequentialPolicyContract,
 )
 from quantos.contracts.pit import SafeQlibExpressionSpec
 
 
 def build_generation_history(
-    design: DiscoveryDesign,
+    design: DiscoveryDesignContract,
     request: GenerationRequest,
-    policy: SequentialGenerationPolicy,
+    policy: SequentialPolicyContract,
     reservations: tuple[GenerationReservation, ...],
     responses: tuple[GenerationResponse, ...],
 ) -> SequentialGenerationHistory:
@@ -89,7 +89,7 @@ def build_generation_history(
 
 
 def sequential_baseline(
-    design: DiscoveryDesign, request: GenerationRequest, policy: SequentialGenerationPolicy
+    design: DiscoveryDesignContract, request: GenerationRequest, policy: SequentialPolicyContract
 ) -> tuple[str, ...]:
     """Use the typed successor coverage policy, preserving old baseline behavior."""
     from quantos.application.discovery_baselines import generate_sequential_baseline

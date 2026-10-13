@@ -73,12 +73,14 @@ from quantos.contracts.qlib_view import QlibViewManifest
 from quantos.contracts.refs import SHA256_PATTERN
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
+    ExpressionAuthoringSpec,
     ResearchPolicy,
     ResolvedExperimentSpec,
     ValidationPolicy,
 )
 from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
 from quantos.contracts.research_result import P14dqNativeLabelExportAudit, ResearchResultManifest
+from quantos.contracts.sdk_producer import SdkCampaignSpec
 from quantos.contracts.snapshot import DataSnapshotManifest
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
 from quantos.contracts.temporal import DecisionSchedule
@@ -179,10 +181,13 @@ def autonomous_compute_accounting_policy_hash() -> str:
 
 
 def quote_autonomous_workload(
-    authoring: ExperimentAuthoringSpec, validation_policy: ValidationPolicy
+    authoring: ExperimentAuthoringSpec,
+    validation_policy: ValidationPolicy,
+    *,
+    window_node_id: str | None = None,
 ) -> int:
     """Quote frozen policy units from the workload shape; no scientific input is read."""
-    baseline_window = release.parameter_window(authoring)
+    baseline_window = release.parameter_window(authoring, window_node_id=window_node_id)
     parameters = sum(
         1
         for window in validation_policy.parameter_windows
@@ -313,6 +318,41 @@ def require_durable_execution_root(path: Path) -> None:
         raise ValueError("discovery execution authority cannot use a cache directory")
 
 
+def _verify_sdk_execution_scope(
+    spec: SdkCampaignSpec,
+    *,
+    campaign: ResearchCampaignSpec,
+    family: ResearchFamilySpec,
+    budget: ResearchBudgetSpec,
+    template: ResearchFactorTemplateSpec,
+    manifest: CandidateEnumerationManifest,
+    bindings: AutonomousExecutionBindings,
+    canonical_validation: bool,
+    p14dq_v2_profile: bool,
+    discovery_stage_recovery: bool,
+    discovery_profile: str | None,
+    discovery_source_adoption: DiscoveryEvaluationSourceAdoption | None,
+) -> None:
+    """Permit the engineering campaign identity only under exact SDK authority."""
+    if type(spec) is not SdkCampaignSpec:
+        raise ValueError("bounded SDK execution escaped its frozen DQ authority")
+    spec = SdkCampaignSpec.model_validate(spec.model_dump(mode="python"))
+    if (
+        spec.campaign != campaign
+        or spec.research_budget != budget
+        or spec.campaign.family_hash != family.content_hash
+        or spec.factor_template_hash != template.content_hash
+        or spec.candidate_manifest_hash != manifest.content_hash
+        or spec.execution_bindings != bindings
+        or canonical_validation is not True
+        or p14dq_v2_profile is not True
+        or discovery_stage_recovery is not False
+        or discovery_profile is not None
+        or discovery_source_adoption is not None
+    ):
+        raise ValueError("bounded SDK execution escaped its frozen DQ authority")
+
+
 class QuantosResearchExecutionAdapter:
     """Carry frozen P14b candidates through PIT, Qlib, Validation and verified artifacts.
 
@@ -340,11 +380,28 @@ class QuantosResearchExecutionAdapter:
         workspace: Path,
         canonical_validation: bool = True,
         p14dq_v2_profile: bool = False,
+        sdk_campaign_spec: SdkCampaignSpec | None = None,
         discovery_stage_recovery: bool = False,
-        discovery_profile: Literal["singleton-full-chain/v1"] | None = None,
+        discovery_profile: Literal["singleton-full-chain/v1", "bounded-price-composition/v1"]
+        | None = None,
         _verified_inputs: VerifiedExecutionInputs | None = None,
         discovery_source_adoption: DiscoveryEvaluationSourceAdoption | None = None,
     ) -> None:
+        if sdk_campaign_spec is not None:
+            _verify_sdk_execution_scope(
+                sdk_campaign_spec,
+                campaign=campaign,
+                family=family,
+                budget=budget,
+                template=template,
+                manifest=manifest,
+                bindings=bindings,
+                canonical_validation=canonical_validation,
+                p14dq_v2_profile=p14dq_v2_profile,
+                discovery_stage_recovery=discovery_stage_recovery,
+                discovery_profile=discovery_profile,
+                discovery_source_adoption=discovery_source_adoption,
+            )
         try:
             verify_candidate_enumeration_manifest(family, template, manifest)
             if _verified_inputs is None:
@@ -394,7 +451,7 @@ class QuantosResearchExecutionAdapter:
         ):
             raise ValueError("autonomous execution bindings disagree with frozen inputs")
         if p14dq_v2_profile and (
-            campaign.campaign_id != "p14-dq-live-data-campaign-v1"
+            (sdk_campaign_spec is None and campaign.campaign_id != "p14-dq-live-data-campaign-v1")
             or snapshot.snapshot_hash
             != "6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
             or view.view_hash != "fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b"
@@ -532,7 +589,10 @@ class QuantosResearchExecutionAdapter:
 
     @property
     def _native_label_audit_enabled(self) -> bool:
-        return self.p14dq_v2_profile or self.discovery_profile == "singleton-full-chain/v1"
+        return self.p14dq_v2_profile or self.discovery_profile in (
+            "singleton-full-chain/v1",
+            "bounded-price-composition/v1",
+        )
 
     def verified_completed_execution(
         self, request: AutonomousExecutionRequest
@@ -638,7 +698,10 @@ class QuantosResearchExecutionAdapter:
         observation of elapsed time.
         """
 
-        return quote_autonomous_workload(self._authoring(request), self.validation_policy)
+        authoring = self._authoring(request)
+        return quote_autonomous_workload(
+            authoring, self.validation_policy, window_node_id=self._parameter_window_node(authoring)
+        )
 
     def _failure_outcome(
         self,
@@ -788,6 +851,13 @@ class QuantosResearchExecutionAdapter:
             or request.segment_end != self.research_policy.test.end
         ):
             self._integrity("frozen research test segment differs from campaign validation segment")
+
+    def _parameter_window_node(self, authoring: ExperimentAuthoringSpec) -> str | None:
+        if self.discovery_profile != "bounded-price-composition/v1":
+            return None
+        if isinstance(authoring.expression, ExpressionAuthoringSpec):
+            raise ValueError("composition profile requires a safe DAG")
+        return next(node.node_id for node in authoring.expression.nodes if node.window is not None)
 
     def _authoring(self, request: AutonomousExecutionRequest) -> ExperimentAuthoringSpec:
         payload = self.base_authoring.model_dump(mode="python")
@@ -1483,14 +1553,17 @@ class QuantosResearchExecutionAdapter:
                 )
 
         parameter_variants: dict[tuple[int, int], Any] = {}
-        baseline_window = release.parameter_window(authoring)
+        window_node_id = self._parameter_window_node(authoring)
+        baseline_window = release.parameter_window(authoring, window_node_id=window_node_id)
         for window in self.validation_policy.parameter_windows:
             for top_k in self.validation_policy.parameter_top_k:
                 key = (window, top_k)
                 variant_authoring = (
                     authoring
                     if key == (baseline_window, authoring.strategy.top_k)
-                    else release.variant_authoring(authoring, window=window, top_k=top_k)
+                    else release.variant_authoring(
+                        authoring, window=window, window_node_id=window_node_id, top_k=top_k
+                    )
                 )
                 parameter_variants[key] = (
                     baseline
@@ -1505,7 +1578,10 @@ class QuantosResearchExecutionAdapter:
 
         subperiod_variants: dict[str, Any] = {}
         for period in self.validation_policy.subperiods:
-            if self.p14dq_v2_profile or self.discovery_profile == "singleton-full-chain/v1":
+            if self.p14dq_v2_profile or self.discovery_profile in (
+                "singleton-full-chain/v1",
+                "bounded-price-composition/v1",
+            ):
                 period_schedules = release.schedules_within_subperiod(
                     resolve_weekly_decision_schedules(
                         self.qlib_view_path,
@@ -1535,7 +1611,10 @@ class QuantosResearchExecutionAdapter:
                     baseline.evidence, period_schedules
                 )
             subperiod_authoring = release.variant_authoring(
-                authoring, evaluation_start=period.start, evaluation_end=period.end
+                authoring,
+                window_node_id=window_node_id,
+                evaluation_start=period.start,
+                evaluation_end=period.end,
             )
             subperiod_variants[period.period_id] = build_variant(
                 subperiod_authoring,

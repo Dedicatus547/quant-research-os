@@ -20,6 +20,7 @@ from quantos.artifacts.store import ArtifactIntegrityError, exclusive_directory_
 from quantos.contracts.agent import CampaignSegment
 from quantos.contracts.autonomous import (
     P14DQ_REPORT_ONLY_FINALIZATION_PROFILE,
+    SDK_BOUNDED_FINALIZATION_PROFILE,
     AutonomousAgentRequest,
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
@@ -41,6 +42,7 @@ from quantos.contracts.hosted import (
     strict_json_object,
 )
 from quantos.contracts.refs import SHA256_PATTERN
+from quantos.contracts.sdk_producer import SdkCampaignSpec
 from quantos.infrastructure.hosted_store import AUTHORITY_BYTE_CAP, HostedStoreSnapshot
 
 
@@ -117,6 +119,18 @@ class HostedCampaignApplicationService:
     @staticmethod
     def _check_bindings(spec: HostedCampaignSpec, inputs: HostedCampaignInputs) -> None:
         o = inputs.orchestrator
+        if isinstance(spec, SdkCampaignSpec) and (
+            o.agent_run_policy.harness_identifier != "openai-codex-python-sdk"
+            or o.agent_run_policy.provider_model_identifier != spec.sdk_profile.model
+            or o.agent_run_policy.model_snapshot_immutable
+        ):
+            raise ArtifactIntegrityError("SDK producer requires explicit SDK agent policy")
+        if isinstance(spec, SdkCampaignSpec) and (
+            o.agent_run_policy.instruction_hashes
+            != tuple(sorted(set(spec.sdk_profile.instruction_hashes)))
+            or o.agent_run_policy.skill_hash != spec.sdk_profile.skill_hash
+        ):
+            raise ArtifactIntegrityError("SDK instructions differ from frozen agent policy")
         selection_plan = o.selection_service.plan
         bindings = (
             (
@@ -192,6 +206,21 @@ class HostedCampaignApplicationService:
         with self._lock(spec.campaign_hash):
             self.protocol.start(spec_hash)
             return self._advance(spec.campaign_hash)
+
+    def execution_storage_roots(self, campaign_hash: str) -> tuple[Path, ...]:
+        """Management-only roots for the existing physical-volume reservation guard."""
+        from quantos.application.autonomous_execution import QuantosResearchExecutionAdapter
+
+        execution = self._registered(campaign_hash).orchestrator.execution_port
+        if not isinstance(execution, QuantosResearchExecutionAdapter):
+            raise ArtifactIntegrityError("production SDK execution requires existing Qlib adapter")
+        return (
+            self.protocol.store.root,
+            self._lock_root,
+            execution.output_root,
+            execution.snapshot_path,
+            execution.qlib_view_path,
+        )
 
     def pending(self, campaign_hash: str) -> HostedAgentRequest | None:
         self._registered(campaign_hash)
@@ -448,7 +477,7 @@ class HostedCampaignApplicationService:
                         response.proposal_json,
                         response.proposal_hash,
                         run.content_hash,
-                        "HOSTED_EXCHANGE",
+                        run.provenance_kind,
                     )
                 )
         return tuple(result)
@@ -616,7 +645,7 @@ class HostedCampaignApplicationService:
             response.proposal_json,
             response.proposal_hash,
             run.content_hash,
-            "HOSTED_EXCHANGE",
+            run.provenance_kind,
         )
         prior = next(
             (step for step in reversed(facts.steps) if step.request_hash == request.content_hash),
@@ -888,7 +917,9 @@ class HostedCampaignApplicationService:
             reason=reason,
             research_run_status=run_status,
             research_verdict=verdict,
-            limitations=self.report_limitations(incomplete_dq_stop),
+            limitations=self.report_limitations(
+                incomplete_dq_stop, sdk=isinstance(state.spec, SdkCampaignSpec)
+            ),
             recorded_at=o.next_event_time(state.spec.started_at, events, ledger),
         )
         self._publish(state, "FINAL_REPORT", state.spec.content_hash, report.recorded_at, (report,))
@@ -907,7 +938,8 @@ class HostedCampaignApplicationService:
         This is a failed hosted accounting report, never a P14c result or Q11 pass.
         """
         return (
-            orchestrator.selection_finalization_profile == P14DQ_REPORT_ONLY_FINALIZATION_PROFILE
+            orchestrator.selection_finalization_profile
+            in (P14DQ_REPORT_ONLY_FINALIZATION_PROFILE, SDK_BOUNDED_FINALIZATION_PROFILE)
             and final_state in ("CANCELLED", "EXPIRED", "EXHAUSTED")
             and {
                 event.trial.candidate_hash
@@ -918,13 +950,17 @@ class HostedCampaignApplicationService:
         )
 
     @staticmethod
-    def report_limitations(incomplete_dq_stop: bool = False) -> tuple[str, ...]:
+    def report_limitations(
+        incomplete_dq_stop: bool = False, *, sdk: bool = False
+    ) -> tuple[str, ...]:
         base = (
             "HOST_INTERNAL_USAGE_UNAVAILABLE",
             "HOST_EFFECTIVE_POLICY_NOT_ATTESTED",
             "MODEL_IDENTIFIER_NOT_IMMUTABLE",
             "NOT_LIVE_OR_DEPLOYMENT_QUALIFICATION",
         )
+        if sdk:
+            base = SDK_BOUNDED_FINALIZATION_PROFILE.limitations
         return (
             (*base, "P14DQ_INCOMPLETE_DENOMINATOR_SELECTION_NOT_PERFORMED")
             if incomplete_dq_stop
@@ -937,7 +973,9 @@ class HostedCampaignApplicationService:
         o = inputs.orchestrator
         events = o.event_store.load(o.governor, o.campaign, o.budget)
         incomplete_dq_stop = self.is_incomplete_dq_stop(o, events, report.state)
-        if report.limitations != self.report_limitations(incomplete_dq_stop) or (
+        if report.limitations != self.report_limitations(
+            incomplete_dq_stop, sdk=isinstance(state.spec, SdkCampaignSpec)
+        ) or (
             incomplete_dq_stop
             and (
                 report.selection_report_hash is not None

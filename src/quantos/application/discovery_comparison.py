@@ -18,7 +18,7 @@ from quantos.contracts.autonomous import (
     AutonomousExecutionRequest,
     AutonomousExecutionResult,
 )
-from quantos.contracts.discovery import DiscoveryBatch
+from quantos.contracts.discovery import DiscoveryBatch, DiscoveryCompositionDesign
 from quantos.contracts.pit import PITGateId
 from quantos.contracts.research import ResearchPolicy, ResolvedExperimentSpec
 from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
@@ -533,6 +533,28 @@ def _build_discovery_comparison(
             if response is not None and response.producer in {"SDK_CAPTURE", "HOSTED_HANDOFF"}
             else []
         )
+        if isinstance(batch.design, DiscoveryCompositionDesign):
+            expression = mapping.expression
+            if mapping.subtask_hash is not None:
+                expression = next(
+                    t.manifest.candidates[0].expression
+                    for t in batch.subtasks
+                    if t.content_hash == mapping.subtask_hash
+                )
+            row["composition_role"] = (
+                "interaction"
+                if expression and expression.nodes[-1].operator.value in ("divide", "multiply")
+                else "nested_constituent"
+                if expression and len(expression.nodes) > 2
+                else "simple_constituent"
+                if expression
+                else "unparsed"
+            )
+            row["parameter_stability_node_id"] = (
+                next((n.node_id for n in expression.nodes if n.window is not None), None)
+                if expression
+                else None
+            )
         rows.append(row)
 
     methods: list[dict[str, object]] = []
@@ -581,6 +603,28 @@ def _build_discovery_comparison(
                 ),
             }
         )
+    if isinstance(batch.design, DiscoveryCompositionDesign):
+        for method in methods:
+            method_rows = [r for r in rows if r["method"] == method["method"]]
+            values_by_subtask = {
+                cast(str, r["subtask_hash"]): cast(float, r["primary_value"])
+                for r in method_rows
+                if r["prediction_analyzable"]
+            }
+            method["primary_value_distribution"] = sorted(values_by_subtask.values())
+            method["effective_output_rate"] = len(values_by_subtask) / cast(
+                int, method["evaluation_opportunities"]
+            )
+            method["constituent_distributions"] = {
+                role: sorted(
+                    {
+                        cast(str, r["subtask_hash"]): cast(float, r["primary_value"])
+                        for r in method_rows
+                        if r["prediction_analyzable"] and r.get("composition_role") == role
+                    }.values()
+                )
+                for role in ("interaction", "nested_constituent", "simple_constituent")
+            }
     limitations = [
         "RETROSPECTIVE_EXPLORATORY: actual exposure history remains binding; "
         "no independent confirmation.",
@@ -624,7 +668,21 @@ def _build_discovery_comparison(
             "EFFECTIVE_MODEL_SPLITS_NOT_VERIFIED: policy hash equality alone does not establish "
             "that the declared purge was applied."
         )
+    composition_metadata: dict[str, object] = {}
+    if isinstance(batch.design, DiscoveryCompositionDesign):
+        composition_metadata = {
+            "discovery_profile": batch.design.profile_id,
+            "candidate_grammar": batch.design.candidate_grammar,
+            "baseline_sampling": batch.design.baseline_sampling,
+            "template_order": batch.design.template_order,
+            "parameter_stability_rule": batch.design.parameter_stability_rule,
+        }
+        limitations.append(
+            "FIRST_WINDOW_SENSITIVITY_ONLY: other window sensitivities are not tested; "
+            "singleton reports do not correct the generated search."
+        )
     return {
+        **composition_metadata,
         "schema_version": "discovery-comparison/v1",
         "batch_hash": batch.content_hash,
         "design_hash": batch.design.content_hash,

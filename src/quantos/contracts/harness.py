@@ -247,6 +247,9 @@ class HarnessExecutionRequest(CanonicalContract):
     prompt: str = Field(min_length=1, max_length=200_000)
     model: str = Field(min_length=1, max_length=200)
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"]
+    reasoning_summary: Literal["none"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     runtime_policy: HarnessRuntimePolicy
     mcp_servers: tuple[HarnessMcpServer, ...]
     output_schema_json: str | None = Field(default=None, max_length=200_000)
@@ -254,6 +257,9 @@ class HarnessExecutionRequest(CanonicalContract):
     total_timeout_seconds: PositiveInt
     retry_backoff_milliseconds: NonNegativeInt = Field(default=0, le=5_000)
     max_transcript_bytes: PositiveInt
+    max_normalized_transcript_bytes: PositiveInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     max_input_tokens: PositiveInt
     max_output_tokens: PositiveInt
     max_attempts: int = Field(default=1, ge=1, le=3)

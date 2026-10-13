@@ -18,6 +18,7 @@ from quantos.integrations.codex.versioning import (
     CODEX_RUNTIME_DISTRIBUTION,
     expected_codex_versions,
 )
+from quantos.security import validate_secret_free
 
 MAX_HOST_REQUEST_BYTES = 1_000_000
 
@@ -96,6 +97,7 @@ def _error_kind(error: BaseException) -> tuple[HarnessErrorKind, bool]:
 
 
 def execute(request: HarnessExecutionRequest) -> dict[str, object]:
+    phase = "SDK_IMPORT"
     try:
         import openai_codex
         from codex_cli_bin import bundled_codex_path  # pyright: ignore[reportMissingTypeStubs]
@@ -103,12 +105,13 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
         from openai_codex.generated.v2_all import ReasoningEffort
         from openai_codex.models import JsonObject
     except ImportError as error:
-        return _failure(HarnessErrorKind.RUNTIME_MISMATCH, error, retryable=False)
+        return _failure(HarnessErrorKind.RUNTIME_MISMATCH, error, retryable=False, phase=phase)
 
     provider_events: list[dict[str, object]] = []
     observations: dict[str, object] = {}
     runtime_facts: dict[str, object] = {}
     try:
+        phase = "VERSION_CHECK"
         profile_id = os.environ.get("QUANTOS_CODEX_RUNTIME_CANDIDATE_ID")
         expected_versions = expected_codex_versions(profile_id)
         if expected_versions is None:
@@ -116,12 +119,13 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                 HarnessErrorKind.RUNTIME_MISMATCH,
                 RuntimeError("unsupported Codex runtime candidate profile"),
                 retryable=False,
+                phase=phase,
             )
         expected_sdk_version, expected_runtime_package_version = expected_versions
         try:
             runtime_package_version = version(CODEX_RUNTIME_DISTRIBUTION)
         except PackageNotFoundError as error:
-            return _failure(HarnessErrorKind.RUNTIME_MISMATCH, error, retryable=False)
+            return _failure(HarnessErrorKind.RUNTIME_MISMATCH, error, retryable=False, phase=phase)
         if (
             openai_codex.__version__ != expected_sdk_version
             or runtime_package_version != expected_runtime_package_version
@@ -130,22 +134,28 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                 HarnessErrorKind.RUNTIME_MISMATCH,
                 RuntimeError("installed Codex SDK/runtime package identity does not match the pin"),
                 retryable=False,
+                phase=phase,
             )
+        phase = "BINARY_HASH"
         runtime_binary_hash = _sha256_file(Path(bundled_codex_path()))
         child_environment = {
             item.name: item.value for item in request.runtime_policy.child_environment
         }
         launch_overrides = ("features.apps=false",) if request.model == "gpt-6.1-sol" else ()
+        phase = "SDK_STARTUP"
         with Codex(
             CodexConfig(cwd=request.cwd, env=child_environment, config_overrides=launch_overrides)
         ) as codex:
+            phase = "ACCOUNT_READ"
             account = codex.account(refresh_token=False)
             if account.account is None:
                 return _failure(
                     HarnessErrorKind.AUTH_UNAVAILABLE,
                     RuntimeError("pre-existing Codex authentication is unavailable"),
                     retryable=False,
+                    phase=phase,
                 )
+            phase = "RUNTIME_METADATA"
             server_info = codex.metadata.serverInfo
             runtime_version = server_info.version if server_info is not None else None
             if not runtime_version:
@@ -153,12 +163,14 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                     HarnessErrorKind.RUNTIME_MISMATCH,
                     RuntimeError("Codex runtime version is unavailable"),
                     retryable=False,
+                    phase=phase,
                 )
             if runtime_version.partition(" ")[0] != expected_runtime_package_version:
                 return _failure(
                     HarnessErrorKind.RUNTIME_MISMATCH,
                     RuntimeError("reported Codex runtime version does not match the pin"),
                     retryable=False,
+                    phase=phase,
                 )
             runtime_facts = {
                 "runtime_version": runtime_version,
@@ -206,6 +218,7 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                     return response
 
                 client.thread_start = observed_start
+            phase = "THREAD_START"
             thread = codex.thread_start(
                 approval_mode=ApprovalMode.deny_all,
                 config=cast(Any, _sdk_config(request)),
@@ -219,6 +232,7 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
 
                 observations["provider_thread_id"] = thread.id
 
+                phase = "MCP_INVENTORY"
                 inventory = client.request(
                     "mcpServerStatus/list",
                     {"threadId": thread.id},
@@ -260,16 +274,26 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                                     "from its exact allowlist"
                                 ),
                                 retryable=False,
+                                phase=phase,
                                 provider_events=provider_events,
                             ),
                             **runtime_facts,
                             "qualification_observations": observations,
                         }
+            phase = "OUTPUT_SCHEMA_PARSE"
             output_schema = (
                 cast(JsonObject, json.loads(request.output_schema_json))
                 if request.output_schema_json is not None
                 else None
             )
+            phase = "TURN_START"
+            summary_options: dict[str, Any] = {}
+            if request.reasoning_summary is not None:
+                from openai_codex.generated.v2_all import ReasoningSummary
+
+                summary_options["summary"] = ReasoningSummary.model_validate(
+                    request.reasoning_summary
+                )
             handle = thread.turn(
                 request.prompt,
                 approval_mode=ApprovalMode.deny_all,
@@ -277,9 +301,11 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
                 effort=ReasoningEffort(request.reasoning_effort),
                 output_schema=output_schema,
                 sandbox=Sandbox.read_only,
+                **summary_options,
             )
             if observations:
                 observations["model_turn_started"] = True
+            phase = "TURN_STREAM"
             for notification in handle.stream():
                 provider_events.append(_provider_event(notification.method, notification.payload))
                 if len(canonical_json_bytes(provider_events)) > request.max_transcript_bytes:
@@ -297,7 +323,9 @@ def execute(request: HarnessExecutionRequest) -> dict[str, object]:
     except BaseException as error:
         kind, retryable = _error_kind(error)
         return {
-            **_failure(kind, error, retryable=retryable, provider_events=provider_events),
+            **_failure(
+                kind, error, retryable=retryable, provider_events=provider_events, phase=phase
+            ),
             **runtime_facts,
             **({"qualification_observations": observations} if observations else {}),
         }
@@ -309,8 +337,19 @@ def _failure(
     *,
     retryable: bool,
     provider_events: list[dict[str, object]] | None = None,
+    phase: str = "REQUEST_PARSE",
 ) -> dict[str, object]:
     message = f"{type(error).__name__}: {error}"
+    diagnostic: dict[str, object] = {"phase": phase, "exception_class": type(error).__name__}
+    try:
+        if len(message.encode("utf-8", errors="replace")) > 4096:
+            diagnostic["details_retention"] = "OVER_BYTE_CAP"
+        else:
+            validate_secret_free(message, file_name="sdk-host-failure-details.txt")
+            diagnostic["details"] = message
+            diagnostic["details_retention"] = "RETAINED"
+    except ValueError:
+        diagnostic["details_retention"] = "CREDENTIAL_GUARD"
     return {
         "error": {
             "kind": kind.value,
@@ -318,6 +357,7 @@ def _failure(
             "retryable": retryable,
         },
         "provider_events": provider_events or [],
+        "failure_diagnostic": diagnostic,
     }
 
 

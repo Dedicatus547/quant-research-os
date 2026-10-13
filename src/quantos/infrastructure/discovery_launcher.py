@@ -27,7 +27,7 @@ from quantos.artifacts.store import (
     sha256_file,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
-from quantos.contracts.discovery import DiscoveryDesign
+from quantos.contracts.discovery import DiscoveryDesignContract, DiscoveryDesignReader
 from quantos.contracts.discovery_hosted import (
     HostedGenerationProjectionFact,
     HostedGenerationRequest,
@@ -87,7 +87,7 @@ def verify_generation_projection_fact(
     fact: HostedGenerationProjectionFact,
     *,
     request: HostedGenerationRequest | HostedSequentialGenerationRequest,
-    design: DiscoveryDesign,
+    design: DiscoveryDesignContract,
     profile: HostedDeploymentProfile,
     configuration: HostedLauncherConfiguration,
     initial_inventory: HostedInstallInventory,
@@ -178,7 +178,7 @@ def verify_generation_projection_fact(
             parse_generation_request(data)
         elif digest == design.content_hash:
             try:
-                decoded_design = DiscoveryDesign.model_validate_json(data)
+                decoded_design = DiscoveryDesignReader.model_validate_json(data)
             except ValueError:
                 raise ArtifactIntegrityError("generation projected design is invalid") from None
             if decoded_design.canonical_bytes() != data:
@@ -188,7 +188,7 @@ def verify_generation_projection_fact(
 
 def publish_generation_projection_fact(
     request: HostedGenerationRequest | HostedSequentialGenerationRequest,
-    design: DiscoveryDesign,
+    design: DiscoveryDesignContract,
     *,
     profile: HostedDeploymentProfile,
     configuration: HostedLauncherConfiguration,
@@ -448,7 +448,7 @@ class DiscoveryCodexLauncher:
     def capture(
         self,
         request: HostedGenerationRequest | HostedSequentialGenerationRequest,
-        design: DiscoveryDesign,
+        design: DiscoveryDesignContract,
         projection: HostedInstallInventory,
         initial_inventory: HostedInstallInventory,
         *,

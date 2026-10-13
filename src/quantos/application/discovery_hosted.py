@@ -21,12 +21,13 @@ from quantos.artifacts.store import (
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.discovery import (
-    DiscoveryDesign,
+    DiscoveryDesignContract,
+    DiscoveryDesignReader,
     GenerationRequest,
     GenerationReservation,
     GenerationResponse,
     SequentialGenerationAttempt,
-    SequentialGenerationPolicy,
+    SequentialPolicyContract,
 )
 from quantos.contracts.discovery_hosted import (
     HostedGenerationOrigin,
@@ -177,7 +178,7 @@ class HostedGenerationManager:
 
     def prepare(
         self,
-        design: DiscoveryDesign,
+        design: DiscoveryDesignContract,
         request: GenerationRequest,
         reservation: GenerationReservation,
         configuration: HostedLauncherConfiguration,
@@ -186,7 +187,7 @@ class HostedGenerationManager:
         context_objects: Mapping[str, bytes],
         issued_at: datetime,
         expires_at: datetime,
-        policy: SequentialGenerationPolicy | None = None,
+        policy: SequentialPolicyContract | None = None,
         attempt: SequentialGenerationAttempt | None = None,
     ) -> HostedGenerationRequest | HostedSequentialGenerationRequest:
         if (
@@ -314,7 +315,7 @@ class HostedGenerationManager:
             raise ArtifactIntegrityError("hosted generation initial projection originals differ")
         from quantos.infrastructure.discovery_launcher import verify_generation_projection_fact
 
-        design = DiscoveryDesign.model_validate_json(
+        design = DiscoveryDesignReader.model_validate_json(
             read_projection(projection, request.design_hash, max_bytes=_OBJECT_CAP)
         )
         verify_generation_projection_fact(

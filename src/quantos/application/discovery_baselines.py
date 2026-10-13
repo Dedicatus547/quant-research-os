@@ -6,9 +6,11 @@ import random
 
 from quantos.contracts.base import canonical_json_bytes
 from quantos.contracts.discovery import (
-    DiscoveryDesign,
+    CompositionGenerationPolicy,
+    DiscoveryCompositionDesign,
+    DiscoveryDesignContract,
     GenerationRequest,
-    SequentialGenerationPolicy,
+    SequentialPolicyContract,
 )
 from quantos.contracts.pit import SafeExpressionNode, SafeQlibExpressionSpec, SafeQlibOperator
 
@@ -67,8 +69,14 @@ def _expression(
     )
 
 
-def baseline_expression_space(design: DiscoveryDesign) -> tuple[SafeQlibExpressionSpec, ...]:
+def baseline_expression_space(
+    design: DiscoveryDesignContract,
+) -> tuple[SafeQlibExpressionSpec, ...]:
     """Common finite grammar for LLM admission and both cheap baselines."""
+    if isinstance(design, DiscoveryCompositionDesign):
+        from quantos.application.discovery_composition import composition_expression_space
+
+        return composition_expression_space(design)
     allowed = set(design.allowed_operators)
     if SafeQlibOperator.FIELD not in allowed or design.max_nodes < 2:
         raise ValueError("design does not permit the minimum field/window baseline expression")
@@ -99,7 +107,9 @@ def baseline_expression_space(design: DiscoveryDesign) -> tuple[SafeQlibExpressi
     )
 
 
-def generate_baseline(design: DiscoveryDesign, request: GenerationRequest) -> tuple[str, ...]:
+def generate_baseline(
+    design: DiscoveryDesignContract, request: GenerationRequest
+) -> tuple[str, ...]:
     """Return bounded canonical SafeQlibExpressionSpec JSON strings.
 
     Duplicate expressions are retained as separate attempts. This function only
@@ -118,7 +128,15 @@ def generate_baseline(design: DiscoveryDesign, request: GenerationRequest) -> tu
     candidates = baseline_expression_space(design)
     if not candidates:
         raise ValueError("design allows no baseline expression within its node and operator limits")
-    if request.method == "TEMPLATE":
+    if isinstance(design, DiscoveryCompositionDesign):
+        if request.max_attempts > len(candidates):
+            raise ValueError("baseline exhausts composition space")
+        selected = (
+            candidates[: request.max_attempts]
+            if request.method == "TEMPLATE"
+            else tuple(random.Random(request.seed).sample(candidates, request.max_attempts))
+        )
+    elif request.method == "TEMPLATE":
         selected = tuple(
             candidates[index % len(candidates)] for index in range(request.max_attempts)
         )
@@ -136,7 +154,7 @@ def generate_baseline(design: DiscoveryDesign, request: GenerationRequest) -> tu
 
 
 def generate_sequential_baseline(
-    design: DiscoveryDesign, request: GenerationRequest, policy: SequentialGenerationPolicy
+    design: DiscoveryDesignContract, request: GenerationRequest, policy: SequentialPolicyContract
 ) -> tuple[str, ...]:
     """Successor coverage policy; each output is tied to its original opportunity."""
     if request.method not in ("TEMPLATE", "RANDOM"):
@@ -150,6 +168,10 @@ def generate_sequential_baseline(
         or request.seed is None
     ):
         raise ValueError("sequential baseline identities or opportunity limits differ")
+    if isinstance(design, DiscoveryCompositionDesign) != isinstance(
+        policy, CompositionGenerationPolicy
+    ):
+        raise ValueError("generation policy and design profile differ")
     space = baseline_expression_space(design)
     if request.max_attempts > len(space):
         raise ValueError("sequential baseline exhausts the common expression space")
@@ -157,6 +179,8 @@ def generate_sequential_baseline(
         if request.seed != policy.random_seed:
             raise ValueError("sequential random request must bind policy seed 1729")
         selected = random.Random(policy.random_seed).sample(space, request.max_attempts)
+    elif isinstance(design, DiscoveryCompositionDesign):
+        selected = space[: request.max_attempts]
     else:
         layers = [
             [expression for expression in space if expression.nodes[1].operator is operator]

@@ -43,6 +43,11 @@ from quantos.contracts.p14dq_qualification import (
     P14DQ_TEMPLATE_HASH,
     P14DQ_UPSTREAM_RELEASE_REPORT_HASH,
 )
+from quantos.contracts.sdk_producer import (
+    SdkCampaignSpec,
+    SdkHostedBudgetPolicyV3,
+    SdkProducerProfileV3,
+)
 from quantos.data import verify_qlib_view, verify_snapshot
 
 _BUNDLE_CAP = 4_194_304
@@ -54,6 +59,7 @@ def build_hosted_execution_adapter(
     input_root: Path,
     runtime_root: Path,
     provenance_workspace: Path,
+    sdk_spec: SdkCampaignSpec | None = None,
 ) -> QuantosResearchExecutionAdapter:
     """Construct the existing adapter for execution or read-only offline inspection."""
     return QuantosResearchExecutionAdapter(
@@ -74,6 +80,7 @@ def build_hosted_execution_adapter(
         workspace=provenance_workspace,
         canonical_validation=True,
         p14dq_v2_profile=True,
+        sdk_campaign_spec=sdk_spec,
     )
 
 
@@ -121,6 +128,8 @@ def _publish_seed_file(ledger_root: Path, item: HostedFrozenInputFile, data: byt
 def _verify_bundle(
     config: HostedBusinessLoaderConfiguration,
     bundle: HostedFrozenBusinessInputs,
+    *,
+    sdk: bool = False,
 ) -> None:
     root = Path(config.input_root)
     data = _read_file(root, f"sha256-{config.business_inputs_hash}.json", max_bytes=_BUNDLE_CAP)
@@ -149,7 +158,8 @@ def _verify_bundle(
             "production hosted input escaped the fixed two-candidate family"
         )
     if (
-        bundle.agent_run_policy.harness_identifier != "host-mediated/v1"
+        bundle.agent_run_policy.harness_identifier
+        != ("openai-codex-python-sdk" if sdk else "host-mediated/v1")
         or bundle.agent_run_policy.model_snapshot_immutable
     ):
         raise ArtifactIntegrityError(
@@ -200,6 +210,7 @@ def load_hosted_campaign_application(
     *,
     deployment_profile_hash: str,
     fault_hook: Callable[[str], None] | None = None,
+    sdk_spec: SdkCampaignSpec | None = None,
 ) -> HostedCampaignApplicationService:
     """Load one frozen MVP registration from management-owned configuration.
 
@@ -213,8 +224,26 @@ def load_hosted_campaign_application(
     if sha256_bytes(encoded) != config.business_inputs_hash:
         raise ArtifactIntegrityError("frozen business input bundle hash differs")
     bundle = parse_hosted_contract(encoded, HostedFrozenBusinessInputs, max_bytes=_BUNDLE_CAP)
-    _verify_bundle(config, bundle)
+    _verify_bundle(config, bundle, sdk=sdk_spec is not None)
     spec = derive_hosted_campaign_spec(bundle, deployment_profile_hash=deployment_profile_hash)
+    if sdk_spec is not None:
+        sdk_spec = SdkCampaignSpec.model_validate(sdk_spec.model_dump(mode="python"))
+        expected = spec.model_dump(mode="json")
+        if isinstance(sdk_spec.sdk_profile, SdkProducerProfileV3):
+            expected["hosted_budget"] = SdkHostedBudgetPolicyV3.model_validate(
+                {
+                    **spec.hosted_budget.model_dump(mode="json"),
+                    "schema_version": "sdk-hosted-budget-policy/v3",
+                    "max_response_bytes": 524288,
+                }
+            ).model_dump(mode="json")
+        actual = sdk_spec.model_dump(mode="json")
+        for name in ("schema_version", "profile", "sdk_profile"):
+            expected.pop(name, None)
+            actual.pop(name, None)
+        if actual != expected:
+            raise ArtifactIntegrityError("SDK successor spec differs from verified business inputs")
+        spec = sdk_spec
     runtime = Path(config.business_root) / bundle.campaign.content_hash
     seed_root = root / bundle.initial_ledger_directory
     ledger_root = runtime / "ledger"
@@ -226,6 +255,7 @@ def load_hosted_campaign_application(
         input_root=root,
         runtime_root=runtime,
         provenance_workspace=Path(config.provenance_workspace),
+        sdk_spec=sdk_spec,
     )
     selection = CampaignSelectionService(
         bundle.campaign,
@@ -289,7 +319,7 @@ def load_hosted_campaign_application(
             raise ArtifactIntegrityError(
                 "registered hosted spec differs from frozen business bundle"
             )
-        _verify_bundle(config, bundle)
+        _verify_bundle(config, bundle, sdk=sdk_spec is not None)
 
     service.register_inputs(
         spec, HostedCampaignInputs(orchestrator, bundle.initial_events, reverify)

@@ -36,3 +36,12 @@ D01–D07、D09、D10/A、D10/B 已完成；顺序生成历史、恢复与冻结
 
 SDK discovery/campaign 生成入口仍未资格化；本研究采用的 Hosted 路线与
 [FR-03 确切组合 GO](fr03.md)具有各自的接受范围。
+
+2026-10-12 新切片：B0/B1 的 `bounded-price-composition/v1` 离线实现与准备已完成，
+见[设计、示例和 B2 最小请求](../roadmap/bounded-price-composition-offline.md)。
+它是新的回顾性研究空间；尚未生成真实模型响应或科学评价，不改变上述两轮结论。
+A0 的有界 SDK campaign 接入仍不放开 SDK Discovery capture；P14d-C 和新组合资格未授予。
+
+2026-10-13：B2本次授权的单LLM3补跑与报告收尾完成，科学结果为SOFT_REJECT；
+预测报告6项可分析、720共同日，LLM相对最佳基线无正增量。A1 V4后继r10两步工程闭环完成，个体科学均SOFT_REJECT、科学汇总FAILED/NOT_EVALUATED；累计SDK11/11、科学5/90。原r9失败按原身份保留。B2不因A1重跑，见
+[A1/B2 当前准备状态](a1-b2-authorized-preparation.md)。

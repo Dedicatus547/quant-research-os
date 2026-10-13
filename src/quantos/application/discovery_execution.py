@@ -45,6 +45,7 @@ from quantos.contracts.campaign import (
 )
 from quantos.contracts.discovery import (
     DiscoveryBatch,
+    DiscoveryCompositionDesign,
     DiscoverySubtask,
     GenerationResponse,
     ProposalMapping,
@@ -57,6 +58,7 @@ from quantos.contracts.discovery_evaluation import (
     ScientificExecutionAuthorization,
     ScientificSchedulingCutoff,
 )
+from quantos.contracts.discovery_scientific_adoption import ScientificAdoptionPlan
 from quantos.contracts.research import ExperimentAuthoringSpec
 from quantos.infrastructure.hosted_storage import (
     LEASE_ENV,
@@ -96,7 +98,17 @@ def quote_discovery_tasks(batch: DiscoveryBatch) -> dict[str, int]:
         payload = batch.design.authoring.model_dump(mode="python")
         payload["expression"] = task.manifest.candidates[0].expression.model_dump(mode="python")
         charges[task.content_hash] = quote_autonomous_workload(
-            ExperimentAuthoringSpec.model_validate(payload), batch.design.validation_policy
+            ExperimentAuthoringSpec.model_validate(payload),
+            batch.design.validation_policy,
+            window_node_id=(
+                next(
+                    n.node_id
+                    for n in task.manifest.candidates[0].expression.nodes
+                    if n.window is not None
+                )
+                if isinstance(batch.design, DiscoveryCompositionDesign)
+                else None
+            ),
         )
     return charges
 
@@ -202,6 +214,55 @@ class DiscoveryExecutionService:
                         "scientific source dependency adoption differs from its declaration"
                     )
                 self.scientific_dependency_adoption = dependency
+            if evaluation_declaration.native_variant_adoption_hash is not None:
+                adopted = DiscoveryEvaluationSourceAdoption.model_validate(
+                    _read_json(self.output_root / "native-variant-adoption.json")
+                )
+                new_tasks = (
+                    {t.content_hash for t in batch.subtasks}
+                    if evaluation_declaration.scientific_adoption_plan_hash is None
+                    else set(
+                        ScientificAdoptionPlan.model_validate(
+                            _read_json(self.output_root / "scientific-adoption-plan.json")
+                        ).new_subtask_hashes
+                    )
+                )
+                original_source = _read_json(self.output_root / "original-generation-source.json")
+                if (
+                    adopted.content_hash != evaluation_declaration.native_variant_adoption_hash
+                    or adopted.original_batch_hash != batch.content_hash
+                    or adopted.original_design_hash != batch.design.content_hash
+                    or adopted.original_source_commit
+                    != evaluation_declaration.original_scientific_source_commit
+                    or adopted.evaluation_source_commit != self.evaluation_bindings.code_commit_hash
+                    or adopted.lockfile_hash != self.evaluation_bindings.lockfile_hash
+                    or adopted.evaluation_execution_policy_hash
+                    != self.evaluation_bindings.execution_policy_hash
+                    or adopted.evaluation_capsule_hash
+                    != evaluation_declaration.evaluation_source_declaration_hash
+                    or adopted.original_capsule_hash
+                    != evaluation_declaration.original_generation_source_declaration_hash
+                    or adopted.original_workspace != original_source.get("workspace")
+                    or adopted.source_delta_record_hash
+                    != sha256_bytes(
+                        canonical_json_bytes(
+                            _read_json(self.output_root / "native-variant-source-delta.json")
+                        )
+                    )
+                    or adopted.supersession_cutoff_hash
+                    != sha256_bytes(
+                        canonical_json_bytes(
+                            _read_json(self.output_root / "native-variant-supersession-cutoff.json")
+                        )
+                    )
+                    or any(item.subtask_hash not in new_tasks for item in adopted.variants)
+                    or len({(item.subtask_hash, item.stage) for item in adopted.variants})
+                    != len(adopted.variants)
+                ):
+                    raise ArtifactIntegrityError(
+                        "native variant adoption differs from its scientific declaration"
+                    )
+                self.source_adoption = adopted
         elif evaluation_declaration is not None:
             adopted = DiscoveryEvaluationSourceAdoption.model_validate(
                 _read_json(self.output_root / "source-adoption.json")
@@ -672,7 +733,7 @@ class DiscoveryExecutionService:
                 output_root=self._task_root(subtask_hash),
                 workspace=self.workspace,
                 discovery_stage_recovery=True,
-                discovery_profile="singleton-full-chain/v1",
+                discovery_profile=design.profile_id,
                 _verified_inputs=self._verified_inputs,
                 discovery_source_adoption=self.source_adoption,
             )
@@ -957,6 +1018,15 @@ class DiscoveryExecutionService:
         return quote_autonomous_workload(
             ExperimentAuthoringSpec.model_validate(payload),
             self.batch.design.validation_policy,
+            window_node_id=(
+                next(
+                    n.node_id
+                    for n in self.task_request(subtask_hash).candidate.expression.nodes
+                    if n.window is not None
+                )
+                if isinstance(self.batch.design, DiscoveryCompositionDesign)
+                else None
+            ),
         )
 
     def quote(self) -> int:

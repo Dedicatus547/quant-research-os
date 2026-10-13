@@ -16,6 +16,8 @@ from quantos.contracts.autonomous import AutonomousExecutionBindings
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import ResearchCampaignEvent, TrialOutcome
 from quantos.contracts.discovery import (
+    CompositionGenerationPolicy,
+    DiscoveryCompositionDesign,
     DiscoveryDesign,
     GenerationRequest,
     SequentialGenerationPolicy,
@@ -96,20 +98,29 @@ def prepare_inputs(
     view_manifest: Path,
     launcher_configuration: Path,
     output_root: Path,
-    generation_policy: Literal["legacy-v1", "sequential-v2"] = "legacy-v1",
+    generation_policy: Literal["legacy-v1", "sequential-v2", "composition-v3"] = "legacy-v1",
     max_compute_units: int | None = None,
+    opportunities: int | None = None,
 ) -> Path:
     """Write immutable input originals bound to the code actually running this function."""
-    if generation_policy == "sequential-v2":
+    if generation_policy in ("sequential-v2", "composition-v3"):
         if max_compute_units is None or max_compute_units <= 0:
             raise ValueError(
-                "sequential preparation requires an explicit positive compute design cap"
+                "successor preparation requires an explicit positive compute design cap"
             )
         declared_compute_units = max_compute_units
     else:
         if max_compute_units not in (None, 360):
             raise ValueError("legacy preparation retains its original compute design cap")
         declared_compute_units = 360
+    if generation_policy == "composition-v3":
+        if opportunities is not None and opportunities <= 0:
+            raise ValueError("composition opportunities must be positive")
+        declared_opportunities = opportunities or 3
+    else:
+        if opportunities is not None:
+            raise ValueError("opportunities is only supported by composition-v3")
+        declared_opportunities = 5
     workspace = workspace.resolve()
     output_root = output_root.resolve()
     if any(output_root.is_relative_to(path) for path in (Path("/tmp"), Path("/var/tmp"))):
@@ -220,28 +231,71 @@ def prepare_inputs(
         "Sealed 2026-01-01 through 2026-01-30 is a retained declaration; this preparation "
         "does not access its data. No new sealed access is authorized by these inputs.",
     )
-    if generation_policy == "sequential-v2":
+    if generation_policy in ("sequential-v2", "composition-v3"):
         exposure += (
             "First Discovery report "
             "b96c14eeee6637bd7ca67b02dbc2ff148aaddec385057e6ca51a76f8028d33be "
             "was consumed by this successor design; the 2023-2025 period remains "
             "retrospective exploratory, not an independent confirmation window.",
         )
+    if generation_policy == "composition-v3":
+        exposure += (
+            "Second Discovery comparison "
+            "0d0f925443dc0b129bf6cab9b6c778c615550c7cb23cdd1c84fb83dc471206a0 "
+            "and its scientific report were already visible in this session; the old evaluation "
+            "period is not newly unexposed. No model/science results from this B2 round are "
+            "fed back into generation.",
+        )
     methodology: dict[str, object] = {
-        "schema_version": "discovery-shared-context/v1",
+        "schema_version": (
+            "discovery-shared-context/v3"
+            if generation_policy == "composition-v3"
+            else "discovery-shared-context/v1"
+        ),
         "research_policy": policy.model_dump(mode="json"),
         "primary_metric": "Rank IC",
         "direction": "maximize",
-        "grammar": "field-window-optional-ratio-abs/v1",
+        "grammar": (
+            "price-return-volatility-trend/v1"
+            if generation_policy == "composition-v3"
+            else "field-window-optional-ratio-abs/v1"
+        ),
         "field": "adjusted_close",
-        "window_operators": ["rank", "return", "rolling_mean", "rolling_std"],
-        "windows": [5, 10, 20],
-        "max_nodes": 4,
+        "window_operators": (
+            ["return", "rolling_mean", "rolling_std"]
+            if generation_policy == "composition-v3"
+            else ["rank", "return", "rolling_mean", "rolling_std"]
+        ),
+        "windows": [1, 5, 10, 20, 60] if generation_policy == "composition-v3" else [5, 10, 20],
+        "max_nodes": 8 if generation_policy == "composition-v3" else 4,
+        **({"max_depth": 4} if generation_policy == "composition-v3" else {}),
         "input_lag_trading_days": bundle.authoring.strategy.input_lag_trading_days,
         "rank_semantics": "Qlib Rank(x,N) is a time-window operator, not cross-sectional rank.",
-        "composition": "Exactly one field and one window node; optional abs, or "
-        "divide(adjusted_close, rolling_mean(adjusted_close, window)), optionally abs.",
-        "opportunities_per_method": 5,
+        "composition": (
+            "C=Return(adjusted_close,w); N=Mean or Std(Return(adjusted_close,a),b); "
+            "emit C, N, C/N or C*N; "
+            "w,a,b from {1,5,10,20,60}; at most 8 nodes and depth 4."
+            if generation_policy == "composition-v3"
+            else "Exactly one field and one window node; optional abs, or "
+            "divide(adjusted_close, rolling_mean(adjusted_close, window)), optionally abs."
+        ),
+        "opportunities_per_method": declared_opportunities,
+        **(
+            {
+                "composition_order": {
+                    "short_windows": [5, 10, 20, 1, 60],
+                    "outer_windows": [20, 60, 10, 5, 1],
+                    "inner_windows": [1, 5, 10, 20, 60],
+                    "volatility_operator_order": ["rolling_std", "rolling_mean"],
+                    "root_operator_order": ["divide", "multiply"],
+                    "template_traversal": "composition-component-round-robin/v1",
+                    "random_selection": "structural-uniform-without-replacement/v1",
+                    "random_seed": 1729,
+                }
+            }
+            if generation_policy == "composition-v3"
+            else {}
+        ),
         "maximum_compute_units": declared_compute_units,
         "baseline_seed": 1729,
         "exposure_history": list(exposure),
@@ -266,7 +320,11 @@ def prepare_inputs(
     authoring = ExperimentAuthoringSpec.model_validate(
         {
             **bundle.authoring.model_dump(mode="python"),
-            "experiment_id": "post_hm_discovery_singleton_base_v1",
+            "experiment_id": (
+                "post_hm_discovery_composition_base_v3"
+                if generation_policy == "composition-v3"
+                else "post_hm_discovery_singleton_base_v1"
+            ),
             "expression": placeholder,
         }
     )
@@ -281,9 +339,15 @@ def prepare_inputs(
         code_commit_hash=provenance.commit_hash,
         lockfile_hash=provenance.lockfile_hash,
     )
-    design = DiscoveryDesign(
-        research_question="Within the declared common bounded price-expression grammar, "
-        "compare LLM, seeded random and fixed template proposals by retrospective test Rank IC.",
+    design_fields = dict(
+        research_question=(
+            "Within the finite bounded price-return-volatility-trend grammar, compare LLM, "
+            "structurally uniform random and component-round-robin template proposals by "
+            "retrospective test Rank IC."
+            if generation_policy == "composition-v3"
+            else "Within the declared common bounded price-expression grammar, "
+            "compare LLM, seeded random and fixed template proposals by retrospective test Rank IC."
+        ),
         snapshot_hash=_SNAPSHOT_HASH,
         qlib_view_hash=_VIEW_HASH,
         ledger_snapshot_hash=bundle.initial_ledger_snapshot.content_hash,
@@ -304,34 +368,81 @@ def prepare_inputs(
                     SafeQlibOperator.RETURN,
                     SafeQlibOperator.ROLLING_MEAN,
                     SafeQlibOperator.ROLLING_STD,
-                    SafeQlibOperator.RANK,
                     SafeQlibOperator.DIVIDE,
-                    SafeQlibOperator.ABS,
+                    *(
+                        (SafeQlibOperator.MULTIPLY,)
+                        if generation_policy == "composition-v3"
+                        else ()
+                    ),
+                    *(
+                        (SafeQlibOperator.RANK, SafeQlibOperator.ABS)
+                        if generation_policy != "composition-v3"
+                        else ()
+                    ),
                 ),
                 key=str,
             )
         ),
         max_compute_units=declared_compute_units,
     )
-    originals["design.json"] = design.canonical_bytes()
-    prompt = (
-        "Return exactly one canonical safe-qlib-expression/v2 JSON AST as a proposal. "
-        "Use only the shared declared grammar, operators, windows and input lag. Do not access "
-        "data, tools, code or sealed periods. Do not claim validated evidence. Each attempt "
-        "is one of five fixed opportunities; failed, duplicate and interrupted attempts remain. "
-        "The authoring expression is only an execution placeholder and will be replaced. "
-        "A proposal must contain exactly one allowed window node; the placeholder is inadmissible."
-        "\nShared context originals (each SHA256 refers to the exact following UTF-8 bytes):\n"
-        + "\n".join(
-            f"{digest}: {data.decode('utf-8')}" for digest, data in sorted(contexts.items())
+    if generation_policy == "composition-v3":
+        design = DiscoveryCompositionDesign.model_validate(
+            {
+                **design_fields,
+                "candidate_grammar": "price-return-volatility-trend/v1",
+                "allowed_windows": (1, 5, 10, 20, 60),
+                "max_nodes": 8,
+                "max_depth": 4,
+                "evaluation_opportunities_per_method": declared_opportunities,
+                "baseline_sampling": "structural-uniform-without-replacement/v1",
+                "template_order": "composition-component-round-robin/v1",
+            }
         )
-    )
+    else:
+        design = DiscoveryDesign.model_validate(design_fields)
+    originals["design.json"] = design.canonical_bytes()
+    if generation_policy == "composition-v3":
+        prompt = (
+            "Return exactly one canonical safe-qlib-expression/v2 JSON AST as a proposal. "
+            "Use only the finite price-return-volatility-trend/v1 grammar and adjusted_close. "
+            "Choose w,a,b from {1,5,10,20,60}; C=Return(adjusted_close,w); "
+            "N=Mean or Std(Return(adjusted_close,a),b); emit C, N, C/N or C*N. "
+            "The complete AST has at most 8 nodes "
+            "and depth at most 4. Use only FIELD, RETURN, ROLLING_STD, ROLLING_MEAN, DIVIDE, "
+            "MULTIPLY. The finite grammar contains 555 canonical structures at the declared "
+            "limits. No other field, operator, grammar production, data, tool or code; do not "
+            "access the sealed period, use scientific feedback, or claim validated evidence. "
+            "Use only the same-method static proposal history supplied for this reserved slot; "
+            "never use evaluation results or another method's history. "
+            f"There are {declared_opportunities} fresh opportunities per method; failures, "
+            "duplicates and interruptions consume their slot. The authoring expression is an "
+            "execution placeholder and will be replaced.\n"
+            "Shared context originals (each SHA256 refers to the exact following UTF-8 bytes):\n"
+            + "\n".join(
+                f"{digest}: {data.decode('utf-8')}" for digest, data in sorted(contexts.items())
+            )
+        )
+    else:
+        prompt = (
+            "Return exactly one canonical safe-qlib-expression/v2 JSON AST as a proposal. "
+            "Use only the shared declared grammar, operators, windows and input lag. Do not access "
+            "data, tools, code or sealed periods. Do not claim validated evidence. Each attempt "
+            "is one of five fixed opportunities; failed, duplicate and interrupted "
+            "attempts remain. "
+            "The authoring expression is only an execution placeholder and will be replaced. "
+            "A proposal must contain exactly one allowed window node; the placeholder "
+            "is inadmissible."
+            "\nShared context originals (each SHA256 refers to the exact following UTF-8 bytes):\n"
+            + "\n".join(
+                f"{digest}: {data.decode('utf-8')}" for digest, data in sorted(contexts.items())
+            )
+        )
     if generation_policy == "sequential-v2":
         prompt += (
             "\nUse the versioned same-method static history supplied with each attempt. "
             "Avoid prior structural duplicates. No scientific feedback is available."
         )
-    elif generation_policy != "legacy-v1":
+    elif generation_policy not in ("legacy-v1", "composition-v3"):
         raise ValueError("unsupported generation policy")
     request_hashes: dict[str, str] = {}
     methods: tuple[Literal["LLM", "RANDOM", "TEMPLATE"], ...] = ("LLM", "RANDOM", "TEMPLATE")
@@ -342,25 +453,39 @@ def prepare_inputs(
             else canonical_json_bytes(
                 {
                     "schema_version": (
-                        "discovery-baseline-configuration/v2"
+                        "discovery-baseline-configuration/v3"
+                        if generation_policy == "composition-v3"
+                        else "discovery-baseline-configuration/v2"
                         if generation_policy == "sequential-v2"
                         else "discovery-baseline-configuration/v1"
                     ),
                     "method": method,
                     "seed": 1729,
                     "generator": (
-                        "quantos.application.discovery_baselines.generate_sequential_baseline"
+                        (
+                            "quantos.application.discovery_baselines.bounded_composition_structural_uniform"
+                            if method == "RANDOM"
+                            else "quantos.application.discovery_baselines."
+                            "composition_component_round_robin"
+                        )
+                        if generation_policy == "composition-v3"
+                        else "quantos.application.discovery_baselines.generate_sequential_baseline"
                         if generation_policy == "sequential-v2"
                         else "quantos.application.discovery_baselines.generate_baseline"
                     ),
-                    "max_attempts": 5,
-                    "space": "field-window-optional-ratio-abs/v1",
+                    "max_attempts": declared_opportunities,
+                    "space": (
+                        "price-return-volatility-trend/v1"
+                        if generation_policy == "composition-v3"
+                        else "field-window-optional-ratio-abs/v1"
+                    ),
                 }
             )
         )
         request = GenerationRequest(
             design_hash=design.content_hash,
             method=method,
+            max_attempts=declared_opportunities,
             seed=None if method == "LLM" else 1729,
             model_identifier=configuration.model if method == "LLM" else None,
             reasoning_effort=configuration.reasoning_effort if method == "LLM" else None,
@@ -371,21 +496,28 @@ def prepare_inputs(
         originals[f"{method.lower()}-request.json"] = request.canonical_bytes()
         originals[f"{method.lower()}-configuration.json"] = config_bytes
         request_hashes[method] = request.content_hash
-    if generation_policy == "sequential-v2":
-        policy = SequentialGenerationPolicy(
-            design_hash=design.content_hash,
-            request_hashes=(
+    if generation_policy in ("sequential-v2", "composition-v3"):
+        policy_fields: dict[str, object] = {
+            "design_hash": design.content_hash,
+            "request_hashes": (
                 request_hashes["LLM"],
                 request_hashes["RANDOM"],
                 request_hashes["TEMPLATE"],
             ),
-        )
+        }
+        if generation_policy == "composition-v3":
+            policy_fields["max_attempts_per_method"] = declared_opportunities
+            policy = CompositionGenerationPolicy.model_validate(policy_fields)
+        else:
+            policy = SequentialGenerationPolicy.model_validate(policy_fields)
         originals["sequential-policy.json"] = policy.canonical_bytes()
     for digest, data in contexts.items():
         originals[f"contexts/sha256-{digest}.json"] = data
     inventory: dict[str, object] = {
         "schema_version": (
-            "discovery-input-preparation/v2"
+            "discovery-input-preparation/v3"
+            if generation_policy == "composition-v3"
+            else "discovery-input-preparation/v2"
             if generation_policy == "sequential-v2"
             else "discovery-input-preparation/v1"
         ),
@@ -432,12 +564,19 @@ def main() -> int:
     ):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument(
-        "--generation-policy", choices=("legacy-v1", "sequential-v2"), default="legacy-v1"
+        "--generation-policy",
+        choices=("legacy-v1", "sequential-v2", "composition-v3"),
+        default="legacy-v1",
     )
     parser.add_argument(
         "--max-compute-units",
         type=int,
-        help="explicit sequential design cap; grants no execution authority",
+        help="explicit successor design cap; grants no execution authority",
+    )
+    parser.add_argument(
+        "--opportunities",
+        type=int,
+        help="composition-v3 opportunities per method; defaults to 3 and grants no run authority",
     )
     parser.add_argument("--code-commit", required=True)
     parser.add_argument("--lockfile-hash", required=True)

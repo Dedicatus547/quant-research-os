@@ -3,6 +3,17 @@
 当前工作顺序见[根路线图](../../PLAN.md)，已完成范围见[状态总览](../status/README.md)。
 本目录同时保存设计和阶段记录；其中的旧待办、模型分工与授权表述按写作时点读取。
 
+## 下一阶段离线实施
+
+- [A0 SDK 接入与使用](../guides/sdk-campaign-offline.md)
+- [B0/B1 有界价格组合设计、离线示例与 B2 请求](bounded-price-composition-offline.md)
+- [下一阶段策略及 agent 分工](quantos-next-stage-strategy-and-implementation.md)
+- [本轮持久离线验证与交接](../../artifacts/next-stage-offline-20261012/)
+
+A0、B0/B1离线实施完成，本轮源码、测试与文档按用户授权集成到main提交推送。2026-10-13：B2本次补跑和报告完成，
+A1 V4后继r10两步工程闭环完成；个体科学均SOFT_REJECT、科学汇总FAILED/NOT_EVALUATED，累计SDK11/11、科学5/90，零重试。原r9取消及失败保留。旧资格及失败保持原身份；
+[当前完成结果与用量](../status/a1-b2-authorized-preparation.md)。
+
 ## Discovery：先看结果，再查实现
 
 | 阅读目的 | 入口 |

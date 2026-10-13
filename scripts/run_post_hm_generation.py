@@ -30,11 +30,15 @@ from quantos.artifacts.store import (
 )
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.discovery import (
-    DiscoveryDesign,
+    CompositionGenerationPolicy,
+    DiscoveryCompositionDesign,
+    DiscoveryDesignContract,
+    DiscoveryDesignReader,
     GenerationRequest,
     GenerationReservation,
-    SequentialGenerationPolicy,
     SequentialLaunchSource,
+    SequentialPolicyContract,
+    SequentialPolicyReader,
 )
 from quantos.contracts.discovery_hosted import (
     HostedGenerationOrigin,
@@ -95,6 +99,22 @@ def _contract(path: Path, kind: type[_C], cap: int = _CAP) -> _C:
     return parse_hosted_contract(_bytes(path, cap), kind, max_bytes=cap)
 
 
+def _design(data: bytes) -> DiscoveryDesignContract:
+    strict_json_object(data, max_bytes=_CAP)
+    value = DiscoveryDesignReader.model_validate_json(data)
+    if value.canonical_bytes() != data:
+        raise ArtifactIntegrityError("generation design is not canonical")
+    return value
+
+
+def _policy(data: bytes) -> SequentialPolicyContract:
+    strict_json_object(data, max_bytes=_CAP)
+    value = SequentialPolicyReader.model_validate_json(data)
+    if value.canonical_bytes() != data:
+        raise ArtifactIntegrityError("generation policy is not canonical")
+    return value
+
+
 def _object_path(value: object) -> Path:
     if not isinstance(value, str):
         raise ArtifactIntegrityError("runtime source path is invalid")
@@ -106,12 +126,12 @@ def _object_path(value: object) -> Path:
 
 @dataclass(frozen=True)
 class Inputs:
-    design: DiscoveryDesign
+    design: DiscoveryDesignContract
     request: GenerationRequest
     configuration: HostedLauncherConfiguration
     contexts: dict[str, bytes]
     preparation_hash: str
-    policy: SequentialGenerationPolicy | None = None
+    policy: SequentialPolicyContract | None = None
 
 
 def _inputs(root: Path, store: GenerationStore) -> Inputs:
@@ -136,7 +156,7 @@ def _inputs(root: Path, store: GenerationStore) -> Inputs:
         ):
             raise ArtifactIntegrityError("preparation original differs")
         originals[name] = original
-    design = parse_hosted_contract(originals["design.json"], DiscoveryDesign, max_bytes=_CAP)
+    design = _design(originals["design.json"])
     request = parse_hosted_contract(
         originals["llm-request.json"], GenerationRequest, max_bytes=_CAP
     )
@@ -145,8 +165,11 @@ def _inputs(root: Path, store: GenerationStore) -> Inputs:
     )
     if (
         request.method != "LLM"
-        or request.max_attempts != 5
-        or design.evaluation_opportunities_per_method != 5
+        or request.max_attempts != design.evaluation_opportunities_per_method
+        or (
+            not isinstance(design, DiscoveryCompositionDesign)
+            and design.evaluation_opportunities_per_method != 5
+        )
         or request.design_hash != design.content_hash
         or preparation.get("design_hash") != design.content_hash
         or request.configuration_hash != configuration.content_hash
@@ -156,7 +179,7 @@ def _inputs(root: Path, store: GenerationStore) -> Inputs:
         raise ArtifactIntegrityError("managed generation design/configuration scope differs")
     directory = store.root / "requests" / request.content_hash
     if (
-        _contract(directory / "design.json", DiscoveryDesign) != design
+        _design(_bytes(directory / "design.json")) != design
         or _contract(directory / "request.json", GenerationRequest) != request
     ):
         raise ArtifactIntegrityError("generation authority differs from preparation")
@@ -178,16 +201,24 @@ def _inputs(root: Path, store: GenerationStore) -> Inputs:
     if sum(map(len, contexts.values())) > 65_536:
         raise ArtifactIntegrityError("managed generation context exceeds its frozen bound")
     version = preparation.get("schema_version")
+    if isinstance(design, DiscoveryCompositionDesign) != (
+        version == "discovery-input-preparation/v3"
+    ):
+        raise ArtifactIntegrityError("generation preparation/design version differs")
     policy = None
-    if version == "discovery-input-preparation/v2":
+    if version in ("discovery-input-preparation/v2", "discovery-input-preparation/v3"):
         data = _bytes(root / "sequential-policy.json")
-        policy = parse_hosted_contract(data, SequentialGenerationPolicy, max_bytes=_CAP)
+        policy = _policy(data)
         identity_value = inventory.get("sequential-policy.json")
         if not isinstance(identity_value, dict):
             raise ArtifactIntegrityError("sequential preparation policy inventory is missing")
         identity = cast(dict[str, object], identity_value)
         if (
-            identity.get("bytes_hash") != policy.content_hash
+            (version == "discovery-input-preparation/v3")
+            != isinstance(design, DiscoveryCompositionDesign)
+            or isinstance(design, DiscoveryCompositionDesign)
+            != isinstance(policy, CompositionGenerationPolicy)
+            or identity.get("bytes_hash") != policy.content_hash
             or identity.get("size_bytes") != len(data)
             or policy.design_hash != design.content_hash
             or policy.request_hashes[0] != request.content_hash

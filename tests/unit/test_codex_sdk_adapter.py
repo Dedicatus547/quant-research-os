@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 from pathlib import Path
@@ -17,6 +18,127 @@ from quantos.contracts import (
 )
 from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
 from quantos.integrations.codex.versioning import expected_codex_versions
+
+
+@pytest.mark.parametrize("mode", ["malformed-json", "nonzero-exit", "host-failure"])
+def test_failed_host_retains_original_transport_and_classifies_phase(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    from quantos.integrations.codex.sdk_host import _failure
+
+    stdout = (
+        b"not-json\n"
+        if mode != "host-failure"
+        else canonical_json_bytes(
+            _failure(
+                HarnessErrorKind.OUTPUT_INVALID,
+                ValueError("synthetic SDK parse failure"),
+                retryable=False,
+                phase="ACCOUNT_READ",
+            )
+        )
+    )
+    stderr = b"synthetic host stderr\n"
+
+    class FakeProcess:
+        returncode = 1 if mode == "nonzero-exit" else 0
+        pid = 123
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def communicate(self, _payload: bytes, timeout: float) -> tuple[bytes, bytes]:
+            return stdout, stderr
+
+    monkeypatch.setattr(subprocess, "Popen", FakeProcess)
+    result = CodexSdkAdapter(authentication_home=tmp_path).execute(_request(tmp_path))
+    assert result.terminal_error is not None
+    assert result.attempts[-1].qualification_observations is not None
+    diagnostic = result.attempts[-1].qualification_observations["host_transport"]
+    assert isinstance(diagnostic, dict)
+    assert (
+        diagnostic["phase"]
+        == {
+            "malformed-json": "HOST_JSON_PARSE",
+            "nonzero-exit": "HOST_EXIT",
+            "host-failure": "ACCOUNT_READ",
+        }[mode]
+    )
+    assert (
+        diagnostic["exception_class"]
+        == {
+            "malformed-json": "JSONDecodeError",
+            "nonzero-exit": "RuntimeError",
+            "host-failure": "ValueError",
+        }[mode]
+    )
+    assert [base64.b64decode(item["base64"]) for item in diagnostic["streams"]] == [stdout, stderr]
+    assert all(item["complete"] is True for item in diagnostic["streams"])
+
+
+def test_failed_host_capture_bounds_and_credentials_are_not_encoded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from quantos.integrations.codex.sdk_adapter import _host_transport_capture
+    from quantos.integrations.codex.sdk_host import _failure
+
+    monkeypatch.setenv("P10_FORBIDDEN_SECRET", "synthetic-p10-forbidden-marker")
+    blocked = _host_transport_capture(
+        b"synthetic-p10-forbidden-marker",
+        b"Authorization: Bearer synthetic-invalid-credential",
+        phase="HOST_JSON_PARSE",
+        exception_class="ValueError",
+        complete=True,
+    )
+    assert all(item["retention"] == "CREDENTIAL_OR_ENCODING_GUARD" for item in blocked["streams"])
+    assert all("base64" not in item for item in blocked["streams"])
+    bounded = _host_transport_capture(
+        b"x" * 65537, b"\xff", phase="HOST_JSON_PARSE", exception_class="ValueError", complete=True
+    )
+    assert bounded["streams"][0]["retention"] == "OVER_BYTE_CAP"
+    assert bounded["streams"][1]["retention"] == "CREDENTIAL_OR_ENCODING_GUARD"
+    error = _failure(
+        HarnessErrorKind.OUTPUT_INVALID,
+        ValueError("Authorization: Bearer synthetic-invalid-credential"),
+        retryable=False,
+        phase="ACCOUNT_READ",
+    )
+    assert error["failure_diagnostic"]["exception_class"] == "ValueError"
+    assert error["failure_diagnostic"]["details_retention"] == "CREDENTIAL_GUARD"
+    assert "details" not in error["failure_diagnostic"]
+
+
+def test_adapter_rejects_unicode_escaped_parent_value_before_metadata_extraction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = "EscapedKnownMarker"
+    monkeypatch.setenv("P10_FORBIDDEN_SECRET", marker)
+    stdout = (
+        b'{"error":{"kind":"OUTPUT_INVALID","message_hash":"'
+        + b"1" * 64
+        + b'","retryable":false},"provider_events":[],"failure_diagnostic":'
+        b'{"phase":"ACCOUNT_READ","exception_class":"\\u0045scapedKnownMarker"}}'
+    )
+    assert marker.encode() not in stdout
+
+    class FakeProcess:
+        returncode = 0
+        pid = 123
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def communicate(self, _payload: bytes, timeout: float) -> tuple[bytes, bytes]:
+            return stdout, b""
+
+    monkeypatch.setattr(subprocess, "Popen", FakeProcess)
+    result = CodexSdkAdapter(authentication_home=tmp_path).execute(_request(tmp_path))
+    assert result.terminal_error.kind is HarnessErrorKind.PERMISSION_DENIED
+    diagnostic = result.attempts[-1].qualification_observations["host_transport"]
+    assert diagnostic["exception_class"] == "ValueError"
+    assert diagnostic["streams"][0]["retention"] == "CREDENTIAL_OR_ENCODING_GUARD"
+    assert "base64" not in diagnostic["streams"][0]
+    assert marker.encode() not in canonical_json_bytes(diagnostic)
 
 
 def _request(tmp_path: Path) -> HarnessExecutionRequest:

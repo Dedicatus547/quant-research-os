@@ -12,7 +12,7 @@ from quantos.contracts.discovery import (
     GenerationRequest,
     GenerationReservation,
     SequentialGenerationAttempt,
-    SequentialGenerationPolicy,
+    SequentialPolicyContract,
 )
 from quantos.contracts.hosted import Hash, HostedContract, HostObservation, Identity
 
@@ -130,7 +130,7 @@ class HostedSequentialGenerationRequest(HostedContract):
         "hosted-sequential-generation-request/v2"
     )
     profile: Literal["hm-discovery-sequential/v2"] = "hm-discovery-sequential/v2"
-    policy: SequentialGenerationPolicy
+    policy: SequentialPolicyContract
     attempt: SequentialGenerationAttempt
     generation_request: GenerationRequest
     reservation: GenerationReservation

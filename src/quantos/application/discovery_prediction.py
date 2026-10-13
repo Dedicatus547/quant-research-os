@@ -15,7 +15,9 @@ import platform
 import re
 import tempfile
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from importlib.metadata import version
@@ -39,7 +41,7 @@ from quantos.artifacts.store import (
 )
 from quantos.contracts.autonomous import AutonomousExecutionRequest, AutonomousExecutionResult
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
-from quantos.contracts.discovery import DiscoveryDesign
+from quantos.contracts.discovery import DiscoveryDesignReader
 from quantos.contracts.discovery_prediction import (
     PREDICTION_RULE_HASH,
     PREDICTION_RULE_SPEC,
@@ -76,6 +78,27 @@ _META_CAP = 16 << 20
 _NATIVE_CAP = 256 << 20
 _Model = TypeVar("_Model", bound=CanonicalContract)
 _QlibIC = Callable[[pd.Series, pd.Series], tuple[pd.Series, pd.Series]]
+
+_PIT_VERIFICATION_FACTS: ContextVar[set[str] | None] = ContextVar(
+    "prediction_pit_verification_facts", default=None
+)
+
+
+@contextmanager
+def prediction_pit_verification_scope() -> Generator[None, None, None]:
+    """Reuse successful PIT reproduction only within one controlled operation.
+
+    Original file hashes and bindings still verify on every import/comparison.
+    No parsed market data, failures, or facts survive the outermost scope.
+    """
+    if _PIT_VERIFICATION_FACTS.get() is not None:
+        yield
+        return
+    token = _PIT_VERIFICATION_FACTS.set(set())
+    try:
+        yield
+    finally:
+        _PIT_VERIFICATION_FACTS.reset(token)
 
 
 @dataclass(frozen=True)
@@ -122,12 +145,17 @@ def _research_policy(reference: PredictionFileSource) -> ResearchPolicy:
     schema = payload.get("schema_version")
     if schema == "research-policy/v1":
         return ResearchPolicy.model_validate(payload)
-    if schema == "discovery-design/v1":
-        return DiscoveryDesign.model_validate(payload).research_policy
+    if schema in ("discovery-design/v1", "discovery-design/v3"):
+        return DiscoveryDesignReader.model_validate(payload).research_policy
+    if schema == "discovery-sequential-batch/v2":
+        batch = payload.get("batch")
+        _require(isinstance(batch, dict), "FROZEN_RESEARCH_POLICY_MISSING")
+        payload = cast(dict[str, object], batch)
+        schema = payload.get("schema_version")
     if schema == "discovery-batch/v1":
         value = payload.get("design")
         _require(isinstance(value, dict), "FROZEN_RESEARCH_POLICY_MISSING")
-        return DiscoveryDesign.model_validate(value).research_policy
+        return DiscoveryDesignReader.model_validate(value).research_policy
     raise ValueError("FROZEN_RESEARCH_POLICY_CONTAINER_UNSUPPORTED")
 
 
@@ -149,6 +177,7 @@ def prediction_verifier_identity() -> dict[str, object]:
             "application/provenance.py",
             "application/pit.py",
             "application/discovery_prediction.py",
+            "application/discovery_prediction_adoption.py",
             "integrations/__init__.py",
         )
         if (package / name).is_file()
@@ -219,6 +248,8 @@ def _verify_pit(
     source: PredictionImportSource,
     request: AutonomousExecutionRequest,
     resolved: ResolvedExperimentSpec,
+    *,
+    _verified_data_identity: tuple[str, str, str] | None = None,
 ) -> str:
     signal_path = _safe_path(source.signal_path, directory=True)
     signal = verify_signal_artifact(signal_path)
@@ -236,20 +267,52 @@ def _verify_pit(
         "PIT_BINDING_MISMATCH",
     )
     snapshot_path, view_path = Path(source.snapshot_path), Path(source.qlib_view_path)
+    # The sole production caller supplies identities only after its unconditional
+    # full snapshot/view file verification. Direct private calls remain strict too.
+    if _verified_data_identity is None:
+        snapshot, view = verify_snapshot(snapshot_path), verify_qlib_view(view_path)
+        _verified_data_identity = (snapshot.snapshot_hash, view.view_hash, view.view_spec_hash)
+    _require(
+        _verified_data_identity
+        == (request.snapshot_hash, request.qlib_view_hash, resolved.qlib_view_spec_hash),
+        "PIT_DATA_BINDING_MISMATCH",
+    )
+    fact_key = sha256_bytes(
+        canonical_json_bytes(
+            {
+                "source": source.content_hash,
+                "request": request.content_hash,
+                "resolved": resolved.content_hash,
+                "signal": signal.artifact_hash,
+                "evidence": evidence.content_hash,
+                "expression": request.candidate.expression.content_hash,
+                "snapshot_path": str(snapshot_path.absolute()),
+                "view_path": str(view_path.absolute()),
+                "verified_data": _verified_data_identity,
+            }
+        )
+    )
+    facts = _PIT_VERIFICATION_FACTS.get()
+    already_reproduced = facts is not None and fact_key in facts
     if isinstance(evidence, PITCrossSectionEvidenceCollection):
-        verify_compact_pit_evidence(evidence, snapshot_path, view_path)
+        if not already_reproduced:
+            verify_compact_pit_evidence(evidence, snapshot_path, view_path)
         gate_sets = [bundle.gates for bundle in evidence.bundles]
     else:
         first = evidence.bundles[0].items[0].request
-        rebuilt = build_pit_evidence_collection(
-            snapshot_path,
-            view_path,
-            expected_snapshot_hash=request.snapshot_hash,
-            expected_view_hash=request.qlib_view_hash,
-            universe_index=evidence.universe_index,
-            expression=request.candidate.expression,
-            operator_delays=first.operator_delays,
-            schedules=tuple(bundle.schedule for bundle in evidence.bundles),
+        rebuilt = (
+            evidence
+            if already_reproduced
+            else build_pit_evidence_collection(
+                snapshot_path,
+                view_path,
+                expected_snapshot_hash=request.snapshot_hash,
+                expected_view_hash=request.qlib_view_hash,
+                universe_index=evidence.universe_index,
+                expression=request.candidate.expression,
+                operator_delays=first.operator_delays,
+                schedules=tuple(bundle.schedule for bundle in evidence.bundles),
+            )
         )
         _require(rebuilt == evidence, "PIT_SOURCE_REPRODUCTION_MISMATCH")
         gate_sets = [item.report.gates for bundle in evidence.bundles for item in bundle.items]
@@ -261,6 +324,8 @@ def _verify_pit(
         ),
         "PIT_HARD_REJECTION",
     )
+    if facts is not None:
+        facts.add(fact_key)
     return evidence.content_hash
 
 
@@ -550,7 +615,12 @@ def build_prediction_evidence(
     _require(calendar == tuple(sorted(set(calendar))) and bool(calendar), "DATA_CALENDAR_INVALID")
     dates = tuple(day for day in calendar if policy.test.start <= day <= policy.test.end)
     _require(dates == profile.expected_dates, "PROFILE_CALENDAR_INCOMPLETE")
-    pit_hash = _verify_pit(source, request, resolved)
+    pit_hash = _verify_pit(
+        source,
+        request,
+        resolved,
+        _verified_data_identity=(snapshot.snapshot_hash, view.view_hash, view.view_spec_hash),
+    )
     native_root = _safe_path(source.native_root, directory=True)
     _require(
         native_root.name == f"sha256-{request.execution_identity}",
@@ -771,7 +841,7 @@ def compare_prediction_evidence(
         "VERIFIER_IDENTITY_MISMATCH",
     )
     rows: list[dict[str, object]] = []
-    admitted: dict[str, PredictionEvidence] = {}
+    verified: dict[str, tuple[PredictionEvidence, str]] = {}
     for request_hash in profile.execution_request_hashes:
         row: dict[str, object] = {
             "execution_request_hash": request_hash,
@@ -816,6 +886,22 @@ def compare_prediction_evidence(
                 }
             )
             continue
+        verified[request_hash] = (evidence, expected_hash)
+    return _comparison_from_verified(profile, rows, verified)
+
+
+def _comparison_from_verified(
+    profile: PredictionEvaluationProfile,
+    rows: list[dict[str, object]],
+    verified: Mapping[str, tuple[PredictionEvidence, str]],
+) -> dict[str, object]:
+    """Unchanged coverage/common-day rules for independently verified or adopted facts."""
+    admitted: dict[str, PredictionEvidence] = {}
+    for row in rows:
+        request_hash = cast(str, row["execution_request_hash"])
+        if request_hash not in verified:
+            continue
+        evidence, expected_hash = verified[request_hash]
         values = [item.rank_ic.value for item in evidence.daily if item.rank_ic.value is not None]
         fraction = len(values) / len(profile.expected_dates)
         row.update(

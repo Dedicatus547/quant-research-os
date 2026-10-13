@@ -19,16 +19,20 @@ from quantos.artifacts.store import (
 from quantos.contracts.agent import AgentRunManifestV3, AgentRunSpecV3, AgentUsage
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.discovery import (
+    CompositionGenerationPolicy,
     DiscoveryBatch,
-    DiscoveryDesign,
+    DiscoveryCompositionDesign,
+    DiscoveryDesignContract,
+    DiscoveryDesignReader,
     GenerationRequest,
     GenerationReservation,
     GenerationResponse,
     SequentialDiscoveryBatch,
     SequentialGenerationAttempt,
-    SequentialGenerationPolicy,
     SequentialLaunchObservation,
     SequentialLaunchSource,
+    SequentialPolicyContract,
+    SequentialPolicyReader,
 )
 from quantos.contracts.discovery_hosted import (
     HostedGenerationOrigin,
@@ -78,6 +82,28 @@ def _contract(root: Path, name: str, kind: type[_Contract]) -> _Contract:
     except ValueError:
         raise ArtifactIntegrityError("generation record is not a canonical contract") from None
     return result
+
+
+def _design_contract(root: Path, name: str) -> DiscoveryDesignContract:
+    data = _read(root, name)
+    try:
+        result = DiscoveryDesignReader.model_validate_json(data)
+        if result.canonical_bytes() != data:
+            raise ValueError
+        return result
+    except ValueError:
+        raise ArtifactIntegrityError("invalid canonical discovery design") from None
+
+
+def _policy_contract(root: Path, name: str) -> SequentialPolicyContract:
+    data = _read(root, name)
+    try:
+        result = SequentialPolicyReader.model_validate_json(data)
+        if result.canonical_bytes() != data:
+            raise ValueError
+        return result
+    except ValueError:
+        raise ArtifactIntegrityError("invalid canonical discovery policy") from None
 
 
 def _safe(value: object) -> None:
@@ -162,13 +188,13 @@ class GenerationStore:
             raise ArtifactIntegrityError("generation authority requires durable storage")
         self.root = resolved
 
-    def sequential_policy(self) -> SequentialGenerationPolicy | None:
+    def sequential_policy(self) -> SequentialPolicyContract | None:
         marker = self.root / "policy.json"
         if not marker.exists() and not marker.is_symlink():
             return None
-        return _contract(self.root, "policy.json", SequentialGenerationPolicy)
+        return _policy_contract(self.root, "policy.json")
 
-    def save_sequential_policy(self, policy: SequentialGenerationPolicy) -> None:
+    def save_sequential_policy(self, policy: SequentialPolicyContract) -> None:
         """Opt in before saving any requests; policy cannot be attached to old attempts."""
         _safe(policy.model_dump(mode="json"))
         with exclusive_directory_lock(self.root):
@@ -449,7 +475,7 @@ class GenerationStore:
 
     def _sequential_batch(
         self,
-        design: DiscoveryDesign,
+        design: DiscoveryDesignContract,
         frozen: SequentialDiscoveryBatch | None = None,
     ) -> SequentialDiscoveryBatch:
         from quantos.application.discovery_admission import build_discovery_batch
@@ -523,7 +549,7 @@ class GenerationStore:
         if retained != batch or self._sequential_batch(batch.batch.design, retained) != retained:
             raise ArtifactIntegrityError("frozen sequential histories differ from their originals")
 
-    def _freeze_sequential(self, design: DiscoveryDesign) -> SequentialDiscoveryBatch:
+    def _freeze_sequential(self, design: DiscoveryDesignContract) -> SequentialDiscoveryBatch:
         marker = self.root / "frozen.json"
         if marker.exists() or marker.is_symlink():
             retained = _contract(self.root, "frozen.json", SequentialDiscoveryBatch)
@@ -543,7 +569,7 @@ class GenerationStore:
         return self.root / "requests" / request.content_hash
 
     @staticmethod
-    def _bind(design: DiscoveryDesign, request: GenerationRequest) -> None:
+    def _bind(design: DiscoveryDesignContract, request: GenerationRequest) -> None:
         if (
             request.design_hash != design.content_hash
             or request.max_attempts != design.evaluation_opportunities_per_method
@@ -551,9 +577,13 @@ class GenerationStore:
         ):
             raise ArtifactIntegrityError("generation request disagrees with the frozen design")
 
-    def save_request(self, design: DiscoveryDesign, request: GenerationRequest) -> None:
+    def save_request(self, design: DiscoveryDesignContract, request: GenerationRequest) -> None:
         self._bind(design, request)
         policy = self.sequential_policy()
+        if policy is not None and isinstance(design, DiscoveryCompositionDesign) != isinstance(
+            policy, CompositionGenerationPolicy
+        ):
+            raise ArtifactIntegrityError("generation policy and design profile disagree")
         if policy is not None and (
             policy.design_hash != design.content_hash
             or request.content_hash not in policy.request_hashes
@@ -573,16 +603,20 @@ class GenerationStore:
             atomic_write_bytes(directory / "design.json", design.canonical_bytes())
             atomic_write_bytes(directory / "request.json", request.canonical_bytes())
 
-    def _load(self, request: GenerationRequest) -> DiscoveryDesign:
+    def _load(self, request: GenerationRequest) -> DiscoveryDesignContract:
         directory = self._directory(request)
         retained = _contract(
             self.root, f"requests/{request.content_hash}/request.json", GenerationRequest
         )
         if retained != request:
             raise ArtifactIntegrityError("generation request identity mismatch")
-        design = _contract(directory, "design.json", DiscoveryDesign)
+        design = _design_contract(directory, "design.json")
         self._bind(design, request)
         policy = self.sequential_policy()
+        if policy is not None and isinstance(design, DiscoveryCompositionDesign) != isinstance(
+            policy, CompositionGenerationPolicy
+        ):
+            raise ArtifactIntegrityError("generation policy and design profile disagree")
         if policy is not None and (
             policy.design_hash != design.content_hash
             or request.content_hash not in policy.request_hashes
@@ -596,7 +630,7 @@ class GenerationStore:
 
     def _agent_binding(
         self,
-        design: DiscoveryDesign,
+        design: DiscoveryDesignContract,
         request: GenerationRequest,
         response: GenerationResponse,
         manifest: AgentRunManifestV3 | None,
@@ -1217,7 +1251,7 @@ class GenerationStore:
         ):
             raise ArtifactIntegrityError("frozen generation inventory or producer binding differs")
 
-    def freeze(self, design: DiscoveryDesign) -> DiscoveryBatch | SequentialDiscoveryBatch:
+    def freeze(self, design: DiscoveryDesignContract) -> DiscoveryBatch | SequentialDiscoveryBatch:
         from quantos.application.discovery_admission import build_discovery_batch
 
         with exclusive_directory_lock(self.root):
