@@ -24,6 +24,7 @@ from quantos.contracts.pit import (
     TransformLineage,
 )
 from quantos.contracts.refs import ArtifactRef
+from quantos.contracts.research_execution import CanonicalPITAuditRequestV2, pit_field_sources
 from quantos.contracts.status import ReasonCode, ValidationVerdict
 from quantos.contracts.temporal import AvailabilityEvidenceLevel, TemporalMetadata
 from quantos.data.snapshot import verify_snapshot
@@ -143,7 +144,7 @@ class PITAuditService:
         *,
         evidence_mode: PITEvidenceMode = PITEvidenceMode.PROPOSAL_UNBOUND,
         binding_gates: tuple[PITGateResult, ...] = (),
-        canonical_request: CanonicalPITAuditRequest | None = None,
+        canonical_request: CanonicalPITAuditRequest | CanonicalPITAuditRequestV2 | None = None,
     ) -> PITAuditReport:
         propagated, missing = propagate_availability(spec)
         gates: list[PITGateResult] = [
@@ -252,7 +253,7 @@ class PITAuditService:
         )
 
     def audit_snapshot(
-        self, request: CanonicalPITAuditRequest, snapshot_path: Path
+        self, request: CanonicalPITAuditRequest | CanonicalPITAuditRequestV2, snapshot_path: Path
     ) -> PITAuditReport:
         manifest = verify_snapshot(snapshot_path)
         binding_gate = _gate(
@@ -284,6 +285,12 @@ class PITAuditService:
             else []
         )
         window_complete = len(window_dates) == required_observations
+        if isinstance(request, CanonicalPITAuditRequestV2):
+            window_complete = (
+                window_complete
+                and request.schedule.signal_time.date() in sessions
+                and len(sessions) == len(set(sessions))
+            )
 
         field_names = expression_field_names(request.expression.nodes)
         field_tables = {
@@ -293,6 +300,11 @@ class PITAuditService:
                 ("adjustment_factors", "adjustment_factor"),
             ),
         }
+        if isinstance(request, CanonicalPITAuditRequestV2):
+            field_tables = {
+                field: pit_field_sources(field, execution_profile=request.execution_profile)
+                for field in field_names
+            }
         unsupported_fields = sorted(field_names - field_tables.keys())
         sources: list[LineageSource] = []
         missing_rows: list[str] = []
@@ -302,6 +314,13 @@ class PITAuditService:
                     table = pq.read_table(  # pyright: ignore[reportUnknownMemberType]
                         snapshot_path / "canonical" / f"{table_name}.parquet"
                     ).to_pylist()
+                    if isinstance(request, CanonicalPITAuditRequestV2):
+                        keys = [(row["instrument_id"], row["trade_date"]) for row in table]
+                        if len(keys) != len(set(keys)) or any(
+                            source_field not in row for row in table
+                        ):
+                            missing_rows.append(f"{table_name}:invalid source keys or field")
+                            continue
                     rows_by_date = {
                         cast(date, row["trade_date"]): row
                         for row in table
@@ -316,6 +335,11 @@ class PITAuditService:
                             LineageSource(
                                 source_id=(
                                     f"{table_name}:{request.instrument_id}:{session}:{source_field}"
+                                    + (
+                                        f":{field_name}"
+                                        if isinstance(request, CanonicalPITAuditRequestV2)
+                                        else ""
+                                    )
                                 ),
                                 table_name=table_name,
                                 field_name=field_name,
@@ -439,7 +463,7 @@ def _required_observations(nodes: tuple[SafeExpressionNode, ...], output_node_id
 
 
 def _binding_rejection_report(
-    request: CanonicalPITAuditRequest,
+    request: CanonicalPITAuditRequest | CanonicalPITAuditRequestV2,
     snapshot_hash: str,
     gates: tuple[PITGateResult, ...],
 ) -> PITAuditReport:
