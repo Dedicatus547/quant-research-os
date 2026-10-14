@@ -6,14 +6,18 @@ from importlib.metadata import version
 from typing import cast
 
 from quantos.contracts.pit import SafeQlibExpressionSpec, SafeQlibOperator
-from quantos.contracts.research_execution import QlibExpressionTranslation
+from quantos.contracts.research_execution import PITExecutionProfile, QlibExpressionTranslation
 
 _FIELD_MAPPING = {"adjusted_close": "$close"}
 
 
-def translate_safe_expression(spec: SafeQlibExpressionSpec) -> QlibExpressionTranslation:
+def translate_safe_expression(
+    spec: SafeQlibExpressionSpec, *, execution_profile: PITExecutionProfile = "legacy-price/v2"
+) -> QlibExpressionTranslation:
     """Construct Qlib syntax solely from validated nodes; no caller code is evaluated."""
 
+    if execution_profile != "legacy-price/v2":
+        raise NotImplementedError("field-study expression translation is pending A1")
     translated: dict[str, str] = {}
     for node in spec.nodes:
         if node.operator is SafeQlibOperator.FIELD:

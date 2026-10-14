@@ -28,7 +28,10 @@ from quantos.contracts.research_execution import (
     PITAuditEvidenceCollection,
     PITAuditEvidenceItem,
     PITCrossSectionEvidenceBundle,
+    PITCrossSectionEvidenceBundleV3,
     PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+    PITExecutionProfile,
     PITMembershipSetEvidence,
     PITSourceSetEvidence,
     required_expression_observations,
@@ -271,7 +274,8 @@ def build_compact_pit_evidence_collection(
     expression: SafeQlibExpressionSpec,
     operator_delays: tuple[OperatorDelayPolicy, ...],
     schedules: tuple[DecisionSchedule, ...],
-) -> PITCrossSectionEvidenceCollection:
+    execution_profile: PITExecutionProfile = "legacy-price/v2",
+) -> PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3:
     """Audit production cross sections with snapshot-recomputable row-set digests.
 
     Missing market rows remain explicit in each source-set count.  They are not a
@@ -279,6 +283,8 @@ def build_compact_pit_evidence_collection(
     corresponding signal as invalid when its expression result is non-finite.
     """
 
+    if execution_profile != "legacy-price/v2":
+        raise NotImplementedError("field-study PIT writer is pending A1")
     snapshot = verify_snapshot(snapshot_path)
     try:
         view = verify_qlib_view(view_path)
@@ -498,10 +504,12 @@ def build_compact_pit_evidence_collection(
 
 
 def verify_compact_pit_evidence(
-    evidence: PITCrossSectionEvidenceCollection,
+    evidence: PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3,
     snapshot_path: Path,
     view_path: Path,
 ) -> None:
+    if isinstance(evidence, PITCrossSectionEvidenceCollectionV3):
+        raise NotImplementedError("field-study PIT verifier is pending A1")
     rebuilt = build_compact_pit_evidence_collection(
         snapshot_path,
         view_path,
@@ -520,9 +528,9 @@ def verify_compact_pit_evidence(
 
 
 def subset_compact_pit_evidence(
-    evidence: PITCrossSectionEvidenceCollection,
+    evidence: PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3,
     schedules: tuple[DecisionSchedule, ...],
-) -> PITCrossSectionEvidenceCollection:
+) -> PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3:
     """Create an exact immutable subperiod projection without rescanning source data."""
 
     wanted = {(item.signal_time, item.decision_time, item.execution_time) for item in schedules}
@@ -538,7 +546,7 @@ def subset_compact_pit_evidence(
     )
     if len(bundles) != len(wanted):
         raise ValueError("compact PIT subperiod schedules are not covered by the parent evidence")
-    return PITCrossSectionEvidenceCollection(
+    return type(evidence)(
         snapshot_hash=evidence.snapshot_hash,
         qlib_view_hash=evidence.qlib_view_hash,
         expression_spec_hash=evidence.expression_spec_hash,
@@ -555,6 +563,8 @@ def load_pit_artifact_evidence(path: Path) -> PITArtifactEvidence:
         schema_version = payload.get("schema_version")
         if schema_version == "pit-audit-evidence-collection/v1":
             return PITAuditEvidenceCollection.model_validate(payload)
+        if schema_version == "pit-cross-section-evidence-collection/v3":
+            return PITCrossSectionEvidenceCollectionV3.model_validate(payload)
         if schema_version == "pit-cross-section-evidence-collection/v2":
             return PITCrossSectionEvidenceCollection.model_validate(payload)
     except (OSError, ValueError, json.JSONDecodeError) as error:
@@ -563,7 +573,9 @@ def load_pit_artifact_evidence(path: Path) -> PITArtifactEvidence:
 
 
 def pit_bundle_members(
-    bundle: PITAuditEvidenceBundle | PITCrossSectionEvidenceBundle,
+    bundle: PITAuditEvidenceBundle
+    | PITCrossSectionEvidenceBundle
+    | PITCrossSectionEvidenceBundleV3,
 ) -> tuple[str, ...]:
     if isinstance(bundle, PITAuditEvidenceBundle):
         return tuple(item.request.instrument_id for item in bundle.items)
@@ -571,7 +583,9 @@ def pit_bundle_members(
 
 
 def pit_bundle_output_temporal(
-    bundle: PITAuditEvidenceBundle | PITCrossSectionEvidenceBundle,
+    bundle: PITAuditEvidenceBundle
+    | PITCrossSectionEvidenceBundle
+    | PITCrossSectionEvidenceBundleV3,
     instrument_id: str,
 ) -> TemporalMetadata:
     if isinstance(bundle, PITAuditEvidenceBundle):
