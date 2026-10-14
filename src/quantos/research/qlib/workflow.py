@@ -29,11 +29,16 @@ from quantos.artifacts.store import atomic_write_bytes, sha256_file
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.model_data_split import QlibModelDataSegment, QlibModelDataSplitAudit
 from quantos.contracts.research import ResearchPolicy, ResearchSegment, ResolvedExperimentSpec
+from quantos.contracts.research_execution import (
+    PITCrossSectionEvidenceCollectionV3,
+    PITExecutionProfile,
+)
 from quantos.contracts.research_result import ResearchResultSourceFile
 from quantos.contracts.status import ReasonCode
 from quantos.data.qlib_view import verify_qlib_view
 from quantos.research.qlib.expression import translate_safe_expression
 from quantos.research.qlib.model_split import effective_model_segments, verify_model_data_split
+from quantos.research.qlib.pit_evidence import load_pit_artifact_evidence
 from quantos.research.qlib.result import ResearchResultArtifactBuilder, ResearchResultBuildResult
 from quantos.research.qlib.universe import (
     QlibResearchError,
@@ -228,9 +233,24 @@ class QlibWorkflowResearchService:
         research_result_root: Path,
         workspace: Path,
         dq_audit_root: Path | None = None,
+        execution_profile: PITExecutionProfile = "legacy-price/v2",
     ) -> QlibWorkflowResearchResult:
+        if execution_profile == "frozen-field-study/v1":
+            evidence = load_pit_artifact_evidence(signal_path / "pit-evidence.json")
+            if (
+                not isinstance(evidence, PITCrossSectionEvidenceCollectionV3)
+                or evidence.content_hash != resolved.pit_audit_evidence_hash
+                or evidence.expression != resolved.expression
+                or evidence.snapshot_hash != resolved.snapshot_hash
+                or evidence.qlib_view_hash != resolved.qlib_view_hash
+            ):
+                raise ValueError("Workflow field-study PIT binding differs")
         recorder_id = qlib_recorder_id(execution_identity)
-        feature = translate_safe_expression(resolved.expression).output_expression
+        feature = (
+            translate_safe_expression(resolved.expression)
+            if execution_profile == "legacy-price/v2"
+            else translate_safe_expression(resolved.expression, execution_profile=execution_profile)
+        ).output_expression
         label = _label_expression(research_policy)
         runtime_root = output_root / "mlflow-runtime"
         runtime_root.mkdir(parents=True, exist_ok=True)

@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from datetime import time as day_time
 from pathlib import Path
 from time import perf_counter, process_time
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal, NoReturn, TypedDict, cast
 from uuid import UUID, uuid5
 
 from pydantic import Field, PositiveInt, ValidationError, field_validator
@@ -64,6 +64,12 @@ from quantos.contracts.discovery_adoption import (
     DiscoveryEvaluationSourceAdoption,
 )
 from quantos.contracts.enumeration import CandidateEnumerationManifest, ResearchFactorTemplateSpec
+from quantos.contracts.field_study import (
+    FieldStudyBudget,
+    FieldStudyExecutionScope,
+    FrozenFieldStudyConfiguration,
+    expression_identity,
+)
 from quantos.contracts.model_data_split import QlibModelDataSplitAudit
 from quantos.contracts.native_adoption import (
     NativeArtifactAdoptionReceipt,
@@ -78,7 +84,11 @@ from quantos.contracts.research import (
     ResolvedExperimentSpec,
     ValidationPolicy,
 )
-from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
+from quantos.contracts.research_execution import (
+    PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+    PITExecutionProfile,
+)
 from quantos.contracts.research_result import P14dqNativeLabelExportAudit, ResearchResultManifest
 from quantos.contracts.sdk_producer import SdkCampaignSpec
 from quantos.contracts.snapshot import DataSnapshotManifest
@@ -96,6 +106,7 @@ from quantos.research.qlib import (
     verify_signal_artifact,
 )
 from quantos.research.qlib.model_split import verify_model_data_split
+from quantos.research.qlib.pit_evidence import load_pit_artifact_evidence
 from quantos.research.qlib.result import research_result_verification_scope
 from quantos.validation import (
     CostStressLocator,
@@ -221,6 +232,19 @@ class VerifiedExecutionInputs:
         object.__setattr__(self, "view", verify_qlib_view(view_path))
 
 
+def field_study_pit_policy_hash() -> str:
+    return sha256_bytes(
+        canonical_json_bytes(
+            {
+                "policy_id": "snapshot-bound-field-study-compact-pit/v1",
+                "execution_profile": "frozen-field-study/v1",
+                "source_vintage_claim": False,
+                "temporal_source": "canonical-snapshot/v1",
+            }
+        )
+    )
+
+
 def build_autonomous_execution_bindings(
     *,
     snapshot: DataSnapshotManifest,
@@ -232,6 +256,7 @@ def build_autonomous_execution_bindings(
     backtest_policy: release.BacktestPolicy,
     code_commit_hash: str,
     lockfile_hash: str,
+    field_study: FrozenFieldStudyConfiguration | None = None,
 ) -> AutonomousExecutionBindings:
     """Bind one exact dataset and all policy/provenance inputs used by the adapter."""
 
@@ -245,6 +270,14 @@ def build_autonomous_execution_bindings(
                 "cost_policy_hash": cost_policy.content_hash,
                 "backtest_policy_hash": backtest_policy.content_hash,
                 "compute_accounting": _COMPUTE_ACCOUNTING_POLICY,
+                **(
+                    {
+                        "field_study_hash": field_study.content_hash,
+                        "execution_profile": field_study.execution_profile,
+                    }
+                    if field_study
+                    else {}
+                ),
             }
         )
     )
@@ -252,7 +285,7 @@ def build_autonomous_execution_bindings(
         dataset_id=snapshot.dataset_id,
         authoring_hash=authoring.content_hash,
         execution_policy_hash=execution_policy_hash,
-        pit_policy_hash=_PIT_POLICY_HASH,
+        pit_policy_hash=field_study_pit_policy_hash() if field_study else _PIT_POLICY_HASH,
         research_policy_hash=research_policy.content_hash,
         validation_policy_hash=validation_policy.content_hash,
         cost_policy_hash=cost_policy.content_hash,
@@ -353,6 +386,10 @@ def _verify_sdk_execution_scope(
         raise ValueError("bounded SDK execution escaped its frozen DQ authority")
 
 
+class _ProfileArguments(TypedDict, total=False):
+    execution_profile: PITExecutionProfile
+
+
 class QuantosResearchExecutionAdapter:
     """Carry frozen P14b candidates through PIT, Qlib, Validation and verified artifacts.
 
@@ -363,9 +400,9 @@ class QuantosResearchExecutionAdapter:
     def __init__(
         self,
         *,
-        campaign: ResearchCampaignSpec,
+        campaign: ResearchCampaignSpec | FieldStudyExecutionScope,
         family: ResearchFamilySpec,
-        budget: ResearchBudgetSpec,
+        budget: ResearchBudgetSpec | FieldStudyBudget,
         template: ResearchFactorTemplateSpec,
         manifest: CandidateEnumerationManifest,
         snapshot_path: Path,
@@ -386,8 +423,54 @@ class QuantosResearchExecutionAdapter:
         | None = None,
         _verified_inputs: VerifiedExecutionInputs | None = None,
         discovery_source_adoption: DiscoveryEvaluationSourceAdoption | None = None,
+        field_study: FrozenFieldStudyConfiguration | None = None,
     ) -> None:
+        if field_study is None and (
+            not isinstance(campaign, ResearchCampaignSpec)
+            or not isinstance(budget, ResearchBudgetSpec)
+        ):
+            raise ValueError("legacy adapter requires campaign authority containers")
+        if field_study is not None:
+            if not isinstance(campaign, FieldStudyExecutionScope) or not isinstance(
+                budget, FieldStudyBudget
+            ):
+                raise ValueError("field-study requires its explicit scope and budget")
+            if (
+                sdk_campaign_spec is not None
+                or p14dq_v2_profile
+                or discovery_profile is not None
+                or discovery_source_adoption is not None
+                or not discovery_stage_recovery
+            ):
+                raise ValueError("field-study scope cannot borrow another execution profile")
+            if (
+                base_authoring not in (field_study.volume, field_study.price)
+                or research_policy != field_study.research_policy
+                or validation_policy != field_study.validation_policy
+                or cost_policy != field_study.cost_policy
+                or backtest_policy != field_study.backtest_policy
+                or campaign.configuration_hash != field_study.content_hash
+                or budget.max_compute_units
+                != quote_autonomous_workload(base_authoring, validation_policy)
+                or campaign.snapshot_hash != field_study.snapshot_hash
+                or campaign.qlib_view_hash != field_study.qlib_view_hash
+                or bindings.code_commit_hash != field_study.code_commit_hash
+                or bindings.lockfile_hash != field_study.lockfile_hash
+                or workspace.resolve() != Path(field_study.workspace).resolve()
+                or snapshot_path.resolve() != Path(field_study.snapshot_path).resolve()
+                or qlib_view_path.resolve() != Path(field_study.qlib_view_path).resolve()
+                or len(manifest.candidates) != 1
+                or expression_identity(manifest.candidates[0].expression)
+                != expression_identity(base_authoring.expression)
+            ):
+                raise ValueError("field-study execution escaped its frozen inputs")
+        self.field_study = field_study
+        self._field_study_request: AutonomousExecutionRequest | None = None
         if sdk_campaign_spec is not None:
+            if not isinstance(campaign, ResearchCampaignSpec) or not isinstance(
+                budget, ResearchBudgetSpec
+            ):
+                raise ValueError("SDK scope requires actual campaign authority")
             _verify_sdk_execution_scope(
                 sdk_campaign_spec,
                 campaign=campaign,
@@ -430,7 +513,8 @@ class QuantosResearchExecutionAdapter:
             or view.source_snapshot_hash != snapshot.snapshot_hash
             or snapshot.dataset_id != bindings.dataset_id
             or view.qlib_version != bindings.qlib_version
-            or bindings.pit_policy_hash != _PIT_POLICY_HASH
+            or bindings.pit_policy_hash
+            != (field_study_pit_policy_hash() if field_study else _PIT_POLICY_HASH)
             or bindings.authoring_hash != base_authoring.content_hash
             or bindings.research_policy_hash != research_policy.content_hash
             or bindings.validation_policy_hash != validation_policy.content_hash
@@ -447,9 +531,25 @@ class QuantosResearchExecutionAdapter:
                 backtest_policy=backtest_policy,
                 code_commit_hash=bindings.code_commit_hash,
                 lockfile_hash=bindings.lockfile_hash,
+                field_study=field_study,
             ).execution_policy_hash
         ):
             raise ValueError("autonomous execution bindings disagree with frozen inputs")
+        if field_study is not None:
+            from quantos.application.field_study import build_task
+
+            label = "V" if base_authoring == field_study.volume else "P"
+            expected_task = build_task(field_study, label, snapshot, view)
+            if (
+                campaign != expected_task.campaign
+                or budget != expected_task.budget
+                or family != expected_task.family
+                or template != expected_task.template
+                or manifest != expected_task.manifest
+                or bindings != expected_task.bindings
+            ):
+                raise ValueError("field-study singleton scope differs from canonical preparation")
+            self._field_study_request = expected_task.request
         if p14dq_v2_profile and (
             (sdk_campaign_spec is None and campaign.campaign_id != "p14-dq-live-data-campaign-v1")
             or snapshot.snapshot_hash
@@ -510,6 +610,12 @@ class QuantosResearchExecutionAdapter:
             self._discovery_runtime_hash = None
             self._discovery_verified_pit_hashes.clear()
         self._verify_request(request)
+        if self.field_study is not None and (
+            request.remaining_executions < 1
+            or request.remaining_validation_rounds < 1
+            or request.remaining_compute_seconds < self._deterministic_compute_charge(request)
+        ):
+            self._integrity("field-study execution budget is insufficient")
         self._reserve_trial_identity(request)
         with exclusive_directory_lock(
             self.output_root / "execution-locks" / request.execution_identity
@@ -589,9 +695,14 @@ class QuantosResearchExecutionAdapter:
 
     @property
     def _native_label_audit_enabled(self) -> bool:
-        return self.p14dq_v2_profile or self.discovery_profile in (
-            "singleton-full-chain/v1",
-            "bounded-price-composition/v1",
+        return (
+            self.field_study is not None
+            or self.p14dq_v2_profile
+            or self.discovery_profile
+            in (
+                "singleton-full-chain/v1",
+                "bounded-price-composition/v1",
+            )
         )
 
     def verified_completed_execution(
@@ -846,14 +957,36 @@ class QuantosResearchExecutionAdapter:
             or request.qlib_version != self.view.qlib_version
         ):
             self._integrity("AutonomousExecutionRequest escaped frozen P14b or dataset bindings")
+        if self.field_study is not None:
+            label = "V" if self.base_authoring == self.field_study.volume else "P"
+            if (
+                request != self._field_study_request
+                or request.agent_run_hash != self.field_study.input_reference(label)
+                or request.trial_ordinal != 1
+            ):
+                self._integrity("field-study request is not its fixed input reference")
         if (
             request.segment_start != self.research_policy.test.start
             or request.segment_end != self.research_policy.test.end
         ):
             self._integrity("frozen research test segment differs from campaign validation segment")
 
+    def _profile_arguments(self) -> _ProfileArguments:
+        return {"execution_profile": "frozen-field-study/v1"} if self.field_study else {}
+
+    def _load_variant_pit(self, path: Path):
+        evidence = load_pit_artifact_evidence(path)
+        expected = (
+            PITCrossSectionEvidenceCollectionV3
+            if self.field_study
+            else PITCrossSectionEvidenceCollection
+        )
+        if not isinstance(evidence, expected):
+            self._integrity("PIT schema escaped execution profile")
+        return evidence
+
     def _parameter_window_node(self, authoring: ExperimentAuthoringSpec) -> str | None:
-        if self.discovery_profile != "bounded-price-composition/v1":
+        if self.field_study is None and self.discovery_profile != "bounded-price-composition/v1":
             return None
         if isinstance(authoring.expression, ExpressionAuthoringSpec):
             raise ValueError("composition profile requires a safe DAG")
@@ -1094,8 +1227,12 @@ class QuantosResearchExecutionAdapter:
         cost_policy: release.CostPolicy,
         schedules: tuple[DecisionSchedule, ...],
         destination: Path,
-        evidence_cache: dict[tuple[str, str], PITCrossSectionEvidenceCollection],
-        evidence_override: PITCrossSectionEvidenceCollection | None,
+        evidence_cache: dict[
+            tuple[str, str], PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3
+        ],
+        evidence_override: PITCrossSectionEvidenceCollection
+        | PITCrossSectionEvidenceCollectionV3
+        | None,
     ) -> Any:
         """Resume full existing signal and backtest services without a new execution engine."""
         provisional = resolve_experiment(
@@ -1140,9 +1277,7 @@ class QuantosResearchExecutionAdapter:
             resolved = ResolvedExperimentSpec.model_validate_json(
                 (signal_path / "resolved-experiment.json").read_bytes()
             )
-            evidence = PITCrossSectionEvidenceCollection.model_validate_json(
-                (signal_path / "pit-evidence.json").read_bytes()
-            )
+            evidence = self._load_variant_pit(signal_path / "pit-evidence.json")
             expected = ResolvedExperimentSpec.model_validate(
                 provisional.model_copy(
                     update={"pit_audit_evidence_hash": evidence.content_hash}
@@ -1169,9 +1304,7 @@ class QuantosResearchExecutionAdapter:
 
         def build_signal() -> dict[str, str]:
             if origin is not None and adoption is not None:
-                evidence = PITCrossSectionEvidenceCollection.model_validate_json(
-                    Path(origin.pit_path).read_bytes()
-                )
+                evidence = self._load_variant_pit(Path(origin.pit_path))
                 resolved = ResolvedExperimentSpec.model_validate(
                     provisional.model_copy(
                         update={"pit_audit_evidence_hash": evidence.content_hash}
@@ -1194,7 +1327,9 @@ class QuantosResearchExecutionAdapter:
                 }
             cache_key = (provisional.expression.content_hash, research_schedule_hash(schedules))
             pit_root = self.output_root / "execution-pit-evidence"
-            produced_pit: PITCrossSectionEvidenceCollection | None = None
+            produced_pit: (
+                PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3 | None
+            ) = None
 
             def build_pit() -> dict[str, str]:
                 nonlocal produced_pit
@@ -1209,6 +1344,7 @@ class QuantosResearchExecutionAdapter:
                         expression=provisional.expression,
                         operator_delays=research_operator_delays(authoring),
                         schedules=schedules,
+                        **self._profile_arguments(),
                     )
                 encoded = evidence.canonical_bytes()
                 digest = sha256_bytes(encoded)
@@ -1217,14 +1353,16 @@ class QuantosResearchExecutionAdapter:
                 produced_pit = evidence
                 return {"pit_evidence_hash": digest}
 
-            def verify_pit(outputs: dict[str, str]) -> PITCrossSectionEvidenceCollection:
+            def verify_pit(
+                outputs: dict[str, str],
+            ) -> PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3:
                 digest = outputs["pit_evidence_hash"]
                 with opened_directory(pit_root) as parent:
                     encoded = read_regular_bytes_at(
                         parent, f"sha256-{digest}.json", max_bytes=536_870_912
                     )
-                evidence = produced_pit or PITCrossSectionEvidenceCollection.model_validate_json(
-                    encoded
+                evidence = produced_pit or self._load_variant_pit(
+                    pit_root / f"sha256-{digest}.json"
                 )
                 if (
                     sha256_bytes(encoded) != digest
@@ -1264,6 +1402,7 @@ class QuantosResearchExecutionAdapter:
                 self.qlib_view_path,
                 destination / "signals",
                 workspace=self.workspace,
+                **self._profile_arguments(),
             )
             return {"signal_hash": built.manifest.artifact_hash}
 
@@ -1347,14 +1486,18 @@ class QuantosResearchExecutionAdapter:
             evaluation_start=request.segment_start,
             evaluation_end=request.segment_end,
         )
-        evidence_cache: dict[tuple[str, str], PITCrossSectionEvidenceCollection] = {}
+        evidence_cache: dict[
+            tuple[str, str], PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3
+        ] = {}
 
         def build_variant(
             variant_authoring: ExperimentAuthoringSpec,
             cost_policy: release.CostPolicy,
             variant_schedules: tuple[DecisionSchedule, ...],
             *,
-            evidence_override: PITCrossSectionEvidenceCollection | None = None,
+            evidence_override: PITCrossSectionEvidenceCollection
+            | PITCrossSectionEvidenceCollectionV3
+            | None = None,
             destination: Path,
         ):
             if self.discovery_stage_recovery:
@@ -1367,6 +1510,11 @@ class QuantosResearchExecutionAdapter:
                     evidence_cache,
                     evidence_override,
                 )
+            if isinstance(evidence_override, PITCrossSectionEvidenceCollectionV3) or any(
+                isinstance(item, PITCrossSectionEvidenceCollectionV3)
+                for item in evidence_cache.values()
+            ):
+                self._integrity("legacy variant cannot consume v3 PIT")
             return release.build_research_variant(
                 authoring=variant_authoring,
                 research_policy=self.research_policy,
@@ -1384,7 +1532,9 @@ class QuantosResearchExecutionAdapter:
                 workspace=self.workspace,
                 commit_hash=request.code_commit_hash,
                 lockfile_hash=request.lockfile_hash,
-                evidence_cache=evidence_cache,
+                evidence_cache=cast(
+                    dict[tuple[str, str], PITCrossSectionEvidenceCollection], evidence_cache
+                ),
                 evidence_override=evidence_override,
             )
 
@@ -1407,6 +1557,7 @@ class QuantosResearchExecutionAdapter:
                 baseline.signal_path,
                 self.qlib_view_path,
                 execution_root / "qlib-workflow",
+                **self._profile_arguments(),
                 execution_identity=request.execution_identity,
                 research_result_root=self.research_results_root,
                 workspace=self.workspace,
@@ -1578,9 +1729,14 @@ class QuantosResearchExecutionAdapter:
 
         subperiod_variants: dict[str, Any] = {}
         for period in self.validation_policy.subperiods:
-            if self.p14dq_v2_profile or self.discovery_profile in (
-                "singleton-full-chain/v1",
-                "bounded-price-composition/v1",
+            if (
+                self.field_study is not None
+                or self.p14dq_v2_profile
+                or self.discovery_profile
+                in (
+                    "singleton-full-chain/v1",
+                    "bounded-price-composition/v1",
+                )
             ):
                 period_schedules = release.schedules_within_subperiod(
                     resolve_weekly_decision_schedules(
