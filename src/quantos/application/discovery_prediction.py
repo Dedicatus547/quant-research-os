@@ -30,6 +30,8 @@ import pandas as pd
 from quantos.application.autonomous_execution import (
     AutonomousExecutionReceipt,
     QuantosResearchExecutionAdapter,
+    build_autonomous_execution_bindings,
+    field_study_pit_policy_hash,
     require_durable_execution_root,
 )
 from quantos.application.provenance import capture_runtime_fingerprint, verify_code_provenance
@@ -53,14 +55,18 @@ from quantos.contracts.discovery_prediction import (
     PredictionImportSource,
     PredictionStatistic,
 )
-from quantos.contracts.pit import PITGateId
+from quantos.contracts.field_study import FrozenFieldStudyConfiguration, expression_identity
+from quantos.contracts.pit import PITGateId, SafeQlibExpressionSpec
 from quantos.contracts.refs import validate_logical_path
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
     ResearchPolicy,
     ResolvedExperimentSpec,
 )
-from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
+from quantos.contracts.research_execution import (
+    PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+)
 from quantos.contracts.snapshot import DataQualityReport
 from quantos.contracts.status import ValidationVerdict
 from quantos.data import verify_qlib_view, verify_snapshot
@@ -143,6 +149,8 @@ def _research_policy(reference: PredictionFileSource) -> ResearchPolicy:
     """Adopt the original frozen design's policy without inventing a historical file."""
     payload = _raw_json(reference)
     schema = payload.get("schema_version")
+    if schema == "frozen-field-study-config/v1":
+        return FrozenFieldStudyConfiguration.model_validate(payload).research_policy
     if schema == "research-policy/v1":
         return ResearchPolicy.model_validate(payload)
     if schema in ("discovery-design/v1", "discovery-design/v3"):
@@ -174,6 +182,7 @@ def prediction_verifier_identity() -> dict[str, object]:
             "__init__.py",
             "application/__init__.py",
             "application/autonomous_execution.py",
+            "application/field_study.py",
             "application/provenance.py",
             "application/pit.py",
             "application/discovery_prediction.py",
@@ -294,7 +303,14 @@ def _verify_pit(
     )
     facts = _PIT_VERIFICATION_FACTS.get()
     already_reproduced = facts is not None and fact_key in facts
-    if isinstance(evidence, PITCrossSectionEvidenceCollection):
+    if isinstance(
+        evidence, (PITCrossSectionEvidenceCollection, PITCrossSectionEvidenceCollectionV3)
+    ):
+        _require(
+            isinstance(evidence, PITCrossSectionEvidenceCollectionV3)
+            == (getattr(request, "pit_policy_hash", None) == field_study_pit_policy_hash()),
+            "PIT_EXECUTION_PROFILE_MISMATCH",
+        )
         if not already_reproduced:
             verify_compact_pit_evidence(evidence, snapshot_path, view_path)
         gate_sets = [bundle.gates for bundle in evidence.bundles]
@@ -607,6 +623,46 @@ def build_prediction_evidence(
         and view.health_check_passed,
         "DATA_IDENTITY_OR_QUALITY_REJECTED",
     )
+    if request.pit_policy_hash == field_study_pit_policy_hash():
+        config = _contract(source.research_policy, FrozenFieldStudyConfiguration)
+        label = "V" if base_authoring == config.volume else "P"
+        _require(base_authoring in (config.volume, config.price), "FIELD_STUDY_AUTHORING_MISMATCH")
+        _require(
+            isinstance(base_authoring.expression, SafeQlibExpressionSpec),
+            "FIELD_STUDY_DSL_REQUIRED",
+        )
+        _require(
+            expression_identity(request.candidate.expression)
+            == expression_identity(base_authoring.expression)
+            and request.agent_run_hash == config.input_reference(label),
+            "FIELD_STUDY_CANDIDATE_MISMATCH",
+        )
+        from quantos.application.field_study import build_task
+
+        _require(
+            request == build_task(config, label, snapshot, view).request,
+            "FIELD_STUDY_REQUEST_IDENTITY_MISMATCH",
+        )
+        bindings = build_autonomous_execution_bindings(
+            snapshot=snapshot,
+            qlib_view=view,
+            research_policy=config.research_policy,
+            validation_policy=config.validation_policy,
+            authoring=base_authoring,
+            cost_policy=config.cost_policy,
+            backtest_policy=config.backtest_policy,
+            code_commit_hash=config.code_commit_hash,
+            lockfile_hash=config.lockfile_hash,
+            field_study=config,
+        )
+        _require(
+            all(
+                getattr(request, name) == getattr(bindings, name)
+                for name in type(bindings).model_fields
+                if name != "schema_version"
+            ),
+            "FIELD_STUDY_EXECUTION_BINDING_MISMATCH",
+        )
     calendar = tuple(
         date.fromisoformat(line)
         for line in (view_path / "calendars/day.txt").read_text().splitlines()
@@ -728,6 +784,16 @@ def publish_prediction_evidence(
     """Publish a small immutable derivative; controlled native originals stay intact."""
     validate_prediction_output_root(output_root, (source,))
     evidence = build_prediction_evidence(source, profile, base_authoring=base_authoring)
+    return _publish_built_prediction_evidence(source, profile, output_root, evidence)
+
+
+def _publish_built_prediction_evidence(
+    source: PredictionImportSource,
+    profile: PredictionEvaluationProfile,
+    output_root: Path,
+    evidence: PredictionEvidence,
+) -> Path:
+    """Same-operation fully verified facts; never a caller-supplied cached assertion."""
     manifest = PredictionEvidenceManifest(
         profile_hash=profile.content_hash,
         source_hash=source.content_hash,
@@ -826,6 +892,7 @@ def compare_prediction_evidence(
     references: Mapping[str, tuple[Path, str]],
     *,
     base_authoring: ExperimentAuthoringSpec | None = None,
+    base_authorings: Mapping[str, ExperimentAuthoringSpec] | None = None,
 ) -> dict[str, object]:
     """All frozen requests stay in the denominator, including unavailable sources.
 
@@ -873,7 +940,11 @@ def compare_prediction_evidence(
                 expected_hash=expected_hash,
                 source=source,
                 profile=profile,
-                base_authoring=base_authoring,
+                base_authoring=(
+                    base_authorings.get(request_hash)
+                    if base_authorings is not None
+                    else base_authoring
+                ),
             )
         except (OSError, ValueError, RuntimeError) as error:
             # Use bounded error classes/codes, never unrestricted exceptions.
@@ -967,3 +1038,58 @@ def _comparison_from_verified(
         "method_comparison": "NOT_EVALUATED_REQUIRES_FROZEN_GENERATION_MAPPING",
         "original_validation_and_p14c": "UNCHANGED",
     }
+
+
+def publish_prediction_cohort(
+    profile: PredictionEvaluationProfile,
+    sources: Mapping[str, PredictionImportSource],
+    *,
+    base_authorings: Mapping[str, ExperimentAuthoringSpec],
+    output_root: Path,
+) -> dict[str, object]:
+    """Build each original once, publish immutably, and reuse its local verified facts."""
+    _require(set(sources) <= set(profile.execution_request_hashes), "UNDECLARED_COMPARISON_REQUEST")
+    _require(
+        profile.verifier_identity_hash
+        == sha256_bytes(canonical_json_bytes(prediction_verifier_identity())),
+        "VERIFIER_IDENTITY_MISMATCH",
+    )
+    validate_prediction_output_root(output_root, tuple(sources.values()))
+    rows: list[dict[str, object]] = []
+    verified: dict[str, tuple[PredictionEvidence, str]] = {}
+    with prediction_pit_verification_scope():
+        for digest in profile.execution_request_hashes:
+            row: dict[str, object] = {
+                "execution_request_hash": digest,
+                "status": "SOURCE_MISSING",
+                "reason": "SOURCE_MISSING",
+                "primary_common_rank_ic_mean": None,
+                "own_dates_rank_ic_mean_sensitivity": None,
+            }
+            rows.append(row)
+            if digest not in sources:
+                continue
+            source = sources[digest]
+            if source.request.sha256 != digest:
+                row.update(
+                    status="SOURCE_VERIFICATION_REJECTED",
+                    reason="COMPARISON_SOURCE_REQUEST_MISMATCH",
+                )
+                continue
+            try:
+                evidence = build_prediction_evidence(
+                    source, profile, base_authoring=base_authorings.get(digest)
+                )
+                path = _publish_built_prediction_evidence(source, profile, output_root, evidence)
+                verified[digest] = (evidence, path.name.removeprefix("sha256-"))
+            except (OSError, ValueError, RuntimeError) as error:
+                row.update(
+                    status="SOURCE_VERIFICATION_REJECTED",
+                    reason=(
+                        str(error)
+                        if isinstance(error, ValueError)
+                        and re.fullmatch(r"[A-Z_]{1,100}", str(error))
+                        else type(error).__name__
+                    ),
+                )
+    return _comparison_from_verified(profile, rows, verified)
