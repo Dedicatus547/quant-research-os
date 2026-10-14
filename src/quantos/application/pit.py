@@ -24,6 +24,7 @@ from quantos.contracts.pit import (
     TransformLineage,
 )
 from quantos.contracts.refs import ArtifactRef
+from quantos.contracts.research_execution import CanonicalPITAuditRequestV2
 from quantos.contracts.status import ReasonCode, ValidationVerdict
 from quantos.contracts.temporal import AvailabilityEvidenceLevel, TemporalMetadata
 from quantos.data.snapshot import verify_snapshot
@@ -143,7 +144,7 @@ class PITAuditService:
         *,
         evidence_mode: PITEvidenceMode = PITEvidenceMode.PROPOSAL_UNBOUND,
         binding_gates: tuple[PITGateResult, ...] = (),
-        canonical_request: CanonicalPITAuditRequest | None = None,
+        canonical_request: CanonicalPITAuditRequest | CanonicalPITAuditRequestV2 | None = None,
     ) -> PITAuditReport:
         propagated, missing = propagate_availability(spec)
         gates: list[PITGateResult] = [
@@ -252,8 +253,10 @@ class PITAuditService:
         )
 
     def audit_snapshot(
-        self, request: CanonicalPITAuditRequest, snapshot_path: Path
+        self, request: CanonicalPITAuditRequest | CanonicalPITAuditRequestV2, snapshot_path: Path
     ) -> PITAuditReport:
+        if isinstance(request, CanonicalPITAuditRequestV2):
+            raise NotImplementedError("field-study single-instrument PIT is pending A1")
         manifest = verify_snapshot(snapshot_path)
         binding_gate = _gate(
             PITGateId.SNAPSHOT_BINDING,
@@ -439,7 +442,7 @@ def _required_observations(nodes: tuple[SafeExpressionNode, ...], output_node_id
 
 
 def _binding_rejection_report(
-    request: CanonicalPITAuditRequest,
+    request: CanonicalPITAuditRequest | CanonicalPITAuditRequestV2,
     snapshot_hash: str,
     gates: tuple[PITGateResult, ...],
 ) -> PITAuditReport:

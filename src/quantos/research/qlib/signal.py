@@ -40,6 +40,7 @@ from quantos.contracts.research import ResolvedExperimentSpec
 from quantos.contracts.research_execution import (
     PITArtifactEvidence,
     PITCrossSectionEvidenceCollection,
+    PITExecutionProfile,
     QlibExpressionTranslation,
 )
 from quantos.contracts.signal import SignalArtifactFile, SignalArtifactManifest, SignalRow
@@ -544,7 +545,10 @@ class FactorSignalArtifactBuilder:
         output_root: Path,
         *,
         workspace: Path | None = None,
+        execution_profile: PITExecutionProfile = "legacy-price/v2",
     ) -> SignalArtifactBuildResult:
+        if execution_profile != "legacy-price/v2":
+            raise NotImplementedError("field-study signal execution is pending A1")
         try:
             verify_code_provenance(
                 workspace or Path.cwd(),
