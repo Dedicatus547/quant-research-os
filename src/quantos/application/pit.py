@@ -24,7 +24,7 @@ from quantos.contracts.pit import (
     TransformLineage,
 )
 from quantos.contracts.refs import ArtifactRef
-from quantos.contracts.research_execution import CanonicalPITAuditRequestV2
+from quantos.contracts.research_execution import CanonicalPITAuditRequestV2, pit_field_sources
 from quantos.contracts.status import ReasonCode, ValidationVerdict
 from quantos.contracts.temporal import AvailabilityEvidenceLevel, TemporalMetadata
 from quantos.data.snapshot import verify_snapshot
@@ -255,8 +255,6 @@ class PITAuditService:
     def audit_snapshot(
         self, request: CanonicalPITAuditRequest | CanonicalPITAuditRequestV2, snapshot_path: Path
     ) -> PITAuditReport:
-        if isinstance(request, CanonicalPITAuditRequestV2):
-            raise NotImplementedError("field-study single-instrument PIT is pending A1")
         manifest = verify_snapshot(snapshot_path)
         binding_gate = _gate(
             PITGateId.SNAPSHOT_BINDING,
@@ -287,6 +285,12 @@ class PITAuditService:
             else []
         )
         window_complete = len(window_dates) == required_observations
+        if isinstance(request, CanonicalPITAuditRequestV2):
+            window_complete = (
+                window_complete
+                and request.schedule.signal_time.date() in sessions
+                and len(sessions) == len(set(sessions))
+            )
 
         field_names = expression_field_names(request.expression.nodes)
         field_tables = {
@@ -296,6 +300,11 @@ class PITAuditService:
                 ("adjustment_factors", "adjustment_factor"),
             ),
         }
+        if isinstance(request, CanonicalPITAuditRequestV2):
+            field_tables = {
+                field: pit_field_sources(field, execution_profile=request.execution_profile)
+                for field in field_names
+            }
         unsupported_fields = sorted(field_names - field_tables.keys())
         sources: list[LineageSource] = []
         missing_rows: list[str] = []
@@ -305,6 +314,13 @@ class PITAuditService:
                     table = pq.read_table(  # pyright: ignore[reportUnknownMemberType]
                         snapshot_path / "canonical" / f"{table_name}.parquet"
                     ).to_pylist()
+                    if isinstance(request, CanonicalPITAuditRequestV2):
+                        keys = [(row["instrument_id"], row["trade_date"]) for row in table]
+                        if len(keys) != len(set(keys)) or any(
+                            source_field not in row for row in table
+                        ):
+                            missing_rows.append(f"{table_name}:invalid source keys or field")
+                            continue
                     rows_by_date = {
                         cast(date, row["trade_date"]): row
                         for row in table
@@ -319,6 +335,11 @@ class PITAuditService:
                             LineageSource(
                                 source_id=(
                                     f"{table_name}:{request.instrument_id}:{session}:{source_field}"
+                                    + (
+                                        f":{field_name}"
+                                        if isinstance(request, CanonicalPITAuditRequestV2)
+                                        else ""
+                                    )
                                 ),
                                 table_name=table_name,
                                 field_name=field_name,

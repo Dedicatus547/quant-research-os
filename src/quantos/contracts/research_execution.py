@@ -20,7 +20,7 @@ from quantos.contracts.pit import (
 )
 from quantos.contracts.refs import SHA256_PATTERN
 from quantos.contracts.status import ValidationVerdict
-from quantos.contracts.temporal import DecisionSchedule, TemporalMetadata
+from quantos.contracts.temporal import AvailabilityEvidenceLevel, DecisionSchedule, TemporalMetadata
 
 
 class QlibExpressionTranslation(CanonicalContract):
@@ -480,6 +480,20 @@ class PITCrossSectionEvidenceBundleV3(CanonicalContract):
         expected_rows = len(self.members) * len(self.source_window)
         if any(item.expected_row_count != expected_rows for item in self.source_sets):
             raise ValueError("PIT source sets must cover the complete cross-section window")
+        if self.source_window[-1] > self.schedule.signal_time.date():
+            raise ValueError("PIT source window extends beyond the signal date")
+        for item in self.source_sets:
+            temporal = item.maximum_temporal
+            if temporal is not None and (
+                temporal.evidence_level is AvailabilityEvidenceLevel.UNKNOWN
+                or temporal.available_at > self.schedule.signal_time
+            ):
+                raise ValueError("compact PIT source is unknown or unavailable at signal time")
+        if (
+            self.membership_set.maximum_temporal.evidence_level is AvailabilityEvidenceLevel.UNKNOWN
+            or self.output_temporal.evidence_level is AvailabilityEvidenceLevel.UNKNOWN
+        ):
+            raise ValueError("compact PIT membership or output availability is UNKNOWN")
         gate_ids = [item.gate_id for item in self.gates]
         if gate_ids != list(PITGateId) or any(
             item.verdict is not ValidationVerdict.PASS for item in self.gates

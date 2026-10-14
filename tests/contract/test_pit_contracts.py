@@ -153,3 +153,29 @@ def test_pit_gate_and_report_summaries_are_consistent() -> None:
             reason_code=ReasonCode.LOOK_AHEAD,
             detail="invalid",
         )
+
+
+def test_field_study_source_contracts_do_not_broaden_v2_authority() -> None:
+    from quantos.contracts.research_execution import PITSourceSetEvidence, PITSourceSetEvidenceV3
+
+    for table, source in (("bars", "volume_shares"), ("adjustment_factors", "adjustment_factor")):
+        payload = dict(
+            table_name=table,
+            logical_field_name="adjusted_volume",
+            source_field_name=source,
+            expected_row_count=1,
+            present_row_count=0,
+            missing_row_count=1,
+            row_set_hash="0" * 64,
+            maximum_temporal=None,
+        )
+        assert PITSourceSetEvidenceV3.model_validate(payload).schema_version.endswith("/v3")
+        # A genuine v2 header must still reject the volume mapping.
+        with pytest.raises(ValidationError):
+            PITSourceSetEvidence.model_validate(
+                {**payload, "schema_version": "pit-source-set-evidence/v2"}
+            )
+    payload["table_name"] = "bars"
+    payload["source_field_name"] = "close"
+    with pytest.raises(ValidationError, match="mapping is invalid"):
+        PITSourceSetEvidenceV3.model_validate(payload)
