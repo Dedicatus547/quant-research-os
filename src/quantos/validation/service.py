@@ -46,7 +46,10 @@ from quantos.contracts.research import (
     ThresholdComparison,
     ValidationPolicy,
 )
-from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
+from quantos.contracts.research_execution import (
+    PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+)
 from quantos.contracts.signal import SignalArtifactManifest
 from quantos.contracts.snapshot import DataQualityReport, DataSnapshotManifest
 from quantos.contracts.status import ReasonCode, RunStatus, ValidationVerdict
@@ -775,7 +778,9 @@ class ValidationService:
                 "PIT evidence does not match the resolved experiment",
                 (reference,),
             )
-        if isinstance(evidence, PITCrossSectionEvidenceCollection):
+        if isinstance(
+            evidence, (PITCrossSectionEvidenceCollection, PITCrossSectionEvidenceCollectionV3)
+        ):
             try:
                 verify_compact_pit_evidence(
                     evidence,
