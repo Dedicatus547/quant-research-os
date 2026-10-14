@@ -30,9 +30,10 @@ from quantos.contracts.validation import (
 
 def _canonical_fields(value: dict[str, object], cls: type[CanonicalContract]) -> None:
     expected = set(cls.model_fields) - set(cls.hash_exclude_fields)
-    if set(value) != expected or value.get("schema_version") != cls.model_fields[
-        "schema_version"
-    ].default:
+    if (
+        set(value) != expected
+        or value.get("schema_version") != cls.model_fields["schema_version"].default
+    ):
         raise ValueError("SDK projection canonical object scope differs")
 
 

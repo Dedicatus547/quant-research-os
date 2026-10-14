@@ -66,9 +66,10 @@ def test_v4_reservation_response_and_legacy_full_request(sdk_setup, tmp_path):  
     assert reservation.execution_request.prompt == bounded_prompt(request, spec.sdk_profile)
     assert projection == prompt_projection(request, spec.sdk_profile)
     assert json.loads(projection)["request_hash"] == request.content_hash
-    assert json.loads(projection)["business_request"]["candidate_options"] == json.loads(
-        request.canonical_bytes()
-    )["business_request"]["candidate_options"]
+    assert (
+        json.loads(projection)["business_request"]["candidate_options"]
+        == json.loads(request.canonical_bytes())["business_request"]["candidate_options"]
+    )
     assert reservation.execution_request.content_hash in reservation.run_spec.input_artifact_hashes
     assert spec.sdk_profile.content_hash in reservation.run_spec.input_artifact_hashes
     assert len(reservation.execution_request.prompt.encode()) <= 24576
