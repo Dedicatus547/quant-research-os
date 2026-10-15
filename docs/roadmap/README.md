@@ -5,7 +5,7 @@
 
 ## 下一阶段离线实施
 
-2026-10-15：演进 M0–M2 离线实施与 V/P 准备已交付；64 MiB scratch 已恢复，guard check-only exit 0，R1c 待明确科学授权。冻结报价为两主任务合计 36 units、整 job 新增存储估算 8 GiB；启动时仍需刷新资源与 lease。见[资源解阻与 B 交接](../../artifacts/evolution-implementation-20261014/coord/resource-unblock-20261015.md)及[本地最终交接](../../artifacts/evolution-implementation-20261014/coord/final.md)（持久原件位于主工作区，不随 Git 迁移）。
+2026-10-15：R1c 固定 V/P、36 units／8 GiB 已获授权。V 在训练前的 MLflow recorder 创建时失败，CLI/supervisor exit 1、清理完成；P/compare 未执行。SQLite 最小修复已集成，旧来源及成功 PIT/信号/回测原件已核对；下一步由 B 接通 field-study 后继来源采用，保持原机会/预算后恢复，不盲目重算已完成阶段。见[M 集成与恢复交接](../../artifacts/evolution-implementation-20261014/coord/r1c-recovery.md)；[资源解阻](../../artifacts/evolution-implementation-20261014/coord/resource-unblock-20261015.md)和[M2交付](../../artifacts/evolution-implementation-20261014/coord/final.md)按原时点保留（持久原件位于主工作区，不随 Git 迁移）。
 
 - [模型分工、worktree 与会话执行手册](quantos-evolution-model-worktree-plan-2026-10-14.md)：三会话、两个新增 worktree；Sol/Luna 分阶段执行，Astra 按具体疑难使用。包含共同基线、并行依赖、合并顺序与可复制提示词；原规划状态按写作时点读取。
 - [演进路线图 v0.2 与 Codex 执行清单](quantos-evolution-roadmap-v0.2-2026-10-14.md)：2026-10-14 补齐 P1/R0；P2a 暂缓，近期范围为 P0 和复权成交量字段接线、固定双候选准备；实际实施与运行状态见上述最终交接。
