@@ -177,3 +177,62 @@ bytes only for the field-study management-exit input, with the fixed protocol fi
 wait, matching integer exit codes and finite nonnegative usage. It does not rewrite the
 observation into canonical JSON. Requests, receipts, Workflow metadata and other sources
 still require their original canonical encoding; legacy profiles keep that requirement too.
+
+## Explicit successor retained reader
+
+`compare-retained` formalizes the retained `compare_retained.py` management wrapper. It uses the
+same `publish_prediction_cohort` implementation and verifies/builds each supplied source once.
+The original `compare`, preparation versions and prediction profiles keep their existing behavior.
+Do not edit a producer preparation, profile, source descriptor, receipt or outcome to admit it.
+
+Freeze a canonical `FieldStudyRetainedReaderBinding` (`field-study-retained-reader-binding/v1`)
+before launching. Its fields are:
+
+| Field | Binding |
+| --- | --- |
+| `producer` | `workspace`, exact 40-character `commit_hash`, `lockfile_hash` from the original configuration |
+| `reader` | Clean successor workspace, exact commit and lock hash for the loaded reader |
+| `preparation` | Original preparation `{path, sha256}` |
+| `reader_profile` | Separate canonical prediction profile `{path, sha256}` |
+| `sources` | Pinned JSON source map `{path, sha256}` |
+| `output_root` | New, empty, durable absolute operation directory |
+| `expected_new_bytes` | Positive complete-job growth reservation within the existing storage lease |
+
+The reader profile must equal the original preparation profile in every field except
+`verifier_identity_hash`. Set that field to
+`sha256_bytes(canonical_json_bytes(prediction_verifier_identity()))` from the exact successor
+reader source/environment, and write the new profile's `canonical_bytes()` separately. This
+preserves the producer commit, original request pair, research policy, model, data, expected calendar,
+coverage thresholds and statistical rule. Both code workspaces must pass existing provenance
+verification; the loaded field-study module must belong to the bound reader workspace.
+Source originals still pass the existing independent source/data/PIT/native verification.
+A binding is explicit adoption of a reader identity, not proof of scientific equivalence or success.
+
+Unlike legacy `compare`, the retained source map requires exactly `V` and `P`; each value is either
+an unchanged `PredictionImportSource` descriptor or explicit JSON `null`. Missing and rejected
+sources remain in the two-request denominator. Undefined days remain null under the existing
+statistical rules. Source rejection is retained in report rows, while operation exceptions produce
+`failure.json`. Neither path changes original scientific outcomes or grants Validation/P14c status.
+
+Write the binding using `FieldStudyRetainedReaderBinding(...).canonical_bytes()` and hash those
+exact bytes. The operation records its binding (including all source paths/hashes), producer and
+reader profile hashes, and source-map hash in both prelaunch metadata and the immutable report.
+Inputs and source stores must be outside the output tree. Each output directory is single use;
+retain failures and choose a new directory for a later explicitly bound operation.
+
+```sh
+# Run as the child of the existing hosted_storage_guard.py supervisor/lease,
+# with its existing global lock, capacity, scratch, wait and cleanup observations.
+PYTHONPATH=/absolute/reader/src PYTHONDONTWRITEBYTECODE=1 \
+  /absolute/environment/bin/python -B /absolute/reader/scripts/frozen_field_study.py \
+  compare-retained --binding /durable/management/reader-binding.json \
+  --binding-sha256 <sha256-of-canonical-binding>
+```
+
+The command checks the existing guard's root, active lease, reserved growth and capacity before
+publication. `completion.json` records application return only; `process_exit=null` deliberately
+leaves actual process exit and cleanup to the existing outer supervisor/observer. It does not launch
+that supervisor, reserve additional resources, resume science or train a model. No new recovery or
+statistics engine is introduced. Preparation/status/run/supersede and legacy `compare` arguments
+are unchanged. The historical retained comparison remains evidence of its original tuple; this new
+interface has only the bounded synthetic implementation verification documented in its handoff.

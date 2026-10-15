@@ -55,6 +55,7 @@ from quantos.contracts.field_study import (
     FieldStudyPreparation,
     FieldStudyRecoveryOrigin,
     FieldStudyRecoveryPreparation,
+    FieldStudyRetainedReaderBinding,
     FieldStudyTask,
     FrozenFieldStudyConfiguration,
     PreparedFieldStudy,
@@ -626,6 +627,17 @@ def compare(
     sources: dict[str, PredictionImportSource],
     output_root: Path,
 ) -> dict[str, object]:
+    return _compare(preparation, sources, output_root, preparation.prediction_profile)
+
+
+def _compare(
+    preparation: PreparedFieldStudy,
+    sources: dict[str, PredictionImportSource],
+    output_root: Path,
+    profile: PredictionEvaluationProfile,
+    *,
+    bindings: dict[str, object] | None = None,
+) -> dict[str, object]:
     from quantos.application.discovery_prediction import publish_prediction_cohort
 
     _validate(preparation)
@@ -651,7 +663,7 @@ def compare(
         for t in preparation.tasks
     }
     report = publish_prediction_cohort(
-        preparation.prediction_profile,
+        profile,
         by_request,
         base_authorings=authorings,
         output_root=output_root / "evidence",
@@ -669,9 +681,144 @@ def compare(
         paired_comparison_status="AVAILABLE" if available else "UNAVAILABLE",
         paired_common_days=report["common_days"] if available else None,
     )
+    if bindings is not None:
+        report.update(bindings)
     raw = canonical_json_bytes(report)
     _write_once(output_root / f"comparison-{sha256_bytes(raw)}.json", raw)
     return report
+
+
+def compare_retained(binding_path: Path, binding_hash: str) -> dict[str, object]:
+    """Adopt a pinned reader identity and verify originals once, without execution."""
+    from quantos.application.discovery_prediction import (
+        prediction_verifier_identity,
+        validate_prediction_output_root,
+    )
+
+    raw = read_pinned(binding_path, binding_hash)
+    binding = FieldStudyRetainedReaderBinding.model_validate_json(raw)
+    if raw != binding.canonical_bytes():
+        raise ValueError("reader binding must be canonical")
+    prep = load_preparation(Path(binding.preparation.path), binding.preparation.sha256)
+    config = prep.configuration
+    if binding.producer.model_dump(exclude={"schema_version"}) != {
+        "workspace": config.workspace,
+        "commit_hash": config.code_commit_hash,
+        "lockfile_hash": config.lockfile_hash,
+    }:
+        raise ValueError("producer identity differs from preparation")
+    for identity in (binding.producer, binding.reader):
+        workspace = Path(identity.workspace)
+        if not workspace.is_absolute() or workspace != workspace.resolve():
+            raise ValueError("code workspace must be canonical and absolute")
+        verify_code_provenance(
+            workspace,
+            expected_commit_hash=identity.commit_hash,
+            expected_lockfile_hash=identity.lockfile_hash,
+        )
+    if Path(__file__).resolve() != (
+        Path(binding.reader.workspace) / "src/quantos/application/field_study.py"
+    ):
+        raise ValueError("loaded reader does not match bound workspace")
+    profile_raw = read_pinned(Path(binding.reader_profile.path), binding.reader_profile.sha256)
+    profile = PredictionEvaluationProfile.model_validate_json(profile_raw)
+    if profile_raw != profile.canonical_bytes():
+        raise ValueError("reader profile must be canonical")
+    if profile.model_dump(exclude={"verifier_identity_hash"}) != prep.prediction_profile.model_dump(
+        exclude={"verifier_identity_hash"}
+    ):
+        raise ValueError("reader profile escaped producer policy")
+    if profile.verifier_identity_hash != sha256_bytes(
+        canonical_json_bytes(prediction_verifier_identity())
+    ):
+        raise ValueError("reader verifier identity mismatch")
+    payload = json.loads(read_pinned(Path(binding.sources.path), binding.sources.sha256))
+    if not isinstance(payload, dict):
+        raise ValueError("retained sources require explicit V/P descriptors or nulls")
+    payload = cast(dict[str, object], payload)
+    if set(payload) != {"V", "P"}:
+        raise ValueError("retained sources require explicit V/P descriptors or nulls")
+    sources = {
+        label: PredictionImportSource.model_validate(value)
+        for label, value in payload.items()
+        if value is not None
+    }
+    output = Path(binding.output_root)
+    _distinct_roots(
+        [
+            output,
+            Path(prep.preparation_root),
+            Path(prep.execution_root),
+            Path(config.workspace),
+            Path(config.snapshot_path),
+            Path(config.qlib_view_path),
+        ]
+    )
+    reader_root = Path(binding.reader.workspace)
+    if output == reader_root or output in reader_root.parents or reader_root in output.parents:
+        raise ValueError("output overlaps reader workspace")
+    for path in (
+        binding_path.absolute(),
+        Path(binding.preparation.path).absolute(),
+        Path(binding.reader_profile.path).absolute(),
+        Path(binding.sources.path).absolute(),
+    ):
+        if output == path or output in path.parents:
+            raise ValueError("output overlaps pinned reader input")
+    validate_prediction_output_root(output, tuple(sources.values()))
+    guard = configured_guard()
+    guard.require_root(output)
+    guard.require_lease()
+    with opened_directory(Path(os.environ[LEASE_ENV])) as parent:
+        lease_raw = read_regular_bytes_at(parent, "prelaunch.json", max_bytes=16384)
+    if json.loads(lease_raw).get("expected_new_bytes", -1) < binding.expected_new_bytes:
+        raise ValueError("growth reservation exceeds storage lease")
+    capacity = guard.check(binding.expected_new_bytes)
+    bindings: dict[str, object] = {
+        "reader_binding_hash": binding_hash,
+        "reader_binding": binding.model_dump(mode="json"),
+        "producer_profile_hash": prep.prediction_profile.content_hash,
+        "reader_profile_hash": profile.content_hash,
+        "sources_hash": binding.sources.sha256,
+    }
+    with exclusive_directory_lock(output):
+        if any(output.iterdir()):
+            raise ValueError("retained comparison output must be empty")
+        _write_once(
+            output / "prelaunch.json",
+            canonical_json_bytes(
+                {
+                    **bindings,
+                    "capacity": capacity,
+                    "scope": "SUCCESSOR_READER_ONLY_NO_TRAINING",
+                }
+            ),
+        )
+        try:
+            report = _compare(prep, sources, output, profile, bindings=bindings)
+        except BaseException as error:
+            _write_once(
+                output / "failure.json",
+                canonical_json_bytes(
+                    {
+                        "error_class": type(error).__name__,
+                        "reader_binding_hash": binding_hash,
+                    }
+                ),
+            )
+            raise
+        _write_once(
+            output / "completion.json",
+            canonical_json_bytes(
+                {
+                    "entrypoint_status": "RETURNED",
+                    "reader_binding_hash": binding_hash,
+                    "process_exit": None,
+                    "outer_exit_and_cleanup": "REQUIRE_REAL_OBSERVATION",
+                }
+            ),
+        )
+        return report
 
 
 def configuration_from_workspace(
