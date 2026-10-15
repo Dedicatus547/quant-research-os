@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -43,6 +45,16 @@ def mocked_fixture(tmp_path: Path, number: int | None = None) -> Path:
     shutil.copytree(FIXTURE, root)
     probe = root / "network_probe.py"
     source = probe.read_text()
+    # This copy already injects synthetic sockets. Bind its launcher to the actual
+    # test host; the frozen probe and its identity rejection remain unchanged.
+    launcher_hash = hashlib.sha256(Path("/usr/bin/env").read_bytes()).hexdigest()
+    source, count = re.subn(
+        r'^ENV_LAUNCHER_HASH = "[0-9a-f]{64}"$',
+        f'ENV_LAUNCHER_HASH = "{launcher_hash}"',
+        source,
+        flags=re.MULTILINE,
+    )
+    assert count == 1
     assert source.count("import socket\n") == 1
     probe.write_text(
         AUDIT_GUARD + source.replace("import socket\n", f"TEST_ERRNO = {number!r}\n" + SOCKET_STUB)
@@ -113,9 +125,9 @@ def test_setup_errors_produce_no_socket_observation(tmp_path: Path, case: str) -
     expected = ""
     if case == "launcher_identity":
         source = probe.read_text()
+        launcher_hash = hashlib.sha256(Path("/usr/bin/env").read_bytes()).hexdigest()
         source = source.replace(
-            'ENV_LAUNCHER_HASH = "'
-            'f13fae95a6f3fcba6c0ee8787c92747089eb81e550673f135bc4bc09bfc174d1"',
+            f'ENV_LAUNCHER_HASH = "{launcher_hash}"',
             'ENV_LAUNCHER_HASH = "' + "0" * 64 + '"',
         )
         probe.write_text(source)
@@ -184,3 +196,31 @@ def test_successor_changes_only_network_entry_and_instructions() -> None:
     assert new_spec.content_hash != old_spec.content_hash
     assert new_spec.implementation_hash == old_spec.implementation_hash
     assert new_spec.candidate_version == old_spec.candidate_version == "0.162.1"
+
+
+def test_copied_probe_rebinds_stale_launcher_only_in_synthetic_fixture(tmp_path, monkeypatch):
+    stale = tmp_path / "stale"
+    shutil.copytree(FIXTURE, stale)
+    probe = stale / "network_probe.py"
+    original = probe.read_text()
+    stale_source, count = re.subn(
+        r'^ENV_LAUNCHER_HASH = "[0-9a-f]{64}"$',
+        'ENV_LAUNCHER_HASH = "' + "0" * 64 + '"',
+        original,
+        flags=re.MULTILINE,
+    )
+    assert count == 1
+    probe.write_text(stale_source)
+    monkeypatch.setitem(mocked_fixture.__globals__, "FIXTURE", stale)
+    fixture = mocked_fixture(tmp_path / "copied")
+    result = subprocess.run(
+        list(PROBE_ARGV),
+        cwd=fixture,
+        env=dict(PROBE_ENVIRONMENT),
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 0 and result.stderr == ""
+    assert rubric.parse_probe(result.stdout, result.returncode) is not None
+    assert probe.read_text() == stale_source

@@ -20,6 +20,17 @@ jobs:
         with:
           version: "0.11.25"
           enable-cache: true
+      - name: Install offline test OS dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap zsh libseccomp2
+      - name: Check offline test namespace prerequisites
+        run: |
+          /usr/bin/bwrap --version
+          /usr/bin/zsh --version
+          /usr/bin/bwrap --unshare-user --unshare-net --unshare-pid --die-with-parent \
+            --ro-bind / / --proc /proc --dev /dev --size 1048576 --tmpfs /run \
+            /usr/bin/true
       - run: uv sync --frozen --extra agent-openai
       - run: uv run ruff format --check
       - run: uv run ruff check
