@@ -374,9 +374,11 @@ def _persist_host_transport(directory: Path, execution: HarnessExecutionResult) 
         )
 
         normalizer_hash = _normalizer_hash()
+        if not isinstance(provider_failure, dict):
+            raise ArtifactIntegrityError("provider failure observation differs from failed attempt")
+        provider_failure = cast(dict[str, object], provider_failure)
         if (
-            not isinstance(provider_failure, dict)
-            or provider_failure.get("schema_version") != "codex-provider-failure-observation/v1"
+            provider_failure.get("schema_version") != "codex-provider-failure-observation/v1"
             or provider_failure.get("normalizer_identifier")
             != PROVIDER_FAILURE_NORMALIZER_IDENTIFIER
             or provider_failure.get("normalizer_hash") != normalizer_hash
@@ -391,9 +393,10 @@ def _persist_host_transport(directory: Path, execution: HarnessExecutionResult) 
         if not isinstance(errors, list) or not errors:
             raise ArtifactIntegrityError("provider failure observations are absent")
         retained_errors: list[dict[str, object]] = []
-        for item in errors:
-            if not isinstance(item, dict):
+        for raw_error in cast(list[object], errors):
+            if not isinstance(raw_error, dict):
                 raise ArtifactIntegrityError("provider failure observation shape is invalid")
+            item = cast(dict[str, object], raw_error)
             code, will_retry = item.get("provider_error_code"), item.get("will_retry")
             size = item.get("message_bytes")
             if (
@@ -412,9 +415,8 @@ def _persist_host_transport(directory: Path, execution: HarnessExecutionResult) 
                 or isinstance(size, bool)
                 or size < 0
                 or any(
-                    not isinstance(item.get(key), str)
-                    or re.fullmatch(r"[0-9a-f]{64}", item[key]) is None
-                    for key in ("message_hash", "provider_error_hash")
+                    not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                    for digest in (item.get("message_hash"), item.get("provider_error_hash"))
                 )
             ):
                 raise ArtifactIntegrityError("provider failure observation values are invalid")

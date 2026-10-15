@@ -765,6 +765,86 @@ class QuantosResearchExecutionAdapter:
         self._verify_request(request)
         return self._deterministic_compute_charge(request)
 
+    def finalize_retained_mlflow_failure(
+        self,
+        *,
+        started_intent_path: Path,
+        started_intent_hash: str,
+        reservation_path: Path,
+        reservation_hash: str,
+        baseline_path: Path,
+        baseline_hash: str,
+        controller_directory: Path,
+        expected_exit_hash: str,
+        expected_loaded_hash: str,
+        expected_controller_request_hash: str,
+        expected_management_source_hash: str,
+    ) -> AutonomousExecutionResult:
+        """Close the exact retained recorder failure after verifying all original proofs.
+
+        The caller must hold campaign/controller authority and ensure the original
+        process has terminated. No execution or new budget reservation is granted.
+        """
+        from quantos.application.execution_failure_finalization import (
+            verify_retained_mlflow_failure,
+        )
+
+        request, witness = verify_retained_mlflow_failure(
+            self,
+            started_intent_path=started_intent_path,
+            started_intent_hash=started_intent_hash,
+            reservation_path=reservation_path,
+            reservation_hash=reservation_hash,
+            baseline_path=baseline_path,
+            baseline_hash=baseline_hash,
+            controller_directory=controller_directory,
+            expected_exit_hash=expected_exit_hash,
+            expected_loaded_hash=expected_loaded_hash,
+            expected_controller_request_hash=expected_controller_request_hash,
+            expected_management_source_hash=expected_management_source_hash,
+        )
+        with exclusive_directory_lock(
+            self.output_root / "execution-locks" / request.execution_identity
+        ):
+            witness_path = (
+                self.output_root / "failure-finalizations" / f"sha256-{witness.content_hash}.json"
+            )
+            prior_receipt = self._read_receipt(request.execution_identity)
+            if prior_receipt is not None:
+                if prior_receipt.request != request:
+                    raise ArtifactIntegrityError("execution already has another request origin")
+                self._verify_receipt(prior_receipt)
+                if witness.content_hash not in prior_receipt.outcome.evidence_hashes:
+                    raise ArtifactIntegrityError("execution already has another completion origin")
+                # The frozen native verifier does not interpret this successor's
+                # extra witness. Verify or repair its original bytes here after all
+                # underlying originals have been reverified above.
+                atomic_write_bytes(witness_path, witness.canonical_bytes())
+                return self._outcome_with_receipt(prior_receipt)
+            atomic_write_bytes(witness_path, witness.canonical_bytes())
+            # Deliberately reuse the frozen adapter's existing native publishers. The
+            # management-origin witness makes this exceptional closure explicit.
+            outcome = self._failure_outcome(
+                request,
+                ReasonCode.QLIB_EXECUTION_FAILED,
+                failure_kind="EXECUTION_FAILED",
+                compute_seconds=witness.compute_units,
+            )
+            outcome = AutonomousExecutionResult.model_validate(
+                outcome.model_copy(
+                    update={
+                        "evidence_hashes": tuple(
+                            sorted((*outcome.evidence_hashes, witness.content_hash))
+                        )
+                    }
+                ).model_dump(mode="python")
+            )
+            result = self._publish_receipt(request, outcome)
+            verified = self.inspect_completed_execution(request)
+            if verified != result:
+                raise ArtifactIntegrityError("offline failure finalization did not verify")
+            return result
+
     @property
     def _native_label_audit_enabled(self) -> bool:
         return (

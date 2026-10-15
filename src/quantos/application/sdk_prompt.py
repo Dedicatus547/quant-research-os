@@ -46,6 +46,7 @@ def _bind_collection(value: dict[str, object], key: str) -> None:
     collection = value.pop(key)
     if not isinstance(collection, list):
         raise ValueError("SDK projection collection shape differs")
+    collection = cast(list[object], collection)
     value[key + "_hash"] = sha256_bytes(canonical_json_bytes(collection))
     value[key + "_count"] = len(collection)
 
@@ -99,7 +100,7 @@ def prompt_projection(request: SdkAgentRequest, profile: SdkProducerProfileV4) -
                 _canonical_fields(gate, GateResult)
                 _typed(gate, GateResult)
                 _bind_collection(gate, "evidence")
-            metrics = []
+            metrics: list[dict[str, object]] = []
             for metric in cast(list[dict[str, object]], content["metrics"]):
                 _canonical_fields(metric, ValidationMetric)
                 _typed(metric, ValidationMetric)

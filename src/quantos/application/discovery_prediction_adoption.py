@@ -39,7 +39,10 @@ from quantos.contracts.discovery_prediction_adoption import PredictionEvidenceAd
 from quantos.contracts.pit import PITGateId
 from quantos.contracts.refs import validate_logical_path
 from quantos.contracts.research import ExperimentAuthoringSpec, ResolvedExperimentSpec
-from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
+from quantos.contracts.research_execution import (
+    PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+)
 from quantos.contracts.status import ValidationVerdict
 from quantos.data import verify_qlib_view, verify_snapshot
 from quantos.research.qlib.model_split import verify_model_data_split
@@ -230,6 +233,8 @@ def _retained_originals(
     signal_path = _safe_path(source.signal_path, directory=True)
     signal = verify_signal_artifact(signal_path)  # Rehash every actual signal/PIT source file.
     pit = load_pit_artifact_evidence(signal_path / "pit-evidence.json")
+    if isinstance(pit, PITCrossSectionEvidenceCollectionV3):
+        raise ValueError("ADOPTION_PIT_EXECUTION_PROFILE_MISMATCH")
     _require(
         signal.artifact_hash == evidence.signal_hash
         and signal.resolved_experiment_hash == resolved.content_hash

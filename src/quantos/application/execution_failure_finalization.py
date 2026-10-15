@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 from pydantic import Field, NonNegativeInt
 
@@ -21,17 +21,14 @@ from quantos.application.autonomous_execution import (
 )
 from quantos.artifacts.store import (
     ArtifactIntegrityError,
-    atomic_write_bytes,
-    exclusive_directory_lock,
     opened_directory,
     read_regular_bytes_at,
 )
-from quantos.contracts.autonomous import AutonomousExecutionResult
+from quantos.contracts.autonomous import AutonomousExecutionRequest, AutonomousExecutionResult
 from quantos.contracts.base import CanonicalContract, sha256_bytes
 from quantos.contracts.hosted import HostedResearchBudgetFact, HostedResearchStepIntent
 from quantos.contracts.refs import SHA256_PATTERN
 from quantos.contracts.sdk_producer import parse_agent_request
-from quantos.contracts.status import ReasonCode
 
 
 class RetainedFailureOriginal(CanonicalContract):
@@ -70,7 +67,12 @@ def _read(path: Path, expected_hash: str | None = None) -> tuple[bytes, Retained
     return encoded, RetainedFailureOriginal(path=str(path.absolute()), sha256=digest)
 
 
-def _contract(path: Path, expected_hash: str, cls: type[CanonicalContract]):
+_Contract = TypeVar("_Contract", bound=CanonicalContract)
+
+
+def _contract(
+    path: Path, expected_hash: str, cls: type[_Contract]
+) -> tuple[_Contract, RetainedFailureOriginal]:
     encoded, original = _read(path, expected_hash)
     value = cls.model_validate_json(encoded)
     if value.canonical_bytes() != encoded or value.content_hash != expected_hash:
@@ -93,12 +95,43 @@ def finalize_retained_mlflow_failure(
     expected_controller_request_hash: str,
     expected_management_source_hash: str,
 ) -> AutonomousExecutionResult:
-    """Publish the observed terminal failure without calling ``execute``.
+    """Verify retained proof and close through the adapter-owned publication boundary."""
+    return adapter.finalize_retained_mlflow_failure(
+        started_intent_path=started_intent_path,
+        started_intent_hash=started_intent_hash,
+        reservation_path=reservation_path,
+        reservation_hash=reservation_hash,
+        baseline_path=baseline_path,
+        baseline_hash=baseline_hash,
+        controller_directory=controller_directory,
+        expected_exit_hash=expected_exit_hash,
+        expected_loaded_hash=expected_loaded_hash,
+        expected_controller_request_hash=expected_controller_request_hash,
+        expected_management_source_hash=expected_management_source_hash,
+    )
+
+
+def verify_retained_mlflow_failure(
+    adapter: QuantosResearchExecutionAdapter,
+    *,
+    started_intent_path: Path,
+    started_intent_hash: str,
+    reservation_path: Path,
+    reservation_hash: str,
+    baseline_path: Path,
+    baseline_hash: str,
+    controller_directory: Path,
+    expected_exit_hash: str,
+    expected_loaded_hash: str,
+    expected_controller_request_hash: str,
+    expected_management_source_hash: str,
+) -> tuple[AutonomousExecutionRequest, RetainedMlflowFailureFinalization]:
+    """Verify original proofs and return the exact request/witness without publishing.
 
     The caller must hold campaign/controller authority and ensure the original
-    process has terminated. This function preserves the reserved execution and
-    frozen deterministic charge; hosted accounting continuation remains a
-    separate existing operation. Publication is immutable and idempotent.
+    process has terminated. The adapter owns locked, immutable publication and
+    preserves the reserved execution and frozen charge. Hosted accounting
+    continuation remains a separate existing operation.
     """
     require_durable_execution_root(adapter.output_root)
     management_bytes, management_original = _read(Path(__file__), expected_management_source_hash)
@@ -211,44 +244,4 @@ def finalize_retained_mlflow_failure(
             "trial_identity_index": indexed_original,
         },
     )
-    with exclusive_directory_lock(
-        adapter.output_root / "execution-locks" / request.execution_identity
-    ):
-        witness_path = (
-            adapter.output_root / "failure-finalizations" / f"sha256-{witness.content_hash}.json"
-        )
-        prior_receipt = adapter._read_receipt(request.execution_identity)
-        if prior_receipt is not None:
-            if prior_receipt.request != request:
-                raise ArtifactIntegrityError("execution already has another request origin")
-            adapter._verify_receipt(prior_receipt)
-            if witness.content_hash not in prior_receipt.outcome.evidence_hashes:
-                raise ArtifactIntegrityError("execution already has another completion origin")
-            # The frozen native verifier does not interpret this successor's
-            # extra witness. Verify or repair its original bytes here after all
-            # underlying originals have been reverified above.
-            atomic_write_bytes(witness_path, witness.canonical_bytes())
-            return adapter._outcome_with_receipt(prior_receipt)
-        atomic_write_bytes(witness_path, witness.canonical_bytes())
-        # Deliberately reuse the frozen adapter's existing native publishers. The
-        # management-origin witness makes this exceptional closure explicit.
-        outcome = adapter._failure_outcome(
-            request,
-            ReasonCode.QLIB_EXECUTION_FAILED,
-            failure_kind="EXECUTION_FAILED",
-            compute_seconds=charge,
-        )
-        outcome = AutonomousExecutionResult.model_validate(
-            outcome.model_copy(
-                update={
-                    "evidence_hashes": tuple(
-                        sorted((*outcome.evidence_hashes, witness.content_hash))
-                    )
-                }
-            ).model_dump(mode="python")
-        )
-        result = adapter._publish_receipt(request, outcome)
-        verified = adapter.inspect_completed_execution(request)
-        if verified != result:
-            raise ArtifactIntegrityError("offline failure finalization did not verify")
-        return result
+    return request, witness
