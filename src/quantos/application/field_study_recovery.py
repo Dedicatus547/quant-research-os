@@ -852,5 +852,85 @@ def prediction_source_adoption(
     check_opportunity(config, request, output_root, adoption)
     hashes = verify_native_receipts(adoption, request, output_root, require_complete=True)
     if not set(hashes) <= set(evidence_hashes):
-        raise ValueError("field-study outcome lost its adoption receipts")
+        # Historical failed outcomes predate attachment of native receipt hashes.
+        # Accept only independently authenticated, request-bound Workflow failures;
+        # never rewrite their outcome/receipt or transfer a successful qualification.
+        _verify_retained_workflow_failure(source, request, output_root, evidence_hashes)
     return adoption
+
+
+def _verify_retained_workflow_failure(
+    source: object,
+    request: AutonomousExecutionRequest,
+    output_root: Path,
+    evidence_hashes: tuple[str, ...],
+) -> None:
+    from quantos.application.autonomous_execution import (
+        AutonomousExecutionReceipt,
+        QuantosResearchExecutionAdapter,
+    )
+    from quantos.contracts.autonomous import (
+        AutonomousExecutionFailureEvidence,
+        AutonomousExecutionResult,
+    )
+
+    if not isinstance(source, PredictionImportSource):
+        raise ValueError("field-study outcome lost its adoption receipts")
+    outcome = AutonomousExecutionResult.model_validate_json(read_origin(source.outcome))
+    receipt = AutonomousExecutionReceipt.model_validate_json(read_origin(source.receipt))
+    expected = QuantosResearchExecutionAdapter._outcome_with_receipt(  # pyright: ignore[reportPrivateUsage]
+        receipt
+    )
+    receipt_paths = (
+        output_root / "execution-record-artifacts" / f"sha256-{receipt.content_hash}.json",
+        output_root / "execution-records/identities" / f"{request.execution_identity}.json",
+    )
+    if (
+        plain_path(source.outcome.path) != output_root / "outcome.json"
+        or plain_path(source.receipt.path) not in receipt_paths
+        or read_origin(source.request) != request.canonical_bytes()
+        or receipt.request != request
+        or outcome != expected
+        or outcome.evidence_hashes != evidence_hashes
+        or str(outcome.outcome) != "EXECUTION_FAILED"
+        or outcome.failure_reason_code is None
+        or str(outcome.failure_reason_code) != "QLIB_EXECUTION_FAILED"
+        or not outcome.execution_requested
+        or outcome.research_result_hash is not None
+        or outcome.validation_report_hash is not None
+    ):
+        raise ValueError("field-study outcome lost its adoption receipts")
+    completion_path = plain_path(source.workflow_completion.path)
+    workflow_root = output_root / "execution-checkpoints" / request.execution_identity / "workflow"
+    completion = _json(completion_path, source.workflow_completion.sha256)
+    reservation_path = completion_path.with_name("reservation.json")
+    if (
+        not completion_path.is_relative_to(workflow_root)
+        or completion_path.name != "completion.json"
+        or plain_path(source.workflow_reservation.path) != reservation_path
+        or completion.get("status") != "FAILED"
+        or completion.get("failure_reason_code") != "QLIB_EXECUTION_FAILED"
+        or list(workflow_root.glob("sha256-*.json"))
+    ):
+        raise ValueError("field-study historical adoption requires its failed Workflow")
+    reservation = _json(reservation_path, source.workflow_reservation.sha256)
+    if (
+        reservation.get("request_hash") != request.content_hash
+        or reservation.get("stage") != "workflow"
+        or reservation.get("inputs_hash") != completion.get("inputs_hash")
+    ):
+        raise ValueError("field-study historical Workflow failure escaped its request")
+    failure = AutonomousExecutionFailureEvidence(
+        execution_identity=request.execution_identity,
+        request_hash=request.content_hash,
+        campaign_hash=request.campaign_hash,
+        candidate_hash=request.candidate.content_hash,
+        snapshot_hash=request.snapshot_hash,
+        reason_code=outcome.failure_reason_code,
+        failure_kind="EXECUTION_FAILED",
+    )
+    failure_path = output_root / "execution-failures" / f"sha256-{failure.content_hash}.json"
+    if failure.content_hash not in outcome.evidence_hashes or _json(
+        failure_path, failure.content_hash
+    ) != failure.model_dump(mode="json"):
+        raise ValueError("field-study historical outcome lacks its original failure evidence")

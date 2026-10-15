@@ -153,5 +153,11 @@ independently checks the v2 preparation/declaration, source delta and reconstruc
 supersession, old successful stages, and both actual native receipts; outcome evidence must retain
 those receipt hashes. Its normal data/PIT/native-statistic predicates remain in force. Missing,
 misplaced, changed or foreign receipts are rejected, including recovery after an orphan publication.
+New recovery failures also retain completed adoption hashes in their execution evidence. For retained
+historical failures that omitted those hashes, the reader first verifies both native receipts under
+the same exact source/request/artifact predicates, then requires pinned original outcome and execution
+receipt, request-bound failed Workflow reservation/completion and immutable failure evidence at their
+actual successor paths. This narrow failure path preserves the original outcome and receipt bytes;
+it grants no successful Workflow or qualification and does not relax the successful-outcome check.
 Actual run/resume/compare still need the existing guard/global lease and fresh host capacity,
 reservations, cleanup and scratch observations under the retained authorization.
