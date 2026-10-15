@@ -10,11 +10,11 @@ from quantos.contracts.autonomous import AutonomousExecutionBindings, Autonomous
 from quantos.contracts.base import CanonicalContract, canonical_json_bytes, sha256_bytes
 from quantos.contracts.campaign import ResearchFamilySpec
 from quantos.contracts.cost import BacktestPolicy, CostPolicy
-from quantos.contracts.discovery_prediction import PredictionEvaluationProfile
+from quantos.contracts.discovery_prediction import PredictionEvaluationProfile, PredictionFileSource
 from quantos.contracts.enumeration import CandidateEnumerationManifest, ResearchFactorTemplateSpec
 from quantos.contracts.pit import SafeQlibExpressionSpec
 from quantos.contracts.qlib_view import QlibViewManifest
-from quantos.contracts.refs import SHA256_PATTERN
+from quantos.contracts.refs import SHA256_PATTERN, validate_logical_path
 from quantos.contracts.research import (
     ExperimentAuthoringSpec,
     ExpressionAuthoringSpec,
@@ -170,10 +170,108 @@ class FieldStudyTask(CanonicalContract):
     compute_units: int = Field(gt=0)
 
 
-class FieldStudyPreparation(CanonicalContract):
-    schema_version: Literal["frozen-field-study-preparation/v1"] = (
-        "frozen-field-study-preparation/v1"
+class FieldStudySourceChange(CanonicalContract):
+    schema_version: Literal["field-study-source-change/v1"] = "field-study-source-change/v1"
+    path: str
+    original_hash: str | None = Field(pattern=SHA256_PATTERN)
+    successor_hash: str | None = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def changed_file(self) -> Self:
+        validate_logical_path(self.path)
+        if self.original_hash == self.successor_hash:
+            raise ValueError("source change must describe different bytes")
+        return self
+
+
+class FieldStudyBaselineOrigin(CanonicalContract):
+    """Only successful baseline stages; never a Workflow or parent qualification."""
+
+    schema_version: Literal["field-study-baseline-origin/v1"] = "field-study-baseline-origin/v1"
+    label: Literal["V", "P"]
+    stage: Literal["baseline"] = "baseline"
+    request: PredictionFileSource
+    pit: PredictionFileSource
+    pit_checkpoint: PredictionFileSource
+    signal_path: str
+    signal_hash: str = Field(pattern=SHA256_PATTERN)
+    signal_checkpoint: PredictionFileSource
+    backtest_path: str
+    backtest_hash: str = Field(pattern=SHA256_PATTERN)
+    backtest_checkpoint: PredictionFileSource
+    workflow_failure: PredictionFileSource
+    guard_exit: PredictionFileSource
+
+
+class FieldStudyRecoveryOrigin(CanonicalContract):
+    schema_version: Literal["field-study-recovery-origin/v1"] = "field-study-recovery-origin/v1"
+    predecessor_preparation: PredictionFileSource
+    reconstructed_workspace: str
+    successor_configuration_hash: str = Field(pattern=SHA256_PATTERN)
+    source_changes: tuple[FieldStudySourceChange, ...]
+    baselines: tuple[FieldStudyBaselineOrigin, ...] = Field(min_length=1, max_length=2)
+
+    @model_validator(mode="after")
+    def unique_ordered_origins(self) -> Self:
+        paths = tuple(item.path for item in self.source_changes)
+        labels = tuple(item.label for item in self.baselines)
+        if paths != tuple(sorted(set(paths))) or labels != tuple(sorted(set(labels))):
+            raise ValueError("recovery sources must be unique and ordered")
+        return self
+
+
+class FieldStudyOpportunityTransfer(CanonicalContract):
+    schema_version: Literal["field-study-opportunity-transfer/v1"] = (
+        "field-study-opportunity-transfer/v1"
     )
+    label: Literal["V", "P"]
+    opportunity_identity: str = Field(pattern=SHA256_PATTERN)
+    original_request_hash: str = Field(pattern=SHA256_PATTERN)
+    successor_request_hash: str = Field(pattern=SHA256_PATTERN)
+    complete_compute_units: Literal[18] = 18
+    logical_executions: Literal[1] = 1
+    original_consumed_units: None = None
+
+
+class FieldStudySourceAdoption(CanonicalContract):
+    schema_version: Literal["field-study-source-adoption/v1"] = "field-study-source-adoption/v1"
+    origin: FieldStudyRecoveryOrigin
+    original_source_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    evaluation_source_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    lockfile_hash: str = Field(pattern=SHA256_PATTERN)
+    evaluation_capsule_hash: str = Field(pattern=SHA256_PATTERN)
+    evaluation_inventory_hash: str = Field(pattern=SHA256_PATTERN)
+    successor_preparation_root: str
+    successor_execution_root: str
+    transfers: tuple[FieldStudyOpportunityTransfer, FieldStudyOpportunityTransfer]
+    complete_study_compute_units: Literal[36] = 36
+    whole_job_growth_estimate_bytes: Literal[8589934592] = 8589934592
+    model_predictions_recomputed: Literal[True] = True
+    original_qualification_transferred: Literal[False] = False
+
+    @model_validator(mode="after")
+    def same_two_opportunities(self) -> Self:
+        if (
+            tuple(t.label for t in self.transfers) != ("V", "P")
+            or len({t.opportunity_identity for t in self.transfers}) != 2
+        ):
+            raise ValueError("recovery must retain the two original opportunities")
+        return self
+
+
+class FieldStudyOpportunityState(CanonicalContract):
+    schema_version: Literal["field-study-opportunity-state/v1"] = "field-study-opportunity-state/v1"
+    opportunity_identity: str = Field(pattern=SHA256_PATTERN)
+    original_request_hash: str = Field(pattern=SHA256_PATTERN)
+    active_request_hash: str = Field(pattern=SHA256_PATTERN)
+    active_configuration_hash: str = Field(pattern=SHA256_PATTERN)
+    active_execution_root: str
+    source_adoption_record_hash: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    complete_compute_units: Literal[18] = 18
+    logical_executions: Literal[1] = 1
+
+
+class _FieldStudyPreparation(CanonicalContract):
     configuration: FrozenFieldStudyConfiguration
     snapshot: DataSnapshotManifest
     view: QlibViewManifest
@@ -198,3 +296,19 @@ class FieldStudyPreparation(CanonicalContract):
         ):
             raise ValueError("preparation dataset identity differs")
         return self
+
+
+class FieldStudyPreparation(_FieldStudyPreparation):
+    schema_version: Literal["frozen-field-study-preparation/v1"] = (
+        "frozen-field-study-preparation/v1"
+    )
+
+
+class FieldStudyRecoveryPreparation(_FieldStudyPreparation):
+    schema_version: Literal["frozen-field-study-preparation/v2"] = (
+        "frozen-field-study-preparation/v2"
+    )
+    source_adoption: FieldStudySourceAdoption
+
+
+PreparedFieldStudy = FieldStudyPreparation | FieldStudyRecoveryPreparation

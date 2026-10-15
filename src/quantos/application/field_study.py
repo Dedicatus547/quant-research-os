@@ -19,6 +19,13 @@ from quantos.application.autonomous_execution import (
     require_durable_execution_root,
 )
 from quantos.application.enumeration import enumerate_research_family
+from quantos.application.field_study_recovery import (
+    activate_supersession,
+    check_opportunity,
+    make_source_adoption,
+    predecessor,
+    verify_source_adoption,
+)
 from quantos.application.provenance import verify_code_provenance
 from quantos.artifacts.store import (
     ArtifactConflictError,
@@ -46,8 +53,11 @@ from quantos.contracts.field_study import (
     FieldStudyBudget,
     FieldStudyExecutionScope,
     FieldStudyPreparation,
+    FieldStudyRecoveryOrigin,
+    FieldStudyRecoveryPreparation,
     FieldStudyTask,
     FrozenFieldStudyConfiguration,
+    PreparedFieldStudy,
 )
 from quantos.contracts.pit import SafeQlibExpressionSpec
 from quantos.contracts.qlib_view import QlibViewManifest
@@ -76,6 +86,20 @@ def load_configuration(path: Path, expected_hash: str) -> FrozenFieldStudyConfig
     return config
 
 
+def load_recovery_origin(path: Path, expected_hash: str) -> FieldStudyRecoveryOrigin:
+    raw = read_pinned(path, expected_hash)
+    origin = FieldStudyRecoveryOrigin.model_validate_json(raw)
+    if raw != origin.canonical_bytes():
+        raise ValueError("recovery origin must have canonical bytes")
+    return origin
+
+
+def supersede(preparation: PreparedFieldStudy) -> None:
+    """Explicit management operation, separate from prepare/status and science."""
+    _validate(preparation)
+    activate_supersession(preparation)
+
+
 def _write_once(path: Path, raw: bytes) -> None:
     if path.exists():
         if read_pinned(path, sha256_bytes(raw)) != raw:
@@ -89,6 +113,8 @@ def build_task(
     label: Literal["V", "P"],
     snapshot: DataSnapshotManifest,
     view: QlibViewManifest,
+    *,
+    origin: FieldStudyRecoveryOrigin | None = None,
 ) -> FieldStudyTask:
     authoring = config.volume if label == "V" else config.price
     expression = cast(SafeQlibExpressionSpec, authoring.expression)
@@ -147,6 +173,7 @@ def build_task(
         code_commit_hash=config.code_commit_hash,
         lockfile_hash=config.lockfile_hash,
         field_study=config,
+        field_study_origin=origin,
     )
     candidate = manifest.candidates[0]
     identity = autonomous_execution_identity(
@@ -229,7 +256,7 @@ def _distinct_roots(paths: list[Path]) -> None:
                 raise ValueError("preparation, execution, source and data roots must be disjoint")
 
 
-def _validate(preparation: FieldStudyPreparation) -> None:
+def _validate(preparation: PreparedFieldStudy) -> None:
     config = preparation.configuration
     _distinct_roots(
         [
@@ -240,8 +267,20 @@ def _validate(preparation: FieldStudyPreparation) -> None:
             Path(config.qlib_view_path),
         ]
     )
+    adoption = (
+        preparation.source_adoption
+        if isinstance(preparation, FieldStudyRecoveryPreparation)
+        else None
+    )
     if preparation.tasks != tuple(
-        build_task(config, label, preparation.snapshot, preparation.view) for label in ("V", "P")
+        build_task(
+            config,
+            label,
+            preparation.snapshot,
+            preparation.view,
+            origin=adoption.origin if adoption else None,
+        )
+        for label in ("V", "P")
     ):
         raise ValueError("prepared task identity or budget mismatch")
     dates = tuple(
@@ -273,11 +312,24 @@ def _validate(preparation: FieldStudyPreparation) -> None:
     ]
     if not usable or preparation.last_computable_label_date != usable[-1]:
         raise ValueError("prepared label cutoff mismatch")
+    if adoption is not None and (
+        adoption.successor_preparation_root != preparation.preparation_root
+        or adoption.successor_execution_root != preparation.execution_root
+        or adoption.evaluation_capsule_hash != preparation.source_capsule_hash
+        or adoption.evaluation_inventory_hash != preparation.source_inventory_hash
+    ):
+        raise ValueError("prepared origin declaration differs from its successor inventory")
 
 
-def load_preparation(path: Path, expected_hash: str) -> FieldStudyPreparation:
+def load_preparation(path: Path, expected_hash: str) -> PreparedFieldStudy:
     raw = read_pinned(path, expected_hash)
-    preparation = FieldStudyPreparation.model_validate_json(raw)
+    schema = json.loads(raw).get("schema_version")
+    model = (
+        FieldStudyRecoveryPreparation
+        if schema == "frozen-field-study-preparation/v2"
+        else FieldStudyPreparation
+    )
+    preparation = model.model_validate_json(raw)
     if raw != preparation.canonical_bytes():
         raise ValueError("preparation is not canonical")
     _validate(preparation)
@@ -285,8 +337,12 @@ def load_preparation(path: Path, expected_hash: str) -> FieldStudyPreparation:
 
 
 def prepare(
-    config: FrozenFieldStudyConfiguration, output_root: Path, execution_root: Path
-) -> FieldStudyPreparation:
+    config: FrozenFieldStudyConfiguration,
+    output_root: Path,
+    execution_root: Path,
+    *,
+    origin: FieldStudyRecoveryOrigin | None = None,
+) -> PreparedFieldStudy:
     from quantos.application.discovery_prediction import prediction_verifier_identity
 
     require_durable_execution_root(output_root)
@@ -323,8 +379,8 @@ def prepare(
         if config.research_policy.test.start <= d <= config.research_policy.test.end
     )
     tasks = (
-        build_task(config, "V", inputs.snapshot, inputs.view),
-        build_task(config, "P", inputs.snapshot, inputs.view),
+        build_task(config, "V", inputs.snapshot, inputs.view, origin=origin),
+        build_task(config, "P", inputs.snapshot, inputs.view, origin=origin),
     )
     profile = PredictionEvaluationProfile(
         verifier_identity_hash=sha256_bytes(canonical_json_bytes(prediction_verifier_identity())),
@@ -375,19 +431,42 @@ def prepare(
     ]
     if not usable:
         raise ValueError("calendar has no computable test labels")
-    preparation = FieldStudyPreparation(
-        configuration=config,
-        snapshot=inputs.snapshot,
-        view=inputs.view,
-        tasks=tasks,
-        prediction_profile=profile,
-        execution_root=str(execution_root.absolute()),
-        preparation_root=str(output_root.absolute()),
-        full_calendar=calendar,
-        effective_segments=segments,
-        last_computable_label_date=usable[-1],
-        source_inventory_hash=sha256_bytes(inventory_raw),
-        source_capsule_hash=sha256_bytes(capsule_raw),
+    extra: dict[str, object] = {}
+    if origin is not None:
+        adoption = make_source_adoption(
+            origin,
+            predecessor(origin),
+            config,
+            tasks,
+            preparation_root=output_root.absolute(),
+            execution_root=execution_root.absolute(),
+            inventory_hash=sha256_bytes(inventory_raw),
+            capsule_hash=sha256_bytes(capsule_raw),
+        )
+        verify_source_adoption(adoption, config, tasks, successor_inventory=inventory)
+        extra["source_adoption"] = adoption
+    preparation_type = (
+        FieldStudyRecoveryPreparation if origin is not None else FieldStudyPreparation
+    )
+    preparation = preparation_type.model_validate(
+        dict(
+            schema_version="frozen-field-study-preparation/v2"
+            if origin
+            else "frozen-field-study-preparation/v1",
+            configuration=config,
+            snapshot=inputs.snapshot,
+            view=inputs.view,
+            tasks=tasks,
+            prediction_profile=profile,
+            execution_root=str(execution_root.absolute()),
+            preparation_root=str(output_root.absolute()),
+            full_calendar=calendar,
+            effective_segments=segments,
+            last_computable_label_date=usable[-1],
+            source_inventory_hash=sha256_bytes(inventory_raw),
+            source_capsule_hash=sha256_bytes(capsule_raw),
+            **extra,
+        )
     )
     _validate(preparation)
     verify_code_provenance(
@@ -405,10 +484,14 @@ def prepare(
             _write_once(output_root / name, raw)
         for task in tasks:
             _write_once(output_root / task.label / "request.json", task.request.canonical_bytes())
+        if isinstance(preparation, FieldStudyRecoveryPreparation):
+            _write_once(
+                output_root / "source-adoption.json", preparation.source_adoption.canonical_bytes()
+            )
     return preparation
 
 
-def status(preparation: FieldStudyPreparation) -> dict[str, object]:
+def status(preparation: PreparedFieldStudy) -> dict[str, object]:
     _validate(preparation)
     rows: list[dict[str, object]] = []
     for task in preparation.tasks:
@@ -431,7 +514,7 @@ def status(preparation: FieldStudyPreparation) -> dict[str, object]:
 
 
 def run(
-    preparation: FieldStudyPreparation,
+    preparation: PreparedFieldStudy,
     label: Literal["V", "P"],
     *,
     request_hash: str,
@@ -447,6 +530,14 @@ def run(
         raise ValueError("complete job growth must be explicit and positive")
     config = preparation.configuration
     root = Path(preparation.execution_root) / label
+    adoption = (
+        preparation.source_adoption
+        if isinstance(preparation, FieldStudyRecoveryPreparation)
+        else None
+    )
+    if adoption is not None:
+        verify_source_adoption(adoption, config, preparation.tasks)
+    check_opportunity(config, task.request, root, adoption)
     read_pinned(
         Path(preparation.preparation_root) / "source-capsule.json", preparation.source_capsule_hash
     )
@@ -480,6 +571,7 @@ def run(
         output_root=root,
         workspace=Path(config.workspace),
         field_study=config,
+        field_study_source_adoption=adoption,
         discovery_stage_recovery=True,
     )
     with exclusive_directory_lock(root / "management"):
@@ -530,7 +622,7 @@ def run(
 
 
 def compare(
-    preparation: FieldStudyPreparation,
+    preparation: PreparedFieldStudy,
     sources: dict[str, PredictionImportSource],
     output_root: Path,
 ) -> dict[str, object]:

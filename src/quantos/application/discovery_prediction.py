@@ -183,6 +183,7 @@ def prediction_verifier_identity() -> dict[str, object]:
             "application/__init__.py",
             "application/autonomous_execution.py",
             "application/field_study.py",
+            "application/field_study_recovery.py",
             "application/provenance.py",
             "application/pit.py",
             "application/discovery_prediction.py",
@@ -638,9 +639,15 @@ def build_prediction_evidence(
             "FIELD_STUDY_CANDIDATE_MISMATCH",
         )
         from quantos.application.field_study import build_task
+        from quantos.application.field_study_recovery import prediction_source_adoption
+
+        adoption = prediction_source_adoption(source, config, request, outcome.evidence_hashes)
 
         _require(
-            request == build_task(config, label, snapshot, view).request,
+            request
+            == build_task(
+                config, label, snapshot, view, origin=adoption.origin if adoption else None
+            ).request,
             "FIELD_STUDY_REQUEST_IDENTITY_MISMATCH",
         )
         bindings = build_autonomous_execution_bindings(
@@ -654,6 +661,7 @@ def build_prediction_evidence(
             code_commit_hash=config.code_commit_hash,
             lockfile_hash=config.lockfile_hash,
             field_study=config,
+            field_study_origin=adoption.origin if adoption else None,
         )
         _require(
             all(
