@@ -7,6 +7,8 @@ import math
 import os
 import pickle
 import threading
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from datetime import time as day_time
@@ -48,6 +50,34 @@ from quantos.research.qlib.universe import (
 _WORKFLOW_LOCK = threading.RLock()
 _METRIC_NAMES = ("IC", "ICIR", "Rank IC", "Rank ICIR")
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+@contextmanager
+def _workflow_tracking_runtime(
+    runtime_root: Path, execution_profile: PITExecutionProfile
+) -> Generator[str, None, None]:
+    """Select a Qlib recorder backend under the caller-held Workflow lock."""
+    runtime_root = runtime_root.resolve()
+    field_study = execution_profile == "frozen-field-study/v1"
+    # MLflow's FileStore rejects run ancestors named "artifacts". The fixed study
+    # lives under that directory, so use its supported SQLite tracking backend.
+    # Keeping cwd here also confines SQLite's default ./mlruns artifact store.
+    runtime_uri = (
+        f"sqlite:///{runtime_root / 'tracking.sqlite'}" if field_study else runtime_root.as_uri()
+    )
+    previous_cwd = Path.cwd()
+    previous_setting = os.environ.get("MLFLOW_ALLOW_FILE_STORE")
+    os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
+    # Legacy Qlib file-URI locking strips the leading slash before joining cwd.
+    os.chdir(runtime_root if field_study else Path("/"))
+    try:
+        yield runtime_uri
+    finally:
+        os.chdir(previous_cwd)
+        if previous_setting is None:
+            os.environ.pop("MLFLOW_ALLOW_FILE_STORE", None)
+        else:
+            os.environ["MLFLOW_ALLOW_FILE_STORE"] = previous_setting
 
 
 @dataclass(frozen=True)
@@ -254,7 +284,6 @@ class QlibWorkflowResearchService:
         label = _label_expression(research_policy)
         runtime_root = output_root / "mlflow-runtime"
         runtime_root.mkdir(parents=True, exist_ok=True)
-        runtime_uri = runtime_root.resolve().as_uri()
         native_root = output_root / "native-records" / f"sha256-{execution_identity}"
         calendar = tuple(
             date.fromisoformat(line.strip())
@@ -272,139 +301,123 @@ class QlibWorkflowResearchService:
             model_type = cast(Any, LGBModel)
             signal_record_type = cast(Any, SignalRecord)
             sigana_record_type = cast(Any, SigAnaRecord)
-            with _WORKFLOW_LOCK:
-                previous_cwd = Path.cwd()
-                previous_setting = os.environ.get("MLFLOW_ALLOW_FILE_STORE")
-                os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
-                # Qlib's file-store lock strips the leading slash from a file URI and joins
-                # the result with the current working directory. Running from filesystem root
-                # makes that relative lock path resolve back to the intended absolute runtime
-                # root instead of dirtying the repository checkout.
-                os.chdir(Path("/"))
-                try:
-                    qlib_runtime.init(provider_uri=str(qlib_view_path), region=REG_CN)
-                    with workflow.start(
-                        experiment_name="quantos-research",
-                        recorder_id=recorder_id,
-                        uri=runtime_uri,
-                        resume=True,
-                    ):
-                        recorder = workflow.get_recorder()
-                        artifacts = set(cast(list[str], recorder.list_artifacts()))
-                        if "sig_analysis" in artifacts:
-                            nested = cast(list[str], recorder.list_artifacts("sig_analysis"))
-                            artifacts.update(
-                                item if item.startswith("sig_analysis/") else f"sig_analysis/{item}"
-                                for item in nested
-                            )
-                        expected_artifacts = {
-                            "pred.pkl",
-                            "label.pkl",
-                            "sig_analysis/ic.pkl",
-                            "sig_analysis/ric.pkl",
-                        }
-                        present = expected_artifacts.intersection(artifacts)
-                        if present and present != expected_artifacts:
-                            raise ValueError(
-                                "resumed Qlib recorder has a partial native record set"
-                            )
-                        if not present:
-                            instruments = _historical_universe_instruments(
-                                qlib_view_path,
-                                expected_view_hash=resolved.qlib_view_hash,
-                                expected_snapshot_hash=resolved.snapshot_hash,
-                                universe_index=resolved.strategy.universe_index,
-                            )
-                            handler = data_handler_type(
-                                start_time=research_policy.train.start,
-                                end_time=resolved.evaluation_end,
-                                instruments=instruments,
-                                data_loader={
-                                    "class": "QlibDataLoader",
-                                    "module_path": "qlib.data.dataset.loader",
-                                    "kwargs": {
-                                        "config": {
-                                            "feature": [
-                                                [feature],
-                                                [resolved.expression.expression_id],
-                                            ],
-                                            "label": [[label], ["LABEL0"]],
-                                        },
-                                        "freq": "day",
+            with (
+                _WORKFLOW_LOCK,
+                _workflow_tracking_runtime(runtime_root, execution_profile) as runtime_uri,
+            ):
+                qlib_runtime.init(provider_uri=str(qlib_view_path), region=REG_CN)
+                with workflow.start(
+                    experiment_name="quantos-research",
+                    recorder_id=recorder_id,
+                    uri=runtime_uri,
+                    resume=True,
+                ):
+                    recorder = workflow.get_recorder()
+                    artifacts = set(cast(list[str], recorder.list_artifacts()))
+                    if "sig_analysis" in artifacts:
+                        nested = cast(list[str], recorder.list_artifacts("sig_analysis"))
+                        artifacts.update(
+                            item if item.startswith("sig_analysis/") else f"sig_analysis/{item}"
+                            for item in nested
+                        )
+                    expected_artifacts = {
+                        "pred.pkl",
+                        "label.pkl",
+                        "sig_analysis/ic.pkl",
+                        "sig_analysis/ric.pkl",
+                    }
+                    present = expected_artifacts.intersection(artifacts)
+                    if present and present != expected_artifacts:
+                        raise ValueError("resumed Qlib recorder has a partial native record set")
+                    if not present:
+                        instruments = _historical_universe_instruments(
+                            qlib_view_path,
+                            expected_view_hash=resolved.qlib_view_hash,
+                            expected_snapshot_hash=resolved.snapshot_hash,
+                            universe_index=resolved.strategy.universe_index,
+                        )
+                        handler = data_handler_type(
+                            start_time=research_policy.train.start,
+                            end_time=resolved.evaluation_end,
+                            instruments=instruments,
+                            data_loader={
+                                "class": "QlibDataLoader",
+                                "module_path": "qlib.data.dataset.loader",
+                                "kwargs": {
+                                    "config": {
+                                        "feature": [
+                                            [feature],
+                                            [resolved.expression.expression_id],
+                                        ],
+                                        "label": [[label], ["LABEL0"]],
                                     },
+                                    "freq": "day",
                                 },
-                                learn_processors=[{"class": "DropnaLabel"}],
+                            },
+                            learn_processors=[{"class": "DropnaLabel"}],
+                        )
+                        dataset = dataset_type(
+                            handler=handler,
+                            segments={
+                                name: (part.start, part.end) for name, part in segments.items()
+                            },
+                        )
+                        declared = {
+                            "train": research_policy.train,
+                            "valid": research_policy.validation,
+                            "test": ResearchSegment(
+                                start=resolved.evaluation_start, end=resolved.evaluation_end
+                            ),
+                        }
+                        for name in ("train", "valid", "test"):
+                            frame = dataset.prepare(
+                                name,
+                                col_set=["feature", "label"] if name != "test" else "feature",
+                                data_key=data_handler_type.DK_L
+                                if name != "test"
+                                else data_handler_type.DK_I,
                             )
-                            dataset = dataset_type(
-                                handler=handler,
-                                segments={
-                                    name: (part.start, part.end) for name, part in segments.items()
-                                },
-                            )
-                            declared = {
-                                "train": research_policy.train,
-                                "valid": research_policy.validation,
-                                "test": ResearchSegment(
-                                    start=resolved.evaluation_start, end=resolved.evaluation_end
-                                ),
-                            }
-                            for name in ("train", "valid", "test"):
-                                frame = dataset.prepare(
-                                    name,
-                                    col_set=["feature", "label"] if name != "test" else "feature",
-                                    data_key=data_handler_type.DK_L
-                                    if name != "test"
-                                    else data_handler_type.DK_I,
-                                )
-                                samples[name] = _sample_segment(
-                                    frame, declared[name], segments[name]
-                                )
-                                del frame
-                            recorder.save_objects(
-                                **{
-                                    "model-data-split-samples.pkl": {
-                                        name: part.model_dump(mode="json")
-                                        for name, part in samples.items()
-                                    }
+                            samples[name] = _sample_segment(frame, declared[name], segments[name])
+                            del frame
+                        recorder.save_objects(
+                            **{
+                                "model-data-split-samples.pkl": {
+                                    name: part.model_dump(mode="json")
+                                    for name, part in samples.items()
                                 }
-                            )
-                            model = model_type(
-                                loss="mse",
-                                learning_rate=0.05,
-                                max_depth=3,
-                                num_leaves=7,
-                                num_threads=research_policy.num_threads,
-                                seed=research_policy.random_seed,
-                                feature_fraction_seed=research_policy.random_seed,
-                                bagging_seed=research_policy.random_seed,
-                                data_random_seed=research_policy.random_seed,
-                                deterministic=True,
-                                force_col_wise=True,
-                                num_boost_round=research_policy.num_boost_round,
-                                early_stopping_rounds=research_policy.early_stopping_rounds,
-                            )
-                            _fit_and_generate_signal_record(
-                                model, dataset, recorder, signal_record_type
-                            )
-                            sigana_record_type(recorder, ana_long_short=True).generate()
-                        else:
-                            if "model-data-split-samples.pkl" not in artifacts:
-                                raise ValueError(
-                                    "resumed Qlib recorder lacks actual DatasetH split samples"
-                                )
-                            raw_samples = recorder.load_object("model-data-split-samples.pkl")
-                            samples = {
-                                name: QlibModelDataSegment.model_validate(raw_samples[name])
-                                for name in ("train", "valid", "test")
                             }
-                        _flush_recorder_logs(recorder)
-                        prediction, target, ic, rank_ic, metrics = _native_objects(recorder)
-                finally:
-                    os.chdir(previous_cwd)
-                    if previous_setting is None:
-                        os.environ.pop("MLFLOW_ALLOW_FILE_STORE", None)
+                        )
+                        model = model_type(
+                            loss="mse",
+                            learning_rate=0.05,
+                            max_depth=3,
+                            num_leaves=7,
+                            num_threads=research_policy.num_threads,
+                            seed=research_policy.random_seed,
+                            feature_fraction_seed=research_policy.random_seed,
+                            bagging_seed=research_policy.random_seed,
+                            data_random_seed=research_policy.random_seed,
+                            deterministic=True,
+                            force_col_wise=True,
+                            num_boost_round=research_policy.num_boost_round,
+                            early_stopping_rounds=research_policy.early_stopping_rounds,
+                        )
+                        _fit_and_generate_signal_record(
+                            model, dataset, recorder, signal_record_type
+                        )
+                        sigana_record_type(recorder, ana_long_short=True).generate()
                     else:
-                        os.environ["MLFLOW_ALLOW_FILE_STORE"] = previous_setting
+                        if "model-data-split-samples.pkl" not in artifacts:
+                            raise ValueError(
+                                "resumed Qlib recorder lacks actual DatasetH split samples"
+                            )
+                        raw_samples = recorder.load_object("model-data-split-samples.pkl")
+                        samples = {
+                            name: QlibModelDataSegment.model_validate(raw_samples[name])
+                            for name in ("train", "valid", "test")
+                        }
+                    _flush_recorder_logs(recorder)
+                    prediction, target, ic, rank_ic, metrics = _native_objects(recorder)
             _write_native_records(
                 native_root,
                 prediction=prediction,
