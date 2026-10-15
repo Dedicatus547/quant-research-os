@@ -5,8 +5,10 @@
 
 ## 下一阶段离线实施
 
-- [模型分工、worktree 与会话执行手册](quantos-evolution-model-worktree-plan-2026-10-14.md)：三会话、两个新增 worktree；Sol/Luna 分阶段执行，Astra 按具体疑难使用。包含共同基线、并行依赖、合并顺序与可复制提示词，目前仅完成规划。
-- [演进路线图 v0.2 与 Codex 执行清单](quantos-evolution-roadmap-v0.2-2026-10-14.md)：2026-10-14 补齐 P1/R0；当前暂缓 P2a，下一步为 P0 和复权成交量字段研究的离线接线、固定双候选准备。实施与科学运行状态分别按该页读取。
+2026-10-15：演进 M0–M2 离线实施与 V/P 准备已交付；R1c 未运行。报价为两主任务合计 36 units、整 job 新增存储估算 8 GiB；scratch 硬配额检查失败，尚未运行就绪。见[本地最终交接](../../artifacts/evolution-implementation-20261014/coord/final.md)（持久原件位于主工作区，不随 Git 迁移）。
+
+- [模型分工、worktree 与会话执行手册](quantos-evolution-model-worktree-plan-2026-10-14.md)：三会话、两个新增 worktree；Sol/Luna 分阶段执行，Astra 按具体疑难使用。包含共同基线、并行依赖、合并顺序与可复制提示词；原规划状态按写作时点读取。
+- [演进路线图 v0.2 与 Codex 执行清单](quantos-evolution-roadmap-v0.2-2026-10-14.md)：2026-10-14 补齐 P1/R0；P2a 暂缓，近期范围为 P0 和复权成交量字段接线、固定双候选准备；实际实施与运行状态见上述最终交接。
 - [P1 真实案例、R0 数据可用性与 R1 固定设计](quantos-evolution-p1-r0-evidence-2026-10-14.md)：本地原件、字节摘要、选择理由及读取范围。
 - [A0 SDK 接入与使用](../guides/sdk-campaign-offline.md)
 - [B0/B1 有界价格组合设计、离线示例与 B2 请求](bounded-price-composition-offline.md)
