@@ -23,7 +23,7 @@ from quantos.artifacts.store import atomic_write_bytes, sha256_file
 from quantos.backtest import service as backtest_service
 from quantos.contracts.backtest import BacktestArtifactManifest, BacktestReconciliation
 from quantos.contracts.base import canonical_json_bytes
-from quantos.contracts.discovery_prediction import PredictionFileSource
+from quantos.contracts.discovery_prediction import PredictionFileSource, PredictionImportSource
 from quantos.contracts.field_study import (
     FieldStudyBaselineOrigin,
     FieldStudyRecoveryOrigin,
@@ -953,3 +953,150 @@ def test_retained_production_v1_preparation_keeps_its_exact_identity():
     old = study.load_preparation(path, digest)
     assert old.content_hash == digest
     assert tuple(t.compute_units for t in old.tasks) == (18, 18)
+
+
+def retained_failure(f):
+    from quantos.contracts.status import ReasonCode
+    from quantos.research.qlib.universe import QlibResearchError
+
+    engine, variant = adopt(f)
+    task = f.prepared.tasks[0]
+
+    def failed():
+        raise QlibResearchError(ReasonCode.QLIB_EXECUTION_FAILED, "controlled undefined statistic")
+
+    with pytest.raises(QlibResearchError):
+        engine._discovery_stage(
+            task.request,
+            "workflow",
+            {
+                "resolved_hash": variant.resolved.content_hash,
+                "signal_hash": variant.signal_hash,
+                "research_policy_hash": f.prepared.configuration.research_policy.content_hash,
+            },
+            failed,
+            lambda _: pytest.fail("no completed Workflow"),
+            lambda: None,
+        )
+    failed_outcome = engine._failure_outcome(
+        task.request,
+        ReasonCode.QLIB_EXECUTION_FAILED,
+        failure_kind="EXECUTION_FAILED",
+        compute_seconds=18,
+    )
+    outcome = engine._publish_receipt(task.request, failed_outcome)
+    root = engine.output_root
+    atomic_write_bytes(root / "outcome.json", outcome.canonical_bytes())
+    completion = next(root.glob("execution-checkpoints/*/workflow/*/attempts/*/completion.json"))
+    prep = Path(f.prepared.preparation_root)
+    config = f.prepared.configuration
+    source = PredictionImportSource(
+        request=reference(prep / "V/request.json"),
+        outcome=reference(root / "outcome.json"),
+        receipt=reference(
+            root / "execution-record-artifacts" / f"sha256-{outcome.execution_artifact_hash}.json"
+        ),
+        resolved=reference(variant.signal_path / "resolved-experiment.json"),
+        research_policy=reference(prep / "configuration.json"),
+        workflow_reservation=reference(completion.with_name("reservation.json")),
+        workflow_completion=reference(completion),
+        management_exit=f.baseline.guard_exit,
+        source_capsule=reference(prep / "source-capsule.json"),
+        source_inventory=reference(prep / "source-inventory.json"),
+        source_workspace=config.workspace,
+        native_root=str(root / "native-placeholder"),
+        model_split_sha256="a" * 64,
+        snapshot_path=config.snapshot_path,
+        qlib_view_path=config.qlib_view_path,
+        signal_path=str(variant.signal_path),
+        signal_hash=variant.signal_hash,
+    )
+    return engine, source, outcome
+
+
+def test_retained_failed_outcome_keeps_its_original_receipt_and_adoption_chain(lineage):
+    f = lineage
+    engine, source, outcome = retained_failure(f)
+    study.supersede(f.prepared)
+    originals = {p: p.read_bytes() for p in (Path(source.outcome.path), Path(source.receipt.path))}
+    assert not set(engine._native_adoption_hashes(f.prepared.tasks[0].request)) <= set(
+        outcome.evidence_hashes
+    )
+    assert (
+        recovery.prediction_source_adoption(
+            source, f.prepared.configuration, f.prepared.tasks[0].request, outcome.evidence_hashes
+        )
+        == f.prepared.source_adoption
+    )
+    assert all(p.read_bytes() == raw for p, raw in originals.items())
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "outcome_hash",
+        "receipt_hash",
+        "foreign_outcome_path",
+        "success_completion",
+        "foreign_reservation",
+        "failure_evidence",
+        "evidence_argument",
+    ],
+)
+def test_retained_failure_exception_requires_actual_failure_authority(lineage, damage):
+    f = lineage
+    _, source, outcome = retained_failure(f)
+    evidence = outcome.evidence_hashes
+    if damage in {"outcome_hash", "receipt_hash"}:
+        name = damage.removesuffix("_hash")
+        source = source.model_copy(
+            update={name: getattr(source, name).model_copy(update={"sha256": "0" * 64})}
+        )
+    elif damage == "foreign_outcome_path":
+        path = Path(source.outcome.path).with_name("foreign-outcome.json")
+        path.write_bytes(Path(source.outcome.path).read_bytes())
+        source = source.model_copy(update={"outcome": reference(path)})
+    elif damage == "success_completion":
+        path = Path(source.workflow_completion.path)
+        value = json.loads(path.read_bytes())
+        value["status"] = "SUCCEEDED"
+        path.write_bytes(canonical_json_bytes(value))
+        source = source.model_copy(update={"workflow_completion": reference(path)})
+    elif damage == "foreign_reservation":
+        path = Path(source.workflow_reservation.path)
+        value = json.loads(path.read_bytes())
+        value["request_hash"] = "0" * 64
+        path.write_bytes(canonical_json_bytes(value))
+        source = source.model_copy(update={"workflow_reservation": reference(path)})
+    elif damage == "failure_evidence":
+        next((Path(f.prepared.execution_root) / "V/execution-failures").glob("*.json")).write_bytes(
+            b"{}"
+        )
+    else:
+        evidence = ()
+    with pytest.raises(ValueError):
+        recovery._verify_retained_workflow_failure(
+            source, f.prepared.tasks[0].request, Path(f.prepared.execution_root) / "V", evidence
+        )
+
+
+def test_new_failed_outcome_retains_verified_native_adoption_hashes(lineage, monkeypatch):
+    from quantos.contracts.status import ReasonCode
+    from quantos.research.qlib.universe import QlibResearchError
+
+    f = lineage
+    engine, _ = adopt(f)
+    study.supersede(f.prepared)
+
+    def failed(_):
+        raise QlibResearchError(
+            ReasonCode.QLIB_EXECUTION_FAILED, "controlled failure after adoption"
+        )
+
+    monkeypatch.setattr(engine, "_execute_pipeline", failed)
+    result = engine.execute(f.prepared.tasks[0].request)
+    assert str(result.outcome) == "EXECUTION_FAILED"
+    assert result.research_result_hash is None
+    assert set(engine._native_adoption_hashes(f.prepared.tasks[0].request)) <= set(
+        result.evidence_hashes
+    )

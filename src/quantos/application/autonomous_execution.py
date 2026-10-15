@@ -743,6 +743,17 @@ class QuantosResearchExecutionAdapter:
                 )
             except (SnapshotBuildError, QlibViewBuildError, ValidationError) as error:
                 self._integrity("existing research artifact failed authority verification", error)
+            if getattr(self, "field_study_source_adoption", None) is not None:
+                # A later scientific failure does not erase completed native origins.
+                outcome = outcome.model_copy(
+                    update={
+                        "evidence_hashes": tuple(
+                            sorted(
+                                {*outcome.evidence_hashes, *self._native_adoption_hashes(request)}
+                            )
+                        )
+                    }
+                )
             if self._native_label_audit_enabled and outcome.research_result_hash is not None:
                 audit = self._verify_dq_audit_for_request(request, outcome.research_result_hash)
                 if audit.audit_hash not in outcome.evidence_hashes:
