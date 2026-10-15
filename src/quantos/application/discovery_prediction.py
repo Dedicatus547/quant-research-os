@@ -127,7 +127,9 @@ def _safe_path(value: str | Path, *, directory: bool = False) -> Path:
     return path
 
 
-def _raw_json(reference: PredictionFileSource) -> dict[str, object]:
+def _raw_json(
+    reference: PredictionFileSource, *, field_study_observer: bool = False
+) -> dict[str, object]:
     path = _safe_path(reference.path)
     _require(path.stat().st_size <= _META_CAP, "SOURCE_METADATA_LIMIT")
     raw = path.read_bytes()
@@ -135,8 +137,55 @@ def _raw_json(reference: PredictionFileSource) -> dict[str, object]:
     payload: object = json.loads(raw)
     _require(isinstance(payload, dict), "SOURCE_METADATA_OBJECT_REQUIRED")
     value = cast(dict[str, object], payload)
-    _require(canonical_json_bytes(value) == raw, "SOURCE_METADATA_NOT_CANONICAL")
+    _require(
+        canonical_json_bytes(value) == raw
+        or (field_study_observer and _field_study_observer_bytes(value, raw)),
+        "SOURCE_METADATA_NOT_CANONICAL",
+    )
     return value
+
+
+def _field_study_observer_bytes(value: dict[str, object], raw: bytes) -> bool:
+    """Read the retained observer protocol without relabelling its original bytes."""
+    if set(value) != {
+        "schema_version",
+        "actual_return_code",
+        "return_code",
+        "wait_observed",
+        "pid",
+        "wall_seconds",
+        "child_user_cpu_seconds",
+        "child_system_cpu_seconds",
+        "child_peak_rss_kib",
+        "scope",
+    } or (
+        value.get("schema_version") != "field-study-cli-process-exit/v1"
+        or value.get("scope")
+        != (
+            "Direct original CLI and waited children; not host peak; "
+            "supervisor cleanup recorded separately."
+        )
+        or value.get("wait_observed") is not True
+        or type(value.get("actual_return_code")) is not int
+        or type(value.get("return_code")) is not int
+        or value["actual_return_code"] != value["return_code"]
+    ):
+        return False
+    for name in ("pid", "child_peak_rss_kib"):
+        item = value[name]
+        if type(item) is not int or item < (1 if name == "pid" else 0):
+            return False
+    for name in ("wall_seconds", "child_user_cpu_seconds", "child_system_cpu_seconds"):
+        item = value[name]
+        if (
+            not isinstance(item, (int, float))
+            or isinstance(item, bool)
+            or not math.isfinite(item)
+            or item < 0
+        ):
+            return False
+    # Exact original observer encoding; arbitrary pretty JSON is not accepted.
+    return (json.dumps(value, sort_keys=True, indent=2) + "\n").encode() == raw
 
 
 def _contract(reference: PredictionFileSource, model: type[_Model]) -> _Model:
@@ -574,7 +623,10 @@ def build_prediction_evidence(
     _verify_source_code(source, request)
     reservation = _raw_json(source.workflow_reservation)
     completion = _raw_json(source.workflow_completion)
-    _raw_json(source.management_exit)  # Preserve the actual original management observation.
+    _raw_json(
+        source.management_exit,
+        field_study_observer=request.pit_policy_hash == field_study_pit_policy_hash(),
+    )  # Preserve the actual hash-pinned observation; canonical authority files stay strict.
     inputs = {
         "resolved_hash": resolved.content_hash,
         "research_policy_hash": policy.content_hash,

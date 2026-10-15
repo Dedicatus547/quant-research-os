@@ -161,3 +161,10 @@ actual successor paths. This narrow failure path preserves the original outcome 
 it grants no successful Workflow or qualification and does not relax the successful-outcome check.
 Actual run/resume/compare still need the existing guard/global lease and fresh host capacity,
 reservations, cleanup and scratch observations under the retained authorization.
+
+The transparent field-study wait observer publishes `field-study-cli-process-exit/v1` as
+sorted, indented JSON with a final newline. The prediction reader accepts those exact pinned
+bytes only for the field-study management-exit input, with the fixed protocol fields, actual
+wait, matching integer exit codes and finite nonnegative usage. It does not rewrite the
+observation into canonical JSON. Requests, receipts, Workflow metadata and other sources
+still require their original canonical encoding; legacy profiles keep that requirement too.
