@@ -181,3 +181,16 @@ def test_verified_calendar_needs_frozen_quality_identity_and_order(staged, monke
     else:
         with pytest.raises(ValueError):
             comparison._verified_data_calendar(f.batch, adapter)
+
+
+def test_legacy_comparison_rejects_v3_before_source_reconstruction(predicted, monkeypatch):
+    from test_validation_field_study_pit import _evidence
+
+    monkeypatch.setattr(
+        comparison, "load_pit_artifact_evidence", lambda _: _evidence("v3", "3" * 64)
+    )
+    monkeypatch.setattr(
+        comparison, "verify_compact_pit_evidence", lambda *_: pytest.fail("V3 reproduction")
+    )
+    with pytest.raises(ValueError, match="PIT_EXECUTION_PROFILE_MISMATCH"):
+        inspect_prediction(predicted)

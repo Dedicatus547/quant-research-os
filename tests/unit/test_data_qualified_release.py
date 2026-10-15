@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -106,14 +107,19 @@ def _pipeline(tmp_path: Path, *, verdict: ValidationVerdict) -> release._Pipelin
     )
 
 
+@pytest.mark.parametrize("successor", [False, True])
 def test_variant_build_binds_compact_evidence_and_delegates_execution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, successor: bool
 ) -> None:
     authoring, research_policy, validation_policy, cost, backtest_policy = _configs()
     schedule = _schedule(2024)
     built: dict[str, object] = {}
 
     def compact(*_args: object, **kwargs: object) -> object:
+        if successor:
+            from test_validation_field_study_pit import _evidence
+
+            return _evidence("v3", "3" * 64)
         expression = kwargs["expression"]
         evidence = SimpleNamespace(
             expression_spec_hash=expression.content_hash,  # type: ignore[union-attr]
@@ -146,25 +152,33 @@ def test_variant_build_binds_compact_evidence_and_delegates_execution(
     monkeypatch.setattr(release, "QlibBacktestService", BacktestService)
     cache: dict[tuple[str, str], object] = {}
 
-    result = release._build_variant(
-        authoring=authoring,
-        research_policy=research_policy,
-        validation_policy=validation_policy,
-        cost_policy=cost,
-        backtest_policy=backtest_policy,
-        snapshot_path=tmp_path / f"sha256-{'b' * 64}",
-        snapshot_hash="b" * 64,
-        view_path=tmp_path / f"sha256-{'c' * 64}",
-        view_hash="c" * 64,
-        view_version="0.9.7",
-        view_spec_hash="d" * 64,
-        schedules=(schedule,),
-        output_root=tmp_path,
-        workspace=ROOT,
-        commit_hash="1" * 40,
-        lockfile_hash="2" * 64,
-        evidence_cache=cache,  # type: ignore[arg-type]
-    )
+    with (
+        pytest.raises(ValueError, match="legacy release requires v2")
+        if successor
+        else nullcontext()
+    ):
+        result = release._build_variant(
+            authoring=authoring,
+            research_policy=research_policy,
+            validation_policy=validation_policy,
+            cost_policy=cost,
+            backtest_policy=backtest_policy,
+            snapshot_path=tmp_path / f"sha256-{'b' * 64}",
+            snapshot_hash="b" * 64,
+            view_path=tmp_path / f"sha256-{'c' * 64}",
+            view_hash="c" * 64,
+            view_version="0.9.7",
+            view_spec_hash="d" * 64,
+            schedules=(schedule,),
+            output_root=tmp_path,
+            workspace=ROOT,
+            commit_hash="1" * 40,
+            lockfile_hash="2" * 64,
+            evidence_cache=cache,  # type: ignore[arg-type]
+        )
+    if successor:
+        assert not cache
+        return
 
     assert result.signal_hash == "9" * 64
     assert result.backtest_hash == "a" * 64
