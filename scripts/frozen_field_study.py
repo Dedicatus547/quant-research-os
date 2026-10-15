@@ -7,10 +7,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from quantos.application.field_study import (
     compare,
+    compare_retained,
     load_configuration,
     load_preparation,
     load_recovery_origin,
@@ -47,9 +49,14 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--sources", type=Path, required=True)
             command.add_argument("--sources-sha256", required=True)
             command.add_argument("--output-root", type=Path, required=True)
+    command = sub.add_parser("compare-retained")
+    command.add_argument("--binding", type=Path, required=True)
+    command.add_argument("--binding-sha256", required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "prepare":
+        if args.command == "compare-retained":
+            output = compare_retained(args.binding, args.binding_sha256)
+        elif args.command == "prepare":
             config = load_configuration(args.config, args.config_sha256)
             if (args.origin is None) != (args.origin_sha256 is None):
                 raise ValueError("origin path and hash must be supplied together")
@@ -95,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("sources must map V/P to explicit source descriptors")
                 sources = {
                     key: PredictionImportSource.model_validate(value)
-                    for key, value in payload.items()
+                    for key, value in cast(dict[str, object], payload).items()
                 }
                 output = compare(prepared, sources, args.output_root)
         print(json.dumps(output, sort_keys=True))

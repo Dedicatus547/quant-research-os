@@ -312,3 +312,27 @@ class FieldStudyRecoveryPreparation(_FieldStudyPreparation):
 
 
 PreparedFieldStudy = FieldStudyPreparation | FieldStudyRecoveryPreparation
+
+
+class FieldStudyReaderCodeIdentity(CanonicalContract):
+    schema_version: Literal["field-study-reader-code-identity/v1"] = (
+        "field-study-reader-code-identity/v1"
+    )
+    workspace: str = Field(min_length=1)
+    commit_hash: str = Field(pattern=r"^[0-9a-f]{40}$")
+    lockfile_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class FieldStudyRetainedReaderBinding(CanonicalContract):
+    """Successor reader identity; producer inputs remain immutable."""
+
+    schema_version: Literal["field-study-retained-reader-binding/v1"] = (
+        "field-study-retained-reader-binding/v1"
+    )
+    producer: FieldStudyReaderCodeIdentity
+    reader: FieldStudyReaderCodeIdentity
+    preparation: PredictionFileSource
+    reader_profile: PredictionFileSource
+    sources: PredictionFileSource
+    output_root: str = Field(min_length=1)
+    expected_new_bytes: int = Field(gt=0)

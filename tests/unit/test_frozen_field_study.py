@@ -421,3 +421,282 @@ def test_workflow_passes_profile_and_rejects_legacy_pit(monkeypatch):
     monkeypatch.setattr(workflow, "load_pit_artifact_evidence", lambda _: object())
     with pytest.raises(ValueError, match="PIT binding differs"):
         workflow.QlibWorkflowResearchService().run(*args, **kwargs)
+
+
+@pytest.fixture
+def retained(fixture, monkeypatch):
+    from quantos.contracts.field_study import FieldStudyRetainedReaderBinding
+
+    result = prepared(fixture)
+    root = fixture[2]
+    profile = result.prediction_profile
+    result = result.model_copy(
+        update={
+            "prediction_profile": profile.model_copy(update={"verifier_identity_hash": "c" * 64})
+        }
+    )
+
+    def pin(name, value):
+        raw = (
+            value.canonical_bytes()
+            if hasattr(value, "canonical_bytes")
+            else canonical_json_bytes(value)
+        )
+        path = root / name
+        path.write_bytes(raw)
+        return {"path": str(path), "sha256": study.sha256_bytes(raw)}
+
+    binding = FieldStudyRetainedReaderBinding(
+        producer={
+            "workspace": result.configuration.workspace,
+            "commit_hash": "a" * 40,
+            "lockfile_hash": "b" * 64,
+        },
+        reader={"workspace": str(ROOT), "commit_hash": "d" * 40, "lockfile_hash": "b" * 64},
+        preparation=pin("retained-preparation.json", result),
+        reader_profile=pin("reader-profile.json", profile),
+        sources=pin("sources.json", {"V": None, "P": None}),
+        output_root=str(root / "retained-comparison"),
+        expected_new_bytes=1024,
+    )
+    lease = root / "lease"
+    lease.mkdir()
+    (lease / "prelaunch.json").write_bytes(canonical_json_bytes({"expected_new_bytes": 1024}))
+    monkeypatch.setenv(LEASE_ENV, str(lease))
+    calls = []
+    monkeypatch.setattr(
+        study,
+        "configured_guard",
+        lambda: SimpleNamespace(
+            require_root=lambda path: calls.append(("root", path)),
+            require_lease=lambda: calls.append(("lease",)),
+            check=lambda size: calls.append(("check", size)) or {"fixture": True},
+        ),
+    )
+    monkeypatch.setattr(prediction, "require_durable_execution_root", lambda *_: None)
+    monkeypatch.setattr(
+        study, "QuantosResearchExecutionAdapter", lambda **_: pytest.fail("training")
+    )
+    monkeypatch.setattr(
+        execution.QlibWorkflowResearchService, "run", lambda *_: pytest.fail("training")
+    )
+    return result, binding, pin, calls
+
+
+def invoke_retained(binding, pin):
+    reference = pin("binding.json", binding)
+    return study.compare_retained(Path(reference["path"]), reference["sha256"])
+
+
+def test_retained_missing_null_and_immutable_output(retained):
+    result, binding, pin, calls = retained
+    report = invoke_retained(binding, pin)
+    assert report["request_denominator"] == 2
+    assert report["missing_or_rejected_requests"] == 2
+    assert report["volume_minus_price"] is None
+    assert all(row["status"] == "SOURCE_MISSING" for row in report["rows"])
+    assert report["producer_profile_hash"] == result.prediction_profile.content_hash
+    assert report["reader_profile_hash"] != report["producer_profile_hash"]
+    assert report["reader_binding"]["producer"]["commit_hash"] == "a" * 40
+    assert calls == [("root", Path(binding.output_root)), ("lease",), ("check", 1024)]
+    with pytest.raises(ValueError, match="must be empty"):
+        invoke_retained(binding, pin)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "binding-hash",
+        "profile-hash",
+        "policy",
+        "verifier",
+        "producer",
+        "loaded-reader",
+        "sources",
+        "reservation",
+        "output",
+    ],
+)
+def test_retained_rejects_before_cohort(retained, monkeypatch, damage):
+    _, binding, pin, _ = retained
+    monkeypatch.setattr(
+        prediction, "publish_prediction_cohort", lambda *_a, **_kw: pytest.fail("cohort")
+    )
+    if damage == "binding-hash":
+        ref = pin("binding.json", binding)
+        with pytest.raises(ValueError, match="hash mismatch"):
+            study.compare_retained(Path(ref["path"]), "f" * 64)
+        return
+    if damage == "profile-hash":
+        binding = binding.model_copy(
+            update={
+                "reader_profile": binding.reader_profile.model_copy(update={"sha256": "f" * 64})
+            }
+        )
+    elif damage in {"policy", "verifier"}:
+        profile = prediction.PredictionEvaluationProfile.model_validate_json(
+            Path(binding.reader_profile.path).read_bytes()
+        )
+        profile = profile.model_copy(
+            update={"min_defined_fraction": 0.8}
+            if damage == "policy"
+            else {"verifier_identity_hash": "f" * 64}
+        )
+        binding = binding.model_copy(
+            update={
+                "reader_profile": type(binding.reader_profile).model_validate(
+                    pin("reader-profile.json", profile)
+                )
+            }
+        )
+    elif damage == "producer":
+        binding = binding.model_copy(
+            update={"producer": binding.producer.model_copy(update={"commit_hash": "f" * 40})}
+        )
+    elif damage == "loaded-reader":
+        binding = binding.model_copy(
+            update={
+                "reader": binding.reader.model_copy(
+                    update={"workspace": str(Path(binding.output_root).parent)}
+                )
+            }
+        )
+    elif damage == "sources":
+        binding = binding.model_copy(
+            update={
+                "sources": type(binding.sources).model_validate(pin("sources.json", {"V": None}))
+            }
+        )
+    elif damage == "reservation":
+        binding = binding.model_copy(update={"expected_new_bytes": 1025})
+    else:
+        binding = binding.model_copy(update={"output_root": str(ROOT / "forbidden-output")})
+    with pytest.raises(ValueError):
+        invoke_retained(binding, pin)
+    assert not Path(binding.output_root).exists()
+
+
+def test_retained_rejected_source_verified_once(retained, monkeypatch):
+    result, binding, pin, _ = retained
+    descriptor = {
+        name: {
+            "path": str(Path(binding.sources.path).parent / "originals" / name),
+            "sha256": "f" * 64,
+        }
+        for name in (
+            "request",
+            "outcome",
+            "receipt",
+            "resolved",
+            "research_policy",
+            "workflow_reservation",
+            "workflow_completion",
+            "management_exit",
+            "source_capsule",
+            "source_inventory",
+        )
+    }
+    descriptor["request"]["sha256"] = result.tasks[0].request.content_hash
+    descriptor.update(
+        {
+            name: str(Path(binding.sources.path).parent / name)
+            for name in (
+                "source_workspace",
+                "native_root",
+                "snapshot_path",
+                "qlib_view_path",
+                "signal_path",
+            )
+        }
+    )
+    descriptor.update(model_split_sha256="f" * 64, signal_hash="f" * 64)
+    binding = binding.model_copy(
+        update={
+            "sources": type(binding.sources).model_validate(
+                pin("sources.json", {"V": descriptor, "P": None})
+            )
+        }
+    )
+    calls = []
+
+    def reject(source, _profile, *, base_authoring):
+        calls.append(source.request.sha256)
+        assert base_authoring == result.configuration.volume
+        raise ValueError("SOURCE_METADATA_NOT_CANONICAL")
+
+    monkeypatch.setattr(prediction, "build_prediction_evidence", reject)
+    report = invoke_retained(binding, pin)
+    assert calls == [result.tasks[0].request.content_hash]
+    assert report["missing_or_rejected_requests"] == 2
+    assert report["volume_minus_price"] is None
+    assert {r["status"] for r in report["rows"]} == {
+        "SOURCE_MISSING",
+        "SOURCE_VERIFICATION_REJECTED",
+    }
+
+
+def test_retained_cohort_failure_preserved(retained, monkeypatch):
+    _, binding, pin, _ = retained
+
+    def fail(*_a, **_kw):
+        raise RuntimeError("fixture failure")
+
+    monkeypatch.setattr(prediction, "publish_prediction_cohort", fail)
+    with pytest.raises(RuntimeError):
+        invoke_retained(binding, pin)
+    output = Path(binding.output_root)
+    assert json.loads((output / "failure.json").read_bytes())["error_class"] == "RuntimeError"
+    assert (output / "prelaunch.json").is_file()
+    assert not (output / "completion.json").exists()
+
+
+def test_cli_retained_and_legacy_dispatch(retained, monkeypatch):
+    result, binding, pin, _ = retained
+    spec = importlib.util.spec_from_file_location(
+        "field_study_cli_dispatch", ROOT / "scripts/frozen_field_study.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    seen = []
+    monkeypatch.setattr(
+        module, "compare_retained", lambda path, digest: seen.append((path, digest)) or {}
+    )
+    reference = pin("binding.json", binding)
+    assert (
+        module.main(
+            [
+                "compare-retained",
+                "--binding",
+                reference["path"],
+                "--binding-sha256",
+                reference["sha256"],
+            ]
+        )
+        == 0
+    )
+    assert seen == [(Path(reference["path"]), reference["sha256"])]
+    monkeypatch.setattr(
+        module,
+        "compare",
+        lambda prep, sources, output: seen.append((prep.content_hash, sources, output)) or {},
+    )
+    source_ref = pin("legacy-sources.json", {})
+    assert (
+        module.main(
+            [
+                "compare",
+                "--preparation",
+                binding.preparation.path,
+                "--preparation-sha256",
+                binding.preparation.sha256,
+                "--sources",
+                source_ref["path"],
+                "--sources-sha256",
+                source_ref["sha256"],
+                "--output-root",
+                binding.output_root,
+            ]
+        )
+        == 0
+    )
+    assert seen[-1] == (result.content_hash, {}, Path(binding.output_root))
