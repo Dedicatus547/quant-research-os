@@ -1,8 +1,15 @@
 # 当前状态
 
-状态基准：2026-10-13。各轨道状态按其独立记录和精确适用范围读取。
+状态基准：2026-10-15。各轨道状态按其独立记录和精确适用范围读取。
 新增 [A1/B2 授权后运行状态](a1-b2-authorized-preparation.md)：V4后继r10两步工程闭环完成，控制器/守卫exit0；本轮两科学SOFT_REJECT，科学汇总FAILED/NOT_EVALUATED。累计SDK11/11、科学5次/90units，零重试；原r9失败保留，B2已完成，无追加预算。
 B2已完成并复用，新增模型和科学执行0；LLM相对最佳基线无正增量。
+
+2026-10-15：R1c 固定比较已完成并收尾。共同720个定义日的 Rank IC 均值差
+V−P=`-0.0053130521577256385`。原 V/P 科学请求均为
+`EXECUTION_FAILED / QLIB_EXECUTION_FAILED`，均无 ResearchResult/ValidationReport；
+V/P终态receipt各18政策units，合计36；剩余科学机会0。P2a继续暂缓。该回顾性固定比较不改变原科学终态、
+Validation/P14c 或任何资格判断。见[M最终核对与收尾](../../artifacts/evolution-implementation-20261014/coord/r1c-closeout.md)
+和[实际比较交付](../../artifacts/evolution-implementation-20261014/runtime/r1c-comparison-final.md)。
 
 ## 工程与研究结果
 

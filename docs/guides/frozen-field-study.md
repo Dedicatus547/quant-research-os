@@ -1,8 +1,17 @@
 # Fixed adjusted-volume study CLI
 
-This is the B1 offline implementation. Actual two-source PIT, translation and signal execution
-require A1 and the integrated M1 source. No production preparation or scientific execution was
-performed by B1. The design is [P1/R0 §4](../roadmap/quantos-evolution-p1-r0-evidence-2026-10-14.md).
+This guide records the B1 offline implementation and its staged workflow. The earlier statement
+that two-source execution still required A1/M1 is superseded by the completed 2026-10-15 fixed
+comparison: on the common 720 defined dates, Rank IC mean V−P was
+`-0.0053130521577256385`. The original V/P requests both remain
+`EXECUTION_FAILED / QLIB_EXECUTION_FAILED`, with no ResearchResult or ValidationReport. The
+V/P terminal receipts retain 18 policy units each (36 total); remaining scientific opportunities are 0.
+P2a remains deferred. The comparison does not change Validation/P14c or grant any qualification.
+See the [M closeout](../../artifacts/evolution-implementation-20261014/coord/r1c-closeout.md)
+and [final comparison](../../artifacts/evolution-implementation-20261014/runtime/r1c-comparison-final.md).
+
+The procedures below document the frozen workflow and its original staged handoff. The design is
+[P1/R0 §4](../roadmap/quantos-evolution-p1-r0-evidence-2026-10-14.md).
 
 `frozen-field-study-config/v1` accepts only the committed V/P Safe DSL, fixed 2015–2025 design,
 immutable snapshot/view, and existing research/cost/backtest/validation policies. Every required

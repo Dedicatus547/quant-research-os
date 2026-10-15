@@ -5,7 +5,7 @@
 
 ## 下一阶段离线实施
 
-2026-10-15：R1c 固定独立预测比较已完成并收尾。V/P均经独立核验并通过覆盖准入，自身定义日726/727与720/727；共同定义日720，Rank IC均值V为−0.0127759366、P为−0.0074628844，V−P=**−0.0053130522**。在该固定回顾性探索比较中V低于P；原两科学请求仍为EXECUTION_FAILED，Validation/P14c及全部failure/null不变，不授予科学资格或盈利结论。真实退出和cleanup均已留证，原36政策units、剩余科学机会0，无后续自动执行。见[M最终核对与收尾](../../artifacts/evolution-implementation-20261014/coord/r1c-closeout.md)及[B实际比较交付](../../artifacts/evolution-implementation-20261014/runtime/r1c-comparison-final.md)。[reader来源与恢复历史](../../artifacts/evolution-implementation-20261014/coord/r1c-observer-integration.md)、[M2交付](../../artifacts/evolution-implementation-20261014/coord/final.md)按原时点保留（持久原件位于主工作区，不随 Git 迁移）。
+2026-10-15：R1c 固定独立预测比较已完成并收尾。V/P均经独立核验并通过覆盖准入，自身定义日726/727与720/727；共同定义日720，Rank IC均值V为−0.012775936593236848、P为−0.00746288443551121，V−P=**−0.0053130521577256385**。这是固定候选与时期的回顾性探索比较；原V/P请求均为`EXECUTION_FAILED / QLIB_EXECUTION_FAILED`，均无ResearchResult/ValidationReport，Validation/P14c及failure/null不变，不授予任何资格。V/P终态receipt各18政策units，合计36；剩余科学机会0；P2a继续暂缓。真实退出和cleanup均已留证，无后续自动执行。见[M最终核对与收尾](../../artifacts/evolution-implementation-20261014/coord/r1c-closeout.md)及[B实际比较交付](../../artifacts/evolution-implementation-20261014/runtime/r1c-comparison-final.md)。[reader来源与恢复历史](../../artifacts/evolution-implementation-20261014/coord/r1c-observer-integration.md)、[M2交付](../../artifacts/evolution-implementation-20261014/coord/final.md)按原时点保留（持久原件位于主工作区，不随 Git 迁移）。
 
 - [模型分工、worktree 与会话执行手册](quantos-evolution-model-worktree-plan-2026-10-14.md)：三会话、两个新增 worktree；Sol/Luna 分阶段执行，Astra 按具体疑难使用。包含共同基线、并行依赖、合并顺序与可复制提示词；原规划状态按写作时点读取。
 - [演进路线图 v0.2 与 Codex 执行清单](quantos-evolution-roadmap-v0.2-2026-10-14.md)：2026-10-14 补齐 P1/R0；P2a 暂缓，近期范围为 P0 和复权成交量字段接线、固定双候选准备；实际实施与运行状态见上述最终交接。
