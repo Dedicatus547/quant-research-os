@@ -5,7 +5,7 @@
 
 ## 下一阶段离线实施
 
-2026-10-15：R1c 固定 V/P、36 units／8 GiB 授权持续有效。原 V 在训练前 recorder 失败，清理完成，P/compare 未执行；SQLite及窄来源恢复接线现已集成，真实后继 prepare 与两机会 supersession 均 exit 0。下一步 B 沿后继命令采用原 PIT/信号/回测、继续未完成 Workflow，再串行 P/比较，不新增机会/预算。见[M 后继准备与执行交接](../../artifacts/evolution-implementation-20261014/coord/r1c-origin-integration.md)；[原失败来源核对](../../artifacts/evolution-implementation-20261014/coord/r1c-recovery.md)、[资源解阻](../../artifacts/evolution-implementation-20261014/coord/resource-unblock-20261015.md)和[M2交付](../../artifacts/evolution-implementation-20261014/coord/final.md)按原时点保留（持久原件位于主工作区，不随 Git 迁移）。
+2026-10-15：R1c 后继 V 已实际采用原 PIT/信号/回测，两份 native receipt 核验通过；Workflow 因尾日 native IC 为 NaN，保留终态 EXECUTION_FAILED，进程退出与清理正常。失败来源采用修复已集成，原路径恢复干净 producer，B 转入独立 reader worktree；reader profile 仅更新 verifier 身份，原请求、科学门槛和原件保持。下一步 B 刷新资源后首次执行 P，再按实际来源做固定比较；不重训 V、不新增机会/预算，V 已记18政策 units、P 保留原18，总36／整 job 8 GiB。见[M 来源接线与 B 继续入口](../../artifacts/evolution-implementation-20261014/coord/r1c-terminal-integration.md)。[后继准备](../../artifacts/evolution-implementation-20261014/coord/r1c-origin-integration.md)、[原失败来源核对](../../artifacts/evolution-implementation-20261014/coord/r1c-recovery.md)、[资源解阻](../../artifacts/evolution-implementation-20261014/coord/resource-unblock-20261015.md)和[M2交付](../../artifacts/evolution-implementation-20261014/coord/final.md)按原时点保留（持久原件位于主工作区，不随 Git 迁移）。
 
 - [模型分工、worktree 与会话执行手册](quantos-evolution-model-worktree-plan-2026-10-14.md)：三会话、两个新增 worktree；Sol/Luna 分阶段执行，Astra 按具体疑难使用。包含共同基线、并行依赖、合并顺序与可复制提示词；原规划状态按写作时点读取。
 - [演进路线图 v0.2 与 Codex 执行清单](quantos-evolution-roadmap-v0.2-2026-10-14.md)：2026-10-14 补齐 P1/R0；P2a 暂缓，近期范围为 P0 和复权成交量字段接线、固定双候选准备；实际实施与运行状态见上述最终交接。
