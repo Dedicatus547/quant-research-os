@@ -65,8 +65,11 @@ from quantos.contracts.discovery_adoption import (
 )
 from quantos.contracts.enumeration import CandidateEnumerationManifest, ResearchFactorTemplateSpec
 from quantos.contracts.field_study import (
+    FieldStudyBaselineOrigin,
     FieldStudyBudget,
     FieldStudyExecutionScope,
+    FieldStudyRecoveryOrigin,
+    FieldStudySourceAdoption,
     FrozenFieldStudyConfiguration,
     expression_identity,
 )
@@ -257,9 +260,14 @@ def build_autonomous_execution_bindings(
     code_commit_hash: str,
     lockfile_hash: str,
     field_study: FrozenFieldStudyConfiguration | None = None,
+    field_study_origin: FieldStudyRecoveryOrigin | None = None,
 ) -> AutonomousExecutionBindings:
     """Bind one exact dataset and all policy/provenance inputs used by the adapter."""
-
+    if field_study_origin is not None and (
+        field_study is None
+        or field_study_origin.successor_configuration_hash != field_study.content_hash
+    ):
+        raise ValueError("field-study origin escaped its explicit configuration")
     execution_policy_hash = sha256_bytes(
         canonical_json_bytes(
             {
@@ -274,6 +282,11 @@ def build_autonomous_execution_bindings(
                     {
                         "field_study_hash": field_study.content_hash,
                         "execution_profile": field_study.execution_profile,
+                        **(
+                            {"field_study_origin_hash": field_study_origin.content_hash}
+                            if field_study_origin is not None
+                            else {}
+                        ),
                     }
                     if field_study
                     else {}
@@ -424,7 +437,10 @@ class QuantosResearchExecutionAdapter:
         _verified_inputs: VerifiedExecutionInputs | None = None,
         discovery_source_adoption: DiscoveryEvaluationSourceAdoption | None = None,
         field_study: FrozenFieldStudyConfiguration | None = None,
+        field_study_source_adoption: FieldStudySourceAdoption | None = None,
     ) -> None:
+        if field_study is None and field_study_source_adoption is not None:
+            raise ValueError("field-study adoption cannot borrow a legacy/Discovery profile")
         if field_study is None and (
             not isinstance(campaign, ResearchCampaignSpec)
             or not isinstance(budget, ResearchBudgetSpec)
@@ -465,6 +481,8 @@ class QuantosResearchExecutionAdapter:
             ):
                 raise ValueError("field-study execution escaped its frozen inputs")
         self.field_study = field_study
+        self.field_study_source_adoption = field_study_source_adoption
+        self._field_study_predecessor = None
         self._field_study_request: AutonomousExecutionRequest | None = None
         if sdk_campaign_spec is not None:
             if not isinstance(campaign, ResearchCampaignSpec) or not isinstance(
@@ -532,6 +550,9 @@ class QuantosResearchExecutionAdapter:
                 code_commit_hash=bindings.code_commit_hash,
                 lockfile_hash=bindings.lockfile_hash,
                 field_study=field_study,
+                field_study_origin=(
+                    field_study_source_adoption.origin if field_study_source_adoption else None
+                ),
             ).execution_policy_hash
         ):
             raise ValueError("autonomous execution bindings disagree with frozen inputs")
@@ -539,7 +560,13 @@ class QuantosResearchExecutionAdapter:
             from quantos.application.field_study import build_task
 
             label = "V" if base_authoring == field_study.volume else "P"
-            expected_task = build_task(field_study, label, snapshot, view)
+            expected_task = build_task(
+                field_study,
+                label,
+                snapshot,
+                view,
+                origin=field_study_source_adoption.origin if field_study_source_adoption else None,
+            )
             if (
                 campaign != expected_task.campaign
                 or budget != expected_task.budget
@@ -550,6 +577,25 @@ class QuantosResearchExecutionAdapter:
             ):
                 raise ValueError("field-study singleton scope differs from canonical preparation")
             self._field_study_request = expected_task.request
+            if field_study_source_adoption is not None:
+                from quantos.application.field_study_recovery import verify_source_adoption
+
+                tasks = tuple(
+                    build_task(
+                        field_study, item, snapshot, view, origin=field_study_source_adoption.origin
+                    )
+                    for item in ("V", "P")
+                )
+                self._field_study_predecessor = verify_source_adoption(
+                    field_study_source_adoption,
+                    field_study,
+                    cast(tuple[Any, Any], tasks),
+                )
+                if (
+                    output_root
+                    != Path(field_study_source_adoption.successor_execution_root) / label
+                ):
+                    raise ValueError("field-study adoption output root differs")
         if p14dq_v2_profile and (
             (sdk_campaign_spec is None and campaign.campaign_id != "p14-dq-live-data-campaign-v1")
             or snapshot.snapshot_hash
@@ -603,6 +649,11 @@ class QuantosResearchExecutionAdapter:
 
     def execute(self, request: AutonomousExecutionRequest) -> AutonomousExecutionResult:
         with research_result_verification_scope():
+            if self.field_study is not None:
+                from quantos.application.field_study_recovery import opportunity_lease
+
+                with opportunity_lease(self.field_study, request, self.field_study_source_adoption):
+                    return self._execute(request)
             return self._execute(request)
 
     def _execute(self, request: AutonomousExecutionRequest) -> AutonomousExecutionResult:
@@ -610,6 +661,16 @@ class QuantosResearchExecutionAdapter:
             self._discovery_runtime_hash = None
             self._discovery_verified_pit_hashes.clear()
         self._verify_request(request)
+        if self.field_study is not None:
+            from quantos.application.field_study_recovery import check_opportunity
+
+            check_opportunity(
+                self.field_study,
+                request,
+                self.output_root,
+                self.field_study_source_adoption,
+                claim=True,
+            )
         if self.field_study is not None and (
             request.remaining_executions < 1
             or request.remaining_validation_rounds < 1
@@ -972,13 +1033,17 @@ class QuantosResearchExecutionAdapter:
             self._integrity("frozen research test segment differs from campaign validation segment")
 
     def _profile_arguments(self) -> _ProfileArguments:
-        return {"execution_profile": "frozen-field-study/v1"} if self.field_study else {}
+        return (
+            {"execution_profile": "frozen-field-study/v1"}
+            if getattr(self, "field_study", None)
+            else {}
+        )
 
     def _load_variant_pit(self, path: Path):
         evidence = load_pit_artifact_evidence(path)
         expected = (
             PITCrossSectionEvidenceCollectionV3
-            if self.field_study
+            if getattr(self, "field_study", None)
             else PITCrossSectionEvidenceCollection
         )
         if not isinstance(evidence, expected):
@@ -1121,8 +1186,34 @@ class QuantosResearchExecutionAdapter:
         return result
 
     def _verify_adoption_origin(
-        self, request: AutonomousExecutionRequest, origin: DiscoveryAdoptedVariant
+        self,
+        request: AutonomousExecutionRequest,
+        origin: DiscoveryAdoptedVariant | FieldStudyBaselineOrigin,
     ) -> None:
+        if isinstance(origin, FieldStudyBaselineOrigin):
+            from quantos.application.field_study_recovery import verify_baseline_origin
+
+            adoption = self.field_study_source_adoption
+            if (
+                adoption is None
+                or self._field_study_predecessor is None
+                or (
+                    origin not in adoption.origin.baselines
+                    or origin.label != self.output_root.name
+                    or request != self._field_study_request
+                )
+            ):
+                self._integrity("field-study origin has no bound successor declaration")
+            old_task = next(
+                t for t in self._field_study_predecessor.tasks if t.label == origin.label
+            )
+            if old_task.request.candidate.expression != request.candidate.expression:
+                self._integrity("field-study origin changes the actual expression")
+            verify_baseline_origin(self._field_study_predecessor, origin)
+            # Reuse the completed producer proof under verified unchanged scientific
+            # dependencies; do not rescan the whole snapshot to repeat its PIT work.
+            self._discovery_verified_pit_hashes.add(origin.pit.sha256)
+            return
         adoption = self.discovery_source_adoption
         if adoption is None:
             self._integrity("origin adoption lacks its bound declaration")
@@ -1250,14 +1341,24 @@ class QuantosResearchExecutionAdapter:
             lockfile_hash=request.lockfile_hash,
         )
         stage = destination.name
-        adoption = self.discovery_source_adoption
+        adoption = (
+            getattr(self, "field_study_source_adoption", None) or self.discovery_source_adoption
+        )
         origins = (
-            ()
-            if adoption is None
-            else tuple(
+            tuple(
                 item
-                for item in adoption.variants
-                if item.stage == stage and item.subtask_hash == self.output_root.name
+                for item in adoption.origin.baselines
+                if item.label == self.output_root.name and item.stage == stage
+            )
+            if isinstance(adoption, FieldStudySourceAdoption)
+            else (
+                ()
+                if adoption is None
+                else tuple(
+                    item
+                    for item in adoption.variants
+                    if item.stage == stage and item.subtask_hash == self.output_root.name
+                )
             )
         )
         if len(origins) > 1:
@@ -1294,6 +1395,8 @@ class QuantosResearchExecutionAdapter:
             if evidence.content_hash not in self._discovery_verified_pit_hashes:
                 verify_compact_pit_evidence(evidence, self.snapshot_path, self.qlib_view_path)
                 self._discovery_verified_pit_hashes.add(evidence.content_hash)
+            if isinstance(adoption, FieldStudySourceAdoption) and origin is not None:
+                self._native_adoption_hashes(request)
             return resolved, evidence, signal_path, manifest.artifact_hash
 
         def recover_signal() -> dict[str, str] | None:
@@ -1304,7 +1407,13 @@ class QuantosResearchExecutionAdapter:
 
         def build_signal() -> dict[str, str]:
             if origin is not None and adoption is not None:
-                evidence = self._load_variant_pit(Path(origin.pit_path))
+                evidence = self._load_variant_pit(
+                    Path(
+                        origin.pit.path
+                        if isinstance(origin, FieldStudyBaselineOrigin)
+                        else origin.pit_path
+                    )
+                )
                 resolved = ResolvedExperimentSpec.model_validate(
                     provisional.model_copy(
                         update={"pit_audit_evidence_hash": evidence.content_hash}
@@ -1315,7 +1424,11 @@ class QuantosResearchExecutionAdapter:
                     Path(origin.signal_path),
                     destination / "signals",
                     source_adoption_record_hash=adoption.content_hash,
-                    source_workspace=Path(adoption.original_workspace),
+                    source_workspace=Path(
+                        adoption.origin.reconstructed_workspace
+                        if isinstance(adoption, FieldStudySourceAdoption)
+                        else adoption.original_workspace
+                    ),
                     workspace=self.workspace,
                     adoption_root=self.output_root / "native-adoptions",
                     original_execution_status="SUCCEEDED",
@@ -1424,6 +1537,8 @@ class QuantosResearchExecutionAdapter:
                 or manifest.backtest_policy_hash != self.backtest_policy.content_hash
             ):
                 self._integrity("recovered variant backtest escaped its exact inputs")
+            if isinstance(adoption, FieldStudySourceAdoption) and origin is not None:
+                self._native_adoption_hashes(request)
             return ResearchExecutionVariant(
                 resolved, evidence, signal_path, signal_hash, path, manifest.result_hash
             )
@@ -1439,7 +1554,11 @@ class QuantosResearchExecutionAdapter:
                     self.backtest_policy,
                     destination / "backtests",
                     source_adoption_record_hash=adoption.content_hash,
-                    source_workspace=Path(adoption.original_workspace),
+                    source_workspace=Path(
+                        adoption.origin.reconstructed_workspace
+                        if isinstance(adoption, FieldStudySourceAdoption)
+                        else adoption.original_workspace
+                    ),
                     workspace=self.workspace,
                     adoption_root=self.output_root / "native-adoptions",
                     original_execution_status="SUCCEEDED",
@@ -2049,6 +2168,15 @@ class QuantosResearchExecutionAdapter:
         )
 
     def _native_adoption_hashes(self, request: AutonomousExecutionRequest) -> tuple[str, ...]:
+        field_adoption = getattr(self, "field_study_source_adoption", None)
+        if field_adoption is not None:
+            from quantos.application.field_study_recovery import verify_native_receipts
+
+            return verify_native_receipts(
+                field_adoption,
+                request,
+                self.output_root,
+            )
         adoption = self.discovery_source_adoption
         if adoption is None:
             return ()

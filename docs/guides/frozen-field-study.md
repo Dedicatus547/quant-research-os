@@ -104,3 +104,54 @@ continue through their original reader; an old return5 name alone is not reuse p
 check actual expression/data/model/splits/implementation/report dependencies and preserve original
 execution/receipt identity if existing adoption is applicable. This implementation does not relabel
 an old request as a new field-study request.
+
+## Origin-preserving recorder recovery
+
+A recorder implementation change requires a successor source/input identity. The old configuration,
+preparation, failed attempt, successful stage checkpoints and artifact manifests remain immutable.
+The recovery input is `FieldStudyRecoveryOrigin`: pin the original preparation, reconstructed clean
+checkout, complete old/new source-file differences, and the original request, successful baseline
+PIT/signal/backtest checkpoints and artifacts. Bind the original failed Workflow completion and its
+actual guard exit/prelaunch/request intent. The historical capsule retains its original workspace;
+the reconstructed path is an explicit mapping in the new declaration.
+
+Only the reviewed Workflow recorder and field-study recovery wiring, plus documentary/test files,
+may differ. Scientific configuration, source lock, data, PIT/expression/signal/backtest/validation
+implementations must remain unchanged. Both complete Git inventories and clean checkouts are checked.
+The successor configuration differs only in source/workspace/study identity. Freeze that input only
+after the final integration commit exists; development fixtures do not create production preparation.
+
+The existing prepare command accepts paired `--origin <file>` and `--origin-sha256 <hash>`. It emits
+`frozen-field-study-preparation/v2` and `source-adoption.json`, binding both old/new requests, source
+capsule/inventory and independent successor roots. Legacy v1 configurations/preparations keep their
+original bytes and request binding domain. Prepare/status do not activate transfers or run science.
+
+Before running either successor, explicitly invoke `supersede --preparation <file>
+--preparation-sha256 <hash>`. This is a management operation: it takes the existing global flock,
+checks original cleanup and producer proofs, locks both original opportunity identities, then appends
+immutable supersession records under the fixed data locator's sibling `field-study-continuity/`.
+It never writes predecessor evidence. Both records must exist before either successor may run;
+idempotent re-entry is allowed, a conflicting successor or output root is rejected. Current entrypoints
+reject superseded original requests. Retained historical executables are evidence, not another
+permitted launch path.
+
+Transfers retain the original V/P opportunities, one logical execution and 18 complete policy units
+each (36 total), with the unchanged 8 GiB complete-job estimate. Unknown original consumption remains
+unknown; storage recovery envelopes grant no extra computation or candidates. The adapter holds an
+opportunity lease throughout execution, retaining the existing trial index, checkpoint and receipt
+mechanisms. Discovery/SDK source-adoption parameters remain forbidden in the field-study profile.
+
+Only baseline PIT, signal and backtest are adopted. PIT reuses the completed producer proof after
+full source/dependency, exact-byte, schedule and policy checks. Signal/backtest call the existing
+`adopt_verified` APIs and publish `NativeArtifactAdoptionReceipt` records; native bytes stay identical,
+metadata rebindings pass `verify_adoption_bindings`, and parent qualification is never transferred.
+The incomplete Workflow runs in the successor identity. Existing parameter/cost/subperiod/reproduction
+and validation obligations remain in the quote; no failed Workflow checkpoint becomes success.
+
+For prediction import, the research-policy descriptor still points to configuration.json. The reader
+independently checks the v2 preparation/declaration, source delta and reconstructed checkout,
+supersession, old successful stages, and both actual native receipts; outcome evidence must retain
+those receipt hashes. Its normal data/PIT/native-statistic predicates remain in force. Missing,
+misplaced, changed or foreign receipts are rejected, including recovery after an orphan publication.
+Actual run/resume/compare still need the existing guard/global lease and fresh host capacity,
+reservations, cleanup and scratch observations under the retained authorization.

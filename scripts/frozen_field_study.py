@@ -13,10 +13,12 @@ from quantos.application.field_study import (
     compare,
     load_configuration,
     load_preparation,
+    load_recovery_origin,
     prepare,
     read_pinned,
     run,
     status,
+    supersede,
 )
 from quantos.contracts.discovery_prediction import PredictionImportSource
 
@@ -29,7 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--config-sha256", required=True)
     command.add_argument("--output-root", type=Path, required=True)
     command.add_argument("--execution-root", type=Path, required=True)
-    for name in ("status", "run", "compare"):
+    command.add_argument("--origin", type=Path)
+    command.add_argument("--origin-sha256")
+    for name in ("status", "supersede", "run", "compare"):
         command = sub.add_parser(name)
         command.add_argument("--preparation", type=Path, required=True)
         command.add_argument("--preparation-sha256", required=True)
@@ -47,7 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "prepare":
             config = load_configuration(args.config, args.config_sha256)
-            result = prepare(config, args.output_root, args.execution_root)
+            if (args.origin is None) != (args.origin_sha256 is None):
+                raise ValueError("origin path and hash must be supplied together")
+            origin = load_recovery_origin(args.origin, args.origin_sha256) if args.origin else None
+            result = prepare(config, args.output_root, args.execution_root, origin=origin)
             output = {
                 "configuration_hash": config.content_hash,
                 "preparation_hash": result.content_hash,
@@ -64,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
             prepared = load_preparation(args.preparation, args.preparation_sha256)
             if args.command == "status":
                 output = status(prepared)
+            elif args.command == "supersede":
+                supersede(prepared)
+                output = {"preparation_hash": prepared.content_hash, "supersession": "ACTIVATED"}
             elif args.command == "run":
                 result = run(
                     prepared,
