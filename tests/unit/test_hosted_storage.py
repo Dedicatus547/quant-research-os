@@ -13,8 +13,10 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import pytest
@@ -23,9 +25,18 @@ from quantos.infrastructure import hosted_storage as storage
 
 
 @pytest.fixture
-def guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> storage.StorageGuard:
-    evidence, scratch, host = (tmp_path / name for name in ("evidence", "scratch", "host"))
-    for directory in (evidence, scratch, host):
+def guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[storage.StorageGuard]:
+    # Production rejects /tmp evidence. Test capacity/mounts remain synthetic,
+    # but the evidence path must reach the intended guard predicate on CI too.
+    with TemporaryDirectory(
+        prefix="storage-test-", dir=Path(__file__).parents[2] / "artifacts"
+    ) as root:
+        yield _guard(Path(root), tmp_path, monkeypatch)
+
+
+def _guard(evidence: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> storage.StorageGuard:
+    scratch, host = (tmp_path / name for name in ("scratch", "host"))
+    for directory in (scratch, host):
         directory.mkdir()
     vhd = host / "bound.vhdx"
     vhd.write_bytes(b"synthetic binding, never a real VHD")

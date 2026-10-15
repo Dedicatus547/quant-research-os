@@ -167,6 +167,34 @@ def test_sdk_host_failure_is_safe_and_retains_provider_events() -> None:
     assert error["retryable"] is True
     assert len(cast(str, error["message_hash"])) == 64
     assert "sensitive detail" not in json.dumps(result)
+    assert result["failure_diagnostic"] == {
+        "phase": "REQUEST_PARSE",
+        "exception_class": "RuntimeError",
+        "details_retention": "HASH_ONLY",
+    }
+
+
+@pytest.mark.parametrize(
+    ("message", "retention"),
+    [
+        ("benign fixture detail", "RETAINED"),
+        ("Authorization: Bearer synthetic-invalid-credential", "CREDENTIAL_GUARD"),
+        ("x" * 4097, "OVER_BYTE_CAP"),
+    ],
+)
+def test_sdk_host_later_diagnostics_remain_bounded_and_credential_guarded(
+    message: str, retention: str
+) -> None:
+    result = _failure(
+        HarnessErrorKind.UNKNOWN, RuntimeError(message), retryable=False, phase="ACCOUNT_READ"
+    )
+    diagnostic = cast(dict[str, object], result["failure_diagnostic"])
+    assert diagnostic["details_retention"] == retention
+    assert message not in json.dumps(result["error"])
+    if retention == "RETAINED":
+        assert diagnostic["details"] == f"RuntimeError: {message}"
+    else:
+        assert "details" not in diagnostic
 
 
 @pytest.mark.parametrize("payload", [b"", b"{}", b"not-json"])
