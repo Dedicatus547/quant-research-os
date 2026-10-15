@@ -11,7 +11,7 @@
 - [演进路线图 v0.2 与 Codex 执行清单](quantos-evolution-roadmap-v0.2-2026-10-14.md)：2026-10-14 补齐 P1/R0；P2a 暂缓，近期范围为 P0 和复权成交量字段接线、固定双候选准备；实际实施与运行状态见上述最终交接。
 - [P1 真实案例、R0 数据可用性与 R1 固定设计](quantos-evolution-p1-r0-evidence-2026-10-14.md)：本地原件、字节摘要、选择理由及读取范围。
 - [结果契约后继设计](quantos-next-result-contract-2026-10-15.md)：日期集合、统计未定义/失败与完成条件；新展示语义仍为提案，建议暂停新科学及成功语义改造。
-- [retained reader 使用入口](../guides/frozen-field-study.md#explicit-successor-retained-reader)：`compare-retained` 与 CI 类型修复已集成，未运行真实比较；精确 CI 结论、main 合并身份与远端发布状态见[集成交接](../../artifacts/evolution-next-20261015/coord/final.md)。
+- [retained reader 使用入口](../guides/frozen-field-study.md#explicit-successor-retained-reader)：`compare-retained`、CI 类型及 pytest 入口修复已集成，未运行真实比较；精确 CI 结论、main 合并身份与远端发布状态见[集成交接](../../artifacts/evolution-next-20261015/coord/final.md)。
 - [A0 SDK 接入与使用](../guides/sdk-campaign-offline.md)
 - [B0/B1 有界价格组合设计、离线示例与 B2 请求](bounded-price-composition-offline.md)
 - [下一阶段策略及 agent 分工](quantos-next-stage-strategy-and-implementation.md)
