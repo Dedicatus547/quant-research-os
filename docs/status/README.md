@@ -11,7 +11,7 @@ V/P终态receipt各18政策units，合计36；剩余科学机会0。P2a继续暂
 Validation/P14c 或任何资格判断。见[M最终核对与收尾](../../artifacts/evolution-implementation-20261014/coord/r1c-closeout.md)
 和[实际比较交付](../../artifacts/evolution-implementation-20261014/runtime/r1c-comparison-final.md)。
 
-后继 retained reader、CI 类型及 pytest 入口修复已集成：显式 producer/reader 绑定及
+后继 retained reader、CI 类型、pytest 入口及运行前置修复已集成：显式 producer/reader 绑定及
 [`compare-retained`](../guides/frozen-field-study.md#explicit-successor-retained-reader)，采用 B 的有界工程检查，未运行真实比较。
 [结果契约设计](../roadmap/quantos-next-result-contract-2026-10-15.md)未冻结新语义或资格，建议暂停新科学工作包。
 实际集成提交、CI 结论、main 合并身份与远端发布状态见
