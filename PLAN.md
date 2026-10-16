@@ -35,6 +35,8 @@ A1 V4后继r10两步工程闭环完成，控制器/守卫exit0、清理核验通
 [结果契约设计](docs/roadmap/quantos-next-result-contract-2026-10-15.md)仍为提案，建议暂停新科学及成功语义改造。
 精确集成提交、实际 CI 检查、main 合并身份与远端发布状态见
 [本轮集成交接](artifacts/evolution-next-20261015/coord/final.md)。
+发布采用[固定 runner 执行与隔离核对](ci/apparmor/runtime-guard.md)，不扩展科学资格；
+实际 CI 与合并状态见[PR #3](https://github.com/Dedicatus547/quant-research-os/pull/3)。
 
 ## 后续工作与触发条件
 

@@ -16,6 +16,8 @@ Validation/P14c 或任何资格判断。见[M最终核对与收尾](../../artifa
 [结果契约设计](../roadmap/quantos-next-result-contract-2026-10-15.md)未冻结新语义或资格，建议暂停新科学工作包。
 实际集成提交、CI 结论、main 合并身份与远端发布状态见
 [集成交接](../../artifacts/evolution-next-20261015/coord/final.md)。
+发布 CI 的[执行上下文与隔离核对](../../ci/apparmor/runtime-guard.md)限固定的可销毁 runner；
+最新检查和主线合并状态见[PR #3](https://github.com/Dedicatus547/quant-research-os/pull/3)。
 
 ## 工程与研究结果
 
