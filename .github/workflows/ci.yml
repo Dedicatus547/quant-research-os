@@ -24,6 +24,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes bubblewrap zsh libseccomp2
+      - name: Inspect candidate AppArmor source and loaded attachments
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          printf 'os=%s version=%s image=%s kernel=%s\n' "$ID" "$VERSION_ID" "${ImageVersion:-UNAVAILABLE}" "$(uname -r)"
+          dpkg-query -W -f='${Version}\n' apparmor
+          /sbin/apparmor_parser --version
+          sudo find /sys/kernel/security/apparmor/policy/profiles -type f \
+            \( -name name -o -name mode -o -name attach \) \
+            -print -exec cat {} \; -exec echo \; | LC_ALL=C sort > "$RUNNER_TEMP/quantos-apparmor-before.txt"
+          test -s "$RUNNER_TEMP/quantos-apparmor-before.txt"
+          cat "$RUNNER_TEMP/quantos-apparmor-before.txt"
+          sha256sum "$RUNNER_TEMP/quantos-apparmor-before.txt"
       - name: Check offline test namespace prerequisites
         run: |
           /usr/bin/bwrap --version
