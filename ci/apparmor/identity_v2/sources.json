@@ -1,0 +1,157 @@
+{
+  "status": "UNAPPROVED_SUCCESSOR_CANDIDATE_NOT_ACTIVATED",
+  "parent_candidate": "91418c59e2a63f8e566241f3b2565f1c7a7d917e",
+  "workflow_patch_base": "f9516424088dacab2977242b8d1a6ee1567ebba8",
+  "workflow_patch_base_sha256": "96b0cb075298c5c988f207b75ab31d5f1c885785b83034ac3afcfbda64d73cf6",
+  "original_candidate_unchanged": [
+    {
+      "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/ci/apparmor/README.md",
+      "sha256": "b573b22dca1bd5cdaabf6f93717d4de77ca5064ee1e12a69d45d0590c7032062"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/ci/apparmor/quantos-ci-bwrap.profile",
+      "sha256": "45aab8ec644fc7a5a4356eb1c5a633770f51276633d0065df7ad18f929201b8f"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/ci/apparmor/sources.json",
+      "sha256": "e9c1a8e807d6ac79f295e00532403eb7af38f5be90540cc757e50bca4d44367a"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/ci/apparmor/workflow.patch",
+      "sha256": "82ec569fbf9bc6d0b59c12f12183bfc7867e3afbea19dde43f7b9eb6a51256f6"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/ci-apparmor-identity-stop.md",
+      "sha256": "02a7256a4af489267be6a6df0f24d4f27ba180c8afa92704f0e6a056a3b1a9c0"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/ci-apparmor-authorization.md",
+      "sha256": "b387f7feceed86c972452f1742cdf25251d051f8ef94334ae20ed61c942ca3bd"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-execution-01/authorization.json",
+      "sha256": "d7403bc5ae90fa72ccb4c6ee82ba9c018abbde14823c556e94ce5bd39cd67746"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-execution-01/ci-readonly-pr.log",
+      "sha256": "1b5996ad93eb3b770e8ef556f8c5d6c9b7bcdef0f45bf99bbb3ca7d2ffdefd1b"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-execution-01/ci-readonly-push.log",
+      "sha256": "d281363f842e2a750bd225e9cc0620316cf861e30d9ba2d5ab66e972a16b9e69"
+    }
+  ],
+  "observed_tuple": {
+    "os": "Ubuntu 24.04",
+    "image_version": "20261012.334.1",
+    "kernel": "6.17.0-1022-azure",
+    "package": "apparmor",
+    "package_version": "4.0.1really4.0.1-0ubuntu0.24.04.8",
+    "parser_generic_version": "4.0.1",
+    "runner_parser_sha256": null,
+    "approved_grouped_inventory_sha256": null
+  },
+  "inventories": [
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-execution-01/inventory-pr.txt",
+      "sha256": "9706e7eb1fc19063a7fc182f92aa5ae2fbec4338919c27b4fa9a43d6a5cce6be",
+      "bytes": 29816,
+      "path_field_counts": {
+        "attach": 123,
+        "mode": 123,
+        "name": 123
+      },
+      "unknown_value_count": 100,
+      "association_recoverable": false,
+      "approved": false
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-execution-01/inventory-push.txt",
+      "sha256": "431ae4afee058b1f0b4f60e2f93d90371401f1dfaf12ad6aeb8ee527366e63ca",
+      "bytes": 29816,
+      "path_field_counts": {
+        "attach": 123,
+        "mode": 123,
+        "name": 123
+      },
+      "unknown_value_count": 100,
+      "association_recoverable": false,
+      "approved": false
+    }
+  ],
+  "package_source": {
+    "url": "https://snapshot.ubuntu.com/ubuntu/20260915T000000Z/pool/main/a/apparmor/apparmor_4.0.1really4.0.1-0ubuntu0.24.04.8_amd64.deb",
+    "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/apparmor_4.0.1really4.0.1-0ubuntu0.24.04.8_amd64.deb",
+    "bytes": 639830,
+    "sha256": "190fa2ae7b76a52982bd796fbd25a067f7c42b8ec75c3797bfa67b694bf43297",
+    "verification": "official archive HTTPS and retained local SHA256; no independent APT signature proof"
+  },
+  "offline_proof": {
+    "record": {
+      "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/compile-result.json",
+      "sha256": "973f86cc76e562a3f65bd28d6d68847c66b700b5f7b10c2427b225b169d1b34e"
+    },
+    "inputs": [
+      {
+        "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/ci/apparmor/quantos-ci-bwrap.profile",
+        "sha256": "45aab8ec644fc7a5a4356eb1c5a633770f51276633d0065df7ad18f929201b8f"
+      },
+      {
+        "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/parser-root/sbin/apparmor_parser",
+        "sha256": "ad542ad50c2ccd43cf1b1e8d242bc0329b6375cd49ff3bec1233b6ededfed94e"
+      },
+      {
+        "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/parser-root/etc/apparmor.d/abi/4.0",
+        "sha256": "e510bb8f6788b45e48de2f859a6f94a7b8416cbac5a1051814cfce925fa911bd"
+      },
+      {
+        "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/libc-root/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        "sha256": "c20a2dc8917c755f02b94049356320fe1f62ac7d9f8994731f807d9df39302da"
+      }
+    ],
+    "compile_argv": [
+      "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/libc-root/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+      "--library-path",
+      "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/libc-root/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu",
+      "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/parser-root/sbin/apparmor_parser",
+      "--config-file",
+      "/dev/null",
+      "--skip-kernel-load",
+      "--skip-cache",
+      "--Include",
+      "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/parser-root/etc/apparmor.d",
+      "--kernel-features",
+      "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/parser-root/etc/apparmor.d/abi/4.0",
+      "--ofile",
+      "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/profile.bin",
+      "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/ci/apparmor/quantos-ci-bwrap.profile"
+    ],
+    "version_exit": 0,
+    "compile_exit": 0,
+    "compiled_sha256": "af71d4a3b8aed8e8fd8b7aa0f6d4ae398855c3fc2fadecdd20243e78b4443f27",
+    "same_compiled_bytes_as_9": true,
+    "kernel_load": false,
+    "qualification": "PACKAGE_24.04.8_OFFLINE_SYNTAX_ONLY_NOT_RUNNER_ACCEPTANCE"
+  },
+  "source_archive_validation": {
+    "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/source-archive-validation.json",
+    "sha256": "9a033ac4733f3cbfc6ffe82c6acf877f702edc889cd7a153614ca78fa4d7c08e"
+  },
+  "kernel_reference": {
+    "url": "https://github.com/torvalds/linux/blob/v6.17/security/apparmor/apparmorfs.c",
+    "function": "seq_profile_attach_show",
+    "scope": "Upstream v6.17 reference, not verified complete Ubuntu Azure source. A later standalone raw GitHub download returned429; primary web reference was read.",
+    "exact_runner_kernel_source_verified": false
+  },
+  "authorization_difference": {
+    "prior_package": ".24.04.9",
+    "successor_package": ".24.04.8",
+    "prior_inventory": "globally sorted paths and values",
+    "successor_inventory": "grouped JSON with loaded hash/ABI/link metadata and revision observation",
+    "implicit_transfer_of_authorization": false,
+    "successor_load_authorized": false
+  },
+  "runtime_acceptance": "NOT_RUN"
+}
