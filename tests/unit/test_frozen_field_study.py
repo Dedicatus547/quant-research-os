@@ -1,5 +1,6 @@
 """Bounded offline wiring probes; synthetic ports grant no scientific qualification."""
 
+import gzip
 import importlib.util
 import json
 import math
@@ -23,22 +24,23 @@ from quantos.infrastructure.hosted_storage import LEASE_ENV
 
 ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = ROOT
-SNAPSHOT = Path(
-    "/home/zjw/quant-research-os/artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
-)
-VIEW = Path(
-    "/home/zjw/quant-research-os/artifacts/data/qlib-views/sha256-fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b"
-)
+METADATA_FIXTURES = ROOT / "tests/fixtures/frozen_field_study"
 
 
 @pytest.fixture(scope="module")
 def metadata():
-    if not (SNAPSHOT / "manifest.json").is_file() or not (VIEW / "manifest.json").is_file():
-        pytest.skip("retained small metadata originals unavailable")
-    return (
-        DataSnapshotManifest.model_validate_json((SNAPSHOT / "manifest.json").read_bytes()),
-        QlibViewManifest.model_validate_json((VIEW / "manifest.json").read_bytes()),
-    )
+    # Only original manifest bytes are bundled. No bars, derived bins, model or
+    # predictions are present; these tests still replace the data execution ports.
+    origins = json.loads((METADATA_FIXTURES / "origin.json").read_bytes())
+    values = []
+    for origin, model in zip(origins, (DataSnapshotManifest, QlibViewManifest), strict=True):
+        raw = gzip.decompress((METADATA_FIXTURES / origin["fixture"]).read_bytes())
+        assert len(raw) == origin["uncompressed_bytes"]
+        assert study.sha256_bytes(raw) == origin["uncompressed_sha256"]
+        value = model.model_validate_json(raw)
+        assert value.content_hash == origin["content_hash"]
+        values.append(value)
+    return tuple(values)
 
 
 @pytest.fixture

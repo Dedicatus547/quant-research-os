@@ -31,7 +31,7 @@ A1 V4后继r10两步工程闭环完成，控制器/守卫exit0、清理核验通
 及[实际比较交付](artifacts/evolution-implementation-20261014/runtime/r1c-comparison-final.md)。
 
 后继 retained reader、CI 类型、pytest 入口及运行前置修复已集成，新增显式绑定的
-[`compare-retained`](docs/guides/frozen-field-study.md#explicit-successor-retained-reader)；仅有界工程检查采用，未运行真实比较。
+[`compare-retained`](docs/guides/frozen-field-study.md#explicit-successor-retained-reader)；工程检查与发布核对见下列记录，未运行真实比较。
 [结果契约设计](docs/roadmap/quantos-next-result-contract-2026-10-15.md)仍为提案，建议暂停新科学及成功语义改造。
 精确集成提交、实际 CI 检查、main 合并身份与远端发布状态见
 [本轮集成交接](artifacts/evolution-next-20261015/coord/final.md)。
