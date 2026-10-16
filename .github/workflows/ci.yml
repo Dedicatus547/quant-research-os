@@ -28,9 +28,36 @@ jobs:
         run: |
           /usr/bin/bwrap --version
           /usr/bin/zsh --version
-          /usr/bin/bwrap --unshare-user --unshare-net --unshare-pid --die-with-parent \
+          if /usr/bin/bwrap --unshare-user --unshare-net --unshare-pid --die-with-parent \
             --ro-bind / / --proc /proc --dev /dev --size 1048576 --tmpfs /run \
-            /usr/bin/true
+            /usr/bin/true; then
+            exit 0
+          else
+            namespace_exit=$?
+            # Read-only diagnostics; retain the real probe failure even if a read is denied.
+            set +e
+            uname -sr
+            /usr/bin/id
+            sha256sum /usr/bin/bwrap
+            stat -c '%a %u:%g %n' /usr/bin/bwrap
+            for status_file in /proc/$$/attr/current /proc/$$/uid_map /proc/$$/gid_map \
+              /sys/kernel/security/lsm \
+              /sys/module/apparmor/parameters/enabled \
+              /proc/sys/kernel/apparmor_restrict_unprivileged_userns \
+              /proc/sys/kernel/unprivileged_userns_clone /proc/sys/user/max_user_namespaces; do
+              echo "$status_file"
+              if [[ -r "$status_file" ]]; then
+                head -c 4096 "$status_file"
+                echo
+              else
+                echo "UNAVAILABLE"
+              fi
+            done
+            sed -n '/^Cap/p; /^NoNewPrivs:/p; /^Seccomp/p' /proc/$$/status
+            journalctl --quiet --no-pager --dmesg --since '-2 min' --lines=40 \
+              --grep='bwrap|userns_create|RTM_NEWADDR'
+            exit "$namespace_exit"
+          fi
       - run: uv sync --frozen --extra agent-openai
       - run: uv run ruff format --check
       - run: uv run ruff check
