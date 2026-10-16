@@ -1,0 +1,288 @@
+{
+  "status": "UNACTIVATED_SUCCESSOR_READONLY_CANDIDATE",
+  "baseline": "84a38d01b6658d9dfa234fff5f39b4cb8507941d",
+  "workflow_sha256": "67ac3172f7cb4c6b137859ab2e9f08a7cc62d78471c08e6683033467b72bc3a1",
+  "inputs": [
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/b-apparmor-provenance-fix-request.md",
+      "sha256": "93423e0868e8945533fdef9473f248051318faa37addd014d9bee3e714936d46"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/final.md",
+      "sha256": "4f6c3a783306daf2f67f9b5e2301ef6da33485e6bf7caa2695f21eb98ae681dd"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-provenance-integration-01/provenance-pr.json",
+      "sha256": "ea8fd57fbb89b4738c9681d068592ba405653c33f11542e5001d81dd36b2049c"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-provenance-integration-01/provenance-push.json",
+      "sha256": "7117a8638ec01cbff0133ec7f034ec09dd8aaadc7a66afbe1ebc25c5885c5073"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-provenance-integration-01/source-observations.json",
+      "sha256": "745173715047d2477d1e4cc4e1b69f27e87521a0c522fd6ce9b23167e271d6f4"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-identity-01/parser-root/usr/share/man/man5/apparmor.d.5.gz",
+      "sha256": "6fc1aa424b79ce8ca6e8d2313d3e2109c560e5253a4fba4dfbbf8211d7757c31"
+    }
+  ],
+  "reused_proofs": [
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-provenance-01/final-source-tests.json",
+      "sha256": "02dea90193ce445ead9ee6f0ad9ae032fbf97916a5bbd21f47b9a52278467bf1",
+      "original_head": "3d5326ee86e9154224225e8baa7a2569852e336a",
+      "exit": 0,
+      "verified_unchanged_dependencies": [
+        {
+          "path": "ci/apparmor/identity_v2/README.md",
+          "sha256": "6c75abf71e0f84d8d4cecb2910ce2d78bcd4edb7fae7be1990a57affc823c18b"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/collect.py",
+          "sha256": "0f26fd3f1912faa6079c5e4a00c61cff385be9e0f5d496f613f53012150b0a42"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/load-workflow.patch",
+          "sha256": "62039aab5aa9ad4b489933f902ef421cb05cccfd4e3d51f322c1f23fadffb56a"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/readonly-workflow.patch",
+          "sha256": "cff53d6aa8b5f5942f4b4f6c3744934b4a2036dff11ad70997231bf5a2ba39ee"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/sources.json",
+          "sha256": "6c7f7b22298993a7d87907db087042bc5c48de1d3f33598afef7b6a98037c2f9"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/README.md",
+          "sha256": "8d4dee2759b82e00b23c74b66e83366b9d7e63f1778ba4084ad5aa952a6c744c"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/binding.py",
+          "sha256": "8f529c3153d379cfdd5d68d526760407c986febd6033c6cae2fa74e6f16674c1"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/capture.py",
+          "sha256": "e1c5f321f5b61469f2d76140d6ffb15a45f77528afc10fc799bc261b1aaa8418"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/readonly-workflow.patch",
+          "sha256": "c7f3fcfd4fbc2f1877282babe8dd923a42374798f96e1cdffb9322d03c25c0e6"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/source-plan.json",
+          "sha256": "fb7e065abee70ffdc3f71ca8d04d74caf6623c99c48f01da3b50c95d1ba0dcc2"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/sources.json",
+          "sha256": "b0d4f9d1550064915ea35c51863ba766a5f68b0a01fe8a09d27b408c87f27987"
+        },
+        {
+          "path": "tests/unit/test_ci_apparmor_provenance.py",
+          "sha256": "11ca0b6b8e87845f41456ec0381e518ce73a0e62144307643a9eb0c0f567ce53"
+        }
+      ],
+      "scope": "Original v3 tuple only; inherited helper proofs reused, not a v4 PASS."
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-provenance-01/type-final.json",
+      "sha256": "bc3f600f8bdc3a9faf327c67d49ef524d709df75560f941f42f0e94099be79fc",
+      "original_head": "3d5326ee86e9154224225e8baa7a2569852e336a",
+      "exit": 0,
+      "verified_unchanged_dependencies": [
+        {
+          "path": "ci/apparmor/identity_v2/README.md",
+          "sha256": "6c75abf71e0f84d8d4cecb2910ce2d78bcd4edb7fae7be1990a57affc823c18b"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/collect.py",
+          "sha256": "0f26fd3f1912faa6079c5e4a00c61cff385be9e0f5d496f613f53012150b0a42"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/load-workflow.patch",
+          "sha256": "62039aab5aa9ad4b489933f902ef421cb05cccfd4e3d51f322c1f23fadffb56a"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/readonly-workflow.patch",
+          "sha256": "cff53d6aa8b5f5942f4b4f6c3744934b4a2036dff11ad70997231bf5a2ba39ee"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/sources.json",
+          "sha256": "6c7f7b22298993a7d87907db087042bc5c48de1d3f33598afef7b6a98037c2f9"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/README.md",
+          "sha256": "8d4dee2759b82e00b23c74b66e83366b9d7e63f1778ba4084ad5aa952a6c744c"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/binding.py",
+          "sha256": "8f529c3153d379cfdd5d68d526760407c986febd6033c6cae2fa74e6f16674c1"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/capture.py",
+          "sha256": "e1c5f321f5b61469f2d76140d6ffb15a45f77528afc10fc799bc261b1aaa8418"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/readonly-workflow.patch",
+          "sha256": "c7f3fcfd4fbc2f1877282babe8dd923a42374798f96e1cdffb9322d03c25c0e6"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/source-plan.json",
+          "sha256": "fb7e065abee70ffdc3f71ca8d04d74caf6623c99c48f01da3b50c95d1ba0dcc2"
+        }
+      ],
+      "scope": "Original v3 tuple only; inherited helper proofs reused, not a v4 PASS."
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-provenance-01/final-lint.json",
+      "sha256": "18b2aa1bd83f7ceafc70be25fce0a09b2fef72c0fd13b8a677c13a0c19980309",
+      "original_head": "3d5326ee86e9154224225e8baa7a2569852e336a",
+      "exit": 0,
+      "verified_unchanged_dependencies": [
+        {
+          "path": "ci/apparmor/identity_v2/README.md",
+          "sha256": "6c75abf71e0f84d8d4cecb2910ce2d78bcd4edb7fae7be1990a57affc823c18b"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/collect.py",
+          "sha256": "0f26fd3f1912faa6079c5e4a00c61cff385be9e0f5d496f613f53012150b0a42"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/load-workflow.patch",
+          "sha256": "62039aab5aa9ad4b489933f902ef421cb05cccfd4e3d51f322c1f23fadffb56a"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/readonly-workflow.patch",
+          "sha256": "cff53d6aa8b5f5942f4b4f6c3744934b4a2036dff11ad70997231bf5a2ba39ee"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/sources.json",
+          "sha256": "6c7f7b22298993a7d87907db087042bc5c48de1d3f33598afef7b6a98037c2f9"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/README.md",
+          "sha256": "8d4dee2759b82e00b23c74b66e83366b9d7e63f1778ba4084ad5aa952a6c744c"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/binding.py",
+          "sha256": "8f529c3153d379cfdd5d68d526760407c986febd6033c6cae2fa74e6f16674c1"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/capture.py",
+          "sha256": "e1c5f321f5b61469f2d76140d6ffb15a45f77528afc10fc799bc261b1aaa8418"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/readonly-workflow.patch",
+          "sha256": "c7f3fcfd4fbc2f1877282babe8dd923a42374798f96e1cdffb9322d03c25c0e6"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/source-plan.json",
+          "sha256": "fb7e065abee70ffdc3f71ca8d04d74caf6623c99c48f01da3b50c95d1ba0dcc2"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/sources.json",
+          "sha256": "b0d4f9d1550064915ea35c51863ba766a5f68b0a01fe8a09d27b408c87f27987"
+        }
+      ],
+      "scope": "Original v3 tuple only; inherited helper proofs reused, not a v4 PASS."
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-provenance-01/final-format.json",
+      "sha256": "e94f08157cded38b97dc5fd84841270ac6a65b575614a7c1be7c381450c201b2",
+      "original_head": "3d5326ee86e9154224225e8baa7a2569852e336a",
+      "exit": 0,
+      "verified_unchanged_dependencies": [
+        {
+          "path": "ci/apparmor/identity_v2/README.md",
+          "sha256": "6c75abf71e0f84d8d4cecb2910ce2d78bcd4edb7fae7be1990a57affc823c18b"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/collect.py",
+          "sha256": "0f26fd3f1912faa6079c5e4a00c61cff385be9e0f5d496f613f53012150b0a42"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/load-workflow.patch",
+          "sha256": "62039aab5aa9ad4b489933f902ef421cb05cccfd4e3d51f322c1f23fadffb56a"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/readonly-workflow.patch",
+          "sha256": "cff53d6aa8b5f5942f4b4f6c3744934b4a2036dff11ad70997231bf5a2ba39ee"
+        },
+        {
+          "path": "ci/apparmor/identity_v2/sources.json",
+          "sha256": "6c7f7b22298993a7d87907db087042bc5c48de1d3f33598afef7b6a98037c2f9"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/README.md",
+          "sha256": "8d4dee2759b82e00b23c74b66e83366b9d7e63f1778ba4084ad5aa952a6c744c"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/binding.py",
+          "sha256": "8f529c3153d379cfdd5d68d526760407c986febd6033c6cae2fa74e6f16674c1"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/capture.py",
+          "sha256": "e1c5f321f5b61469f2d76140d6ffb15a45f77528afc10fc799bc261b1aaa8418"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/readonly-workflow.patch",
+          "sha256": "c7f3fcfd4fbc2f1877282babe8dd923a42374798f96e1cdffb9322d03c25c0e6"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/source-plan.json",
+          "sha256": "fb7e065abee70ffdc3f71ca8d04d74caf6623c99c48f01da3b50c95d1ba0dcc2"
+        },
+        {
+          "path": "ci/apparmor/provenance_v3/sources.json",
+          "sha256": "b0d4f9d1550064915ea35c51863ba766a5f68b0a01fe8a09d27b408c87f27987"
+        }
+      ],
+      "scope": "Original v3 tuple only; inherited helper proofs reused, not a v4 PASS."
+    }
+  ],
+  "reference_plan_origins": {
+    "path": "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/artifacts/evolution-next-20261015/reader/apparmor-provenance-fix-01/plan-origins.json",
+    "sha256": "4fd0602deb9892c76e032bf443abb8fe564255a16863f8bad39ae8f6b6d3b901"
+  },
+  "historical_candidate_files_unchanged": [
+    {
+      "path": "ci/apparmor/provenance_v3/README.md",
+      "sha256": "8d4dee2759b82e00b23c74b66e83366b9d7e63f1778ba4084ad5aa952a6c744c"
+    },
+    {
+      "path": "ci/apparmor/provenance_v3/binding.py",
+      "sha256": "8f529c3153d379cfdd5d68d526760407c986febd6033c6cae2fa74e6f16674c1"
+    },
+    {
+      "path": "ci/apparmor/provenance_v3/capture.py",
+      "sha256": "e1c5f321f5b61469f2d76140d6ffb15a45f77528afc10fc799bc261b1aaa8418"
+    },
+    {
+      "path": "ci/apparmor/provenance_v3/readonly-workflow.patch",
+      "sha256": "c7f3fcfd4fbc2f1877282babe8dd923a42374798f96e1cdffb9322d03c25c0e6"
+    },
+    {
+      "path": "ci/apparmor/provenance_v3/source-plan.json",
+      "sha256": "fb7e065abee70ffdc3f71ca8d04d74caf6623c99c48f01da3b50c95d1ba0dcc2"
+    },
+    {
+      "path": "ci/apparmor/provenance_v3/sources.json",
+      "sha256": "b0d4f9d1550064915ea35c51863ba766a5f68b0a01fe8a09d27b408c87f27987"
+    },
+    {
+      "path": "tests/unit/test_ci_apparmor_provenance.py",
+      "sha256": "11ca0b6b8e87845f41456ec0381e518ce73a0e62144307643a9eb0c0f567ce53"
+    }
+  ],
+  "source_to_loaded_correspondence": "UNRESOLVED",
+  "attachment_review": "UNRESOLVED",
+  "approved_digest": null,
+  "load_authorized": false,
+  "policy_installs_loads_removes": 0,
+  "package_downloads": 0,
+  "raw_policy_binary_reads": 0,
+  "remote_ci_starts": 0,
+  "full_local_ci_runs": 0
+}
