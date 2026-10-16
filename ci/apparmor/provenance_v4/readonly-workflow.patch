@@ -1,0 +1,19 @@
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -42,12 +42,13 @@
+           if [[ "$collection_exit" != 0 ]]; then
+             exit "$collection_exit"
+           fi
+-          sha256sum ci/apparmor/provenance_v3/capture.py ci/apparmor/provenance_v3/binding.py \
+-            ci/apparmor/provenance_v3/source-plan.json
++          sha256sum ci/apparmor/provenance_v4/capture.py ci/apparmor/provenance_v4/binding.py \
++            ci/apparmor/provenance_v4/dependencies.py ci/apparmor/provenance_v4/source-plan.json \
++            ci/apparmor/provenance_v3/capture.py ci/apparmor/provenance_v3/binding.py
+           inventory_sha=$(sha256sum "$RUNNER_TEMP/quantos-apparmor-grouped.json")
+           inventory_sha=${inventory_sha%% *}
+           provenance_exit=0
+-          sudo /usr/bin/python3 -I -B ci/apparmor/provenance_v3/capture.py \
++          sudo /usr/bin/python3 -I -B ci/apparmor/provenance_v4/capture.py \
+             --inventory "$RUNNER_TEMP/quantos-apparmor-grouped.json" \
+             --inventory-sha256 "$inventory_sha" --image-version "${ImageVersion:?}" \
+             > "$RUNNER_TEMP/quantos-apparmor-provenance.json" || provenance_exit=$?
