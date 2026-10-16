@@ -1,0 +1,25 @@
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -39,7 +39,21 @@
+             > "$RUNNER_TEMP/quantos-apparmor-grouped.json" || collection_exit=$?
+           cat "$RUNNER_TEMP/quantos-apparmor-grouped.json"
+           sha256sum "$RUNNER_TEMP/quantos-apparmor-grouped.json"
+-          exit "$collection_exit"
++          if [[ "$collection_exit" != 0 ]]; then
++            exit "$collection_exit"
++          fi
++          sha256sum ci/apparmor/provenance_v3/capture.py ci/apparmor/provenance_v3/binding.py \
++            ci/apparmor/provenance_v3/source-plan.json
++          inventory_sha=$(sha256sum "$RUNNER_TEMP/quantos-apparmor-grouped.json")
++          inventory_sha=${inventory_sha%% *}
++          provenance_exit=0
++          sudo /usr/bin/python3 -I -B ci/apparmor/provenance_v3/capture.py \
++            --inventory "$RUNNER_TEMP/quantos-apparmor-grouped.json" \
++            --inventory-sha256 "$inventory_sha" --image-version "${ImageVersion:?}" \
++            > "$RUNNER_TEMP/quantos-apparmor-provenance.json" || provenance_exit=$?
++          cat "$RUNNER_TEMP/quantos-apparmor-provenance.json"
++          sha256sum "$RUNNER_TEMP/quantos-apparmor-provenance.json"
++          exit "$provenance_exit"
+       - name: Check offline test namespace prerequisites
+         run: |
+           /usr/bin/bwrap --version

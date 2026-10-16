@@ -1,0 +1,58 @@
+{
+  "status": "UNACTIVATED_PROVENANCE_AND_BINDING_PROPOSAL",
+  "baseline": "3d5326ee86e9154224225e8baa7a2569852e336a",
+  "workflow_sha256": "eacffb4009bdefbe6cb81e5be529b9110d2272cb4b6d53961f3ea8b260f16006",
+  "inputs": [
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/b-apparmor-provenance-request.md",
+      "sha256": "b8ba4638a550db31b15854e7022b95c8c3cc226eeb3f3da03d339a469dc044fc"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/ci-apparmor-identity-v2-review.md",
+      "sha256": "5b126713b98d93c498aed78ba672d925eba7ced0d2ad4bbfca4d08fce9da0557"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-identity-v2-integration-01/inventory-pr.json",
+      "sha256": "15afb0224a7e2b7a3c2a7f3c9dbf64013b7c4c1f53ef80616a7aff37759129af"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-identity-v2-integration-01/inventory-push.json",
+      "sha256": "009d3e34ee5e7f18605713c965b8bd2e8f65525ce5f707dfdfdf15b60a6be62c"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-identity-v2-integration-01/unknown-review.json",
+      "sha256": "521d9c1bc192baed0b1ce64e66ba4566c98cf9afad0569ba9b42240b528a522d"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/apparmor-provenance-preparation-01/inventory-differences.json",
+      "sha256": "3fbbfcc58cb988b50622126a55f9f4fd268e00216383258d3e0c7ad83b45fc9a"
+    }
+  ],
+  "reused_proofs": [
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-identity-01/source-final.json",
+      "sha256": "77888a6fb7e2afc50964de349fe60fc32234935997d357c83a9b8d4db53352ca"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-identity-01/compile-result.json",
+      "sha256": "973f86cc76e562a3f65bd28d6d68847c66b700b5f7b10c2427b225b169d1b34e"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-identity-01/targeted-tests-final-source.json",
+      "sha256": "1621f76df438b9960d77c9dd9b989f927626fd2968d6031b0727ff8fb52ae9e7"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-identity-01/targeted-pyright-final.json",
+      "sha256": "e514527f3a4c7c6b5f09b3896803474cbaee7816747a5142d7528a55abbe7305"
+    }
+  ],
+  "raw_policy_binary_reads": 0,
+  "package_downloads": 0,
+  "policy_loads": 0,
+  "approved_digest": null,
+  "source_correspondence": "UNRESOLVED",
+  "attachment_review": "UNRESOLVED",
+  "runner_source_packet": null,
+  "kernel_reference": "https://github.com/torvalds/linux/blob/v6.17/security/apparmor/apparmorfs.c",
+  "kernel_reference_scope": "Reference export and namespace metadata interfaces; not a claimed full Azure kernel source match."
+}
