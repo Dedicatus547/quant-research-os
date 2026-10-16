@@ -40,6 +40,8 @@ from quantos.contracts.research import ResolvedExperimentSpec
 from quantos.contracts.research_execution import (
     PITArtifactEvidence,
     PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+    PITExecutionProfile,
     QlibExpressionTranslation,
 )
 from quantos.contracts.signal import SignalArtifactFile, SignalArtifactManifest, SignalRow
@@ -199,7 +201,15 @@ def _validate_execution_bindings(
     resolved: ResolvedExperimentSpec,
     evidence: PITArtifactEvidence,
     view_path: Path,
+    *,
+    execution_profile: PITExecutionProfile = "legacy-price/v2",
 ) -> tuple[QlibExpressionTranslation, dict[str, str]]:
+    if (execution_profile == "frozen-field-study/v1") != isinstance(
+        evidence, PITCrossSectionEvidenceCollectionV3
+    ):
+        raise QlibResearchError(
+            ReasonCode.ARTIFACT_CORRUPTED, "signal profile and PIT evidence version differ"
+        )
     try:
         view = verify_qlib_view(view_path)
     except QlibViewBuildError as error:
@@ -220,7 +230,9 @@ def _validate_execution_bindings(
         or evidence.expression_spec_hash != resolved.expression.content_hash
         or evidence.universe_index != resolved.strategy.universe_index
         or (
-            isinstance(evidence, PITCrossSectionEvidenceCollection)
+            isinstance(
+                evidence, (PITCrossSectionEvidenceCollection, PITCrossSectionEvidenceCollectionV3)
+            )
             and evidence.qlib_view_hash != resolved.qlib_view_hash
         )
     ):
@@ -238,7 +250,9 @@ def _validate_execution_bindings(
                 ReasonCode.OOS_POLICY_VIOLATION,
                 "signal decision falls outside the resolved evaluation range",
             )
-    translation = translate_safe_expression(resolved.expression)
+    translation = translate_safe_expression(
+        resolved.expression, execution_profile=execution_profile
+    )
     try:
         view_spec = QlibViewSpec.model_validate_json((view_path / "view-spec.json").read_bytes())
     except (OSError, ValueError) as error:
@@ -323,6 +337,20 @@ def verify_signal_artifact(path: Path) -> SignalArtifactManifest:
         ):
             raise QlibResearchError(
                 ReasonCode.ARTIFACT_CORRUPTED, "signal row does not match PIT temporal evidence"
+            )
+    if isinstance(evidence, PITCrossSectionEvidenceCollectionV3):
+        expected_translation = translate_safe_expression(
+            resolved.expression, execution_profile=evidence.execution_profile
+        )
+        if (
+            evidence.qlib_view_hash != resolved.qlib_view_hash
+            or evidence.expression_spec_hash != resolved.expression.content_hash
+            or evidence.snapshot_hash != resolved.snapshot_hash
+            or evidence.universe_index != resolved.strategy.universe_index
+            or translation.content_hash != expected_translation.content_hash
+        ):
+            raise QlibResearchError(
+                ReasonCode.ARTIFACT_CORRUPTED, "field-study signal bindings differ"
             )
     bindings_match = (
         resolved.content_hash == manifest.resolved_experiment_hash
@@ -544,6 +572,7 @@ class FactorSignalArtifactBuilder:
         output_root: Path,
         *,
         workspace: Path | None = None,
+        execution_profile: PITExecutionProfile = "legacy-price/v2",
     ) -> SignalArtifactBuildResult:
         try:
             verify_code_provenance(
@@ -553,7 +582,9 @@ class FactorSignalArtifactBuilder:
             )
         except ProvenanceError as error:
             raise QlibResearchError(error.reason_code, str(error)) from None
-        translation, mappings = _validate_execution_bindings(resolved, evidence, view_path)
+        translation, mappings = _validate_execution_bindings(
+            resolved, evidence, view_path, execution_profile=execution_profile
+        )
         bundles = evidence.bundles
         tradability = _load_tradability(
             view_path,

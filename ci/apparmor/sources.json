@@ -1,0 +1,96 @@
+{
+  "status": "CANDIDATE_ONLY_NOT_INSTALLED",
+  "base_commit": "4963e9f77b4f18044f9ae0829083dabfef10e883",
+  "profile": {
+    "path": "ci/apparmor/quantos-ci-bwrap.profile",
+    "sha256": "45aab8ec644fc7a5a4356eb1c5a633770f51276633d0065df7ad18f929201b8f"
+  },
+  "active_workflow": {
+    "path": ".github/workflows/ci.yml",
+    "sha256": "321c11ae14950e67b0062612634f26d2dd79cb1c275962a4dcd1fee5a5b09302"
+  },
+  "observed_runner": {
+    "image": "ubuntu24/20261012.334",
+    "image_version": "20261012.334.1",
+    "os": "Ubuntu 24.04.5",
+    "kernel": "6.17.0-1022-azure",
+    "bwrap_version": "0.9.0",
+    "bwrap_path": "/usr/bin/bwrap",
+    "bwrap_sha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71",
+    "bwrap_mode": "755",
+    "bwrap_owner": "0:0",
+    "apparmor_package_version": null,
+    "loaded_profile_inventory_sha256": null
+  },
+  "audit_inputs": [
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/ci-namespace-audit-handoff.md",
+      "sha256": "8b26b2be29935192ed2d41380fd904d27526b2a2431ee125aa5ab48fa84d5820"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/namespace-integration-01/ci-diagnostics-pr.log",
+      "sha256": "c36a9b20200e4db23238bcc22caa648f7c4dd887dbca33d79be57fc0b37e5da3"
+    },
+    {
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/coord/namespace-integration-01/ci-diagnostics-push.log",
+      "sha256": "3fbb8075d2977d2566993a8f498f29bc5a71a3a6a1b94c55abc12827afdc6559"
+    }
+  ],
+  "offline_parser": [
+    {
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/a/apparmor/apparmor_4.0.1really4.0.1-0ubuntu0.24.04.8_amd64.deb",
+      "error": "HTTP Error 404: Not Found"
+    },
+    {
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/a/apparmor/apparmor_4.0.1really4.0.1-0ubuntu0.24.04.9_amd64.deb",
+      "path": "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/apparmor_4.0.1really4.0.1-0ubuntu0.24.04.9_amd64.deb",
+      "sha256": "59af23f557d666039708ec176aa056d2fd85125dabd452accf6d86f5c608fb74",
+      "bytes": 639878,
+      "verification": "TLS official archive; local SHA256 pin; no package install"
+    }
+  ],
+  "private_loader_package": {
+    "archive_index_url": "https://archive.ubuntu.com/ubuntu/pool/main/g/glibc/",
+    "archive_index_sha256": "e9eb9aa4d741ce79696f129f823e23935c4a88cc8ae37b684a7ba47d117fd7cd",
+    "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/glibc/libc6_2.39-0ubuntu8.9_amd64.deb",
+    "sha256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be",
+    "bytes": 3264314,
+    "verification": "TLS official archive; isolated userspace extraction only; not runner identity or package install"
+  },
+  "offline_compile": {
+    "argv": [
+      "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/libc-root/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+      "--library-path",
+      "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/libc-root/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu",
+      "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/parser-root/sbin/apparmor_parser",
+      "--config-file",
+      "/dev/null",
+      "--skip-kernel-load",
+      "--skip-cache",
+      "--Include",
+      "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/parser-root/etc/apparmor.d",
+      "--kernel-features",
+      "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/parser-root/etc/apparmor.d/abi/4.0",
+      "--ofile",
+      "/home/zjw/quant-research-os/artifacts/evolution-next-20261015/reader/apparmor-candidate-01/profile.bin",
+      "/home/zjw/quant-research-os/.worktrees/evo-retained-reader-20261015/ci/apparmor/quantos-ci-bwrap.profile"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "profile_sha256": "45aab8ec644fc7a5a4356eb1c5a633770f51276633d0065df7ad18f929201b8f",
+    "abi_sha256": "e510bb8f6788b45e48de2f859a6f94a7b8416cbac5a1051814cfce925fa911bd",
+    "kernel_load": false,
+    "qualification": "OFFLINE_PARSER_SYNTAX_ONLY_NOT_RUNNER_ACCEPTANCE",
+    "compiled_sha256": "af71d4a3b8aed8e8fd8b7aa0f6d4ae398855c3fc2fadecdd20243e78b4443f27"
+  },
+  "primary_references": [
+    "https://documentation.ubuntu.com/release-notes/24.04/",
+    "https://manpages.ubuntu.com/manpages/noble/man8/apparmor_parser.8.html",
+    "https://gitlab.com/apparmor/apparmor/-/blob/v4.0.1/profiles/apparmor/profiles/extras/bwrap-userns-restrict",
+    "https://github.com/containers/bubblewrap/blob/v0.9.0/bubblewrap.c",
+    "https://github.com/torvalds/linux/blob/v6.17/security/apparmor/apparmorfs.c",
+    "https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md"
+  ],
+  "authority": "OFFLINE_SYNTAX_ONLY; actual runner package/inventory and loaded-policy behavior remain unverified"
+}

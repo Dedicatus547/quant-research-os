@@ -159,3 +159,37 @@ def test_translation_rejects_field_absent_from_locked_view() -> None:
 def test_rank_requires_an_explicit_window() -> None:
     with pytest.raises(ValidationError, match="window operator"):
         SafeExpressionNode(node_id="rank", operator="rank", inputs=("price",))
+
+
+@pytest.mark.parametrize("lag", [0, 1])
+def test_field_study_volume_translation_and_official_numeric_semantics(
+    lag: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = SafeQlibExpressionSpec(
+        expression_id="adjusted_volume_relative5",
+        nodes=(
+            SafeExpressionNode(node_id="volume", operator="field", field_name="adjusted_volume"),
+            SafeExpressionNode(
+                node_id="mean", operator="rolling_mean", inputs=("volume",), window=5
+            ),
+            SafeExpressionNode(node_id="ratio", operator="divide", inputs=("volume", "mean")),
+        ),
+        output_node_id="ratio",
+        input_lag_trading_days=lag,
+    )
+    with pytest.raises(ValueError, match="field is not present"):
+        translate_safe_expression(spec)
+    translated = translate_safe_expression(spec, execution_profile="frozen-field-study/v1")
+    expected = "($volume/Mean($volume,5))"
+    assert translated.output_expression == (f"Ref({expected},1)" if lag else expected)
+    assert QLIB_EXPRESSION_PROVIDER.get_expression_instance(translated.output_expression)
+    assert required_expression_observations(spec) == 5
+
+    source = _FrozenSeries([0.0, 0.0, float("nan"), 20.0, 40.0])
+    parsed = QLIB_EXPRESSION_PROVIDER.get_expression_instance(expected)
+    monkeypatch.setattr(parsed.feature_left, "load", source.load)
+    monkeypatch.setattr(parsed.feature_right.feature, "load", source.load)
+    actual = parsed._load_internal("fixture", 0, 4).to_numpy()
+    np.testing.assert_allclose(
+        actual, [float("nan"), float("nan"), float("nan"), 3.0, 8 / 3], equal_nan=True
+    )

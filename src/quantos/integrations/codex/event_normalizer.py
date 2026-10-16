@@ -59,15 +59,17 @@ def normalize_provider_failure_events(
             will_retry = body.get("will_retry")
             if not isinstance(will_retry, bool):
                 raise CodexEventNormalizationError("provider error retry observation is invalid")
-            errors.append((method, _provider_error_observation(body, will_retry=will_retry)))
+            errors.append(("error", _provider_error_observation(body, will_retry=will_retry)))
         elif method in {"turn/started", "turn/completed"} and isinstance(payload, dict):
             body = cast(dict[str, object], payload)
-            turn = body.get("turn")
-            if isinstance(turn, dict):
+            turn_value = body.get("turn")
+            if isinstance(turn_value, dict):
+                turn = cast(dict[str, object], turn_value)
                 turns.append((cast(str, method), body))
                 if method == "turn/completed" and turn.get("status") == "failed" and not errors:
                     error = turn.get("error")
                     if isinstance(error, dict):
+                        error = cast(dict[str, object], error)
                         errors.append(
                             (
                                 cast(str, method),

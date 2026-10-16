@@ -28,9 +28,14 @@ from quantos.contracts.research_execution import (
     PITAuditEvidenceCollection,
     PITAuditEvidenceItem,
     PITCrossSectionEvidenceBundle,
+    PITCrossSectionEvidenceBundleV3,
     PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+    PITExecutionProfile,
     PITMembershipSetEvidence,
     PITSourceSetEvidence,
+    PITSourceSetEvidenceV3,
+    pit_field_sources,
     required_expression_observations,
 )
 from quantos.contracts.status import ReasonCode, ValidationVerdict
@@ -133,8 +138,8 @@ def build_pit_evidence_collection(
 
 
 SourceTable = Literal["bars", "adjustment_factors"]
-LogicalField = Literal["close", "adjusted_close"]
-SourceField = Literal["close", "adjustment_factor"]
+LogicalField = Literal["close", "adjusted_close", "adjusted_volume"]
+SourceField = Literal["close", "adjustment_factor", "volume_shares"]
 
 _FIELD_SOURCES: Mapping[LogicalField, tuple[tuple[SourceTable, SourceField], ...]] = {
     "close": (("bars", "close"),),
@@ -212,7 +217,9 @@ def _maximum_temporal(
 def _propagate_compact_availability(
     expression: SafeQlibExpressionSpec,
     operator_delays: tuple[OperatorDelayPolicy, ...],
-    source_sets: tuple[PITSourceSetEvidence, ...],
+    source_sets: tuple[PITSourceSetEvidence | PITSourceSetEvidenceV3, ...],
+    *,
+    policy_version: str = "v2",
 ) -> TemporalMetadata:
     by_field: dict[str, list[TemporalMetadata]] = {}
     for item in source_sets:
@@ -234,7 +241,7 @@ def _propagate_compact_availability(
                 available_at=max(item.available_at for item in values),
                 observed_at=max(item.observed_at for item in values),
                 evidence_level=_weakest_evidence([item.evidence_level for item in values]),
-                policy_id=f"compact-lineage-field:{node.field_name}/v2",
+                policy_id=f"compact-lineage-field:{node.field_name}/{policy_version}",
             )
             continue
         inputs = [propagated[item] for item in node.inputs]
@@ -271,7 +278,8 @@ def build_compact_pit_evidence_collection(
     expression: SafeQlibExpressionSpec,
     operator_delays: tuple[OperatorDelayPolicy, ...],
     schedules: tuple[DecisionSchedule, ...],
-) -> PITCrossSectionEvidenceCollection:
+    execution_profile: PITExecutionProfile = "legacy-price/v2",
+) -> PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3:
     """Audit production cross sections with snapshot-recomputable row-set digests.
 
     Missing market rows remain explicit in each source-set count.  They are not a
@@ -279,6 +287,10 @@ def build_compact_pit_evidence_collection(
     corresponding signal as invalid when its expression result is non-finite.
     """
 
+    if execution_profile not in {"legacy-price/v2", "frozen-field-study/v1"}:
+        raise ValueError("unsupported PIT execution profile")
+    successor = execution_profile == "frozen-field-study/v1"
+    policy_version = "v3" if successor else "v2"
     snapshot = verify_snapshot(snapshot_path)
     try:
         view = verify_qlib_view(view_path)
@@ -337,19 +349,23 @@ def build_compact_pit_evidence_collection(
     try:
         source_mapping: tuple[tuple[SourceTable, LogicalField, SourceField], ...] = tuple(
             sorted(
-                (table_name, field_name, source_field)
+                (cast(SourceTable, table_name), field_name, cast(SourceField, source_field))
                 for field_name in field_names
-                for table_name, source_field in _FIELD_SOURCES[field_name]
+                for table_name, source_field in (
+                    pit_field_sources(field_name, execution_profile=execution_profile)
+                    if successor
+                    else _FIELD_SOURCES[field_name]
+                )
             )
         )
-    except KeyError as error:
+    except (KeyError, ValueError) as error:
         raise QlibResearchError(
             ReasonCode.SOURCE_INCOMPLETE,
             "safe expression field has no canonical PIT source mapping",
         ) from error
 
     calendar_position = {session: position for position, session in enumerate(calendar)}
-    bundles: list[PITCrossSectionEvidenceBundle] = []
+    bundles: list[PITCrossSectionEvidenceBundle | PITCrossSectionEvidenceBundleV3] = []
     for schedule in schedules:
         signal_date = schedule.signal_time.date()
         cutoff = calendar_position.get(signal_date)
@@ -391,36 +407,46 @@ def build_compact_pit_evidence_collection(
             if (position := market_positions.get(session, {}).get(instrument_id)) is not None
         ]
         position_array = pa.array(selected_positions, type=pa.int64())
-        source_sets: list[PITSourceSetEvidence] = []
+        source_sets: list[PITSourceSetEvidence | PITSourceSetEvidenceV3] = []
         for table_name, logical_field, source_field in source_mapping:
+            if successor and source_field not in market_tables[table_name].column_names:
+                raise QlibResearchError(
+                    ReasonCode.SOURCE_INCOMPLETE, "canonical source field is absent"
+                )
             selected_table = market_tables[table_name].take(position_array)
             selected = selected_table.to_pylist()
             maximum = _maximum_temporal(
                 selected,
-                policy_id=f"compact-source-maximum:{table_name}:{source_field}/v2",
+                policy_id=f"compact-source-maximum:{table_name}:{source_field}/{policy_version}",
             )
             source_sets.append(
-                PITSourceSetEvidence(
-                    table_name=table_name,
-                    logical_field_name=logical_field,
-                    source_field_name=source_field,
-                    expected_row_count=expected_row_count,
-                    present_row_count=len(selected),
-                    missing_row_count=expected_row_count - len(selected),
-                    row_set_hash=_arrow_row_set_hash(selected_table),
-                    maximum_temporal=maximum,
+                (PITSourceSetEvidenceV3 if successor else PITSourceSetEvidence).model_validate(
+                    dict(
+                        table_name=table_name,
+                        logical_field_name=logical_field,
+                        source_field_name=source_field,
+                        expected_row_count=expected_row_count,
+                        present_row_count=len(selected),
+                        missing_row_count=expected_row_count - len(selected),
+                        row_set_hash=_arrow_row_set_hash(selected_table),
+                        maximum_temporal=maximum,
+                    )
                 )
             )
         canonical_source_sets = tuple(source_sets)
         output_temporal = _propagate_compact_availability(
-            expression, operator_delays, canonical_source_sets
+            expression, operator_delays, canonical_source_sets, policy_version=policy_version
         )
         membership_temporal = _maximum_temporal(
-            active_memberships, policy_id="compact-membership-maximum/v2"
+            active_memberships, policy_id=f"compact-membership-maximum/{policy_version}"
         )
         if membership_temporal is None:
             raise QlibResearchError(
                 ReasonCode.SOURCE_INCOMPLETE, "membership temporal evidence is absent"
+            )
+        if successor and membership_temporal.evidence_level is AvailabilityEvidenceLevel.UNKNOWN:
+            raise QlibResearchError(
+                ReasonCode.UNKNOWN_AVAILABILITY, "membership availability is UNKNOWN"
             )
         maximum_sources = [
             item.maximum_temporal
@@ -468,37 +494,45 @@ def build_compact_pit_evidence_collection(
             ),
         )
         bundles.append(
-            PITCrossSectionEvidenceBundle(
-                snapshot_hash=expected_snapshot_hash,
-                expression_spec_hash=expression.content_hash,
-                universe_index=universe_index,
-                schedule=schedule,
-                required_observations=required_observations,
-                source_window=source_window,
-                members=members,
-                source_sets=canonical_source_sets,
-                membership_set=PITMembershipSetEvidence(
-                    row_count=len(active_memberships),
-                    row_set_hash=_row_set_hash(active_memberships),
-                    maximum_temporal=membership_temporal,
-                ),
-                output_temporal=output_temporal,
-                gates=gates,
+            (
+                PITCrossSectionEvidenceBundleV3 if successor else PITCrossSectionEvidenceBundle
+            ).model_validate(
+                dict(
+                    snapshot_hash=expected_snapshot_hash,
+                    expression_spec_hash=expression.content_hash,
+                    universe_index=universe_index,
+                    schedule=schedule,
+                    required_observations=required_observations,
+                    source_window=source_window,
+                    members=members,
+                    source_sets=[item.model_dump(mode="json") for item in canonical_source_sets],
+                    membership_set=PITMembershipSetEvidence(
+                        row_count=len(active_memberships),
+                        row_set_hash=_row_set_hash(active_memberships),
+                        maximum_temporal=membership_temporal,
+                    ),
+                    output_temporal=output_temporal,
+                    gates=gates,
+                )
             )
         )
-    return PITCrossSectionEvidenceCollection(
-        snapshot_hash=expected_snapshot_hash,
-        qlib_view_hash=expected_view_hash,
-        expression_spec_hash=expression.content_hash,
-        expression=expression,
-        operator_delays=operator_delays,
-        universe_index=universe_index,
-        bundles=tuple(bundles),
+    return (
+        PITCrossSectionEvidenceCollectionV3 if successor else PITCrossSectionEvidenceCollection
+    ).model_validate(
+        dict(
+            snapshot_hash=expected_snapshot_hash,
+            qlib_view_hash=expected_view_hash,
+            expression_spec_hash=expression.content_hash,
+            expression=expression,
+            operator_delays=operator_delays,
+            universe_index=universe_index,
+            bundles=[item.model_dump(mode="json") for item in bundles],
+        )
     )
 
 
 def verify_compact_pit_evidence(
-    evidence: PITCrossSectionEvidenceCollection,
+    evidence: PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3,
     snapshot_path: Path,
     view_path: Path,
 ) -> None:
@@ -511,6 +545,11 @@ def verify_compact_pit_evidence(
         expression=evidence.expression,
         operator_delays=evidence.operator_delays,
         schedules=tuple(bundle.schedule for bundle in evidence.bundles),
+        execution_profile=(
+            evidence.execution_profile
+            if isinstance(evidence, PITCrossSectionEvidenceCollectionV3)
+            else "legacy-price/v2"
+        ),
     )
     if rebuilt.content_hash != evidence.content_hash:
         raise QlibResearchError(
@@ -520,9 +559,9 @@ def verify_compact_pit_evidence(
 
 
 def subset_compact_pit_evidence(
-    evidence: PITCrossSectionEvidenceCollection,
+    evidence: PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3,
     schedules: tuple[DecisionSchedule, ...],
-) -> PITCrossSectionEvidenceCollection:
+) -> PITCrossSectionEvidenceCollection | PITCrossSectionEvidenceCollectionV3:
     """Create an exact immutable subperiod projection without rescanning source data."""
 
     wanted = {(item.signal_time, item.decision_time, item.execution_time) for item in schedules}
@@ -538,23 +577,24 @@ def subset_compact_pit_evidence(
     )
     if len(bundles) != len(wanted):
         raise ValueError("compact PIT subperiod schedules are not covered by the parent evidence")
-    return PITCrossSectionEvidenceCollection(
-        snapshot_hash=evidence.snapshot_hash,
-        qlib_view_hash=evidence.qlib_view_hash,
-        expression_spec_hash=evidence.expression_spec_hash,
-        expression=evidence.expression,
-        operator_delays=evidence.operator_delays,
-        universe_index=evidence.universe_index,
-        bundles=bundles,
+    return type(evidence).model_validate(
+        {
+            **evidence.model_dump(mode="json"),
+            "bundles": [bundle.model_dump(mode="json") for bundle in bundles],
+        }
     )
 
 
 def load_pit_artifact_evidence(path: Path) -> PITArtifactEvidence:
     try:
         payload = json.loads(path.read_bytes())
-        schema_version = payload.get("schema_version")
+        if not isinstance(payload, dict):
+            raise ValueError("PIT evidence payload must be an object")
+        schema_version = cast(dict[str, object], payload).get("schema_version")
         if schema_version == "pit-audit-evidence-collection/v1":
             return PITAuditEvidenceCollection.model_validate(payload)
+        if schema_version == "pit-cross-section-evidence-collection/v3":
+            return PITCrossSectionEvidenceCollectionV3.model_validate(payload)
         if schema_version == "pit-cross-section-evidence-collection/v2":
             return PITCrossSectionEvidenceCollection.model_validate(payload)
     except (OSError, ValueError, json.JSONDecodeError) as error:
@@ -563,7 +603,9 @@ def load_pit_artifact_evidence(path: Path) -> PITArtifactEvidence:
 
 
 def pit_bundle_members(
-    bundle: PITAuditEvidenceBundle | PITCrossSectionEvidenceBundle,
+    bundle: PITAuditEvidenceBundle
+    | PITCrossSectionEvidenceBundle
+    | PITCrossSectionEvidenceBundleV3,
 ) -> tuple[str, ...]:
     if isinstance(bundle, PITAuditEvidenceBundle):
         return tuple(item.request.instrument_id for item in bundle.items)
@@ -571,7 +613,9 @@ def pit_bundle_members(
 
 
 def pit_bundle_output_temporal(
-    bundle: PITAuditEvidenceBundle | PITCrossSectionEvidenceBundle,
+    bundle: PITAuditEvidenceBundle
+    | PITCrossSectionEvidenceBundle
+    | PITCrossSectionEvidenceBundleV3,
     instrument_id: str,
 ) -> TemporalMetadata:
     if isinstance(bundle, PITAuditEvidenceBundle):

@@ -342,7 +342,11 @@ def _failure(
     message = f"{type(error).__name__}: {error}"
     diagnostic: dict[str, object] = {"phase": phase, "exception_class": type(error).__name__}
     try:
-        if len(message.encode("utf-8", errors="replace")) > 4096:
+        # Parse errors can quote request content. Keep only the class and hash;
+        # later runtime diagnostics retain the existing bounded credential guard.
+        if phase == "REQUEST_PARSE":
+            diagnostic["details_retention"] = "HASH_ONLY"
+        elif len(message.encode("utf-8", errors="replace")) > 4096:
             diagnostic["details_retention"] = "OVER_BYTE_CAP"
         else:
             validate_secret_free(message, file_name="sdk-host-failure-details.txt")

@@ -21,7 +21,10 @@ from quantos.contracts.autonomous import (
 from quantos.contracts.discovery import DiscoveryBatch, DiscoveryCompositionDesign
 from quantos.contracts.pit import PITGateId
 from quantos.contracts.research import ResearchPolicy, ResolvedExperimentSpec
-from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
+from quantos.contracts.research_execution import (
+    PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+)
 from quantos.contracts.research_result import (
     P14dqNativeLabelExportAudit,
     ResearchResultSeriesRow,
@@ -203,6 +206,8 @@ def _prediction_evidence(
     )
     signal = verify_signal_artifact(signal_path)
     evidence = load_pit_artifact_evidence(signal_path / "pit-evidence.json")
+    if isinstance(evidence, PITCrossSectionEvidenceCollectionV3):
+        raise ValueError("PIT_EXECUTION_PROFILE_MISMATCH")
     _require(
         signal.artifact_hash == result.signal_artifact_hash
         and signal.resolved_experiment_hash == resolved.content_hash

@@ -256,3 +256,12 @@ def test_prior_report_cannot_move_outside_completed_publication(tmp_path, monkey
     )
     with pytest.raises(ValueError, match="ADOPTION_OUTPUT_OUTSIDE_COMPLETED_REPORT"):
         adoption._prior_authority(receipt, None)
+
+
+def test_legacy_adoption_rejects_v3(original_probe, monkeypatch):
+    from test_validation_field_study_pit import _evidence
+
+    source, evidence, profile, authoring, _, _ = original_probe
+    monkeypatch.setattr(adoption, "load_pit_artifact_evidence", lambda _: _evidence("v3", "3" * 64))
+    with pytest.raises(ValueError, match="ADOPTION_PIT_EXECUTION_PROFILE_MISMATCH"):
+        adoption._retained_originals(source, evidence, profile, authoring)

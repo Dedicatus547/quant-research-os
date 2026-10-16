@@ -324,6 +324,10 @@ def _clean_provenance_copy(destination: Path) -> tuple[str, str]:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
     subprocess.run(["git", "-C", str(destination), "init", "--quiet"], check=True)
+    # Raw-inventory assertions include .git. Prevent background object repacking
+    # in this synthetic checkout, without exempting any frozen input bytes.
+    for name, value in (("maintenance.auto", "false"), ("gc.auto", "0")):
+        subprocess.run(["git", "-C", str(destination), "config", name, value], check=True)
     subprocess.run(["git", "-C", str(destination), "add", "-A"], check=True)
     subprocess.run(
         [

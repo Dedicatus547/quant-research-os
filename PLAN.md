@@ -23,6 +23,21 @@ Discovery 已完成两轮有界研究，第二轮按冻结规则建议暂停扩�
 A1 V4后继r10两步工程闭环完成，控制器/守卫exit0、清理核验通过；本轮两科学SOFT_REJECT，科学汇总FAILED/NOT_EVALUATED。累计SDK11/11、科学5次/90units，零重试、A保留约1.394GB≤4GiB。B2完成结果复用；原r9失败保留，不追加预算。
 见 [A1/B2 当前准备状态](docs/status/a1-b2-authorized-preparation.md)。
 
+2026-10-15：R1c 固定比较完成并停止。共同720个定义日的 Rank IC 均值差 V−P 为
+`-0.0053130521577256385`。原 V/P 请求均为 `EXECUTION_FAILED / QLIB_EXECUTION_FAILED`，
+均无 ResearchResult/ValidationReport；V/P终态receipt各18政策units，合计36；剩余科学机会0。P2a继续暂缓。
+这是固定候选与时期的回顾性探索比较，不改变 Validation/P14c 或任何资格判断；详见
+[M最终核对与收尾](artifacts/evolution-implementation-20261014/coord/r1c-closeout.md)
+及[实际比较交付](artifacts/evolution-implementation-20261014/runtime/r1c-comparison-final.md)。
+
+后继 retained reader、CI 类型、pytest 入口及运行前置修复已集成，新增显式绑定的
+[`compare-retained`](docs/guides/frozen-field-study.md#explicit-successor-retained-reader)；工程检查与发布核对见下列记录，未运行真实比较。
+[结果契约设计](docs/roadmap/quantos-next-result-contract-2026-10-15.md)仍为提案，建议暂停新科学及成功语义改造。
+精确集成提交、实际 CI 检查、main 合并身份与远端发布状态见
+[本轮集成交接](artifacts/evolution-next-20261015/coord/final.md)。
+发布采用[固定 runner 执行与隔离核对](ci/apparmor/runtime-guard.md)，不扩展科学资格；
+实际 CI 与合并状态见[PR #3](https://github.com/Dedicatus547/quant-research-os/pull/3)。
+
 ## 后续工作与触发条件
 
 | 工作 | 当前处理 | 启动条件 |

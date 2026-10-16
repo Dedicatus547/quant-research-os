@@ -23,7 +23,10 @@ from quantos.contracts.research import (
     ResolvedExperimentSpec,
     ValidationPolicy,
 )
-from quantos.contracts.research_execution import PITCrossSectionEvidenceCollection
+from quantos.contracts.research_execution import (
+    PITCrossSectionEvidenceCollection,
+    PITCrossSectionEvidenceCollectionV3,
+)
 from quantos.contracts.snapshot import SnapshotSourceKind
 from quantos.contracts.status import RunStatus, StrategyStatus, ValidationVerdict
 from quantos.contracts.temporal import DecisionSchedule
@@ -255,6 +258,8 @@ def build_research_variant(
             operator_delays=_operator_delays(authoring),
             schedules=schedules,
         )
+    if isinstance(evidence, PITCrossSectionEvidenceCollectionV3):
+        raise ValueError("legacy release requires v2 compact PIT evidence")
     if (
         evidence.expression_spec_hash != provisional.expression.content_hash
         or tuple(bundle.schedule for bundle in evidence.bundles) != schedules
@@ -384,6 +389,8 @@ def _run_pipeline(
             end=period.end,
         )
         period_evidence = subset_compact_pit_evidence(baseline.evidence, period_schedules)
+        if isinstance(period_evidence, PITCrossSectionEvidenceCollectionV3):
+            raise ValueError("legacy release requires v2 compact PIT evidence")
         subperiod_variants[period.period_id] = build_variant(
             _variant_authoring(
                 authoring,

@@ -1,0 +1,33 @@
+schema_version: experiment-authoring/v1
+experiment_id: adjusted-volume-relative5-v1
+evaluation_start: 2015-01-01
+evaluation_end: 2025-12-31
+expression:
+  schema_version: safe-qlib-expression/v1
+  expression_id: adjusted_volume_relative5
+  nodes:
+    - schema_version: safe-expression-node/v1
+      node_id: adjusted_volume
+      operator: field
+      field_name: adjusted_volume
+    - schema_version: safe-expression-node/v1
+      node_id: adjusted_volume_mean_5
+      operator: rolling_mean
+      inputs: [adjusted_volume]
+      window: 5
+    - schema_version: safe-expression-node/v1
+      node_id: adjusted_volume_relative5
+      operator: divide
+      inputs: [adjusted_volume, adjusted_volume_mean_5]
+  output_node_id: adjusted_volume_relative5
+  input_lag_trading_days: 0
+strategy:
+  schema_version: strategy-authoring/v1
+  universe_index: 000300.SH
+  selection_method: top_k
+  top_k: 50
+  weighting_method: equal
+  rebalance_frequency: weekly
+  execution_mode: next_open
+  input_lag_trading_days: 0
+  execution_lag_trading_sessions: 1

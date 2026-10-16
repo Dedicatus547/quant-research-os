@@ -1,0 +1,16 @@
+[
+  {
+    "fixture": "snapshot-manifest.json.gz",
+    "origin": "artifacts/data/snapshots/sha256-6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9/manifest.json",
+    "uncompressed_sha256": "9a9f7627531fef6c5fbad281d5aa58e0508acc6cf446423f9611e446388d0866",
+    "uncompressed_bytes": 11945780,
+    "content_hash": "6297a968a2649f0777614d539cd1391e0e479e13b5f91b1124a7dccc277e3dd9"
+  },
+  {
+    "fixture": "view-manifest.json.gz",
+    "origin": "artifacts/data/qlib-views/sha256-fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b/manifest.json",
+    "uncompressed_sha256": "2ca1bb63f827edf0cf58a7cdc49093a752514e86898b980a8ef794753d572988",
+    "uncompressed_bytes": 1478869,
+    "content_hash": "fc809bedc8180b27134362beca02fc3b67a5565e8b447bab756a78557385716b"
+  }
+]
