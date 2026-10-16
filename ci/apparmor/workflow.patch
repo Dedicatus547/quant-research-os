@@ -1,0 +1,100 @@
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -24,6 +24,56 @@
+         run: |
+           sudo apt-get update
+           sudo apt-get install --yes bubblewrap zsh libseccomp2
++      # CANDIDATE ONLY: explicit host-policy execution authorization is required.
++      # Fill this digest only after reviewing this runner's complete attachment inventory.
++      - name: Inspect candidate AppArmor source and loaded attachments
++        run: |
++          set -euo pipefail
++          . /etc/os-release
++          printf 'os=%s version=%s image=%s kernel=%s\n' "$ID" "$VERSION_ID" "${ImageVersion:-UNAVAILABLE}" "$(uname -r)"
++          dpkg-query -W -f='${Version}\n' apparmor
++          /sbin/apparmor_parser --version
++          sudo find /sys/kernel/security/apparmor/policy/profiles -type f \
++            \( -name name -o -name mode -o -name attach \) \
++            -print -exec cat {} \; -exec echo \; | LC_ALL=C sort > "$RUNNER_TEMP/quantos-apparmor-before.txt"
++          test -s "$RUNNER_TEMP/quantos-apparmor-before.txt"
++          cat "$RUNNER_TEMP/quantos-apparmor-before.txt"
++          sha256sum "$RUNNER_TEMP/quantos-apparmor-before.txt"
++      - name: Install reviewed bwrap-only AppArmor candidate
++        env:
++          APPROVED_APPARMOR_INVENTORY_SHA256: "" # UNBOUND: refuse loading until reviewed.
++        run: |
++          set -euo pipefail
++          . /etc/os-release
++          test "$ID:$VERSION_ID" = ubuntu:24.04
++          test "${ImageVersion:-}" = 20261012.334.1
++          test "$(uname -r)" = 6.17.0-1022-azure
++          test "$(id -u)" != 0
++          test "$(dpkg-query -W -f='${Version}' apparmor)" = 4.0.1really4.0.1-0ubuntu0.24.04.9
++          test "$(stat -c '%a %u:%g' /usr/bin/bwrap)" = '755 0:0'
++          printf '%s  %s\n' e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71 /usr/bin/bwrap | sha256sum --check --strict
++          printf '%s  %s\n' 45aab8ec644fc7a5a4356eb1c5a633770f51276633d0065df7ad18f929201b8f ci/apparmor/quantos-ci-bwrap.profile | sha256sum --check --strict
++          test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
++          test "$(cat /proc/sys/kernel/unprivileged_userns_clone)" = 1
++          [[ "$APPROVED_APPARMOR_INVENTORY_SHA256" =~ ^[0-9a-f]{64}$ ]]
++          printf '%s  %s\n' "$APPROVED_APPARMOR_INVENTORY_SHA256" "$RUNNER_TEMP/quantos-apparmor-before.txt" | sha256sum --check --strict
++          sudo test ! -e /etc/apparmor.d/quantos-ci-bwrap
++          sudo test ! -L /etc/apparmor.d/quantos-ci-bwrap
++          loaded_profiles=$(sudo cat /sys/kernel/security/apparmor/profiles)
++          if grep -q '^quantos_ci_bwrap ' <<< "$loaded_profiles"; then
++            echo 'Reserved profile already loaded; refusing replacement.' >&2
++            exit 1
++          fi
++          # Syntax only, before the first host-policy write; no cache or kernel load.
++          sudo /sbin/apparmor_parser --config-file /dev/null --skip-cache --skip-kernel-load ci/apparmor/quantos-ci-bwrap.profile
++          stage=$(sudo mktemp /etc/apparmor.d/.quantos-ci-bwrap.XXXXXXXX)
++          trap 'sudo rm -f -- "$stage"' EXIT
++          sudo install -o root -g root -m 0644 ci/apparmor/quantos-ci-bwrap.profile "$stage"
++          sudo ln -- "$stage" /etc/apparmor.d/quantos-ci-bwrap
++          printf '%s\n' created > "$RUNNER_TEMP/quantos-apparmor-created"
++          printf '%s  %s\n' 45aab8ec644fc7a5a4356eb1c5a633770f51276633d0065df7ad18f929201b8f /etc/apparmor.d/quantos-ci-bwrap | sudo sha256sum --check --strict
++          sudo /sbin/apparmor_parser --config-file /dev/null --skip-cache --add /etc/apparmor.d/quantos-ci-bwrap
++          sudo cat /sys/kernel/security/apparmor/profiles | grep '^quantos_ci_bwrap '
+       - name: Check offline test namespace prerequisites
+         run: |
+           /usr/bin/bwrap --version
+@@ -63,3 +113,40 @@
+       - run: uv run ruff check
+       - run: uv run pyright
+       - run: uv run pytest --cov=quantos --cov-report=term-missing --cov-report=xml
++      - name: Retain candidate AppArmor audit and remove only this job's policy
++        if: always()
++        run: |
++          set +e
++          journalctl --quiet --no-pager --dmesg --since '-10 min' --lines=60 \
++            --grep='bwrap|userns_create|RTM_NEWADDR|quantos_ci_bwrap'
++          set -euo pipefail
++          if [[ ! -f "$RUNNER_TEMP/quantos-apparmor-created" ]]; then
++            exit 0
++          fi
++          printf '%s  %s\n' 45aab8ec644fc7a5a4356eb1c5a633770f51276633d0065df7ad18f929201b8f /etc/apparmor.d/quantos-ci-bwrap | sudo sha256sum --check --strict
++          sudo /usr/bin/python3 -I -B - <<'PY_LABELS'
++          import errno
++          import pathlib
++          import sys
++          live = []
++          for entry in pathlib.Path('/proc').iterdir():
++              if not entry.name.isdecimal():
++                  continue
++              try:
++                  label = (entry / 'attr/current').read_text()
++              except OSError as error:
++                  if error.errno in (errno.ENOENT, errno.ESRCH):
++                      continue
++                  raise
++              if 'quantos_ci_bwrap' in label:
++                  live.append((entry.name, label.strip()))
++          print('remaining candidate labels:', live)
++          sys.exit(bool(live))
++          PY_LABELS
++          # A failed add may have left only the file. Never remove another name.
++          loaded_profiles=$(sudo cat /sys/kernel/security/apparmor/profiles)
++          if grep -q '^quantos_ci_bwrap ' <<< "$loaded_profiles"; then
++            sudo /sbin/apparmor_parser --config-file /dev/null --skip-cache --remove /etc/apparmor.d/quantos-ci-bwrap
++          fi
++          sudo rm -- /etc/apparmor.d/quantos-ci-bwrap
++          rm -- "$RUNNER_TEMP/quantos-apparmor-created"
