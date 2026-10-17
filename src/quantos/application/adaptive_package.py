@@ -50,6 +50,10 @@ def package_main(package: Path, argv: list[str]) -> int:
         print(read(package / "proposed-combination.json").decode())
         return 0
     manifest, proposal = verified_package(package)
+    if mode == "--closeout":
+        result = closeout_package(package, manifest)
+        print(json.dumps({"audit_output": result["audit_output"], "issues": result["issues"]}))
+        return 1 if result["issues"] else 0
     if mode == "--verify":
         print(
             json.dumps(
@@ -139,6 +143,8 @@ def package_main(package: Path, argv: list[str]) -> int:
         manifest["spec_path"],
         "--spec-sha256",
         manifest["task_hash"],
+        "--operator-operation",
+        str(operation),
     ]
     if mode != "--reconcile-approved":
         command.append("--approved")
@@ -207,4 +213,53 @@ def package_main(package: Path, argv: list[str]) -> int:
             "task_hash": manifest["task_hash"],
         },
     )
-    return result.returncode
+    # The subprocess and all redirected streams have closed. Keep audit output out
+    # of the task authority tree and preserve its independently observed exit.
+    audit = closeout_package(package, manifest)
+    return result.returncode or (1 if audit["issues"] else 0)
+
+
+def closeout_package(package: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    """Read retained evidence after wait; never resume or reconcile the task."""
+    from quantos.application.adaptive_closeout import closeout_adaptive
+    from quantos.application.adaptive_store import contract
+    from quantos.contracts.adaptive import AdaptiveResearchSpec
+    from quantos.contracts.base import canonical_json_bytes
+
+    spec = contract(Path(manifest["spec_path"]), AdaptiveResearchSpec)
+    root = Path(spec.output_root)
+    audit_root = package.parent / (package.name + "-audits")
+    audit_root.mkdir(parents=True, exist_ok=True)
+    output = audit_root / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    exits: dict[str, Path] = {}
+    operators = sorted((root / "operator").glob("operation-*/process-exit.json"))
+    if operators:
+        exits["operator"] = operators[-1]
+        prelaunch = json.loads(read(operators[-1].parent / "prelaunch.json"))
+        argv = prelaunch["argv"]
+        command = argv[argv.index("--") + 1 :]
+        expected = sha256_bytes(canonical_json_bytes(command))
+        policy = json.loads(read(Path(manifest["storage_policy"]["path"])))
+        matches: list[Path] = []
+        for path in (Path(policy["evidence_root"]) / "storage-control").glob("*/prelaunch.json"):
+            candidate = json.loads(read(path))
+            if candidate.get("argv_hash") == expected:
+                guard_exit = path.parent / "exit.json"
+                if guard_exit.exists():
+                    matches.append(guard_exit)
+        if len(matches) == 1:
+            exits["guard"] = matches[0]
+    try:
+        result = closeout_adaptive(spec, output, exit_paths=exits)
+    except Exception as error:
+        # Do not invent an execution exit or repair any input when audit fails.
+        save(
+            output / "audit-failure.json",
+            {
+                "exception_class": type(error).__name__,
+                "task_hash": spec.content_hash,
+                "scope": "READ_ONLY_AUDIT_FAILED",
+            },
+        )
+        raise
+    return {**result, "audit_output": str(output)}

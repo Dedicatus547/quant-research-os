@@ -152,7 +152,9 @@ class AdaptiveSdkProducer:
             return "UNKNOWN"
         return "NOT_STARTED"
 
-    def complete(self, request: AdaptiveDecisionRequest) -> tuple[AdaptiveDecision, str]:
+    def _verified_capture(
+        self, request: AdaptiveDecisionRequest
+    ) -> tuple[AdaptiveDecision, dict[str, Any]]:
         spec, d = self.spec, self.directory(request)
         expected = reservation(spec, request)
         if (
@@ -237,6 +239,21 @@ class AdaptiveSdkProducer:
             ).model_dump(mode="json"),
             "raw_response_hash": sha256_bytes(raw),
         }
+        return decision, response
+
+    def verify_capture(self, request: AdaptiveDecisionRequest) -> tuple[AdaptiveDecision, str]:
+        """Verify completed originals without repairing or publishing any file."""
+        decision, response = self._verified_capture(request)
+        d = self.directory(request)
+        if read(d / "decision.json") != decision.canonical_bytes() or read(
+            d / "response.json"
+        ) != canonical_json_bytes(response):
+            raise ArtifactIntegrityError("SDK published response differs or is incomplete")
+        return decision, sha256_bytes(canonical_json_bytes(response))
+
+    def complete(self, request: AdaptiveDecisionRequest) -> tuple[AdaptiveDecision, str]:
+        decision, response = self._verified_capture(request)
+        d = self.directory(request)
         save(d / "decision.json", decision)
         save(d / "response.json", response)
         return decision, sha256_bytes(canonical_json_bytes(response))

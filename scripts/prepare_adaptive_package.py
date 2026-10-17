@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from quantos.application.adaptive_execution import quote_expression  # noqa: E402
+from quantos.application.adaptive_history import project_history  # noqa: E402
 from quantos.application.adaptive_store import read, save  # noqa: E402
 from quantos.application.autonomous_execution import (  # noqa: E402
     build_autonomous_execution_bindings,
@@ -41,11 +42,8 @@ def prepare(recipe_path: Path, output: Path, expected_commit: str):
     code = capture_code_provenance(ROOT)
     if code.commit_hash != expected_commit:
         raise ValueError("package source commit differs")
-    pins = []
-    for pin in recipe["source_pins"]:
-        if sha256_file(Path(pin["path"])) != pin["sha256"]:
-            raise ValueError("retained source pin differs")
-        pins.append(pin)
+    context, historical_projection = project_history(recipe)
+    pins = list(recipe["source_pins"])
     batches = []
     for path in recipe["batches"]:
         raw = read(Path(path))
@@ -128,7 +126,7 @@ def prepare(recipe_path: Path, output: Path, expected_commit: str):
         output_root=recipe["output_root"],
         sdk_cwd=str(Path(recipe["output_root"]) / "empty-sdk-cwd"),
         initial_structural_hashes=initial,
-        context=recipe["context"],
+        context=context,
         context_source_hashes=tuple(sorted(recipe["context_source_hashes"])),
     )
     quotes = Counter(quote_expression(spec, e) for e in baseline_expression_space(spec.design))
@@ -180,6 +178,13 @@ def prepare(recipe_path: Path, output: Path, expected_commit: str):
         pins.append({"path": str(path), "sha256": sha256_file(path)})
     output.mkdir(parents=True, exist_ok=False)
     save(output / "spec.json", spec)
+    save(output / "historical-projection.json", historical_projection)
+    pins.append(
+        {
+            "path": str(output / "historical-projection.json"),
+            "sha256": sha256_file(output / "historical-projection.json"),
+        }
+    )
     from quantos.application.adaptive_store import AdaptiveStore
 
     AdaptiveStore(spec).initialize()
@@ -291,6 +296,13 @@ def prepare(recipe_path: Path, output: Path, expected_commit: str):
             "generation unproven; later STOP proves only observed stop branch, not "
             "revision branch."
         ),
+        "readonly_closeout": {
+            "automatic_after_wait": True,
+            "command": f"{recipe['python']} -B {output / 'launch.py'} --closeout",
+            "output_root": str(output.parent / (output.name + "-audits")),
+            "research_calls": 0,
+            "science_executions": 0,
+        },
         "current_permissions": {
             "sdk_calls": 0,
             "scientific_executions": 0,
@@ -355,6 +367,8 @@ def prepare(recipe_path: Path, output: Path, expected_commit: str):
 父任务哈希：{spec.content_hash}
 提案SHA256：{manifest["proposal_sha256"]}
 清单SHA256：{sha256_bytes(read(output / "release-manifest.json"))}
+任务说明：{recipe.get("task_description_path", "见冻结spec research_question/context")}
+核验事实及实际context：{output / "historical-projection.json"}
 实际输出根：{spec.output_root}
 Python：{recipe["python"]}
 SDK/runtime 0.162.1，gpt-6.1-sol / medium，apps=false，单worker。
@@ -380,6 +394,9 @@ SDK/runtime 0.162.1，gpt-6.1-sol / medium，apps=false，单worker。
 
 交付原始SDK输入/响应/结构、实际科学退出/Validation/receipt、真实反馈后的动作、
 机会分母、consumed/reserved预算、最终停止理由、guard cleanup及未证明分支。
+包入口在父wait后自动运行只读收尾，审计输出：{output.parent / (output.name + "-audits")}。
+如仅需重新核对已结束原件，执行 {launch_command} --closeout；此命令不恢复任务、
+不补receipt、不发起SDK或科学，不得将缺失退出补写为0。
 工程接受与科学REJECT/FAILED分开；没有实际新候选/反馈后决策的分支继续标缺证。
 本提示词只有用户明确批准并在运行会话发送后才是运行指令，离线保存它不构成授权。
 """
@@ -412,6 +429,9 @@ objects/events/checkpoints/reports是不可变父任务链。
 初次STOP保留停止证据，但新生成路径仍未证明；第二次STOP不证明修订路径。
 本包不授予P14d-C、盈利、独立sealed、长期质量或跨宿主安装资格。
 当前源码和实际环境pins、完整外发范围见release-manifest.json/proposed-combination.json。
+运行入口等待真实子进程退出后自动只读收尾，输出 {output.parent / (output.name + "-audits")}；
+离线重核对命令 `{launch_command} --closeout`。报告不修复receipt、不修改authority，
+UNKNOWN和缺失证据保留，不赋予新资格。
 """
     save(output / "runbook.md", runbook.encode())
     return manifest, proposal
