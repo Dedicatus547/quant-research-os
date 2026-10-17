@@ -1,6 +1,8 @@
 # QuantOS：首次 STOP 后的真实研究闭环与自动收尾计划
 
-2026-10-18。状态：**待实施的后继方案**。本轮只读调查及文档修改，不运行测试、研究模型、科学任务，不部署、提交或推送。
+2026-10-18 更新：N0–N3 已实现并完成定向离线验证；获授权的 N4 已首次 STOP，SDK 1、新候选 0、科学 0。
+主线采用范围及真实原件见[集成记录](../releases/adaptive-closure-integration-2026-10-18.md)，资格仍为 `NOT_QUALIFIED`。
+下文保留原规划和条件；两个已终态运行包均不自动续跑，不将剩余额度转移。
 遵守 [AGENTS.md](../../AGENTS.md) 与[实施约定](../guides/implementation-discipline.md)。
 调查时主仓干净，HEAD/main 与本地远端跟踪引用 origin/main 均为 `ca1b6031bce9fe12f39e8a6961eee05667cb8c46`。
 该集成的源码仍是 `5235445296207d29ec9513905d938f2ccae652f0`；原计划、运行包、失败和接受记录保留原身份。

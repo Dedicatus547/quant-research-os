@@ -1,12 +1,16 @@
 # 有界反馈研究离线版
 
-2026-10-18 更新。`bounded-adaptive-research/v1` 的源码与离线模拟已集成到本地 main；
+2026-10-18 更新：事实投影与自动只读收尾后继采用 `b0725b7`，N0–N3 已完成；获授权 N4
+首次 STOP，SDK 1、新候选 0、科学 0，自动收尾通过，问题未被实验回答。
+见[本轮主线采用范围](../releases/adaptive-closure-integration-2026-10-18.md)。
+
+此前 `bounded-adaptive-research/v1` 的源码与离线模拟已集成到本地 main；
 固定 `5235445` 的首次真实运行正常 STOP，新候选 0、科学 0。真实生成/科学/反馈后决策组合仍待验证，
 `NOT_QUALIFIED`；[具体范围与原件](../releases/bounded-adaptive-integration-2026-10-18.md)。
 本机固定快照、555 个既有价格组合结构、安全 DSL、单 worker；不扩大数据、算子、科学门或 sealed 权限。
 模型可首次或反馈后 STOP，不强迫继续。
 
-入口沿用仓库 scripts CLI 形态：`scripts/adaptive_research.py` 提供 `prepare/run/status/cancel/reconcile`；
+入口沿用仓库 scripts CLI 形态：`scripts/adaptive_research.py` 提供 `prepare/run/status/cancel/reconcile/closeout`；
 `science-child` 只接受父预留、原请求和已隔离网络的 namespace。`prepare_adaptive_package.py`
 从明确 pin 的历史小型原件与实际安装生成运行包，不调用 SDK、不做科学。
 本机首次运行包和提示词原件位于
@@ -14,6 +18,12 @@
 固定提交、具体哈希和机器环境以该目录 `release-manifest.json` 为准。**该包已终态，不再执行其启动提示词。**
 剩余机会保持未使用，不自动续跑或转移；新研究任务准备新身份、独立输出、具体预算及适用授权。
 开发线应交付填好实际路径和命令的新提示词，不要求操作者手填哈希。
+
+后继 `artifacts/adaptive-closure-20261018/package-01/` 也已终态，其 startup-prompt 不再作为启动指令。
+`closeout --spec <固定spec路径> --spec-sha256 <固定哈希> --audit-output <新的独立持久目录>`
+只读核对既有 capture、事件、receipt、实际输入与退出，不调用 SDK/科学或补写 response/receipt。
+包入口 `launch.py --closeout` 采用原包身份；run/resume/reconcile 在父 wait 后自动写独立审计目录。
+未知用量、缺失退出和科学失败保留，分项报告不授予新资格。
 
 ## 权威和预算
 

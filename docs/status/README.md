@@ -2,6 +2,10 @@
 
 状态基准：2026-10-18。各轨道状态按其独立记录和精确适用范围读取。
 
+首次 STOP 后的事实投影与只读收尾采用源码 `b0725b7`；N0–N3 完成，获授权 N4 首次 STOP：
+SDK 1、新候选 0、科学 0，自动收尾通过。换手率问题仍未评估，真实科学闭环仍待证，`NOT_QUALIFIED`。
+见[主线采用范围](../releases/adaptive-closure-integration-2026-10-18.md)；原[离线交付](../releases/adaptive-closure-offline-2026-10-18.md)保留准备时点。
+
 有界反馈研究 `5235445` 的 AR0–AR5 源码与定向离线模拟已合入本地 main；首次真实运行正常 STOP，
 实际 1 次 SDK、0 个新候选、0 次科学。真实新候选科学闭环及本任务反馈后决策仍待证，`NOT_QUALIFIED`。
 见[集成与首次 STOP 范围](../releases/bounded-adaptive-integration-2026-10-18.md)；

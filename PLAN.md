@@ -9,9 +9,10 @@
 
 ## 当前落点
 
-下一步采用[首次 STOP 后的真实闭环计划](docs/roadmap/quantos-adaptive-research-closure-plan-2026-10-18.md)：
-N0–N3 先形成具体研究问题、闭合历史事实输入并补自动收尾；N4 在新的明确预算内观察真实生成/科学/反馈路径。
-本轮仅规划，不重做 AR0–AR5，不因首次 STOP 默认换模型、换数据或反复重试。
+2026-10-18：[首次 STOP 后闭合计划](docs/roadmap/quantos-adaptive-research-closure-plan-2026-10-18.md)的
+N0–N3 已完成，源码绑定 `b0725b7`；获授权 N4 首次 STOP，SDK 1、新候选 0、科学 0，自动收尾通过。
+见[主线采用与真实范围](docs/releases/adaptive-closure-integration-2026-10-18.md)。换手率问题未被实验回答，
+真实新提案/科学/反馈后决策仍待证；`NOT_QUALIFIED`，终态包不自动续跑。
 
 2026-10-18：[有界反馈研究计划](docs/roadmap/quantos-bounded-adaptive-research-plan-2026-10-17.md)的
 AR0–AR5 源码与定向离线模拟已完成，采用 `5235445` 合入本地 main。首次真实运行只观察到首次 STOP：
@@ -61,7 +62,7 @@ A1 V4后继r10两步工程闭环完成，控制器/守卫exit0、清理核验通
 
 | 工作 | 当前处理 | 启动条件 |
 |---|---|---|
-| 首次 STOP 后 N0–N4 | [真实闭环与自动收尾计划](docs/roadmap/quantos-adaptive-research-closure-plan-2026-10-18.md)待实施；优先事实输入闭合和只读收尾 | 先授权 N0–N3 离线工作；有信息价值的具体问题、新运行包及预算明确后才进行 N4 |
+| 首次 STOP 后 N0–N4 | N0–N3 完成；N4 真实首次 STOP，见[集成记录](docs/releases/adaptive-closure-integration-2026-10-18.md) | 当前任务已终态；新实验须有具体研究理由、新包及新授权，不复用未用额度 |
 | 有界反馈研究 AR0–AR5 | 源码已集成、定向离线模拟完成；真实首次 STOP 已核对，见[集成记录](docs/releases/bounded-adaptive-integration-2026-10-18.md) | 下一步补真实新方案/科学/反馈后决策证据；须有具体研究理由、新任务及预算，不强迫生成或重用旧额度 |
 | 有界执行版 D0–D3 | 最小本机形状已完成，正常执行路径工程接受绑定 `29fef56`；见完成核对 | 下一任务先复用完成原件，核对支持形状并准备新的输入身份、独立输出、预算与外发授权；不重跑已耗尽 campaign |
 | 扩大当前空间的 LLM 生成 | 暂停扩大；本轮调用额度已耗尽 | 新研究理由、预声明比较设计及明确的新授权与额度 |

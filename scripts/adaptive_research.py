@@ -26,12 +26,12 @@ from quantos.contracts.base import sha256_bytes  # noqa: E402
 from quantos.infrastructure.hosted_storage import configured_guard  # noqa: E402
 
 
-def pinned_spec(path, digest):
+def pinned_spec(path, digest, *, read_only=False):
     data = read(path)
     if sha256_bytes(data) != digest:
         raise ArtifactIntegrityError("adaptive spec pin differs")
     spec = AdaptiveResearchSpec.model_validate_json(data)
-    if data != spec.canonical_bytes() or Path(spec.workspace) != ROOT:
+    if data != spec.canonical_bytes() or (not read_only and Path(spec.workspace) != ROOT):
         raise ArtifactIntegrityError("canonical spec/workspace differs")
     return spec
 
@@ -145,7 +145,8 @@ def _execute_science_once(spec, child, job):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=["prepare", "run", "status", "cancel", "reconcile", "science-child"]
+        "command",
+        choices=["prepare", "run", "status", "cancel", "reconcile", "science-child", "closeout"],
     )
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--spec-sha256", required=True)
@@ -156,8 +157,44 @@ def main():
     )
     parser.add_argument("--child", type=Path)
     parser.add_argument("--child-sha256")
+    parser.add_argument("--audit-output", type=Path)
+    parser.add_argument("--inventory", type=Path)
+    parser.add_argument("--operator-exit", type=Path)
+    parser.add_argument("--observer-exit", type=Path)
+    parser.add_argument("--guard-exit", type=Path)
+    parser.add_argument("--operator-operation", type=Path)
     args = parser.parse_args()
-    spec = pinned_spec(args.spec, args.spec_sha256)
+    spec = pinned_spec(args.spec, args.spec_sha256, read_only=args.command == "closeout")
+    if args.command == "closeout":
+        from quantos.application.adaptive_closeout import closeout_adaptive
+
+        if args.audit_output is None:
+            raise ValueError("closeout requires --audit-output outside the input tree")
+        exits = {
+            name: path
+            for name, path in (
+                ("operator", args.operator_exit),
+                ("observer", args.observer_exit),
+                ("guard", args.guard_exit),
+            )
+            if path is not None
+        }
+        result = closeout_adaptive(
+            spec, args.audit_output, inventory=args.inventory, exit_paths=exits
+        )
+        print(
+            json.dumps(
+                {
+                    "task_hash": spec.content_hash,
+                    "output": str(args.audit_output),
+                    "input_stable": result["input_stable"],
+                    "issues": result["issues"],
+                }
+            )
+        )
+        if result["issues"] or not result["input_stable"]:
+            raise SystemExit(1)
+        return
     store = AdaptiveStore(spec)
     port = AdaptiveExecutionPort(spec, AdaptiveNamespaceDispatcher(spec))
     runtime = AdaptiveRuntime(spec, AdaptiveSdkProducer(spec), port)

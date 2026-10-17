@@ -6,8 +6,8 @@
 ## 当前开发入口
 
 - [首次 STOP 后的真实研究闭环与自动收尾计划（2026-10-18）](quantos-adaptive-research-closure-plan-2026-10-18.md)：
-  当前待实施入口；复用 AR0–AR5，先确定具体问题、闭合历史事实输入和自动收尾，再补一次真实研究链。
-  N0–N4、模型与思考强度分工、预算/停止边界及两个会话提示词；本轮只规划。
+  N0–N3 已完成，获授权 N4 首次 STOP；原文保留规划条件。当前实现、采用证据与未证明范围
+  见[集成记录](../releases/adaptive-closure-integration-2026-10-18.md)，已终态提示词不再启动。
 - [有界反馈研究后继开发计划（2026-10-17）](quantos-bounded-adaptive-research-plan-2026-10-17.md)：
   AR0–AR5 已实现并定向离线模拟，源码合入本地 main；真实首次 STOP 正常收尾，新候选科学闭环仍待证。
   当前范围见[集成记录](../releases/bounded-adaptive-integration-2026-10-18.md)和[使用手册](../guides/bounded-adaptive-research-v1.md)。
