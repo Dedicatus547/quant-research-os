@@ -114,6 +114,7 @@ def observe_usage(events: Sequence[Mapping[str, object]]) -> dict[str, object]:
         "status": "UNAVAILABLE",
         "usage": None,
         "notifications": len(snapshots),
+        "unit": "TOKENS",
     }
     if not snapshots:
         return result
@@ -151,7 +152,9 @@ def observe_usage(events: Sequence[Mapping[str, object]]) -> dict[str, object]:
                 type(last.get(key)) is not int or cast(int, last[key]) < 0 for key in USAGE_KEYS
             ):
                 raise ValueError
-            usage = {key: cast(int, last[key]) for key in USAGE_KEYS}
+            # Reuse the protocol scan view's count naming for validated numeric
+            # counters. Arbitrary credential-shaped keys are never exempted.
+            usage = {key.replace("tokens", "count"): cast(int, last[key]) for key in USAGE_KEYS}
         result.update(status="OBSERVED", usage=usage, thread_id=thread_id, turn_id=turn_id)
     except (KeyError, TypeError, ValueError):
         result["status"] = "INVALID_OR_UNATTRIBUTABLE"

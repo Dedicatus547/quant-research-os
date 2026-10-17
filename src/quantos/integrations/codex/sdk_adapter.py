@@ -266,12 +266,16 @@ class CodexSdkAdapter:
                     request.canonical_bytes(), timeout=timeout_seconds
                 )
                 complete = True
-                process_exit.update(wait_observed=True, return_code=process.returncode)
+                process_exit.update(
+                    wait_observed=type(process.returncode) is int, return_code=process.returncode
+                )
             except subprocess.TimeoutExpired as error:
                 stdout = error.output if isinstance(error.output, bytes) else None
                 stderr = error.stderr if isinstance(error.stderr, bytes) else None
                 self._terminate_process_group(process)
-                process_exit.update(wait_observed=True, return_code=process.returncode)
+                process_exit.update(
+                    wait_observed=type(process.returncode) is int, return_code=process.returncode
+                )
                 return failed(HarnessErrorKind.TIMEOUT, error, attempt=attempt_index)
 
         assert stdout is not None and stderr is not None

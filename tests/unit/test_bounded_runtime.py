@@ -194,6 +194,10 @@ def test_formal_cli_wires_namespace_and_retains_failure_and_fixed_deadline(sdk_s
     assert len(exits) == 1
     failure = json.loads(exits[0].read_bytes())
     assert failure["exit_code"] == 2 and failure["error_class"] == "RuntimeError"
+    assert failure["summary"]["stop_reason"] == "FAILED"
+    assert failure["summary"]["engineering_state"] == "WAITING_FOR_AGENT"
+    assert failure["summary"]["research_budget"]["used_executions"] == 0
+    assert failure["summary"]["sdk_provider_observations"][0]["provider_usage"]["usage"] is None
     assert b"secret value" not in exits[0].read_bytes()
     assert events[-1] == "ENTER_NAMESPACE"
     assert list(control.glob("checkpoint-*.json"))

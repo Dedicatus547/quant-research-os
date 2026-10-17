@@ -1,7 +1,7 @@
 # 固定候选有界运行候选版
 
-2026-10-17 后继状态：原固定候选的真实运行未通过；当前开发修复仅完成代码与静态检查，
-行为验证和新真实运行均未授权，仍未接受。详见本页末节及持久交接记录。
+2026-10-17 后继状态：原固定候选的真实运行未通过；当前开发修复已完成定向离线验证，
+新真实运行未授权，固定运行线仍未接受。详见本页末节及持久交接记录。
 
 本版是 `agent-runtime-bounded-v1-rc`。支持本机 `WIN-ZJWCOMPUTER` 的 WSL Linux、
 本地保留的 `0.162.1` SDK/runtime overlay 和科学依赖、既有 `p14dq-frozen/v1` 两候选任务。
@@ -88,7 +88,7 @@ UNKNOWN、FAILED、无进展、步数上限、TTL/取消、预算/空间/超时�
 不能将旧科学结果改标为本候选 PASS。新真实组合尚缺；只提出同一次 2 SDK/2 science/36 units 接受机会，
 一名独立操作者从正式入口完成反馈后续和交付；失败原样留证，不补满次数。
 
-## 2026-10-17 离线修复后继（尚未行为验证或接受）
+## 2026-10-17 离线修复后继（定向离线验证完成，尚未真实接受）
 
 `0b15d229a4e3d5812d936fc23558bf1962b69286` 的唯一目标宿主运行已失败停止：
 provider 完成第一次回答，但冻结 v2 normalizer 拒绝 `turn/moderationMetadata`。
@@ -111,6 +111,8 @@ wait 和 return code。它独立于 provider turn 终态和 controller exit，�
 未观测进程退出仍为 null；旧运行不补造该文件。保持原 namespace cleanup 与秘密守卫。
 完成 capture 留存后另保存 `sdk-observation.json`（`sdk-provider-observation/v1`），
 将单轮、同线程可归属的最后一份 provider usage snapshot 与标准化 manifest 计数分开。
+观察记录使用明确的 `unit=TOKENS` 和 `input_count/output_count/cached_input_count` 数字，
+复用既有 protocol 扫描视图的 count 命名；不放宽秘密扫描器，也不豁免任意 token 字段。
 重复累积通知不相加；缺失或身份/类型无效分别是 UNAVAILABLE 或 INVALID_OR_UNATTRIBUTABLE，
 不能解释为零消耗，也不是账单凭证。capture-fact 绑定两个观察文件的 hash。
 
@@ -119,7 +121,12 @@ wait 和 return code。它独立于 provider turn 终态和 controller exit，�
 失败时可能不可用。异常出口尽力保存只读最终摘要；摘要本身失败只记录安全错误类，
 保持主要异常及真实 exit2，不把 WAITING_FOR_AGENT 改成正常完成。
 
-这次仅授权离线开发；未新增/运行行为测试、模型、科学、外发或完整矩阵。
-静态检查不等于这些行为已通过。后续先取得明确的定向离线验证授权，复用失败 provider
-原件及受影响用例；新的真实运行、输入/环境绑定和额度须另有明确授权，不能直接复用
-旧 launcher、失败 campaign 或其账面余额。
+随后获得的明确授权仅覆盖定向离线验证。保留真实 provider 原件的只读投影、metadata
+身份及未知事件拒绝、用量/退出故障、原件 tamper 拒绝和合成发布/反馈/replay 已完成；
+该结论采用本轮不同定向用例的实际结果，保留各自来源，修正后只重跑受影响节点。
+未观测到退出码时保留 wait=false/null；没有凭空补齐真实退出。
+实际日志、JUnit、失败和采用说明在持久
+`artifacts/agent-runtime-bounded-20261017/offline-repair-01/offline-verification-01/`。
+没有新模型、科学、外发、真实 bootstrap 或完整矩阵。合成结果不授予真实资格。
+新的真实运行、输入/环境绑定和额度须另有明确授权，不能直接复用旧 launcher、
+失败 campaign 或其账面余额。
