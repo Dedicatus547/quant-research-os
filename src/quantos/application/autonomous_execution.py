@@ -432,6 +432,7 @@ class QuantosResearchExecutionAdapter:
         p14dq_v2_profile: bool = False,
         sdk_campaign_spec: SdkCampaignSpec | None = None,
         discovery_stage_recovery: bool = False,
+        retain_completed_outcome: bool = False,
         discovery_profile: Literal["singleton-full-chain/v1", "bounded-price-composition/v1"]
         | None = None,
         _verified_inputs: VerifiedExecutionInputs | None = None,
@@ -439,6 +440,11 @@ class QuantosResearchExecutionAdapter:
         field_study: FrozenFieldStudyConfiguration | None = None,
         field_study_source_adoption: FieldStudySourceAdoption | None = None,
     ) -> None:
+        if retain_completed_outcome and (
+            not discovery_stage_recovery or field_study is not None or sdk_campaign_spec is not None
+        ):
+            raise ValueError("retained completion requires explicit singleton successor scope")
+        self.retain_completed_outcome = retain_completed_outcome
         if field_study is None and field_study_source_adoption is not None:
             raise ValueError("field-study adoption cannot borrow a legacy/Discovery profile")
         if field_study is None and (
@@ -758,7 +764,50 @@ class QuantosResearchExecutionAdapter:
                 audit = self._verify_dq_audit_for_request(request, outcome.research_result_hash)
                 if audit.audit_hash not in outcome.evidence_hashes:
                     self._integrity("DQ export audit is absent before receipt publication")
+            if self.retain_completed_outcome:
+                # Explicit successor recovery original, outside the frozen scientific
+                # inputs. Publication can be resumed without entering the pipeline.
+                completed = AutonomousExecutionReceipt(request=request, outcome=outcome)
+                atomic_write_bytes(
+                    self.output_root / "completed-outcomes" / f"{request.execution_identity}.json",
+                    completed.canonical_bytes(),
+                )
             return self._publish_receipt(request, outcome)
+
+    def reconcile_completed_outcome(
+        self, request: AutonomousExecutionRequest
+    ) -> AutonomousExecutionResult | None:
+        """Verify a fully saved outcome and publish only its receipt; never execute.
+
+        Incomplete stages cannot use this port. No process exit is inferred here;
+        the caller retains the independent exit observation separately.
+        """
+        if not self.discovery_stage_recovery or not self.retain_completed_outcome:
+            raise ValueError("completed-outcome reconciliation requires explicit recovery")
+        with research_result_verification_scope(), exclusive_directory_lock(
+            self.output_root / "execution-locks" / request.execution_identity
+        ):
+            self._verify_request(request)
+            prior = self._read_receipt(request.execution_identity)
+            if prior is not None:
+                self._verify_receipt(prior)
+                if prior.request != request:
+                    self._integrity("saved receipt request differs")
+                return self._outcome_with_receipt(prior)
+            path = self.output_root / "completed-outcomes" / f"{request.execution_identity}.json"
+            if not path.exists():
+                return None
+            with opened_directory(path.parent) as parent:
+                encoded = read_regular_bytes_at(parent, path.name, max_bytes=16_777_216)
+            completed = AutonomousExecutionReceipt.model_validate_json(encoded)
+            if (
+                completed.canonical_bytes() != encoded
+                or completed.request != request
+                or completed.outcome.compute_seconds != self._deterministic_compute_charge(request)
+            ):
+                self._integrity("retained completed outcome differs from frozen request")
+            self._verify_receipt(completed)
+            return self._publish_receipt(request, completed.outcome)
 
     def execution_compute_charge(self, request: AutonomousExecutionRequest) -> int:
         """Quote the existing frozen workload units without running the pipeline."""

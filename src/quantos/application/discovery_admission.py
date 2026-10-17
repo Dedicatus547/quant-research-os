@@ -169,6 +169,16 @@ def _subtask(
     )
 
 
+def freeze_singleton(
+    design: DiscoveryDesignContract, expression: SafeQlibExpressionSpec
+) -> DiscoverySubtask:
+    """Public lower-level admission/freeze port; grants no generation authority."""
+    rejection = capability_rejection(design, expression)
+    if rejection is not None:
+        raise ValueError(rejection)
+    return _subtask(design, expression)
+
+
 def build_discovery_batch(
     design: DiscoveryDesignContract,
     requests: tuple[GenerationRequest, ...],

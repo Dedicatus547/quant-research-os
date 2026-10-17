@@ -555,6 +555,13 @@ def _persist_sdk_observation(directory: Path, execution: HarnessExecutionResult)
     return atomic_write_bytes(directory / "sdk-observation.json", payload)
 
 
+# Public lower-level observation ports for explicit successor producers. Legacy
+# callers retain their original functions and byte-identical output behavior.
+persist_sdk_process_exit = _persist_sdk_process_exit
+persist_sdk_observation = _persist_sdk_observation
+persist_sdk_host_transport = _persist_host_transport
+
+
 def _manifest(
     reservation: SdkLaunchReservation,
     execution: HarnessExecutionResult,

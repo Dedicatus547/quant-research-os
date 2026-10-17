@@ -6,8 +6,9 @@
 ## 当前开发入口
 
 - [有界反馈研究后继开发计划（2026-10-17）](quantos-bounded-adaptive-research-plan-2026-10-17.md)：
-  当前待实施入口；在已接受有界运行版之上接通科学反馈、新候选、总预算和安全停止。
-  AR0–AR5、Sol/Astra/Luna 与思考强度分工、最小真实预算及两个会话启动提示词；本轮仅规划。
+  AR0–AR5 已实现并定向离线模拟，源码合入本地 main；真实首次 STOP 正常收尾，新候选科学闭环仍待证。
+  当前范围见[集成记录](../releases/bounded-adaptive-integration-2026-10-18.md)和[使用手册](../guides/bounded-adaptive-research-v1.md)。
+  计划中的模型分工和提示词保留规划时点，不重复已完成开发或执行已终态运行包。
 - [发布运行线与 Codex 开发线计划（2026-10-17）](quantos-two-track-runtime-plan-2026-10-17.md)：
   基于 main `d754652`、A1 r10 成功链和 r9 捕获失败原件，区分反馈传递与决策改变，
   重建人工介入和中断语义；收缩 D0/D2，优先交付固定候选的有界执行版。

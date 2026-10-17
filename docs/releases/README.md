@@ -1,5 +1,12 @@
 # 发布与冻结记录
 
+## 有界反馈研究后继：本地主线集成
+
+2026-10-18：[主线集成与首次 STOP 范围](bounded-adaptive-integration-2026-10-18.md)采用源码
+`5235445296207d29ec9513905d938f2ccae652f0`；离线实现及定向模拟完成，首次真实调用返回 STOP 并正常收尾。
+新候选 0、科学 0；完整自动研究仍部分证明，`NOT_QUALIFIED`。本次未推送或部署，不移动历史 tag。
+[原离线交付](bounded-adaptive-offline-2026-10-17.md)保留准备时点；[使用手册](../guides/bounded-adaptive-research-v1.md)明确已终态包不再启动。
+
 ## 固定候选有界运行首版
 
 2026-10-17：[完成核对与固定身份](agent-runtime-bounded-v1-2026-10-17.md)绑定运行源码

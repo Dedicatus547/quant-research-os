@@ -1,6 +1,12 @@
 # 当前状态
 
-状态基准：2026-10-17。各轨道状态按其独立记录和精确适用范围读取。
+状态基准：2026-10-18。各轨道状态按其独立记录和精确适用范围读取。
+
+有界反馈研究 `5235445` 的 AR0–AR5 源码与定向离线模拟已合入本地 main；首次真实运行正常 STOP，
+实际 1 次 SDK、0 个新候选、0 次科学。真实新候选科学闭环及本任务反馈后决策仍待证，`NOT_QUALIFIED`。
+见[集成与首次 STOP 范围](../releases/bounded-adaptive-integration-2026-10-18.md)；
+[离线交付](../releases/bounded-adaptive-offline-2026-10-17.md)保留准备时点。已终态包不自动续跑。
+
 固定候选有界运行版 `29fef56` 已完成本机正常路径工程接受：两轮 SDK、两次科学/Validation、
 36 政策 units，反馈、receipt、真实退出与 cleanup 对应。两候选均 `REJECT`；本次额度已耗尽。
 范围、原件及完整提交见[完成核对](../releases/agent-runtime-bounded-v1-2026-10-17.md)；
@@ -37,6 +43,7 @@ Validation/P14c 或任何资格判断。见[M最终核对与收尾](../../artifa
 | HM-MVP hosted component-v2 | MVP 已完成并 `FROZEN`；`ACCEPT_COMPONENT_V2`，tag `hm-mvp-component-v2` | 两项科学执行均 `SOFT_REJECT`；组件采用范围见 [发布记录](../releases/hm-mvp-component-v2-freeze-marker.md)及 [hosted 状态](hosted.md) |
 | FR-03 SDK/runtime | `0.162.1 + gpt-6.1-sol / medium` 确切组合 GO | 实现已合入本地 main、尚未部署；[接受范围与限制](fr03.md) |
 | 固定候选有界运行首版 | `29fef56` 本机正常路径工程接受；正式资格仍 `NOT_QUALIFIED` | 两份 Validation `SUCCEEDED / REJECT`；campaign 科学汇总 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`；[固定身份与边界](../releases/agent-runtime-bounded-v1-2026-10-17.md) |
+| 有界反馈研究后继 | `5235445` 离线实现/模拟已集成；真实首次 STOP 分支核对，`NOT_QUALIFIED` | 新候选 0、科学 0，无新科学裁决；真实新方案/执行/反馈后决策仍待证；[范围及原件](../releases/bounded-adaptive-integration-2026-10-18.md) |
 | Discovery 后继研究 | 实现及源码集成完成；定向检查不授新的全流程资格 | 第二轮 9 项可比预测、3 项缺源；按冻结规则暂停扩大当前空间同类生成；[研究状态](discovery.md) |
 
 完整 P14 哈希与权威矩阵见 [P14 状态](p14.md)及[RC 修正记录](../releases/p14-rc-v1-equality-correction.md)。
