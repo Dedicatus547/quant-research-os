@@ -3,6 +3,13 @@
 当前工作顺序见[根路线图](../../PLAN.md)，已完成范围见[状态总览](../status/README.md)。
 本目录同时保存设计和阶段记录；其中的旧待办、模型分工与授权表述按写作时点读取。
 
+## 当前开发入口
+
+- [发布运行线与 Codex 开发线计划（2026-10-17）](quantos-two-track-runtime-plan-2026-10-17.md)：
+  基于 main `d754652`、A1 r10 成功链和 r9 捕获失败原件，区分反馈传递与决策改变，
+  重建人工介入和中断语义；收缩 D0/D2，优先交付固定候选的有界执行版。
+  含证据边界、最小验收、两线/worktree 规则及启动提示词。本轮仅只读审计和文档修改，未运行测试或真实任务。
+
 ## 下一阶段离线实施
 
 2026-10-15：R1c 固定独立预测比较已完成并收尾。V/P均经独立核验并通过覆盖准入，自身定义日726/727与720/727；共同定义日720，Rank IC均值V为−0.012775936593236848、P为−0.00746288443551121，V−P=**−0.0053130521577256385**。这是固定候选与时期的回顾性探索比较；原V/P请求均为`EXECUTION_FAILED / QLIB_EXECUTION_FAILED`，均无ResearchResult/ValidationReport，Validation/P14c及failure/null不变，不授予任何资格。V/P终态receipt各18政策units，合计36；剩余科学机会0；P2a继续暂缓。真实退出和cleanup均已留证，无后续自动执行。见[M最终核对与收尾](../../artifacts/evolution-implementation-20261014/coord/r1c-closeout.md)及[B实际比较交付](../../artifacts/evolution-implementation-20261014/runtime/r1c-comparison-final.md)。[reader来源与恢复历史](../../artifacts/evolution-implementation-20261014/coord/r1c-observer-integration.md)、[M2交付](../../artifacts/evolution-implementation-20261014/coord/final.md)按原时点保留（持久原件位于主工作区，不随 Git 迁移）。
