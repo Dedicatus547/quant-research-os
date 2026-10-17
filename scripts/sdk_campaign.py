@@ -8,10 +8,13 @@ import importlib.metadata
 import json
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from quantos.application.hosted_campaign import HostedCampaignApplicationService  # noqa: E402
@@ -152,17 +155,148 @@ def _add_service_inputs(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--evidence-root", required=True)
 
 
+def _bounded_operation(args, spec, config, producer):
+    from quantos.application.bounded_runtime import (
+        TERMINAL,
+        reconcile_only,
+        run_bounded,
+        runtime_summary,
+    )
+    from quantos.artifacts.store import atomic_write_bytes, exclusive_directory_lock
+    from quantos.contracts.base import canonical_json_bytes
+    from quantos.infrastructure.hosted_storage import configured_guard
+
+    live = Path(args.protocol_root).parent
+    if (
+        Path(args.protocol_root) != live / "protocol"
+        or Path(args.business_lock_root) != live / "business-locks"
+        or Path(args.evidence_root) != live / "sdk-evidence"
+    ):
+        raise ValueError("bounded runtime requires the documented live-root layout")
+    control = live / "controller" / spec.campaign_hash
+    configured_guard().require_root(control)
+    configured_guard().require_lease()
+    with exclusive_directory_lock(control):
+        ordinal = len(tuple(control.glob("operation-*.json"))) + 1
+        record = control / f"operation-{ordinal:04d}.json"
+        atomic_write_bytes(
+            record,
+            canonical_json_bytes(
+                {
+                    "command": args.command,
+                    "spec_hash": spec.content_hash,
+                    "started_utc": datetime.now(UTC),
+                    "exit": "NOT_OBSERVED",
+                }
+            ),
+        )
+
+        def checkpoint(value):
+            nonlocal ordinal
+            ordinal += 1
+            atomic_write_bytes(
+                control / f"checkpoint-{record.stem}-{ordinal:04d}.json",
+                canonical_json_bytes(value),
+            )
+
+        try:
+            service = _service(args, spec)
+            if args.command == "reconcile":
+                reconcile_only(service, spec)
+                result = runtime_summary(service, producer, spec, "RECONCILED_RECEIPTS_ONLY")
+                checkpoint(result)
+            else:
+                # Pin a single activation window. Rerunning cannot extend it.
+                deadline = datetime.fromisoformat(args.deadline_utc)
+                if deadline.tzinfo is None:
+                    raise ValueError("deadline requires an explicit timezone")
+                window = {"spec_hash": spec.content_hash, "deadline_utc": args.deadline_utc}
+                atomic_write_bytes(control / "activation.json", canonical_json_bytes(window))
+                metadata = Path(args.spec).parent
+                if (
+                    Path(args.spec).name != "sdk-campaign-spec.json"
+                    or Path(args.loader_config) != metadata / "loader-config.json"
+                    or Path(config.provenance_workspace) != ROOT
+                ):
+                    raise ValueError("bounded runtime requires pinned source and metadata layout")
+                from scripts import sdk_science_namespace as namespace
+
+                helper = ROOT / "scripts/sdk_science_namespace.py"
+                namespace.pinned(helper, args.science_helper_sha256)
+                ns_args = SimpleNamespace(
+                    workspace=ROOT,
+                    live_root=live,
+                    metadata_root=metadata,
+                    expected_config_hash=args.loader_config_sha256,
+                    expected_spec_hash=args.spec_sha256,
+                    science_management_helper_hash=args.science_helper_sha256,
+                    deadline_utc=args.deadline_utc,
+                )
+                namespace.frozen_tuple(ns_args)
+
+                def clock_check():
+                    if datetime.now(UTC) >= deadline:
+                        raise TimeoutError("bounded runtime activation window expired")
+
+                def step():
+                    clock_check()
+                    pending = service.pending(spec.campaign_hash)
+                    if pending and producer.status(pending, spec) in {"NOT_PREPARED", "PREPARED"}:
+                        _runtime_preflight(spec)
+                    return producer.step(
+                        service, spec.campaign_hash, expected_new_bytes=args.expected_new_bytes
+                    )
+
+                with namespace.configure_execution_namespace(service, ns_args, control):
+                    result = run_bounded(
+                        service,
+                        producer,
+                        spec,
+                        step=step,
+                        checkpoint=checkpoint,
+                        clock_check=clock_check,
+                    )
+            exit_code = 0 if result["engineering_state"] in TERMINAL - {"RECOVERY_REQUIRED"} else 3
+            atomic_write_bytes(
+                control / f"{record.stem}-exit.json",
+                canonical_json_bytes(
+                    {
+                        "exit_code": exit_code,
+                        "summary": result,
+                        "ended_utc": datetime.now(UTC),
+                    }
+                ),
+            )
+            return result, exit_code
+        except Exception as error:
+            atomic_write_bytes(
+                control / f"{record.stem}-exit.json",
+                canonical_json_bytes(
+                    {
+                        "exit_code": 2,
+                        "error_class": type(error).__name__,
+                        "ended_utc": datetime.now(UTC),
+                        "next_action": "INSPECT_THEN_RECONCILE",
+                    }
+                ),
+            )
+            raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("prepare", "status", "replay", "launch"):
         command = sub.add_parser(name)
         _add_pinned_inputs(command)
-    for name in ("start", "business-status", "resume", "step"):
+    for name in ("start", "business-status", "resume", "step", "run", "reconcile"):
         command = sub.add_parser(name)
         _add_service_inputs(command)
-        if name in {"resume", "step"}:
+        if name in {"resume", "step", "run", "reconcile"}:
             command.add_argument("--expected-new-bytes", type=int, required=True)
+        if name == "run":
+            command.add_argument("--deadline-utc", required=True)
+            command.add_argument("--science-helper-sha256", required=True)
     args = parser.parse_args()
     try:
         if args.command in {"prepare", "status", "replay", "launch"}:
@@ -208,7 +342,7 @@ def main() -> int:
             )
             if config.canonical_bytes() != config_bytes:
                 raise ValueError("loader configuration must use canonical contract bytes")
-            if args.command in {"resume", "step"}:
+            if args.command in {"resume", "step", "run", "reconcile"}:
                 require_sdk_storage_reservation(
                     (
                         Path(args.evidence_root),
@@ -219,6 +353,10 @@ def main() -> int:
                     ),
                     args.expected_new_bytes,
                 )
+            if args.command in {"run", "reconcile"}:
+                result, exit_code = _bounded_operation(args, spec, config, producer)
+                print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+                return exit_code
             service = _service(args, spec)
             if args.command == "start":
                 state = service.start(spec.content_hash)

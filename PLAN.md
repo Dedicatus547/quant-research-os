@@ -13,7 +13,9 @@
 [两线审计与计划](docs/roadmap/quantos-two-track-runtime-plan-2026-10-17.md)收敛。
 A1 r10 证明专用入口的自动推进和反馈传递；任务已指定两候选依次选择，不能证明反馈改变或改善决策。
 正式发布迁移仍缺安装、入口/隔离接线及独立操作证据。优先交付固定候选的有界执行版，
-按实际阻断缩小 D0/D2；不自动授予 P14d-C 或新候选研究资格。当前仅完成只读审计与文档规划。
+按实际阻断缩小 D0/D2；不自动授予 P14d-C 或新候选研究资格。后续实施已形成 D0–D2 与 D3 离线候选，见[运行候选手册](docs/guides/agent-runtime-bounded-v1.md)。
+源码/环境/实际局部验证与剩余目标宿主接受见主工作区持久 `artifacts/agent-runtime-bounded-20261017/handoff.md`；
+本次研究模型/科学执行均为 0，无推送/部署。
 
 2026-10-12：FR-03 与 Discovery 后继实现已合入本地 main，见[合并审核](docs/reviews/two-worktrees-merge-20261012.md)。
 各轨道的资格、科学结果和运行限制集中在[当前状态](docs/status/README.md)；
