@@ -69,7 +69,15 @@ from quantos.contracts.sdk_producer import (
     parse_sdk_response,
 )
 from quantos.contracts.status import RunStatus
-from quantos.integrations.codex.event_normalizer import normalize_provider_events
+from quantos.integrations.codex.notification_projection import (
+    IDENTIFIER as METADATA_PROJECTION_IDENTIFIER,
+)
+from quantos.integrations.codex.notification_projection import (
+    normalize_provider_events,
+    observe_usage,
+    provider_events,
+    source_hash,
+)
 from quantos.integrations.codex.sdk_adapter import CodexSdkAdapter
 from quantos.security import validate_secret_free
 
@@ -492,6 +500,61 @@ def _normalizer_hash() -> str:
     )
 
 
+def _persist_sdk_process_exit(directory: Path, execution: HarnessExecutionResult) -> str | None:
+    """Persist actual wait observations before capture/semantic processing can fail."""
+    from quantos.application.hosted_protocol import scan_protocol_artifact
+    from quantos.integrations.codex.sdk_adapter import contains_parent_secret
+
+    observed = execution.attempts[-1].qualification_observations or {}
+    value = observed.get("host_process_exit")
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ArtifactIntegrityError("SDK process exit observation is invalid")
+    value = cast(dict[str, object], value)
+    if (
+        set(value) != {"schema_version", "spawned", "wait_observed", "return_code"}
+        or value.get("schema_version") != "sdk-host-process-exit/v1"
+        or type(value.get("spawned")) is not bool
+        or type(value.get("wait_observed")) is not bool
+        or (value.get("return_code") is not None and type(value["return_code"]) is not int)
+        or value["wait_observed"] != (value["return_code"] is not None)
+        or (value["wait_observed"] and not value["spawned"])
+    ):
+        raise ArtifactIntegrityError("SDK process exit observation is invalid")
+    payload = canonical_json_bytes(value)
+    scan_protocol_artifact(value)
+    if contains_parent_secret(payload):
+        raise ArtifactIntegrityError("SDK process exit contains forbidden parent value")
+    return atomic_write_bytes(directory / "sdk-process-exit.json", payload)
+
+
+def _persist_sdk_observation(directory: Path, execution: HarnessExecutionResult) -> str:
+    """A separate source-bound usage observation, never accepted evidence or billing."""
+    from quantos.application.hosted_protocol import scan_protocol_artifact
+    from quantos.integrations.codex.sdk_adapter import contains_parent_secret
+
+    events = provider_events(execution.provider_transcript)
+    observed = {
+        "schema_version": "sdk-provider-observation/v1",
+        "provider_transcript_hash": sha256_bytes(execution.provider_transcript or b""),
+        "provider_transcript_available": execution.provider_transcript is not None,
+        "usage_observation": observe_usage(events),
+        "normalization_pipeline_hash": source_hash(events),
+        "projection_identifier": METADATA_PROJECTION_IDENTIFIER,
+        "harness_terminal_error": execution.terminal_error.kind.value
+        if execution.terminal_error is not None
+        else None,
+        "normalized_usage_semantics": "CAPTURE_COUNTS_NOT_BILLING",
+        "billing": "PROVIDER_EVENT_OBSERVATION_NOT_INVOICE",
+    }
+    payload = canonical_json_bytes(observed)
+    scan_protocol_artifact(observed)
+    if contains_parent_secret(payload):
+        raise ArtifactIntegrityError("SDK observation contains forbidden parent value")
+    return atomic_write_bytes(directory / "sdk-observation.json", payload)
+
+
 def _manifest(
     reservation: SdkLaunchReservation,
     execution: HarnessExecutionResult,
@@ -553,7 +616,7 @@ def _manifest(
         runtime_binary_hash=runtime.runtime_binary_hash
         if isinstance(runtime, HarnessRuntimeIdentityV2)
         else None,
-        normalizer_hash=_normalizer_hash(),
+        normalizer_hash=source_hash(provider_events(execution.provider_transcript)),
         requested_policy_hash=reservation.execution_request.runtime_policy.content_hash,
         capability_observation_hash=observation.content_hash,
         instruction_hashes=spec.instruction_hashes,
@@ -986,9 +1049,13 @@ class SdkCampaignProducer:
             # Exceptions (including interrupts) leave the durable intent UNKNOWN.
             execution = (
                 harness
-                or CodexSdkAdapter(runtime_candidate_id=spec.sdk_profile.runtime_candidate_id)
+                or CodexSdkAdapter(
+                    runtime_candidate_id=spec.sdk_profile.runtime_candidate_id,
+                    metadata_projection=True,
+                )
             ).execute(reservation.execution_request)
             completed = datetime.now(UTC)
+            process_exit_hash = _persist_sdk_process_exit(directory, execution)
             # Independent completed capture is retained before proposal parsing.
             from quantos.application.hosted_protocol import scan_protocol_artifact
             from quantos.integrations.codex.sdk_adapter import contains_parent_secret
@@ -1051,6 +1118,7 @@ class SdkCampaignProducer:
                         raise ArtifactIntegrityError("SDK capture exceeds frozen source bound")
             for name, payload in retained:
                 atomic_write_bytes(directory / name, payload)
+            observation_hash = _persist_sdk_observation(directory, execution)
             host_transport_hash = _persist_host_transport(directory, execution)
             capture_fact_bytes = canonical_json_bytes(
                 {
@@ -1064,6 +1132,8 @@ class SdkCampaignProducer:
                     if execution.terminal_error
                     else None,
                     "observed_tool_calls": len(execution.capture.tool_calls),
+                    "sdk_observation_hash": observation_hash,
+                    **({"sdk_process_exit_hash": process_exit_hash} if process_exit_hash else {}),
                     **({"host_transport_hash": host_transport_hash} if host_transport_hash else {}),
                 }
             )

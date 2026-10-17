@@ -40,6 +40,9 @@ from quantos.integrations.codex.event_normalizer import (
     normalize_provider_events,
     normalize_provider_failure_events,
 )
+from quantos.integrations.codex.notification_projection import (
+    normalize_provider_events as normalize_projected_provider_events,
+)
 from quantos.integrations.codex.versioning import (
     CODEX_CANDIDATE_RUNTIME_PROFILES,
 )
@@ -129,6 +132,7 @@ class CodexSdkAdapter:
         authentication_home: Path | None = None,
         host_argv: tuple[str, ...] | None = None,
         runtime_candidate_id: str | None = None,
+        metadata_projection: bool = False,
     ) -> None:
         if (
             runtime_candidate_id is not None
@@ -138,6 +142,7 @@ class CodexSdkAdapter:
         self._authentication_home = authentication_home
         self._host_argv = host_argv or (sys.executable, "-m", _HOST_MODULE)
         self._runtime_candidate_id = runtime_candidate_id
+        self._metadata_projection = metadata_projection
 
     def execute(self, request: HarnessExecutionRequest) -> HarnessExecutionResult:
         attempts: list[HarnessAttemptResult] = []
@@ -181,6 +186,12 @@ class CodexSdkAdapter:
         phase = "HOST_SPAWN"
         complete = False
         host_failure: Mapping[str, object] | None = None
+        process_exit: dict[str, object] = {
+            "schema_version": "sdk-host-process-exit/v1",
+            "spawned": False,
+            "wait_observed": False,
+            "return_code": None,
+        }
 
         def failed(
             kind: HarnessErrorKind,
@@ -216,6 +227,7 @@ class CodexSdkAdapter:
                 result,
                 qualification_observations={
                     **(qualification_observations or {}),
+                    "host_process_exit": dict(process_exit),
                     "host_transport": _host_transport_capture(
                         stdout,
                         stderr,
@@ -245,6 +257,7 @@ class CodexSdkAdapter:
                     env=environment,
                     start_new_session=True,
                 )
+                process_exit["spawned"] = True
             except OSError as error:
                 return failed(HarnessErrorKind.TRANSPORT_START_FAILED, error, attempt=attempt_index)
             try:
@@ -253,10 +266,12 @@ class CodexSdkAdapter:
                     request.canonical_bytes(), timeout=timeout_seconds
                 )
                 complete = True
+                process_exit.update(wait_observed=True, return_code=process.returncode)
             except subprocess.TimeoutExpired as error:
                 stdout = error.output if isinstance(error.output, bytes) else None
                 stderr = error.stderr if isinstance(error.stderr, bytes) else None
                 self._terminate_process_group(process)
+                process_exit.update(wait_observed=True, return_code=process.returncode)
                 return failed(HarnessErrorKind.TIMEOUT, error, attempt=attempt_index)
 
         assert stdout is not None and stderr is not None
@@ -367,6 +382,7 @@ class CodexSdkAdapter:
                     terminal_error=provider_failure.terminal_error,
                     provider_transcript=provider_transcript,
                     qualification_observations={
+                        "host_process_exit": dict(process_exit),
                         "provider_failure": provider_failure.observation,
                         "host_transport": _host_transport_capture(
                             stdout,
@@ -377,9 +393,12 @@ class CodexSdkAdapter:
                         ),
                     },
                 )
-            events = normalize_provider_events(
-                provider_events, thread_id=thread_id, attempt=attempt_index
+            normalizer = (
+                normalize_projected_provider_events
+                if self._metadata_projection
+                else normalize_provider_events
             )
+            events = normalizer(provider_events, thread_id=thread_id, attempt=attempt_index)
             capture = capture_from_agent_events(
                 events,
                 max_bytes=request.max_normalized_transcript_bytes or request.max_transcript_bytes,
@@ -426,9 +445,10 @@ class CodexSdkAdapter:
                 ),
                 provider_transcript=provider_transcript,
                 qualification_observations={
+                    "host_process_exit": dict(process_exit),
                     "host_transport": _host_transport_capture(
                         stdout, stderr, phase=phase, exception_class=None, complete=complete
-                    )
+                    ),
                 },
             )
         return HarnessAttemptResult(
@@ -436,11 +456,14 @@ class CodexSdkAdapter:
             runtime=runtime,
             terminal_error=None,
             provider_transcript=provider_transcript,
-            qualification_observations=(
-                cast(Mapping[str, object], body["qualification_observations"])
-                if isinstance(body.get("qualification_observations"), dict)
-                else None
-            ),
+            qualification_observations={
+                **(
+                    cast(Mapping[str, object], body["qualification_observations"])
+                    if isinstance(body.get("qualification_observations"), dict)
+                    else {}
+                ),
+                "host_process_exit": dict(process_exit),
+            },
         )
 
     def _link_authentication(self, isolated_home: Path) -> None:

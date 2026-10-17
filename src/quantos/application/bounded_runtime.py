@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
 
 from quantos.artifacts.store import ArtifactIntegrityError, confined_regular_file
 from quantos.contracts.agent import AgentRunManifestV3
+from quantos.contracts.base import sha256_bytes
+from quantos.integrations.codex.notification_projection import observe_usage, provider_events
 
 TERMINAL = frozenset({"COMPLETED", "EXHAUSTED", "EXPIRED", "CANCELLED", "RECOVERY_REQUIRED"})
 
@@ -20,8 +23,42 @@ def runtime_summary(service: Any, producer: Any, spec: Any, reason: str) -> dict
     pending = service.pending(spec.campaign_hash)
     observed = {"input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0}
     missing_usage: list[str] = []
+    provider_observations: list[dict[str, Any]] = []
     for request in snapshot.requests:
         path = producer.root / spec.campaign_hash / request.content_hash / "agent-run-manifest.json"
+        observation: dict[str, Any] = {
+            "request_hash": request.content_hash,
+            "provider_usage": {"status": "UNAVAILABLE", "usage": None},
+            "process_exit": None,
+        }
+        source = path.parent / "sdk-observation.json"
+        if source.exists():
+            raw = confined_regular_file(path.parent, source.name).read_bytes()
+            retained = json.loads(raw)
+            fact = json.loads(confined_regular_file(path.parent, "capture-fact.json").read_bytes())
+            transcript = confined_regular_file(
+                path.parent, "provider-transcript.jsonl"
+            ).read_bytes()
+            expected_usage = observe_usage(provider_events(transcript))
+            if (
+                fact.get("sdk_observation_hash") != sha256_bytes(raw)
+                or retained.get("schema_version") != "sdk-provider-observation/v1"
+                or retained.get("provider_transcript_hash") != sha256_bytes(transcript)
+                or retained.get("usage_observation") != expected_usage
+            ):
+                raise ArtifactIntegrityError("SDK source usage observation differs from originals")
+            observation["provider_usage"] = expected_usage
+        exit_path = path.parent / "sdk-process-exit.json"
+        if exit_path.exists():
+            raw_exit = confined_regular_file(path.parent, exit_path.name).read_bytes()
+            # This exit may precede capture-fact when credential/size guards stop.
+            fact_path = path.parent / "capture-fact.json"
+            if fact_path.exists():
+                fact = json.loads(confined_regular_file(path.parent, fact_path.name).read_bytes())
+                if fact.get("sdk_process_exit_hash") != sha256_bytes(raw_exit):
+                    raise ArtifactIntegrityError("SDK process exit differs from capture fact")
+            observation["process_exit"] = json.loads(raw_exit)
+        provider_observations.append(observation)
         if not path.exists():
             missing_usage.append(request.content_hash)
             continue
@@ -31,7 +68,7 @@ def runtime_summary(service: Any, producer: Any, spec: Any, reason: str) -> dict
         for name in observed:
             observed[name] += getattr(manifest.aggregate_usage, name)
     return {
-        "schema_version": "agent-runtime-bounded-summary/v1",
+        "schema_version": "agent-runtime-bounded-summary/v2",
         "campaign_hash": spec.campaign_hash,
         "spec_hash": spec.content_hash,
         "engineering_state": state.state,
@@ -46,6 +83,8 @@ def runtime_summary(service: Any, producer: Any, spec: Any, reason: str) -> dict
             tuple((producer.root / spec.campaign_hash).glob("*/launch-intent.json"))
         ),
         "sdk_observed_usage": observed,
+        "sdk_usage_semantics": "NORMALIZED_MANIFEST_COUNTS_MAY_BE_UNAVAILABLE_ON_FAILURE",
+        "sdk_provider_observations": provider_observations,
         "requests_without_usage_manifest": missing_usage,
         "billing_limit": "REQUEST_OBSERVATION_ONLY_NOT_PROVIDER_BILLING_CAP",
         "pending_request_hash": pending.content_hash if pending else None,

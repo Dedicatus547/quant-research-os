@@ -199,6 +199,7 @@ def _bounded_operation(args, spec, config, producer):
                 canonical_json_bytes(value),
             )
 
+        service = None
         try:
             service = _service(args, spec)
             if args.command == "reconcile":
@@ -269,6 +270,13 @@ def _bounded_operation(args, spec, config, producer):
             )
             return result, exit_code
         except Exception as error:
+            failure_summary: dict[str, object] = {}
+            if service is not None:
+                try:
+                    failure_summary["summary"] = runtime_summary(service, producer, spec, "FAILED")
+                except Exception as summary_error:
+                    # Never mask the primary failure or retain unsafe error text.
+                    failure_summary["summary_error_class"] = type(summary_error).__name__
             atomic_write_bytes(
                 control / f"{record.stem}-exit.json",
                 canonical_json_bytes(
@@ -277,6 +285,7 @@ def _bounded_operation(args, spec, config, producer):
                         "error_class": type(error).__name__,
                         "ended_utc": datetime.now(UTC),
                         "next_action": "INSPECT_THEN_RECONCILE",
+                        **failure_summary,
                     }
                 ),
             )

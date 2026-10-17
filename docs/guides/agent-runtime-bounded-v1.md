@@ -1,5 +1,8 @@
 # 固定候选有界运行候选版
 
+2026-10-17 后继状态：原固定候选的真实运行未通过；当前开发修复仅完成代码与静态检查，
+行为验证和新真实运行均未授权，仍未接受。详见本页末节及持久交接记录。
+
 本版是 `agent-runtime-bounded-v1-rc`。支持本机 `WIN-ZJWCOMPUTER` 的 WSL Linux、
 本地保留的 `0.162.1` SDK/runtime overlay 和科学依赖、既有 `p14dq-frozen/v1` 两候选任务。
 SDK 仅提出冻结候选引用和停止建议；确定性 admission、预算、PIT、Qlib、Validation 和 Ledger
@@ -84,3 +87,39 @@ UNKNOWN、FAILED、无进展、步数上限、TTL/取消、预算/空间/超时�
 历史 r10 原件、FR-03/CI 采用保留其 originating tuple；当前 shared execution/Workflow 与 r10 有依赖差异，
 不能将旧科学结果改标为本候选 PASS。新真实组合尚缺；只提出同一次 2 SDK/2 science/36 units 接受机会，
 一名独立操作者从正式入口完成反馈后续和交付；失败原样留证，不补满次数。
+
+## 2026-10-17 离线修复后继（尚未行为验证或接受）
+
+`0b15d229a4e3d5812d936fc23558bf1962b69286` 的唯一目标宿主运行已失败停止：
+provider 完成第一次回答，但冻结 v2 normalizer 拒绝 `turn/moderationMetadata`。
+科学及 Validation 未开始；原件和独立操作者结论保留在
+`artifacts/agent-runtime-bounded-20261017/operator-acceptance-01/`，不能补写成功或重试。
+本节描述开发侧修复，不改变固定运行 worktree 或原失败的结论。
+
+后继增加 `codex-moderation-metadata-projection/v1`，仅由 bounded producer 显式启用。
+普通 SDK adapter 默认继续使用原 v2。冻结 `event_normalizer.py`、历史 replay 和合同不改。
+投影只接受指定 metadata method 的精确 envelope，要求通知属于当时活动的线程/轮次、
+metadata 为对象；明确的 blocking 标记或无效标记拒绝。metadata 在原 provider transcript
+完整保留，不作为候选科学证据；其他未知 method/item 仍由 v2 拒绝。
+出现该通知时 manifest 的 normalizer_hash 绑定投影 identifier、投影源码 hash 和冻结
+normalizer 源码 hash 的 canonical 对象；没有该通知时继续绑定原 v2 源码 hash。
+manifest 的 v2 identifier 描述冻结转换器，额外投影及组合 hash 由独立观察原件明确标识。
+提交与输入仍须显式冻结，旧 tuple 的成功不得据此重标成新候选通过。
+
+SDK 返回后先保存 `sdk-process-exit.json`（`sdk-host-process-exit/v1`）：实际 spawn、
+wait 和 return code。它独立于 provider turn 终态和 controller exit，并先于语义/原件守卫处理。
+未观测进程退出仍为 null；旧运行不补造该文件。保持原 namespace cleanup 与秘密守卫。
+完成 capture 留存后另保存 `sdk-observation.json`（`sdk-provider-observation/v1`），
+将单轮、同线程可归属的最后一份 provider usage snapshot 与标准化 manifest 计数分开。
+重复累积通知不相加；缺失或身份/类型无效分别是 UNAVAILABLE 或 INVALID_OR_UNATTRIBUTABLE，
+不能解释为零消耗，也不是账单凭证。capture-fact 绑定两个观察文件的 hash。
+
+`agent-runtime-bounded-summary/v2` 增加每个请求的 provider 用量及进程退出来源；
+读取时交叉核对 provider 原件、观察文件与 capture-fact。旧 manifest 计数字段保留，明确
+失败时可能不可用。异常出口尽力保存只读最终摘要；摘要本身失败只记录安全错误类，
+保持主要异常及真实 exit2，不把 WAITING_FOR_AGENT 改成正常完成。
+
+这次仅授权离线开发；未新增/运行行为测试、模型、科学、外发或完整矩阵。
+静态检查不等于这些行为已通过。后续先取得明确的定向离线验证授权，复用失败 provider
+原件及受影响用例；新的真实运行、输入/环境绑定和额度须另有明确授权，不能直接复用
+旧 launcher、失败 campaign 或其账面余额。
