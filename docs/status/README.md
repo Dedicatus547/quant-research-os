@@ -1,6 +1,11 @@
 # 当前状态
 
-状态基准：2026-10-15。各轨道状态按其独立记录和精确适用范围读取。
+状态基准：2026-10-17。各轨道状态按其独立记录和精确适用范围读取。
+固定候选有界运行版 `29fef56` 已完成本机正常路径工程接受：两轮 SDK、两次科学/Validation、
+36 政策 units，反馈、receipt、真实退出与 cleanup 对应。两候选均 `REJECT`；本次额度已耗尽。
+范围、原件及完整提交见[完成核对](../releases/agent-runtime-bounded-v1-2026-10-17.md)；
+完整自动研究和 P14d-C 未取得，运行环境仍限定本机保留依赖。
+
 新增 [A1/B2 授权后运行状态](a1-b2-authorized-preparation.md)：V4后继r10两步工程闭环完成，控制器/守卫exit0；本轮两科学SOFT_REJECT，科学汇总FAILED/NOT_EVALUATED。累计SDK11/11、科学5次/90units，零重试；原r9失败保留，B2已完成，无追加预算。
 B2已完成并复用，新增模型和科学执行0；LLM相对最佳基线无正增量。
 
@@ -17,7 +22,7 @@ Validation/P14c 或任何资格判断。见[M最终核对与收尾](../../artifa
 实际集成提交、CI 结论、main 合并身份与远端发布状态见
 [集成交接](../../artifacts/evolution-next-20261015/coord/final.md)。
 发布 CI 的[执行上下文与隔离核对](../../ci/apparmor/runtime-guard.md)限固定的可销毁 runner；
-最新检查和主线合并状态见[PR #3](https://github.com/Dedicatus547/quant-research-os/pull/3)。
+该基线的检查和主线合并状态见[PR #3](https://github.com/Dedicatus547/quant-research-os/pull/3)，不代表后继提交的 CI。
 
 ## 工程与研究结果
 
@@ -31,6 +36,7 @@ Validation/P14c 或任何资格判断。见[M最终核对与收尾](../../artifa
 | P14 RC v1 | `FROZEN`，tag `p14-rc-v1` → `3a4a898` | 精确文档审阅及继承资格见 [freeze marker](../releases/p14-rc-v1-freeze-marker.md) |
 | HM-MVP hosted component-v2 | MVP 已完成并 `FROZEN`；`ACCEPT_COMPONENT_V2`，tag `hm-mvp-component-v2` | 两项科学执行均 `SOFT_REJECT`；组件采用范围见 [发布记录](../releases/hm-mvp-component-v2-freeze-marker.md)及 [hosted 状态](hosted.md) |
 | FR-03 SDK/runtime | `0.162.1 + gpt-6.1-sol / medium` 确切组合 GO | 实现已合入本地 main、尚未部署；[接受范围与限制](fr03.md) |
+| 固定候选有界运行首版 | `29fef56` 本机正常路径工程接受；正式资格仍 `NOT_QUALIFIED` | 两份 Validation `SUCCEEDED / REJECT`；campaign 科学汇总 `FAILED / NOT_EVALUATED / SOURCE_INCOMPLETE`；[固定身份与边界](../releases/agent-runtime-bounded-v1-2026-10-17.md) |
 | Discovery 后继研究 | 实现及源码集成完成；定向检查不授新的全流程资格 | 第二轮 9 项可比预测、3 项缺源；按冻结规则暂停扩大当前空间同类生成；[研究状态](discovery.md) |
 
 完整 P14 哈希与权威矩阵见 [P14 状态](p14.md)及[RC 修正记录](../releases/p14-rc-v1-equality-correction.md)。

@@ -1,19 +1,21 @@
-# 固定候选有界运行候选版
+# 固定候选有界运行版
 
-2026-10-17 后继状态：原固定候选的真实运行未通过；当前开发修复已完成定向离线验证，
-新真实运行未授权，固定运行线仍未接受。详见本页末节及持久交接记录。
+2026-10-17 当前状态：`29fef56f303fa25ed19a82a7cc1286426d666df5` 的本机固定组合已完成
+两轮真实运行及接管核对，正常执行路径可作首版工程采用；见[完成核对与原件](../releases/agent-runtime-bounded-v1-2026-10-17.md)。
+原 `0b15d22` 失败、后继离线修复和准备包保留各自时点；本次启动、SDK、科学预算均已耗尽。
 
-本版是 `agent-runtime-bounded-v1-rc`。支持本机 `WIN-ZJWCOMPUTER` 的 WSL Linux、
+首版运行身份以以上完整 commit 固定。支持本机 `WIN-ZJWCOMPUTER` 的 WSL Linux、
 本地保留的 `0.162.1` SDK/runtime overlay 和科学依赖、既有 `p14dq-frozen/v1` 两候选任务。
 SDK 仅提出冻结候选引用和停止建议；确定性 admission、预算、PIT、Qlib、Validation 和 Ledger
-继续使用原实现。资格为 `NOT_QUALIFIED`，尚待目标宿主一次真实组合与独立操作者接受。
+继续使用原实现。正式资格仍为 `NOT_QUALIFIED`；本机正常路径接受不扩展科学或 P14d-C 资格。
 不证明反馈改善决策、新候选生成、完整自动研究或 P14d-C。
 
 ## 准备和支持条件
 
 固定模板及原件字节 pins 在 [operator template](../../configs/runtime/agent-runtime-bounded-v1.json)。
 这是受支持形状和参考输入，不是历史额度或新运行授权。历史 A1 SDK 11/11、科学 5/90 units 已耗尽。
-本次实施授权的研究模型调用和科学执行均为 **0**。
+最初离线实施阶段的模型/科学增量均为 **0**；后继真实运行的独立授权和实际用量见完成核对。
+下一任务必须准备新的身份、输出根和具体预算，不能再次执行已完成的新旧 launcher。
 
 `scripts/prepare_bounded_runtime.py` 用完整 release commit、固定模板字节、源输入根、
 独立输出目录、task ID 和显式时间生成 canonical spec/config/bundle。只允许 reviewed 两候选、
@@ -85,8 +87,9 @@ UNKNOWN、FAILED、无进展、步数上限、TTL/取消、预算/空间/超时�
 假 harness / 假 receipt 仅证明建模窗口与接线，不能替代目标宿主的 namespace、provider、Qlib 完成到 receipt、
 权限/挂载/cleanup 和独立操作者接受。
 历史 r10 原件、FR-03/CI 采用保留其 originating tuple；当前 shared execution/Workflow 与 r10 有依赖差异，
-不能将旧科学结果改标为本候选 PASS。新真实组合尚缺；只提出同一次 2 SDK/2 science/36 units 接受机会，
-一名独立操作者从正式入口完成反馈后续和交付；失败原样留证，不补满次数。
+不能将旧科学结果改标为本候选 PASS。最初提出的同一次 2 SDK/2 science/36 units 接受机会
+在 `0b15d22` 上失败；修复后另获具体新授权的 `29fef56` 正常路径已完成，详见完成核对。
+采用该真实原件，保留各自失败及额度；不为验收或演示补跑一次。
 
 ## 2026-10-17 离线修复后继（定向离线验证完成，尚未真实接受）
 

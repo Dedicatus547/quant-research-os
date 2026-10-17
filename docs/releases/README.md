@@ -1,5 +1,13 @@
 # 发布与冻结记录
 
+## 固定候选有界运行首版
+
+2026-10-17：[完成核对与固定身份](agent-runtime-bounded-v1-2026-10-17.md)绑定运行源码
+`29fef56f303fa25ed19a82a7cc1286426d666df5`、本机保留环境和两候选真实执行原件。
+最小有界正常路径已完成工程接受；两份 Validation 均 `REJECT`，正式资格仍 `NOT_QUALIFIED`。
+本次登记和源码集成不部署新 runtime，不移动既有 tag，不授予 P14d-C 或完整自动研究资格。
+操作见[运行手册](../guides/agent-runtime-bounded-v1.md)，历史失败及耗尽额度保留。
+
 ## 当前 HM-MVP component-v2 正式冻结
 
 HM09 已 `ACCEPT_COMPONENT_V2`；HM10/HM11 完成，正式状态为 `FROZEN`。
