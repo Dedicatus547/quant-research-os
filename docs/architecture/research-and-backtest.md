@@ -14,8 +14,10 @@ Safe expression 发布 SignalArtifact，事件桥接发布 EventSignalArtifact�
 AST 经严格 schema 与 admitted compiler 翻译为锁定的官方 Qlib expressions。
 任意 Python、自由 Qlib 字符串和未 admission 的算子不进入执行。
 
-当前 field mapping 仅支持 `adjusted_close → $close`；`rank` 映射为窗口算子 `Rank(x,N)`。
-字段名通过 schema 形状检查，仍需在实际
+legacy execution profile 仅支持 `adjusted_close → $close`；显式的
+`frozen-field-study/v1` profile 另外支持 `adjusted_volume → $volume`。
+该字段扩展不改变上表的 Safe DSL 运算集合，也不扩展 adaptive grammar。
+`rank` 映射为窗口算子 `Rank(x,N)`。字段名通过 schema 形状检查，仍需在实际
 [translator](../../src/quantos/research/qlib/expression.py)中支持。
 
 v2 的 `delta(x,N)` 需要输入窗口再增加 `N` 个观测；

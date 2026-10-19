@@ -784,8 +784,11 @@ class QuantosResearchExecutionAdapter:
         """
         if not self.discovery_stage_recovery or not self.retain_completed_outcome:
             raise ValueError("completed-outcome reconciliation requires explicit recovery")
-        with research_result_verification_scope(), exclusive_directory_lock(
-            self.output_root / "execution-locks" / request.execution_identity
+        with (
+            research_result_verification_scope(),
+            exclusive_directory_lock(
+                self.output_root / "execution-locks" / request.execution_identity
+            ),
         ):
             self._verify_request(request)
             prior = self._read_receipt(request.execution_identity)
