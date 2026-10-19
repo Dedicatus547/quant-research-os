@@ -25,6 +25,37 @@ class QlibResearchError(RuntimeError):
         self.reason_code = reason_code
 
 
+class SignalPitMemberUnmappedError(QlibResearchError):
+    def __init__(self) -> None:
+        super().__init__(
+            ReasonCode.SOURCE_INCOMPLETE, "PIT member is absent from the Qlib view mapping"
+        )
+
+
+class SignalFiniteWithoutTradabilityError(QlibResearchError):
+    def __init__(self, instrument_id: str) -> None:
+        super().__init__(
+            ReasonCode.SOURCE_INCOMPLETE,
+            f"finite signal lacks tradability evidence for {instrument_id}",
+        )
+
+
+class WorkflowRecorderInterfaceError(QlibResearchError):
+    def __init__(self) -> None:
+        super().__init__(
+            ReasonCode.QLIB_EXECUTION_FAILED,
+            "Qlib recorder does not expose native SignalRecord outputs",
+        )
+
+
+class WorkflowRequiredMetricNonFiniteError(QlibResearchError):
+    def __init__(self) -> None:
+        super().__init__(
+            ReasonCode.QLIB_EXECUTION_FAILED,
+            "Qlib SigAnaRecord produced a non-finite required metric",
+        )
+
+
 def resolve_historical_universe(
     view_path: Path,
     *,

@@ -111,6 +111,12 @@ from quantos.research.qlib import (
 from quantos.research.qlib.model_split import verify_model_data_split
 from quantos.research.qlib.pit_evidence import load_pit_artifact_evidence
 from quantos.research.qlib.result import research_result_verification_scope
+from quantos.research.qlib.universe import (
+    SignalFiniteWithoutTradabilityError,
+    SignalPitMemberUnmappedError,
+    WorkflowRecorderInterfaceError,
+    WorkflowRequiredMetricNonFiniteError,
+)
 from quantos.validation import (
     CostStressLocator,
     ParameterStabilityLocator,
@@ -176,15 +182,18 @@ def _discovery_failure_diagnostic(stage: str, error: BaseException) -> dict[str,
     detail = "UNCLASSIFIED"
     if isinstance(error, QlibResearchError):
         reason = next((item.value for item in ReasonCode if error.reason_code is item), None)
+        # Exact internal types select labels, never messages, arbitrary attributes,
+        # subclasses supplied by third parties, or exceptions in a cause chain.
         if stage.endswith("-signal") and error.reason_code is ReasonCode.SOURCE_INCOMPLETE:
-            # Only these source-owned message shapes select fixed labels. Never copy
-            # their instrument suffix, arbitrary exception text, or chained errors.
-            message = error.args[0] if len(error.args) == 1 else None
-            if isinstance(message, str):
-                if message == "PIT member is absent from the Qlib view mapping":
-                    detail = "SIGNAL_PIT_MEMBER_UNMAPPED"
-                elif message.startswith("finite signal lacks tradability evidence for "):
-                    detail = "SIGNAL_FINITE_WITHOUT_TRADABILITY"
+            if type(error) is SignalPitMemberUnmappedError:
+                detail = "SIGNAL_PIT_MEMBER_UNMAPPED"
+            elif type(error) is SignalFiniteWithoutTradabilityError:
+                detail = "SIGNAL_FINITE_WITHOUT_TRADABILITY"
+        elif stage == "workflow" and error.reason_code is ReasonCode.QLIB_EXECUTION_FAILED:
+            if type(error) is WorkflowRecorderInterfaceError:
+                detail = "WORKFLOW_RECORDER_INTERFACE_MISSING"
+            elif type(error) is WorkflowRequiredMetricNonFiniteError:
+                detail = "WORKFLOW_REQUIRED_METRIC_NON_FINITE"
     return {"failure_reason_code": reason, "failure_detail_code": detail}
 
 

@@ -17,6 +17,12 @@ from quantos.contracts.autonomous import AutonomousExecutionRequest
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.status import ReasonCode
 from quantos.research.qlib import QlibResearchError
+from quantos.research.qlib.universe import (
+    SignalFiniteWithoutTradabilityError,
+    SignalPitMemberUnmappedError,
+    WorkflowRecorderInterfaceError,
+    WorkflowRequiredMetricNonFiniteError,
+)
 
 _MAPPING_MESSAGE = "PIT member is absent from the Qlib view mapping"
 _PRIVATE_TEXT = "synthetic-private-instrument-and-exception-context"
@@ -55,28 +61,73 @@ def _completion_paths(root: Path) -> list[Path]:
     [
         pytest.param(
             "baseline-signal",
-            QlibResearchError(ReasonCode.SOURCE_INCOMPLETE, _MAPPING_MESSAGE),
+            SignalPitMemberUnmappedError(),
             "SOURCE_INCOMPLETE",
             "SIGNAL_PIT_MEMBER_UNMAPPED",
             id="unmapped-member",
         ),
         pytest.param(
             "baseline-signal",
-            QlibResearchError(ReasonCode.SOURCE_INCOMPLETE, _TRADABILITY_MESSAGE),
+            SignalFiniteWithoutTradabilityError(_PRIVATE_TEXT),
             "SOURCE_INCOMPLETE",
             "SIGNAL_FINITE_WITHOUT_TRADABILITY",
             id="missing-tradability",
         ),
         pytest.param(
             "cost-2-signal",
-            QlibResearchError(ReasonCode.SOURCE_INCOMPLETE, _TRADABILITY_MESSAGE),
+            SignalFiniteWithoutTradabilityError(_PRIVATE_TEXT),
             "SOURCE_INCOMPLETE",
             "SIGNAL_FINITE_WITHOUT_TRADABILITY",
             id="variant-signal",
         ),
         pytest.param(
-            "baseline-pit",
+            "workflow",
+            WorkflowRecorderInterfaceError(),
+            "QLIB_EXECUTION_FAILED",
+            "WORKFLOW_RECORDER_INTERFACE_MISSING",
+            id="workflow-recorder-interface",
+        ),
+        pytest.param(
+            "workflow",
+            WorkflowRequiredMetricNonFiniteError(),
+            "QLIB_EXECUTION_FAILED",
+            "WORKFLOW_REQUIRED_METRIC_NON_FINITE",
+            id="workflow-nonfinite-metric",
+        ),
+        pytest.param(
+            "workflow",
+            QlibResearchError(
+                ReasonCode.QLIB_EXECUTION_FAILED,
+                "Qlib SigAnaRecord produced a non-finite required metric",
+            ),
+            "QLIB_EXECUTION_FAILED",
+            "UNCLASSIFIED",
+            id="spoofed-workflow-message",
+        ),
+        pytest.param(
+            "baseline-signal",
             QlibResearchError(ReasonCode.SOURCE_INCOMPLETE, _MAPPING_MESSAGE),
+            "SOURCE_INCOMPLETE",
+            "UNCLASSIFIED",
+            id="spoofed-mapping-message",
+        ),
+        pytest.param(
+            "baseline-signal",
+            QlibResearchError(ReasonCode.SOURCE_INCOMPLETE, _TRADABILITY_MESSAGE),
+            "SOURCE_INCOMPLETE",
+            "UNCLASSIFIED",
+            id="spoofed-tradability-message",
+        ),
+        pytest.param(
+            "baseline-signal",
+            WorkflowRequiredMetricNonFiniteError(),
+            "QLIB_EXECUTION_FAILED",
+            "UNCLASSIFIED",
+            id="workflow-error-in-signal-stage",
+        ),
+        pytest.param(
+            "baseline-pit",
+            SignalPitMemberUnmappedError(),
             "SOURCE_INCOMPLETE",
             "UNCLASSIFIED",
             id="different-stage",
@@ -176,7 +227,7 @@ def test_failed_stage_records_only_bounded_diagnostics_and_reraises(
 def test_callback_failure_is_recorded_without_publishing_checkpoint(
     tmp_path, stage_runner, failure_site
 ):
-    error = QlibResearchError(ReasonCode.SOURCE_INCOMPLETE, _TRADABILITY_MESSAGE)
+    error = SignalFiniteWithoutTradabilityError(_PRIVATE_TEXT)
 
     def fail(*args):
         raise error
@@ -204,7 +255,7 @@ def test_retry_preserves_failure_and_success_remains_reusable_v1(
     tmp_path, stage_runner, legacy_failure, adopt
 ):
     def fail():
-        raise QlibResearchError(ReasonCode.SOURCE_INCOMPLETE, _TRADABILITY_MESSAGE)
+        raise SignalFiniteWithoutTradabilityError(_PRIVATE_TEXT)
 
     with pytest.raises(QlibResearchError):
         stage_runner(fail)
@@ -251,3 +302,27 @@ def test_retry_preserves_failure_and_success_remains_reusable_v1(
     assert stage_runner(_never_called, verify=verify, recover=_never_called) == "verified-original"
     assert verified == [_OUTPUTS]
     assert {path: path.read_bytes() for path in tmp_path.rglob("*.json")} == prior
+
+
+def test_external_attributes_subclasses_and_causes_cannot_select_detail(tmp_path, stage_runner):
+    class ExternalSubclass(WorkflowRequiredMetricNonFiniteError):
+        pass
+
+    for error in (
+        ExternalSubclass(),
+        QlibResearchError(ReasonCode.QLIB_EXECUTION_FAILED, _PRIVATE_TEXT),
+    ):
+        error.failure_detail_code = "WORKFLOW_REQUIRED_METRIC_NON_FINITE"
+        error.__cause__ = WorkflowRequiredMetricNonFiniteError()
+
+        def fail(error=error):
+            raise error
+
+        with pytest.raises(QlibResearchError) as raised:
+            stage_runner(fail, stage="workflow")
+        assert raised.value is error
+    assert all(
+        json.loads(path.read_bytes())["failure_detail_code"] == "UNCLASSIFIED"
+        for path in _completion_paths(tmp_path)
+    )
+    assert not list(tmp_path.rglob("sha256-*.json"))
