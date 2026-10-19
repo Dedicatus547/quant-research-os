@@ -1,5 +1,9 @@
 # 当前状态
 
+2026-10-19 交付收敛已启动：基线 `09edac2` 的 [CI 39060721924](https://github.com/Dedicatus547/quant-research-os/actions/runs/39060721924)
+最终在 Ruff 格式步骤失败，lint、类型与测试未执行；旧交接中的 `in_progress` 保留原时点。
+后继进展见[交付操作说明](../guides/delivery-consolidation.md)，不授予新科学或运行资格。
+
 状态基准：2026-10-18。各轨道状态按其独立记录和精确适用范围读取。
 
 首次 STOP 后的事实投影与只读收尾采用源码 `b0725b7`；N0–N3 完成，获授权 N4 首次 STOP：

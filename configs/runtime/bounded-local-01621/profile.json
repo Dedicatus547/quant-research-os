@@ -1,0 +1,52 @@
+{
+  "growth_bytes": 6442450944,
+  "growth_components_bytes": {
+    "failure_evidence_and_safe_finish": 1610612736,
+    "fixed_distributions": 536870912,
+    "independent_installation": 2147483648,
+    "uv_extraction_and_build_cache": 2147483648
+  },
+  "host": {
+    "base_python_sha256": "572cfa2a8597e2f431c785613539b1d219fa99eecf5ffb5765731a2ebc3e692a",
+    "base_shared_libraries": {
+      "lib/libpython3.11.so.1.0": "1446e0c2571bfcd332023c63f7cf5cb383b2443ac63c26aecd3bbb88a01c1a36",
+      "lib/libpython3.so": "6e28096c87ae827bd7c9b2fe07a1fd24d9074ce10410c71f59d11f2bedd4f95f"
+    },
+    "external_prerequisites": [
+      "explicit hash-matched CPython base prefix and full Python library tree, including base bootstrap pip/setuptools site-packages; the new venv does not import these base packages",
+      "glibc >=2.35, libstdc++, libgomp and host system shared libraries",
+      "hash-matched uv installer; no dependency on uv cache at runtime"
+    ],
+    "implementation": "CPython",
+    "library_inventory_scope": "host-stdlib-inventory.json covers the complete base lib/python3.11 tree, including base bootstrap site-packages, not only standard-library files",
+    "machine": "x86_64",
+    "minimum_glibc": "2.35",
+    "python_version": "3.11.15",
+    "stdlib_inventory_sha256": "3f4fd70bfb2ba2baa88573636ec4525e600fdb37aa86e331040cc75886dcd3ea",
+    "system": "Linux",
+    "uv_sha256": "207e26a0b9257856b86305fff3bfbdb65183b07587e8b1fc60632fa8d61ee65e",
+    "uv_version": "0.11.25"
+  },
+  "lock_sha256": "d67be2cc16024e5ba42346d479438fc5a1ed103e23dd873229d0b1a88b69ef56",
+  "profile_id": "bounded-local-01621/v1",
+  "qlib_tools": {
+    "commit": "da920b7f954f48ab1bb64117c976710de198373e",
+    "files": {
+      "scripts/check_data_health.py": "cab8d6fc845ee277cad86d974e3e854f33423396a14b1fea24e310d0cbbeea8c",
+      "scripts/dump_bin.py": "b8f34c57ce1ef4b1772f3909735e66058f21b25bd7ab8a5f16318822401fe53f"
+    },
+    "repository": "https://github.com/microsoft/qlib.git",
+    "version": "0.9.7"
+  },
+  "qualification": "NOT_QUALIFIED",
+  "requirements_sha256": "7032bd2556a05665b77c6f765b810092aea8fb90ac0824421fe617bbfe6b6c1e",
+  "resolution_sha256": "7e0474cd27ae9430c68ca5c9ec26fc1d06c042b141cbb6562a7705856740d1db",
+  "schema_version": "bounded-environment-profile/v1",
+  "scientific_limitations": [
+    "scs==3.3.0 retained from existing scientific lock is yanked; upstream reports first-solve crash for manylinux x86_64 and Windows wheels. This profile has no new scientific execution or qualification proof."
+  ],
+  "sdk_binary": {
+    "path": "lib/python3.11/site-packages/codex_cli_bin/bin/codex",
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1"
+  }
+}

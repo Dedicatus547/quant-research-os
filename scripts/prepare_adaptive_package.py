@@ -37,8 +37,28 @@ from quantos.contracts.snapshot import DataSnapshotManifest  # noqa: E402
 from quantos.infrastructure.hosted_storage import StorageGuard, StoragePolicy  # noqa: E402
 
 
-def prepare(recipe_path: Path, output: Path, expected_commit: str):
+def prepare(
+    recipe_path: Path,
+    output: Path,
+    expected_commit: str,
+    *,
+    runtime_environment: Path | None = None,
+    runtime_profile: Path | None = None,
+):
     recipe = json.loads(read(recipe_path))
+    environment = None
+    if (runtime_environment is None) != (runtime_profile is None):
+        raise ValueError("explicit environment and profile must be supplied together")
+    if runtime_environment is not None and runtime_profile is not None:
+        from quantos.infrastructure.runtime_environment import bind_environment
+
+        environment = bind_environment(runtime_environment, runtime_profile, ROOT)
+        if (
+            recipe["sdk"]["runtime_binary_hash"]
+            != json.loads(read(runtime_profile))["sdk_binary"]["sha256"]
+        ):
+            raise ValueError("recipe SDK binary differs from environment profile")
+        recipe["python"] = environment["python"]
     code = capture_code_provenance(ROOT)
     if code.commit_hash != expected_commit:
         raise ValueError("package source commit differs")
@@ -157,23 +177,32 @@ def prepare(recipe_path: Path, output: Path, expected_commit: str):
             concurrent_reservations = "ACTIVE_OR_UNKNOWN"
     finally:
         os.close(lease_fd)
-    old_env = json.loads(read(Path(recipe["environment_original"])))
-    distribution_versions = {name: version(name) for name in old_env["selected_distributions"]}
-    # Reuse validated installation identity; rehash metadata/RECORD/binary originals only.
-    for distribution in old_env["selected_distributions"].values():
-        for pin in distribution["metadata"]:
-            if sha256_file(Path(pin["path"])) != pin["sha256"]:
-                raise ValueError("retained environment original differs")
-            pins.append(pin)
-    for path in (
+    if environment is None:
+        old_env = json.loads(read(Path(recipe["environment_original"])))
+        distribution_versions = {name: version(name) for name in old_env["selected_distributions"]}
+        # Keep the historical retained-environment path unchanged unless explicitly selected.
+        for distribution in old_env["selected_distributions"].values():
+            for pin in distribution["metadata"]:
+                if sha256_file(Path(pin["path"])) != pin["sha256"]:
+                    raise ValueError("retained environment original differs")
+                pins.append(pin)
+        environment_pins = [Path(recipe["environment_original"])]
+    else:
+        distribution_versions = environment["distribution_versions"]
+        environment_pins = [
+            runtime_profile,
+            runtime_environment / "result.json",
+            runtime_environment / "inventory.json",
+        ]
+    for path in [
         Path(recipe["python"]).resolve(),
         ROOT / "uv.lock",
         policy_path,
         Path(recipe["snapshot_path"]) / "manifest.json",
         Path(recipe["qlib_view_path"]) / "manifest.json",
         recipe_path,
-        Path(recipe["environment_original"]),
-    ):
+        *environment_pins,
+    ]:
         path = Path(path)
         pins.append({"path": str(path), "sha256": sha256_file(path)})
     output.mkdir(parents=True, exist_ok=False)
@@ -190,7 +219,8 @@ def prepare(recipe_path: Path, output: Path, expected_commit: str):
     AdaptiveStore(spec).initialize()
     Path(spec.sdk_cwd).mkdir(parents=True, exist_ok=True)
     pythonpath = ":".join(
-        [str(ROOT / "src"), str(ROOT), recipe["sdk_overlay"], recipe["site_packages"]]
+        [str(ROOT / "src"), str(ROOT)]
+        + ([recipe["sdk_overlay"], recipe["site_packages"]] if environment is None else [])
     )
     launcher = (
         "#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\nsys.path[:0]="
@@ -335,6 +365,8 @@ def prepare(recipe_path: Path, output: Path, expected_commit: str):
         "status": "OFFLINE_PACKAGE_NOT_AUTHORIZED",
         "qualification": "NOT_QUALIFIED",
     }
+    if environment is not None:
+        manifest["runtime_environment"] = environment
     save(output / "release-manifest.json", manifest)
     save(
         output / "preparation.json",
@@ -442,8 +474,16 @@ def main():
     parser.add_argument("--recipe", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--runtime-environment", type=Path)
+    parser.add_argument("--runtime-profile", type=Path)
     args = parser.parse_args()
-    manifest, _ = prepare(args.recipe, args.output, args.expected_commit)
+    manifest, _ = prepare(
+        args.recipe,
+        args.output,
+        args.expected_commit,
+        runtime_environment=args.runtime_environment,
+        runtime_profile=args.runtime_profile,
+    )
     print(
         json.dumps(
             {

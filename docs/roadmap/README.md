@@ -5,6 +5,10 @@
 
 ## 当前开发入口
 
+- [交付收敛与后续研究实施计划（2026-10-19）](quantos-delivery-consolidation-execution-plan-2026-10-19.md)：
+  将项目审核落实为 R0–R4 的格式修复、独立环境准备、安全失败诊断、定向验证与源码发布；
+  一个主会话按模型能力自动分工，附[完整启动指令](quantos-delivery-consolidation-start-2026-10-19.txt)。
+  执行范围与入口见[操作说明](../guides/delivery-consolidation.md)；R5 研究和 R6 优化保留条件，不自动启动科学或模型调用。
 - [首次 STOP 后的真实研究闭环与自动收尾计划（2026-10-18）](quantos-adaptive-research-closure-plan-2026-10-18.md)：
   N0–N3 已完成，获授权 N4 首次 STOP；原文保留规划条件。当前实现、采用证据与未证明范围
   见[集成记录](../releases/adaptive-closure-integration-2026-10-18.md)，已终态提示词不再启动。
