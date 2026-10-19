@@ -35,6 +35,15 @@ from quantos.contracts.snapshot import DataSnapshotManifest  # noqa: E402
 
 def prepare(args):
     """No acquisition, model/science execution, input copying or historical allowance reuse."""
+    environment = None
+    environment_root = getattr(args, "runtime_environment", None)
+    environment_profile = getattr(args, "runtime_profile", None)
+    if (environment_root is None) != (environment_profile is None):
+        raise ValueError("explicit environment and profile must be supplied together")
+    if environment_root is not None:
+        from quantos.infrastructure.runtime_environment import bind_environment
+
+        environment = bind_environment(environment_root, environment_profile, ROOT)
     template_bytes = args.template.read_bytes()
     spec_bytes = args.template_spec.read_bytes()
     if (
@@ -214,6 +223,8 @@ def prepare(args):
         "sdk_profile_hash": profile.content_hash,
         "qualification": "NOT_QUALIFIED",
     }
+    if environment is not None:
+        deployment["runtime_environment"] = environment
     value = derive_hosted_campaign_spec(
         bundle,
         deployment_profile_hash=sha256_bytes(canonical_json_bytes(deployment)),
@@ -269,6 +280,8 @@ def main():
         "started-at",
     ):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--runtime-environment", type=Path)
+    parser.add_argument("--runtime-profile", type=Path)
     args = parser.parse_args()
     output_existed = args.output.exists()
     try:

@@ -9,6 +9,12 @@
 
 ## 当前落点
 
+2026-10-19：新增[交付收敛与后续研究实施计划](docs/roadmap/quantos-delivery-consolidation-execution-plan-2026-10-19.md)
+及[Codex 启动指令](docs/roadmap/quantos-delivery-consolidation-start-2026-10-19.txt)。下一实施范围为
+R0–R4：当前格式阻塞、独立环境准备、安全失败诊断、受影响验证与源码发布。
+执行已按启动指令授权开始；实际交付范围和可用命令见[操作说明](docs/guides/delivery-consolidation.md)。
+研究与性能工作保留触发条件。
+
 2026-10-18：[首次 STOP 后闭合计划](docs/roadmap/quantos-adaptive-research-closure-plan-2026-10-18.md)的
 N0–N3 已完成，源码绑定 `b0725b7`；获授权 N4 首次 STOP，SDK 1、新候选 0、科学 0，自动收尾通过。
 见[主线采用与真实范围](docs/releases/adaptive-closure-integration-2026-10-18.md)。换手率问题未被实验回答，

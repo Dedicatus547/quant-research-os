@@ -54,7 +54,11 @@ from quantos.research.qlib.pit_evidence import (
     pit_bundle_output_temporal,
     pit_transform_lineage_hash,
 )
-from quantos.research.qlib.universe import QlibResearchError
+from quantos.research.qlib.universe import (
+    QlibResearchError,
+    SignalFiniteWithoutTradabilityError,
+    SignalPitMemberUnmappedError,
+)
 
 SIGNAL_SCHEMA = pa.schema(
     [
@@ -613,10 +617,7 @@ class FactorSignalArtifactBuilder:
             try:
                 qlib_ids = tuple(mappings[item] for item in members)
             except KeyError as error:
-                raise QlibResearchError(
-                    ReasonCode.SOURCE_INCOMPLETE,
-                    "PIT member is absent from the Qlib view mapping",
-                ) from error
+                raise SignalPitMemberUnmappedError() from error
             signal_date = bundle.schedule.signal_time.date()
             if grid_scores is None:
                 try:
@@ -645,10 +646,7 @@ class FactorSignalArtifactBuilder:
                 qlib_score = scores.get(mappings[instrument_id])
                 score_valid = qlib_score is not None and math.isfinite(qlib_score)
                 if status is None and score_valid:
-                    raise QlibResearchError(
-                        ReasonCode.SOURCE_INCOMPLETE,
-                        f"finite signal lacks tradability evidence for {instrument_id}",
-                    )
+                    raise SignalFiniteWithoutTradabilityError(instrument_id)
                 if (
                     status is not None
                     and cast(datetime, status["available_at"]) > bundle.schedule.signal_time
