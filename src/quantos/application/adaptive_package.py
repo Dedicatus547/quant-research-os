@@ -41,6 +41,15 @@ def verified_package(package: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     for name, expected in manifest["distribution_versions"].items():
         if version(name) != expected:
             raise ArtifactIntegrityError("package retained environment differs")
+    if "runtime_environment" in manifest:
+        from quantos.infrastructure.runtime_environment import bind_environment
+
+        binding = manifest["runtime_environment"]
+        actual = bind_environment(
+            Path(binding["root"]), Path(binding["profile_path"]), Path(manifest["workspace"])
+        )
+        if actual != binding:
+            raise ArtifactIntegrityError("package explicit environment binding differs")
     return manifest, proposal
 
 

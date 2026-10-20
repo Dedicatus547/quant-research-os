@@ -44,6 +44,8 @@ from quantos.research.qlib.pit_evidence import load_pit_artifact_evidence
 from quantos.research.qlib.result import ResearchResultArtifactBuilder, ResearchResultBuildResult
 from quantos.research.qlib.universe import (
     QlibResearchError,
+    WorkflowRecorderInterfaceError,
+    WorkflowRequiredMetricNonFiniteError,
     resolve_historical_universe_spans,
 )
 
@@ -134,7 +136,7 @@ def _native_objects(recorder: object) -> tuple[object, object, object, object, d
     load_object = getattr(recorder, "load_object", None)
     list_metrics = getattr(recorder, "list_metrics", None)
     if not callable(load_object) or not callable(list_metrics):
-        raise ValueError("Qlib recorder does not expose native SignalRecord outputs")
+        raise WorkflowRecorderInterfaceError()
     prediction = load_object("pred.pkl")
     label = load_object("label.pkl")
     ic = load_object("sig_analysis/ic.pkl")
@@ -142,7 +144,7 @@ def _native_objects(recorder: object) -> tuple[object, object, object, object, d
     raw_metrics = cast(dict[str, object], list_metrics())
     metrics = {name: float(cast(float, raw_metrics[name])) for name in _METRIC_NAMES}
     if any(not math.isfinite(value) for value in metrics.values()):
-        raise ValueError("Qlib SigAnaRecord produced a non-finite required metric")
+        raise WorkflowRequiredMetricNonFiniteError()
     return prediction, label, ic, rank_ic, metrics
 
 

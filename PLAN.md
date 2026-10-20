@@ -12,7 +12,7 @@
 2026-10-19：新增[交付收敛与后续研究实施计划](docs/roadmap/quantos-delivery-consolidation-execution-plan-2026-10-19.md)
 及[Codex 启动指令](docs/roadmap/quantos-delivery-consolidation-start-2026-10-19.txt)。R0–R4 已完成，
 PR #4 普通合并为 `3c3ce8c80925b83bf424abbcecbd44ff4b30b446`，合并后 CI 成功，原持久目标已关闭；
-见[实际交接](artifacts/delivery-consolidation-20261019/run-01/handoff.md)。主工作区旧 HEAD 与未提交材料有意保留。
+见[实际交接](artifacts/delivery-consolidation-20261019/run-01/handoff.md)。操作入口见[交付说明](docs/guides/delivery-consolidation.md)。
 R5/R6 离线准备及其持久目标也已完成，见[方案](artifacts/r5-r6-preparation-20261019/run-01/proposal.md)
 与[交接](artifacts/r5-r6-preparation-20261019/run-01/handoff.md)，无需再次执行准备启动指令。
 R5 因当前研究价值依据不足暂缓；固定平滑收益候选仅为条件方案，管理入口与正式运行包尚未形成。

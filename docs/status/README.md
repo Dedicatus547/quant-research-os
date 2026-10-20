@@ -1,5 +1,12 @@
 # 当前状态
 
+2026-10-19 交付收敛 R0–R4 已完成，PR #4 普通合并为 `3c3ce8c`，合并后 main CI 成功。
+可用入口见[交付操作说明](../guides/delivery-consolidation.md)，实际范围和原证明身份见
+[交接](../../artifacts/delivery-consolidation-20261019/run-01/handoff.md)。
+基线 `09edac2` 的 [CI 39060721924](https://github.com/Dedicatus547/quant-research-os/actions/runs/39060721924)
+曾在 Ruff 格式步骤失败，后续 lint、类型与测试未执行；该失败与旧交接按原时点保留。
+交付完成不授予新科学或运行资格。
+
 状态基准：2026-10-19。各轨道状态按其独立记录和精确适用范围读取。
 
 已按[上下文建议 v1.1](../roadmap/quantos-context-search-implementation-2026-10-19-v1.1.md)

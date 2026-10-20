@@ -8,6 +8,7 @@
 - [交付收敛与后续研究实施计划（2026-10-19）](quantos-delivery-consolidation-execution-plan-2026-10-19.md)：
   将项目审核落实为 R0–R4 的格式修复、独立环境准备、安全失败诊断、定向验证与源码发布；
   一个主会话按模型能力自动分工，附[完整启动指令](quantos-delivery-consolidation-start-2026-10-19.txt)。
+  可用命令见[操作说明](../guides/delivery-consolidation.md)。
   R0–R4 已完成，原持久目标已关闭，见[实际交接](../../artifacts/delivery-consolidation-20261019/run-01/handoff.md)。
   [R5/R6 离线准备](quantos-r5-r6-preparation-start-2026-10-19.txt)及其持久目标也已完成，无需重跑；
   [方案](../../artifacts/r5-r6-preparation-20261019/run-01/proposal.md)建议两项执行均暂缓：R5 缺少立即测量的价值依据，R6 缺少独立成本证据。
