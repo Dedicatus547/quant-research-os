@@ -9,6 +9,16 @@
 
 ## 当前落点
 
+2026-10-19：新增[交付收敛与后续研究实施计划](docs/roadmap/quantos-delivery-consolidation-execution-plan-2026-10-19.md)
+及[Codex 启动指令](docs/roadmap/quantos-delivery-consolidation-start-2026-10-19.txt)。R0–R4 已完成，
+PR #4 普通合并为 `3c3ce8c80925b83bf424abbcecbd44ff4b30b446`，合并后 CI 成功，原持久目标已关闭；
+见[实际交接](artifacts/delivery-consolidation-20261019/run-01/handoff.md)。主工作区旧 HEAD 与未提交材料有意保留。
+R5/R6 离线准备及其持久目标也已完成，见[方案](artifacts/r5-r6-preparation-20261019/run-01/proposal.md)
+与[交接](artifacts/r5-r6-preparation-20261019/run-01/handoff.md)，无需再次执行准备启动指令。
+R5 因当前研究价值依据不足暂缓；固定平滑收益候选仅为条件方案，管理入口与正式运行包尚未形成。
+R6 因可避免重复核验的独立成本不可观测暂缓修改，待下一项本来需要执行的任务顺带取得成本证据。
+两项均未真实执行，不新开目标或沿用旧授权启动；具体重新进入条件保留在上述方案中。
+
 2026-10-18：[首次 STOP 后闭合计划](docs/roadmap/quantos-adaptive-research-closure-plan-2026-10-18.md)的
 N0–N3 已完成，源码绑定 `b0725b7`；获授权 N4 首次 STOP，SDK 1、新候选 0、科学 0，自动收尾通过。
 见[主线采用与真实范围](docs/releases/adaptive-closure-integration-2026-10-18.md)。换手率问题未被实验回答，
