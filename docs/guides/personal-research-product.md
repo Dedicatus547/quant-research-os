@@ -1,15 +1,18 @@
 # 个人量化研究入口
 
-当前后继是 `hs300-daily-trend-tushare/v1`：仅当时可获得的沪深300历史成员，Tushare Pro
+当前后继是 `hs300-daily-trend-tushare-lifecycle/v1`：仅当时可获得的沪深300历史成员，Tushare Pro
 为市场数据唯一来源，每日收盘后研究、下一交易日开盘执行。包括指数中的非主板股票，
 不再求主板交集，也不要求同花顺。旧 `daily-mainboard-trend/v1` 合同、任务与失败原件保留。
-实施与真实研究分开；当前完整2023–2025区间 **BLOCKED / NOT_EVALUATED**。
+实施与真实研究分开；完整2023–2025区间的数据准备为 **READY_FOR_AUTHORIZATION**，
+实际执行仍因既有scratch硬配额挂载和未获真实研究批准而阻塞，科学 **NOT_EVALUATED**。
 
 ## 实际接线与边界
 
 实现位于 `contracts/personal_research.py`、`application/personal_research.py`、
 `application/personal_server_config.py`、`application/hs300_worker.py` 与
 `research/hs300_data.py`、`research/hs300_exchange.py`、`research/personal_qlib.py`。
+生命周期后继另在 `contracts/hs300_lifecycle.py`、`data/lifecycle_sources.py`、
+`research/hs300_lifecycle_data.py` 与 `research/hs300_native_boundary.py`。
 使用 Qlib 0.9.7 Workflow、PortAnaRecord、目标权重策略、Exchange 和 Simulator；项目不实现撮合或账户会计。
 
 - 主策略：基准和个股收盘高于SMA20、个股5日收益为正、当日成交额／前5日均成交额至少1.2；
@@ -40,7 +43,7 @@ Skill 在 `skills/quantos-research`，用户目录链接与原MCP安装保留。
 
 服务默认读取固定产品根下的 `server-config.json`，也支持本地启动参数 `--server-config`。
 配置路径、catalog原件路径及授权文件均不属于MCP参数。配置缺省时没有数据准入或执行授权；
-当前配置保存具体来源阻塞项，`authorization_path`为null，不注册不完整市场面板。
+当前v2配置已注册完整不可变生命周期面板，`authorization_path`为null。
 `approved=true`、模型自报批准和提案文字不能授予执行权。
 
 可信本地授权必须另行绑定prepared/code/dataset/profile、完整七候选、实际批准原件hash、到期时间、
@@ -53,13 +56,13 @@ worker只读核验任务链，不在隔离PID视图内判断宿主父进程存�
 
 ```text
 请读取research_capabilities、research_data_describe与research_history，说明沪深300后继的
-实际来源阻塞和固定七候选；不执行真实研究，也不采集或下载公告。
+实际数据就绪状态、原生事件处理限制和固定七候选；不执行真实研究，也不采集或下载公告。
 ```
 
 准备请求示例（dataset_id只使用服务端实际返回的匹配ID；无匹配时准备为BLOCKED）：
 
 ```json
-{"schema_version":"personal-study-request/v3","idempotency_key":"hs300-example-01","brief":"沪深300Tushare日频趋势与成交额确认","proposal":{"session_id":"outer-session"},"start_date":"2023-01-09","end_date":"2025-12-29","warmup_start":"2022-11-01"}
+{"schema_version":"personal-study-request/v4","idempotency_key":"hs300-lifecycle-example-01","dataset_id":"hs300-tushare-lifecycle-20230109-20251229-v1","brief":"沪深300Tushare日频趋势与成交额确认；生命周期结构分类及原生边界硬停","proposal":{"session_id":"outer-session"},"start_date":"2023-01-09","end_date":"2025-12-29","warmup_start":"2022-11-01"}
 ```
 
 本地操作入口：
@@ -74,24 +77,37 @@ worker只读核验任务链，不在隔离PID视图内判断宿主父进程存�
 `status|results|cancel|execute --task <明确task hash>`。当前 `execute` 会拒绝，不能用此命令绕过阻塞或授权。
 后继完整数据改变时必须准备新任务，不给旧BLOCKED或终态包补换输入。
 
-## 完整真实区间的具体缺口
+## 生命周期后继及剩余限制
 
 snapshot `6297a968…` / view `fc809bed…` 的原件、消费表hash与既有质量证明已核对。
 `bars.amount_cny`是实际CNY成交额，不以volume代替；bar/factor/member/status可用时间参与信号截止。
-完整预热2022-11-01、评价2023-01-09至2025-12-29的来源适配实际失败：
+旧适配在完整预热2022-11-01、评价2023-01-09至2025-12-29上曾失败：
 
 - `600837.SH`：2025-03-04至03-31，20个成员／交易日缺bars且无suspensions。
 - `601989.SH`：2025-09-05至09-30，18个成员／交易日同样缺失。
 
-月度成员区间延伸到 `instruments.delist_date`之后。该表没有足够的生命周期历史可用时间及
-吸并/退市持仓处置证明；不能补零、按事后metadata静默裁剪成员或自造现金结算。
-`build_hs300_panel`硬拒绝，未生成可准入的完整面板，也没有运行真实策略。
-需要有时点证据的生命周期输入及可复用的原生账户处置路线，再形成明确后继包。
-既有storage policy的64 MiB scratch硬配额挂载也需宿主操作员恢复；保留原安全余量与守卫。
+旧 `build_hs300_panel` 和失败任务按原身份保留。新面板把 `is_member`、`is_listed`、
+`lifecycle_state` 分开，全部230,700条成员记录保留，38条退市后结构性空值不补零；
+存续内未停牌成员缺行情仍硬拒绝。源值从实际Parquet、交易所HTML和公司公告PDF确定性重算，
+不是仅相信提案、摘要或文件hash。补充官方材料只用于结构分类/账户有效性检查，
+不生成提前卖出信号，不声称已取得历史vendor vintage。
+
+Qlib 0.9.7没有此处所需的完整换股/现金选择权会计与可观察权益台账。
+新薄适配在最早权益窗口起点起持续检查原生持仓、前次未成交订单、当前生成订单及完整历史。
+有相关暴露或未知状态就停止该臂，保留原生部分结果；七候选完整分母不变。
+仅原生状态完整且从新现金账户启动、相关股票从未持有/成交等严格条件全部成立时，
+才能在权益台账不可用的情况下推导“权益未发生”，不能称台账已观测或完整公司行动会计已实现。
+实际七账户暴露尚未观测，不能预先声称可以跑完整区间。
+
+本次独立授权的Tushare定向采集取得两只股票的退市信息与停牌记录，公告接口返回权限不足；
+补充采用4份交易所/官方披露平台原件。市场价格、成交额及成员来源仍只用Tushare。
+采集原件、失败和来源身份留存在生命周期实施目录，MCP工具本身仍离线且不能发起采集。
+既有storage policy的64 MiB/4096 inode scratch硬配额挂载仍需宿主操作员恢复，
+不放松C盘32 GiB、Linux16 GiB安全余量或既有守卫。
 
 连续前瞻账户另受原生Account完整checkpoint、初始NAV分母和reset_report清空历史约束，
-未用Position字典或历史回放冒充实现。公告权限UNKNOWN，标题/链接不等于正文或“没有利空”；
-不新增采集、外部PDF下载，不把旧27份本地材料改标为Tushare来源或历史交易特征。
+未用Position字典或历史回放冒充实现。上述两次公告请求权限不足不等于全账号所有公告能力已核定；
+标题/链接不等于正文或“没有利空”，不把旧27份材料或本次官方PDF改标为Tushare来源/交易特征。
 
 本轮证据、失败、运行包、检查与唯一主入口见
-`artifacts/personal-research-product-20261022/run-01/handoff.md`的沪深300实施后继链接。
+`artifacts/personal-research-product-20261022/run-01/handoff.md`的2026-10-23生命周期后继链接。

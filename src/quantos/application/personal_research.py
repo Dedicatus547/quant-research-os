@@ -18,6 +18,11 @@ from quantos.artifacts.store import (
     read_regular_bytes_at,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.hs300_lifecycle import (
+    HS300LifecycleDatasetManifest,
+    HS300LifecycleStudyRequest,
+    PreparedHS300LifecycleStudy,
+)
 from quantos.contracts.personal_research import (
     HS300DatasetManifest,
     HS300StudyRequest,
@@ -35,14 +40,15 @@ from quantos.contracts.personal_research import (
 class PersonalDatasetBinding:
     """Trusted catalog binding: no filesystem paths are accepted through tool requests."""
 
-    manifest: PersonalDatasetManifest | HS300DatasetManifest
+    manifest: PersonalDatasetManifest | HS300DatasetManifest | HS300LifecycleDatasetManifest
     provider_root: Path
     panel_path: Path
     pit_evidence_path: Path | None = None
     snapshot_path: Path | None = None
+    lifecycle_path: Path | None = None
 
 
-Prepared = PreparedStudy | PreparedHS300Study
+Prepared = PreparedStudy | PreparedHS300Study | PreparedHS300LifecycleStudy
 Authorizer = Callable[[Prepared], str | None]
 Executor = Callable[[Prepared, Path, Callable[[], bool]], dict[str, Any]]
 
@@ -136,7 +142,7 @@ class PersonalResearchService:
         }
         return {"sources": dependencies, "environment": environment, "python": sys.version}
 
-    def _code_hash(self, *, hs300: bool = False) -> str:
+    def _code_hash(self, *, hs300: bool = False, lifecycle: bool = False) -> str:
         manifest = self.dependency_manifest()
         if hs300:
             sources = cast(dict[str, str], manifest["sources"])
@@ -165,6 +171,21 @@ class PersonalResearchService:
 
             for executable in ("/usr/bin/bwrap", "/usr/bin/timeout", sys.executable):
                 sources["executable:" + executable] = sha256_bytes(Path(executable).read_bytes())
+        if lifecycle:
+            sources = cast(dict[str, str], manifest["sources"])
+            for name in (
+                "src/quantos/contracts/hs300_lifecycle.py",
+                "src/quantos/research/hs300_lifecycle_data.py",
+                "src/quantos/research/hs300_native_boundary.py",
+                "src/quantos/data/lifecycle_sources.py",
+            ):
+                sources[name] = sha256_bytes((self.repo_root / name).read_bytes())
+            from importlib.metadata import distribution, version
+
+            native = distribution("pyqlib")
+            name = "qlib/backtest/decision.py"
+            sources[name] = sha256_bytes(Path(str(native.locate_file(name))).read_bytes())
+            cast(dict[str, str], manifest["environment"])["pypdf"] = version("pypdf")
         return sha256_bytes(canonical_json_bytes(manifest))
 
     def capabilities(self) -> dict[str, Any]:
@@ -173,8 +194,14 @@ class PersonalResearchService:
             "proposal_origin": "host-session-proposal/v2",
             "retained_proposal_origins": ["host-session-proposal/v1"],
             "authenticated_model_identity": False,
-            "profile": "hs300-daily-trend-tushare/v1",
-            "retained_profiles": ["daily-mainboard-trend/v1"],
+            "profile": "hs300-daily-trend-tushare-lifecycle/v1",
+            "retained_profiles": ["hs300-daily-trend-tushare/v1", "daily-mainboard-trend/v1"],
+            "lifecycle_policy": {
+                "static_readiness": "verified source/date/coverage, never presumed zero exposure",
+                "native_event_boundary": "hard stop exposed arm; retain all seven candidates",
+                "unknown_event_state": "hard stop; never infer zero exposure",
+                "cash_settlement_accounting": "native unsupported events are not synthesized",
+            },
             "tools": [
                 "capabilities",
                 "history",
@@ -211,6 +238,13 @@ class PersonalResearchService:
             "membership": (
                 "conservative historical intervals, not official exact daily effective dates"
             ),
+            "lifecycle": {
+                "structural_classification": "not a predictive stock-selection signal",
+                "source_policy": "immutable actual source hashes; no retrospective vintage claim",
+                "execution_boundary": "native account exposure checked at event boundaries",
+                "zero_exposure": "only an observed native boundary result, never a pre-run fact",
+                "unsupported_or_unknown_exposure": "stop arm; retain all seven candidates",
+            },
             "vendor_vintage_claim": False,
             "company_information": {
                 "source": "Tushare actual returned entitled fields only",
@@ -221,22 +255,30 @@ class PersonalResearchService:
             },
         }
 
-    def _prepare_hs300(self, request: Mapping[str, object]) -> dict[str, Any]:
-        proposed = HS300StudyRequest.model_validate(dict(request))
+    def _prepare_hs300(
+        self, request: Mapping[str, object], *, lifecycle: bool = False
+    ) -> dict[str, Any]:
+        request_type = HS300LifecycleStudyRequest if lifecycle else HS300StudyRequest
+        proposed = request_type.model_validate(dict(request))
         binding = self.catalog.get(proposed.dataset_id or "")
         manifest = binding.manifest if binding else None
         gaps: list[str] = []
-        if manifest is not None and not isinstance(manifest, HS300DatasetManifest):
-            raise ValueError("HS300 request requires a personal-dataset/v2 binding")
+        manifest_type = HS300LifecycleDatasetManifest if lifecycle else HS300DatasetManifest
+        if manifest is not None and type(manifest) is not manifest_type:
+            raise ValueError("HS300 request and immutable dataset successor versions disagree")
         if manifest is None:
             gaps.append("No server-bound immutable HS300/Tushare dataset for this request")
             gaps.extend(self.data_blockers)
         else:
             from quantos.research.hs300_data import verify_hs300_binding
+            from quantos.research.hs300_lifecycle_data import verify_hs300_lifecycle_binding
 
             assert binding is not None
             try:
-                verify_hs300_binding(binding)
+                if lifecycle:
+                    verify_hs300_lifecycle_binding(binding)
+                else:
+                    verify_hs300_binding(binding)
             except (ValueError, OSError, ArtifactIntegrityError) as error:
                 gaps.append("HS300 binding verification failed: " + type(error).__name__)
             if proposed.warmup_start != manifest.warmup_start:
@@ -289,46 +331,75 @@ class PersonalResearchService:
                 for seed in (17, 41, 73, 101, 137)
             ),
         )
-        prepared = PreparedHS300Study(
-            request=proposed,
-            dataset_manifest=manifest,
-            code_hash=self._code_hash(hs300=True),
-            candidates=candidates,
-            readiness="BLOCKED" if gaps else "READY_FOR_AUTHORIZATION",
-            gaps=tuple(gaps),
-            rationale=(
-                "Explicit daily HS300/Tushare successor: "
-                "price trend and turnover amount confirmation; "
-                "all index boards included under conservative historical membership availability. "
-                "No THS or mainboard intersection. Company information is auxiliary only."
-            ),
-            comparison_scope=(
-                "1 main + 1 classic + seeds 17/41/73/101/137; no training/retry/revision"
-            ),
-            limits=(
-                "Retrospective exploration; scientific NOT_EVALUATED",
-                "Historical non-vintage; monthly membership is not an exact official daily event",
-                "Fixed all-in fee scenario, not reconstructed historical taxes/broker slippage",
-                "Uniform 200-share research lot; native limits/liquidity; scenario fills",
-                "Native ST blocks buys and sells; an existing ST holding can remain blocked",
-                (
-                    "Native target-order prechecks can block both directions on either daily "
-                    "limit, including the prior signal-session check"
+        prepared_type = PreparedHS300LifecycleStudy if lifecycle else PreparedHS300Study
+        prepared = prepared_type.model_validate(
+            dict(
+                request=proposed,
+                dataset_manifest=manifest,
+                code_hash=self._code_hash(hs300=True, lifecycle=lifecycle),
+                candidates=candidates,
+                readiness="BLOCKED" if gaps else "READY_FOR_AUTHORIZATION",
+                gaps=tuple(gaps),
+                rationale=(
+                    "Explicit daily HS300/Tushare successor: "
+                    "price trend and turnover amount confirmation; "
+                    "all index boards included under conservative "
+                    "historical membership availability. "
+                    "No THS or mainboard intersection. Company information is auxiliary only."
                 ),
-                (
-                    "Full-session execution-day volume caps open-price fills retrospectively; "
-                    "no opening-auction liquidity guarantee"
+                comparison_scope=(
+                    "1 main + 1 classic + seeds 17/41/73/101/137; no training/retry/revision"
                 ),
-                "Announcement entitlement UNKNOWN; titles/links cannot prove no adverse news",
-                "No collection, external PDF, research SDK, broker or forward execution",
-            ),
+                limits=(
+                    "Retrospective exploration; scientific NOT_EVALUATED",
+                    (
+                        "Historical non-vintage; monthly membership "
+                        "is not an exact official daily event"
+                    ),
+                    "Fixed all-in fee scenario, not reconstructed historical taxes/broker slippage",
+                    "Uniform 200-share research lot; native limits/liquidity; scenario fills",
+                    "Native ST blocks buys and sells; an existing ST holding can remain blocked",
+                    (
+                        "Native target-order prechecks can block both directions on either daily "
+                        "limit, including the prior signal-session check"
+                    ),
+                    (
+                        "Full-session execution-day volume caps open-price fills retrospectively; "
+                        "no opening-auction liquidity guarantee"
+                    ),
+                    "Announcement entitlement UNKNOWN; titles/links cannot prove no adverse news",
+                    "No collection, external PDF, research SDK, broker or forward execution",
+                ),
+            )
         )
+        if lifecycle:
+            prepared = prepared.model_copy(
+                update={
+                    "rationale": prepared.rationale
+                    + (
+                        " Lifecycle facts are structural classifications, not predictive features. "
+                        "Verified source coverage permits preparation; "
+                        "native event exposure remains "
+                        "unobserved until execution. "
+                        "Exposed/unknown unsupported events stop that arm."
+                    ),
+                    "limits": (
+                        *prepared.limits,
+                        "No pre-run zero-exposure claim; native boundary observation required",
+                        "Unsupported or unknown native lifecycle exposure hard-stops the arm",
+                        "Stopped/failed arms and all seven candidates remain in the denominator",
+                        "No custom settlement, delisting liquidation or account reconstruction",
+                    ),
+                }
+            )
         return self._persist_prepared(prepared)
 
     def prepare(self, request: Mapping[str, object]) -> dict[str, Any]:
         from quantos.security.artifact_secrets import validate_secret_free
 
         validate_secret_free(dict(request), file_name="personal-study-request.json")
+        if request.get("schema_version") == "personal-study-request/v4":
+            return self._prepare_hs300(request, lifecycle=True)
         if request.get("schema_version") == "personal-study-request/v3":
             return self._prepare_hs300(request)
         request_type = (
@@ -479,9 +550,12 @@ class PersonalResearchService:
 
         task_id = _identity(task_id)
         raw = self._read(self.root / "tasks" / task_id, "prepared.json")
+        schema = json.loads(raw).get("schema_version")
         contract = (
-            PreparedHS300Study
-            if json.loads(raw).get("schema_version") == "personal-study-prepared/v2"
+            PreparedHS300LifecycleStudy
+            if schema == "personal-study-prepared/v3"
+            else PreparedHS300Study
+            if schema == "personal-study-prepared/v2"
             else PreparedStudy
         )
         item = contract.model_validate_json(raw)
@@ -604,7 +678,8 @@ class PersonalResearchService:
                     self._append(task_id, "PREPARED", {"execution_denied": "blocked_inputs"})
                     raise PermissionError("study is blocked: " + "; ".join(prepared.gaps))
                 if prepared.code_hash != self._code_hash(
-                    hs300=isinstance(prepared, PreparedHS300Study)
+                    hs300=isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy)),
+                    lifecycle=isinstance(prepared, PreparedHS300LifecycleStudy),
                 ):
                     self._append(task_id, "PREPARED", {"execution_denied": "changed_dependencies"})
                     raise PermissionError(
@@ -727,7 +802,7 @@ class PersonalResearchService:
             outcome = json.loads(outcome_bytes)
             if outcome.get("prepared_hash") != prepared.content_hash:
                 raise ArtifactIntegrityError("outcome prepared identity disagrees")
-            if isinstance(prepared, PreparedHS300Study):
+            if isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy)):
                 comparison_hash = outcome.get("comparison_sha256")
                 if comparison_hash is not None:
                     raw_comparison = self._read(execution, "comparison.json")
@@ -801,6 +876,24 @@ class PersonalResearchService:
                 if committed_receipts is not None and c.candidate_id in committed_receipts
                 else ("UNCOMMITTED_RECEIPT" if c.candidate_id in outcomes else "MISSING"),
                 "validation_verdict": "NOT_EVALUATED",
+                **(
+                    {
+                        "native_boundary_status": outcomes.get(c.candidate_id, {}).get(
+                            "native_boundary_status", "NOT_OBSERVED"
+                        ),
+                        "boundary_receipts": outcomes.get(c.candidate_id, {}).get(
+                            "boundary_receipts"
+                        ),
+                        "native_rights_observability": outcomes.get(c.candidate_id, {}).get(
+                            "native_rights_observability", "NOT_OBSERVED"
+                        ),
+                        "partial_native_artifacts": outcomes.get(c.candidate_id, {}).get(
+                            "partial_native_artifacts"
+                        ),
+                    }
+                    if isinstance(prepared, PreparedHS300LifecycleStudy)
+                    else {}
+                ),
             }
             for c in prepared.candidates
         ]
@@ -814,7 +907,7 @@ class PersonalResearchService:
             "rows": rows,
             **(
                 {"comparison": comparison, "comparison_sha256": comparison_hash}
-                if isinstance(prepared, PreparedHS300Study)
+                if isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy))
                 else {}
             ),
             "comparison_scope": prepared.comparison_scope,

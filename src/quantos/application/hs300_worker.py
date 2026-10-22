@@ -16,6 +16,7 @@ from quantos.artifacts.store import (
     verify_file,
 )
 from quantos.contracts.base import canonical_json_bytes
+from quantos.contracts.hs300_lifecycle import PreparedHS300LifecycleStudy
 from quantos.contracts.personal_research import PreparedHS300Study
 from quantos.infrastructure.hosted_storage import (
     StorageGuard,
@@ -24,6 +25,17 @@ from quantos.infrastructure.hosted_storage import (
     require_bounded_bwrap,
     supervise_storage_job,
 )
+
+HS300Prepared = PreparedHS300Study | PreparedHS300LifecycleStudy
+
+
+def _read_prepared(raw: bytes) -> HS300Prepared:
+    contract = (
+        PreparedHS300LifecycleStudy
+        if json.loads(raw).get("schema_version") == "personal-study-prepared/v3"
+        else PreparedHS300Study
+    )
+    return contract.model_validate_json(raw)
 
 
 class HS300WorkerFailure(RuntimeError):
@@ -66,7 +78,7 @@ class GuardedHS300Executor:
             data[name] = Path(data[name])
         return StorageGuard(StoragePolicy(**data))
 
-    def preflight(self, prepared: PreparedHS300Study) -> None:
+    def preflight(self, prepared: HS300Prepared) -> None:
         if self.wall_seconds <= 0 or self.growth_bytes <= 0:
             raise PermissionError("bounded wall and complete growth limits are required")
         if len(prepared.candidates) != 7:
@@ -77,7 +89,7 @@ class GuardedHS300Executor:
         require_bounded_bwrap()
 
     def __call__(
-        self, prepared: PreparedHS300Study, root: Path, cancelled: Callable[[], bool]
+        self, prepared: HS300Prepared, root: Path, cancelled: Callable[[], bool]
     ) -> dict[str, Any]:
         self.preflight(prepared)
         if cancelled():
@@ -157,7 +169,7 @@ def main() -> int:
     parser.add_argument("--prepared", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    prepared = PreparedHS300Study.model_validate_json(args.prepared.read_bytes())
+    prepared = _read_prepared(args.prepared.read_bytes())
     try:
         return _run_worker(args, prepared)
     except Exception as error:
@@ -183,7 +195,7 @@ def main() -> int:
         return 1
 
 
-def _run_worker(args: argparse.Namespace, prepared: PreparedHS300Study) -> int:
+def _run_worker(args: argparse.Namespace, prepared: HS300Prepared) -> int:
     from quantos.application.personal_server_config import make_trusted_service
     from quantos.infrastructure.hosted_storage import configured_guard
     from quantos.research.personal_qlib import PersonalQlibExecutor
@@ -198,7 +210,7 @@ def _run_worker(args: argparse.Namespace, prepared: PreparedHS300Study) -> int:
     state = service.worker_state(task_id)
     if state not in {"RUNNING", "CANCEL_REQUESTED"}:
         raise PermissionError("worker requires an existing live parent task")
-    parent_prepared = PreparedHS300Study.model_validate_json(
+    parent_prepared = _read_prepared(
         confined_regular_file(service.root, f"tasks/{task_id}/prepared.json").read_bytes()
     )
     if parent_prepared.content_hash != prepared.content_hash:

@@ -25,6 +25,7 @@ from quantos.artifacts.store import (
     verify_file,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.hs300_lifecycle import PreparedHS300LifecycleStudy
 from quantos.contracts.personal_research import PreparedHS300Study, PreparedStudy
 
 PANEL_COLUMNS = (
@@ -275,7 +276,7 @@ class PersonalQlibExecutor:
 
     def __call__(
         self,
-        prepared: PreparedStudy | PreparedHS300Study,
+        prepared: PreparedStudy | PreparedHS300Study | PreparedHS300LifecycleStudy,
         root: Path,
         cancelled: Callable[[], bool],
     ) -> dict[str, Any]:
@@ -296,7 +297,8 @@ class PersonalQlibExecutor:
         )
 
         manifest = prepared.dataset_manifest
-        hs300 = isinstance(prepared, PreparedHS300Study)
+        lifecycle = isinstance(prepared, PreparedHS300LifecycleStudy)
+        hs300 = isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy))
         if manifest is None or (manifest.kind != "synthetic" and not hs300):
             raise PermissionError("real-market successor PIT/cost adapter is not yet qualified")
         if qlib.__version__ != "0.9.7":
@@ -304,7 +306,11 @@ class PersonalQlibExecutor:
         binding = self.catalog[manifest.dataset_id]
         if binding.manifest != manifest:
             raise ValueError("server catalog changed after prepare")
-        if hs300:
+        if lifecycle:
+            from quantos.research.hs300_lifecycle_data import verify_hs300_lifecycle_binding
+
+            verify_hs300_lifecycle_binding(binding)
+        elif hs300:
             from quantos.research.hs300_data import verify_hs300_binding
 
             verify_hs300_binding(binding)
@@ -331,7 +337,11 @@ class PersonalQlibExecutor:
         for logical, digest in manifest.qlib_files.items():
             verify_file(confined_regular_file(binding.provider_root, logical), digest)
         panel = pd.read_parquet(binding.panel_path)
-        if hs300:
+        if lifecycle:
+            from quantos.research.hs300_lifecycle_data import compile_hs300_lifecycle_signals
+
+            signals = compile_hs300_lifecycle_signals(panel, prepared)
+        elif hs300:
             from quantos.research.hs300_data import compile_hs300_daily_signals
 
             signals = compile_hs300_daily_signals(panel, prepared)
@@ -378,14 +388,19 @@ class PersonalQlibExecutor:
                     signal_bytes = pickle.dumps(signals[candidate.candidate_id], protocol=4)
                     atomic_write_bytes(destination / "signal.pkl", signal_bytes)
                     config = self._config(
-                        prepared, signals[candidate.candidate_id], binding=binding
+                        prepared,
+                        signals[candidate.candidate_id],
+                        binding=binding,
+                        boundary_root=destination / "native-boundaries",
                     )
                     atomic_write_bytes(
                         destination / "native-config.json", canonical_json_bytes(config)
                     )
                     with _workflow_tracking_runtime(runtime, "frozen-field-study/v1") as uri:  # noqa: SIM117
                         with R.start(
-                            experiment_name="personal-hs300-v1"
+                            experiment_name="personal-hs300-lifecycle-v1"
+                            if lifecycle
+                            else "personal-hs300-v1"
                             if hs300
                             else "personal-synthetic-v1",
                             uri=uri,
@@ -479,6 +494,36 @@ class PersonalQlibExecutor:
                         "metrics": None,
                         "files": {},
                     }
+                if lifecycle:
+                    boundary_root = destination / "native-boundaries"
+                    boundary_receipts: list[dict[str, str]] = []
+                    partial: dict[str, str] = {}
+                    statuses: list[str] = []
+                    if boundary_root.exists():
+                        for path in regular_tree_files(boundary_root):
+                            logical = path.relative_to(destination).as_posix()
+                            digest = sha256_file(path)
+                            receipt["files"][logical] = digest
+                            if path.suffix == ".json":
+                                boundary_receipts.append({"file": logical, "sha256": digest})
+                                value = json.loads(path.read_bytes())
+                                statuses.extend(item["status"] for item in value["decisions"])
+                            else:
+                                partial[logical] = digest
+                    receipt.update(
+                        {
+                            "native_boundary_status": "HARD_STOP_EXPOSURE"
+                            if "HARD_STOP_EXPOSURE" in statuses
+                            else (
+                                "HARD_STOP_UNKNOWN"
+                                if "HARD_STOP_UNKNOWN" in statuses
+                                else ("CLEARED_ZERO_EXPOSURE" if statuses else "NOT_REACHED")
+                            ),
+                            "boundary_receipts": boundary_receipts,
+                            "native_rights_observability": "UNAVAILABLE_IN_QLIB_0_9_7",
+                            "partial_native_artifacts": partial,
+                        }
+                    )
                 atomic_write_bytes(destination / "receipt.json", canonical_json_bytes(receipt))
                 receipts.append(
                     {
@@ -520,6 +565,23 @@ class PersonalQlibExecutor:
                         ).get("metrics")
                         if candidate.candidate_id in by_id
                         else None,
+                        **(
+                            {
+                                key: json.loads(
+                                    (root / candidate.candidate_id / "receipt.json").read_bytes()
+                                ).get(key)
+                                if candidate.candidate_id in by_id
+                                else None
+                                for key in (
+                                    "native_boundary_status",
+                                    "boundary_receipts",
+                                    "native_rights_observability",
+                                    "partial_native_artifacts",
+                                )
+                            }
+                            if lifecycle
+                            else {}
+                        ),
                     }
                     for candidate in prepared.candidates
                 ],
@@ -531,10 +593,11 @@ class PersonalQlibExecutor:
 
     @staticmethod
     def _config(
-        prepared: PreparedStudy | PreparedHS300Study,
+        prepared: PreparedStudy | PreparedHS300Study | PreparedHS300LifecycleStudy,
         signal: pd.DataFrame,
         *,
         binding: Any = None,
+        boundary_root: Path | None = None,
     ) -> dict[str, Any]:
         profile: Any = prepared.request.profile
         manifest: Any = prepared.dataset_manifest
@@ -578,7 +641,7 @@ class PersonalQlibExecutor:
                 },
             },
         }
-        if isinstance(prepared, PreparedHS300Study):
+        if isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy)):
             native = config["backtest"]["exchange_kwargs"]
             native["trade_unit"] = profile.trade_unit_shares
             if manifest.kind == "market" or (
@@ -606,4 +669,19 @@ class PersonalQlibExecutor:
                         },
                     },
                 }
+        if isinstance(prepared, PreparedHS300LifecycleStudy):
+            if binding is None or binding.lifecycle_path is None or boundary_root is None:
+                raise ValueError(
+                    "native lifecycle execution requires bound facts and boundary output"
+                )
+            config["strategy"]["class"] = "LifecycleBoundaryTopKStrategy"
+            config["strategy"]["module_path"] = "quantos.research.hs300_native_boundary"
+            config["strategy"]["kwargs"].update(
+                {
+                    "lifecycle_path": str(binding.lifecycle_path.absolute()),
+                    "lifecycle_manifest_hash": manifest.lifecycle_manifest_hash,
+                    "boundary_root": str(boundary_root.absolute()),
+                    "expected_initial_cash_cny": profile.initial_cash_cny,
+                }
+            )
         return config
