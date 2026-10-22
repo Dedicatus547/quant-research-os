@@ -90,7 +90,7 @@ result、inventory hash，并在包核验时重新核对；其 Python 路径不�
 未给这两个选项时保留旧入口语义。原 recipe、预算、TTL 和授权都不会因环境准备转移；
 新环境准备仍不能启动旧包或赋予新任务运行许可。
 
-2026-10-19 本机状态：完整固定闭包及独立解析已完成，必要小型离线反例通过；独立安装
+2026-10-19 首次准备记录（历史）：完整固定闭包及独立解析已完成，必要小型离线反例通过；独立安装
 验证 **BLOCKED**。原 policy 的 scratch quota 挂载不存在，guard 实际返回
 `STORAGE_SCRATCH_HARD_QUOTA_UNAVAILABLE`；真实宿主 `sudo -n true` 也返回需要密码，
 所以没有尝试挂载或安装。已核验 SDK/runtime 两个保留 wheel；其余 206 个发行物当前
@@ -98,3 +98,11 @@ result、inventory hash，并在包核验时重新核对；其 Python 路径不�
 下载。实际解释器、venv 布局、全量安装库存和新环境的 Qlib 导入尚未证明。
 持久证据位于主仓 `artifacts/delivery-consolidation-20261019/run-01/environment/`，
 包含容量、guard/sudo 失败、resolver 退出、定向检查及发行物库存。
+
+后继成功（2026-10-19，2026-10-20收尾核对）：上述BLOCKED为首次准备时点，
+R0–R4交付已通过原WSL管理接口恢复quota，208项独立安装及隔离导入成功；
+见[完成交接](../../artifacts/delivery-consolidation-20261019/run-01/handoff.md)与
+[安装核对](../../artifacts/delivery-consolidation-20261019/run-01/environment/install-01/verified-summary.json)。
+后继[库存恢复核验](../../artifacts/delivery-consolidation-20261019/run-01/environment/post-install-bytecode-01/verified-summary.json)
+确认27961文件库存hash不变、真实退出及cleanup成功；启动必须加 `-B` 或 `PYTHONDONTWRITEBYTECODE=1`。
+原guard/sudo失败保留，不覆盖失败目录；本条不证明新环境科学/live组合，亦不要求重新安装或全量库存扫描。

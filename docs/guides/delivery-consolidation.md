@@ -44,13 +44,20 @@
 
 ## 本轮安装验证的宿主前提
 
-已有 storage policy 指向的 `artifacts/hosted-scratch/recovery-runtime01` 当前缺少硬配额
+首次准备时（2026-10-19），已有 storage policy 指向的 `artifacts/hosted-scratch/recovery-runtime01` 缺少硬配额
 挂载，guard 实际拒绝 `STORAGE_SCRATCH_HARD_QUOTA_UNAVAILABLE`。真实宿主
 `sudo -n true` 需要密码，未尝试挂载；独立环境安装验证尚未完成。
 需有权限的宿主操作员先核对该专用目录无运行作业和会被遮盖的证据，再恢复原有
 64 MiB / 4096 inodes、`nosuid,nodev,noswap` 配额挂载，并重跑既有 guard。
 不得仅因 WSL 内部 free 足够而放行，也不得省略 guard 或使用全局环境替代。
 准备命令及后继 profile 的准确接口见环境专页；所有实际失败与退出保留在主 handoff。
+
+后继成功（2026-10-19，2026-10-20收尾核对）：上述为首次准备时点的阻塞，
+R0–R4交付已恢复原quota并完成208项独立安装、隔离导入及库存恢复核验，guard/wait/namespace/cleanup成功。
+见[完成交接](../../artifacts/delivery-consolidation-20261019/run-01/handoff.md)、
+[安装核对](../../artifacts/delivery-consolidation-20261019/run-01/environment/install-01/verified-summary.json)及
+[库存恢复](../../artifacts/delivery-consolidation-20261019/run-01/environment/post-install-bytecode-01/verified-summary.json)。
+原失败记录保留；新环境科学/live组合仍未证明，启动须 `-B` 或 `PYTHONDONTWRITEBYTECODE=1`。
 
 ## 只读诊断入口
 
@@ -84,6 +91,9 @@ PYTHONPATH=src /home/zjw/quant-research-os/.venv/bin/python \
 `verify` 核对已成功安装的完整库存与隔离导入。两个 preparer 通过成对的
 `--runtime-environment`、`--runtime-profile` 显式采用此环境；默认 0.154.0 和旧包不变。
 完整解析在 Python 3.11.15 / Linux x86_64 / glibc 2.35 下核对了 208 项；发行物共 472750199 字节，
-完整增长预留 6 GiB。两个 SDK wheel 已核验，206 个科学/build 发行物仍需提供或按固定来源下载。
-安装和新环境实际导入仍未验证；原科学 `scs==3.3.0` 的 yanked/solve crash 告警保留，
-本轮没有运行 solver，也未据此改写历史证明。
+完整增长预留 6 GiB。首次准备时仅核验两个 SDK wheel，206 个科学/build 发行物尚待提供或按固定来源下载，
+安装和新环境实际导入也尚未验证。原科学 `scs==3.3.0` 的 yanked/solve crash 告警保留，
+交付任务没有运行 solver，也未据此改写历史证明。
+
+以上发行物缺失和导入未验证为首次准备时点；后继安装及导入成功采用本页“后继成功”所链接原件。
+这不消除原solver告警，也不授予科学资格。

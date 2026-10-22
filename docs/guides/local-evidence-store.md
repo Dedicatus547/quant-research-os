@@ -35,8 +35,10 @@ Unicode 字符位置、逐字文本、hash 均须一致。旧空行页码只留�
 发布得到的 `sha256-<hash>` 目录必须通过本页所列核验器；引用使用 `local_binding`、
 `local_citation` 及保留的物理页映射。接口不启动模型或提升权限。
 
-`scripts/announcement_understanding_trial.py` 是仅供这批本地材料的历史调用脚本，依赖
+原 `scripts/announcement_understanding_trial.py` 是仅供这批本地材料的历史调用脚本，依赖
 未入库的材料、既有 SDK 运行环境及原授权，不作为通用主线入口提交。
+2026-10-22已按原SHA256移入本地持久归档，原路径与归档映射见
+[收尾审核](../reviews/workspace-review-2026-10-22.md)；历史记录中保留原路径，不据此重启调用。
 PDF、标签、响应、使用量和失败记录仍在 `artifacts/`，不随源码入库。
 原运行对应的两份导入源文件已按原 hash 保存在
 `artifacts/announcement-understanding-pilot-20261020/mainline-integration-01/frozen-source/`，

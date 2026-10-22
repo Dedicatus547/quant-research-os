@@ -9,6 +9,21 @@
 
 ## 当前落点
 
+2026-10-22：公告理解试点离线工具及本地 Evidence Store 已提交本地 main `7d27c1f`，
+见[源码采用范围](docs/releases/announcement-understanding-pilot-2026-10-22.md)。
+16份已曝光材料的冻结整份成功均为0/16，38项事后人工复核已完成，不回写冻结分数。
+工作区遗留文档及两份实验脚本的处理见[收尾审核](docs/reviews/workspace-review-2026-10-22.md)。
+
+2026-10-20：[持仓缓冲对照](artifacts/holding-retention-20261020/run-01/report.txt)已完成。
+固定20日收益率信号、周度Top50，唯一改动为前60名持仓保留缓冲；换手35.0089→30.5188、
+费用约下降12%，仍未达原阈值12。净累计收益改善0.4240个百分点伴随毛结果下降及实际暴露变化，
+不支持延长最低持有期或生产采用。新结果无完整Validation，`NOT_EVALUATED`，旧拒绝不变。
+真实新候选→科学→反馈→后继决策仍待证，不能以诊断回测补记该闭环。
+[本轮决策](artifacts/research-next-decision-20261020/decision.md)建议暂停新增同类实验，R5/R6继续暂缓；
+唯一平滑候选仍属历史条件草案，尚不可执行，不自动发送旧准备指令或转移预算。
+10月20日该轮仅整理文档与有限静态接口分析，详见[持久交接](artifacts/research-next-decision-20261020/handoff.md)。
+脚本原字节与原证据保留；10月22日归档位置见上述收尾审核。
+
 2026-10-19：新增[交付收敛与后续研究实施计划](docs/roadmap/quantos-delivery-consolidation-execution-plan-2026-10-19.md)
 及[Codex 启动指令](docs/roadmap/quantos-delivery-consolidation-start-2026-10-19.txt)。R0–R4 已完成，
 PR #4 普通合并为 `3c3ce8c80925b83bf424abbcecbd44ff4b30b446`，合并后 CI 成功，原持久目标已关闭；
@@ -72,6 +87,7 @@ A1 V4后继r10两步工程闭环完成，控制器/守卫exit0、清理核验通
 
 | 工作 | 当前处理 | 启动条件 |
 |---|---|---|
+| 持仓缓冲后研究决策 | 固定对照已完成；换手/费用下降但换手仍超12，无完整Validation；建议暂停同类新增实验 | 见[决策](artifacts/research-next-decision-20261020/decision.md)：须有足以支持成本的具体新信息价值依据，再准备新任务/包/预算；不为补闭环强行运行 |
 | 首次 STOP 后 N0–N4 | N0–N3 完成；N4 真实首次 STOP，见[集成记录](docs/releases/adaptive-closure-integration-2026-10-18.md) | 当前任务已终态；新实验须有具体研究理由、新包及新授权，不复用未用额度 |
 | 有界反馈研究 AR0–AR5 | 源码已集成、定向离线模拟完成；真实首次 STOP 已核对，见[集成记录](docs/releases/bounded-adaptive-integration-2026-10-18.md) | 下一步补真实新方案/科学/反馈后决策证据；须有具体研究理由、新任务及预算，不强迫生成或重用旧额度 |
 | 有界执行版 D0–D3 | 最小本机形状已完成，正常执行路径工程接受绑定 `29fef56`；见完成核对 | 下一任务先复用完成原件，核对支持形状并准备新的输入身份、独立输出、预算与外发授权；不重跑已耗尽 campaign |
