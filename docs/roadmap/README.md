@@ -5,6 +5,11 @@
 
 ## 当前开发入口
 
+- [自用量化研究产品实施计划（2026-10-22）](quantos-personal-research-product-2026-10-22.md)：
+  用户给方向、模型设计策略；本机任意Codex会话通过统一Skill/MCP进行量价与公告研究、回测比较及条件性前瞻模拟。
+  含模型/强度分工、复用方案、工作包和边界；[启动指令](quantos-personal-research-product-start-2026-10-22.txt)。
+  已交付有限本地实现、用户级Skill/MCP安装与受阻真实研究准备，见[使用说明](../guides/personal-research-product.md)。
+  工程演练不代表真实市场/前瞻能力；实际Codex新会话调用待重启验证，真实研究未启动。
 - [交付收敛与后续研究实施计划（2026-10-19）](quantos-delivery-consolidation-execution-plan-2026-10-19.md)：
   将项目审核落实为 R0–R4 的格式修复、独立环境准备、安全失败诊断、定向验证与源码发布；
   一个主会话按模型能力自动分工，附[完整启动指令](quantos-delivery-consolidation-start-2026-10-19.txt)。

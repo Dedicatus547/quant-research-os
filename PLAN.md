@@ -9,6 +9,15 @@
 
 ## 当前落点
 
+2026-10-22 新产品方向：优先交付“用户提供方向、模型设计策略”的自用量化研究助手，
+本机任意Codex会话通过统一Skill/MCP调用，覆盖量价/公告、回测对照及条件性前瞻模拟。
+见[实施计划](docs/roadmap/quantos-personal-research-product-2026-10-22.md)及
+[启动指令](docs/roadmap/quantos-personal-research-product-start-2026-10-22.txt)。
+本地有限实现、用户级安装与首个受阻研究包已交付，见[使用说明](docs/guides/personal-research-product.md)。
+小型Qlib工程演练7/7完成、科学NOT_EVALUATED；真实市场适配及连续前瞻账户仍有明确缺口，真实研究/模拟均未启动。
+本轮原件和唯一主交接位于 `artifacts/personal-research-product-20261022/run-01/`；U7/U8另按实际数据与预算进入。
+不要求AI-vs-人或无关能力比赛，不把用户主观操作逐项固化；以下历史科学停止与资格结论保持原身份。
+
 2026-10-22：公告理解试点离线工具及本地 Evidence Store 已提交本地 main `7d27c1f`，
 见[源码采用范围](docs/releases/announcement-understanding-pilot-2026-10-22.md)。
 16份已曝光材料的冻结整份成功均为0/16，38项事后人工复核已完成，不回写冻结分数。
