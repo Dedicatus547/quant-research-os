@@ -24,16 +24,20 @@ with redirect_stdout(sys.stderr):
 
 
 def create_server(
-    root: Path, repo_root: Path, *, research_service: PersonalResearchService | None = None
+    root: Path,
+    repo_root: Path,
+    *,
+    research_service: PersonalResearchService | None = None,
+    server_config: Path | None = None,
 ) -> FastMCP:
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
 
     root, repo_root = explicit_root(root), explicit_root(repo_root)
     if research_service is None:
-        from quantos.application.personal_research import PersonalResearchService
+        from quantos.application.personal_server_config import make_trusted_service
 
-        research_service = PersonalResearchService(root, repo_root)
+        research_service = make_trusted_service(root, repo_root, server_config)
     evidence = PersonalEvidenceService(root, repo_root)
     from quantos.application.personal_history import PersonalHistoryService
 
@@ -68,6 +72,10 @@ def create_server(
             "inventory_admission": "DESCRIPTIVE_ONLY_NOT_AN_EXECUTABLE_DATASET_BINDING",
             "live_data_updated_at": None,
         }
+
+    def research_data_describe(dataset_id: str | None = None) -> dict[str, Any]:
+        """Describe server-bound immutable datasets, availability policies and source gaps."""
+        return research_service.data_describe(dataset_id)
 
     def research_history(limit: int = 20, query: str = "") -> dict[str, Any]:
         """Find persisted research tasks across sessions, without mutable latest selection."""
@@ -135,6 +143,7 @@ def create_server(
         return evidence.import_local(intake_manifest)
 
     server.add_tool(research_capabilities, annotations=read)
+    server.add_tool(research_data_describe, annotations=read)
     server.add_tool(research_history, annotations=write)
     server.add_tool(research_retained_read, annotations=read)
     server.add_tool(research_prepare, annotations=write)
@@ -163,8 +172,14 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Explicit absolute source/evidence repository root",
     )
+    parser.add_argument(
+        "--server-config",
+        type=Path,
+        default=None,
+        help="Operator-owned config; default <root>/server-config.json if present",
+    )
     args = parser.parse_args(argv)
-    server = create_server(args.root, args.repo_root)
+    server = create_server(args.root, args.repo_root, server_config=args.server_config)
     server.run(transport="stdio")
     return 0
 

@@ -19,11 +19,14 @@ from quantos.artifacts.store import (
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.personal_research import (
+    HS300DatasetManifest,
+    HS300StudyRequest,
     PersonalCandidate,
     PersonalDatasetManifest,
     PersonalStudyRequest,
     PersonalStudyRequestV2,
     PersonalTaskEvent,
+    PreparedHS300Study,
     PreparedStudy,
 )
 
@@ -32,14 +35,16 @@ from quantos.contracts.personal_research import (
 class PersonalDatasetBinding:
     """Trusted catalog binding: no filesystem paths are accepted through tool requests."""
 
-    manifest: PersonalDatasetManifest
+    manifest: PersonalDatasetManifest | HS300DatasetManifest
     provider_root: Path
     panel_path: Path
     pit_evidence_path: Path | None = None
+    snapshot_path: Path | None = None
 
 
-Authorizer = Callable[[PreparedStudy], str | None]
-Executor = Callable[[PreparedStudy, Path, Callable[[], bool]], dict[str, Any]]
+Prepared = PreparedStudy | PreparedHS300Study
+Authorizer = Callable[[Prepared], str | None]
+Executor = Callable[[Prepared, Path, Callable[[], bool]], dict[str, Any]]
 
 
 def _identity(value: str) -> str:
@@ -71,12 +76,14 @@ class PersonalResearchService:
         repo_root: Path,
         *,
         catalog: Mapping[str, PersonalDatasetBinding] | None = None,
+        data_blockers: tuple[str, ...] = (),
         execution_authorizer: Authorizer | None = None,
         executor: Executor | None = None,
     ) -> None:
         self.root = root.absolute()
         self.repo_root = repo_root.absolute()
         self.catalog = dict(catalog or {})
+        self.data_blockers = data_blockers
         for key, binding in self.catalog.items():
             if key != binding.manifest.dataset_id:
                 raise ValueError("dataset catalog identity disagrees")
@@ -129,8 +136,36 @@ class PersonalResearchService:
         }
         return {"sources": dependencies, "environment": environment, "python": sys.version}
 
-    def _code_hash(self) -> str:
-        return sha256_bytes(canonical_json_bytes(self.dependency_manifest()))
+    def _code_hash(self, *, hs300: bool = False) -> str:
+        manifest = self.dependency_manifest()
+        if hs300:
+            sources = cast(dict[str, str], manifest["sources"])
+            for name in (
+                "src/quantos/research/hs300_data.py",
+                "src/quantos/application/personal_server_config.py",
+                "src/quantos/application/hs300_worker.py",
+                "src/quantos/infrastructure/hosted_storage.py",
+                "src/quantos/infrastructure/hosted_deployment.py",
+                "src/quantos/infrastructure/hosted_regression_runtime.py",
+                "src/quantos/research/hs300_exchange.py",
+                "scripts/run_hs300_study.py",
+            ):
+                sources[name] = sha256_bytes((self.repo_root / name).read_bytes())
+            import sys
+            from importlib.metadata import distribution
+
+            native = distribution("pyqlib")
+            for name in (
+                "qlib/backtest/report.py",
+                "qlib/backtest/high_performance_ds.py",
+                "qlib/backtest/utils.py",
+                "qlib/strategy/base.py",
+            ):
+                sources[name] = sha256_bytes(Path(str(native.locate_file(name))).read_bytes())
+
+            for executable in ("/usr/bin/bwrap", "/usr/bin/timeout", sys.executable):
+                sources["executable:" + executable] = sha256_bytes(Path(executable).read_bytes())
+        return sha256_bytes(canonical_json_bytes(manifest))
 
     def capabilities(self) -> dict[str, Any]:
         return {
@@ -138,10 +173,12 @@ class PersonalResearchService:
             "proposal_origin": "host-session-proposal/v2",
             "retained_proposal_origins": ["host-session-proposal/v1"],
             "authenticated_model_identity": False,
-            "profile": "daily-mainboard-trend/v1",
+            "profile": "hs300-daily-trend-tushare/v1",
+            "retained_profiles": ["daily-mainboard-trend/v1"],
             "tools": [
                 "capabilities",
                 "history",
+                "data_describe",
                 "prepare",
                 "status",
                 "execute",
@@ -150,6 +187,7 @@ class PersonalResearchService:
                 "simulation_prepare",
             ],
             "datasets": [b.manifest.model_dump(mode="json") for b in self.catalog.values()],
+            "data_blockers": self.data_blockers,
             "execution_authorization_configured": self._authorizer is not None,
             "execution_mode": "synchronous_single_worker_no_automatic_unknown_retry",
             "real_market_execution_default": "DENIED",
@@ -157,10 +195,142 @@ class PersonalResearchService:
             "simulation": "prepare_only_native_account_continuation_not_qualified",
         }
 
+    def data_describe(self, dataset_id: str | None = None) -> dict[str, Any]:
+        """Describe only trusted catalog entries, never admit client-supplied paths."""
+        if dataset_id is not None and dataset_id not in self.catalog:
+            raise ValueError("dataset_id is not registered by this server")
+        bindings = (
+            [self.catalog[dataset_id]] if dataset_id is not None else list(self.catalog.values())
+        )
+        return {
+            "schema_version": "personal-data-description/v2",
+            "datasets": [binding.manifest.model_dump(mode="json") for binding in bindings],
+            "data_blockers": self.data_blockers,
+            "admission": "SERVER_BOUND_IMMUTABLE_MANIFESTS_ONLY",
+            "market_source": "Tushare Pro; snapshot acquisition only; all research offline",
+            "membership": (
+                "conservative historical intervals, not official exact daily effective dates"
+            ),
+            "vendor_vintage_claim": False,
+            "company_information": {
+                "source": "Tushare actual returned entitled fields only",
+                "announcement_entitlement": "UNKNOWN",
+                "historical_feature_admission": "NOT_ADMITTED",
+                "external_pdf_download": "DISABLED",
+                "old_local_materials": "retained auxiliary evidence; not relabelled Tushare",
+            },
+        }
+
+    def _prepare_hs300(self, request: Mapping[str, object]) -> dict[str, Any]:
+        proposed = HS300StudyRequest.model_validate(dict(request))
+        binding = self.catalog.get(proposed.dataset_id or "")
+        manifest = binding.manifest if binding else None
+        gaps: list[str] = []
+        if manifest is not None and not isinstance(manifest, HS300DatasetManifest):
+            raise ValueError("HS300 request requires a personal-dataset/v2 binding")
+        if manifest is None:
+            gaps.append("No server-bound immutable HS300/Tushare dataset for this request")
+            gaps.extend(self.data_blockers)
+        else:
+            from quantos.research.hs300_data import verify_hs300_binding
+
+            assert binding is not None
+            try:
+                verify_hs300_binding(binding)
+            except (ValueError, OSError, ArtifactIntegrityError) as error:
+                gaps.append("HS300 binding verification failed: " + type(error).__name__)
+            if proposed.warmup_start != manifest.warmup_start:
+                gaps.append("Requested warmup differs from the immutable dataset warmup")
+            if proposed.benchmark not in manifest.benchmarks:
+                gaps.append("Requested benchmark is not bound to the immutable dataset")
+            if proposed.start_date is None:
+                proposed = proposed.model_copy(
+                    update={"start_date": manifest.start_date, "end_date": manifest.end_date}
+                )
+            assert proposed.start_date is not None and proposed.end_date is not None
+            if proposed.start_date < manifest.start_date or proposed.end_date > manifest.end_date:
+                gaps.append("Requested evaluation dates exceed the bound data coverage")
+        if proposed.end_date is not None and proposed.end_date > date.today():
+            gaps.append("Future evaluation dates cannot be backtested")
+        candidates = (
+            PersonalCandidate(
+                candidate_id="main",
+                role="main",
+                rule=(
+                    "As-of historical HS300, benchmark close>SMA20, complete stock history, "
+                    "non-ST and unsuspended; adjusted close>SMA20, positive 5-session return, "
+                    "amount_cny/prior-5-session-mean>=1.2; "
+                    "rank momentum descending/code ascending. "
+                    "Daily top10, 0.09 target each, next actual session open; remove when "
+                    "ineligible/displaced, no fixed holding ceiling; native fills only."
+                ),
+            ),
+            PersonalCandidate(
+                candidate_id="classic",
+                role="classic",
+                rule=(
+                    "Same historical HS300, benchmark regime, costs, schedule and targets; "
+                    "adjusted close>SMA20, rank close/SMA20-1; no amount or positive5 screen."
+                ),
+            ),
+            *(
+                PersonalCandidate(
+                    candidate_id=f"random-{seed}",
+                    role="random",
+                    seed=seed,
+                    rule=(
+                        "Same main eligibility, schedule, weights, fees and exit rule; "
+                        "SHA256(seed,signal_date,instrument) rank. "
+                        "Conditional selection comparator; "
+                        "realized holdings/exits/exposure differ; "
+                        "no significance claim from five seeds."
+                    ),
+                )
+                for seed in (17, 41, 73, 101, 137)
+            ),
+        )
+        prepared = PreparedHS300Study(
+            request=proposed,
+            dataset_manifest=manifest,
+            code_hash=self._code_hash(hs300=True),
+            candidates=candidates,
+            readiness="BLOCKED" if gaps else "READY_FOR_AUTHORIZATION",
+            gaps=tuple(gaps),
+            rationale=(
+                "Explicit daily HS300/Tushare successor: "
+                "price trend and turnover amount confirmation; "
+                "all index boards included under conservative historical membership availability. "
+                "No THS or mainboard intersection. Company information is auxiliary only."
+            ),
+            comparison_scope=(
+                "1 main + 1 classic + seeds 17/41/73/101/137; no training/retry/revision"
+            ),
+            limits=(
+                "Retrospective exploration; scientific NOT_EVALUATED",
+                "Historical non-vintage; monthly membership is not an exact official daily event",
+                "Fixed all-in fee scenario, not reconstructed historical taxes/broker slippage",
+                "Uniform 200-share research lot; native limits/liquidity; scenario fills",
+                "Native ST blocks buys and sells; an existing ST holding can remain blocked",
+                (
+                    "Native target-order prechecks can block both directions on either daily "
+                    "limit, including the prior signal-session check"
+                ),
+                (
+                    "Full-session execution-day volume caps open-price fills retrospectively; "
+                    "no opening-auction liquidity guarantee"
+                ),
+                "Announcement entitlement UNKNOWN; titles/links cannot prove no adverse news",
+                "No collection, external PDF, research SDK, broker or forward execution",
+            ),
+        )
+        return self._persist_prepared(prepared)
+
     def prepare(self, request: Mapping[str, object]) -> dict[str, Any]:
         from quantos.security.artifact_secrets import validate_secret_free
 
         validate_secret_free(dict(request), file_name="personal-study-request.json")
+        if request.get("schema_version") == "personal-study-request/v3":
+            return self._prepare_hs300(request)
         request_type = (
             PersonalStudyRequest
             if request.get("schema_version") == "personal-study-request/v1"
@@ -170,6 +340,8 @@ class PersonalResearchService:
         binding = self.catalog.get(proposed.dataset_id or "")
         gaps: list[str] = []
         manifest = binding.manifest if binding else None
+        if manifest is not None and not isinstance(manifest, PersonalDatasetManifest):
+            raise ValueError("HS300 datasets require personal-study-request/v3")
         if manifest is None:
             gaps.append(
                 "No server-bound immutable dataset for the requested full-mainboard/THS scope"
@@ -275,6 +447,10 @@ class PersonalResearchService:
                 ),
             ),
         )
+        return self._persist_prepared(prepared)
+
+    def _persist_prepared(self, prepared: Prepared) -> dict[str, Any]:
+        proposed = prepared.request
         task_id = prepared.content_hash
         with exclusive_directory_lock(self.root):
             index_dir = self.root / "idempotency"
@@ -298,11 +474,17 @@ class PersonalResearchService:
             self._write(index_dir, name, receipt)
         return {"task_id": task_id, **prepared.model_dump(mode="json")}
 
-    def _prepared(self, task_id: str) -> PreparedStudy:
+    def _prepared(self, task_id: str) -> Prepared:
+        import json
+
         task_id = _identity(task_id)
-        item = PreparedStudy.model_validate_json(
-            self._read(self.root / "tasks" / task_id, "prepared.json")
+        raw = self._read(self.root / "tasks" / task_id, "prepared.json")
+        contract = (
+            PreparedHS300Study
+            if json.loads(raw).get("schema_version") == "personal-study-prepared/v2"
+            else PreparedStudy
         )
+        item = contract.model_validate_json(raw)
         if item.content_hash != task_id:
             raise ArtifactIntegrityError("prepared task hash disagrees")
         return item
@@ -421,7 +603,9 @@ class PersonalResearchService:
                 if prepared.readiness != "READY_FOR_AUTHORIZATION":
                     self._append(task_id, "PREPARED", {"execution_denied": "blocked_inputs"})
                     raise PermissionError("study is blocked: " + "; ".join(prepared.gaps))
-                if prepared.code_hash != self._code_hash():
+                if prepared.code_hash != self._code_hash(
+                    hs300=isinstance(prepared, PreparedHS300Study)
+                ):
                     self._append(task_id, "PREPARED", {"execution_denied": "changed_dependencies"})
                     raise PermissionError(
                         "execution dependencies changed; prepare a successor package"
@@ -499,6 +683,15 @@ class PersonalResearchService:
     def _cancel_requested(self, task_id: str) -> bool:
         return self._events(task_id)[-1].state == "CANCEL_REQUESTED"
 
+    def worker_state(self, task_id: str) -> str:
+        """Read the verified ledger without reconciling a host PID in a child namespace.
+
+        The parent service alone owns liveness reconciliation and state writes.
+        A supervised PID namespace cannot observe the parent's host process ID.
+        """
+        self._prepared(task_id)
+        return self._events(task_id)[-1].state
+
     def cancel(self, task_id: str) -> dict[str, Any]:
         self._prepared(task_id)
         with exclusive_directory_lock(self.root):
@@ -523,6 +716,8 @@ class PersonalResearchService:
         terminal = self._events(task_id)[-1]
         outcome_hash = terminal.detail.get("outcome_hash")
         committed_receipts: dict[str, str] | None = None
+        comparison: dict[str, Any] | None = None
+        comparison_hash: str | None = None
         if outcome_hash is not None:
             from quantos.artifacts.store import verify_file
 
@@ -532,6 +727,23 @@ class PersonalResearchService:
             outcome = json.loads(outcome_bytes)
             if outcome.get("prepared_hash") != prepared.content_hash:
                 raise ArtifactIntegrityError("outcome prepared identity disagrees")
+            if isinstance(prepared, PreparedHS300Study):
+                comparison_hash = outcome.get("comparison_sha256")
+                if comparison_hash is not None:
+                    raw_comparison = self._read(execution, "comparison.json")
+                    if sha256_bytes(raw_comparison) != comparison_hash:
+                        raise ArtifactIntegrityError("comparison hash disagrees with outcome")
+                    comparison = json.loads(raw_comparison)
+                    assert comparison is not None
+                    if (
+                        comparison.get("prepared_hash") != prepared.content_hash
+                        or comparison.get("planned_denominator") != len(prepared.candidates)
+                        or [row.get("candidate_id") for row in comparison.get("rows", [])]
+                        != [candidate.candidate_id for candidate in prepared.candidates]
+                    ):
+                        raise ArtifactIntegrityError("comparison identity or denominator disagrees")
+                elif outcome.get("run_status") == "SUCCEEDED":
+                    raise ArtifactIntegrityError("HS300 success has no immutable comparison")
             committed_receipts = {}
             for entry in outcome.get("receipts", []):
                 candidate_id = entry["candidate_id"]
@@ -600,6 +812,11 @@ class PersonalResearchService:
             "planned_denominator": len(rows),
             "succeeded_denominator": sum(row["run_status"] == "SUCCEEDED" for row in rows),
             "rows": rows,
+            **(
+                {"comparison": comparison, "comparison_sha256": comparison_hash}
+                if isinstance(prepared, PreparedHS300Study)
+                else {}
+            ),
             "comparison_scope": prepared.comparison_scope,
             "interpretation": (
                 "Missing/failed results are absent, never zero; all predeclared candidates retained"

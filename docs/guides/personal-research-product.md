@@ -1,62 +1,97 @@
 # 个人量化研究入口
 
-## 安装与状态
+当前后继是 `hs300-daily-trend-tushare/v1`：仅当时可获得的沪深300历史成员，Tushare Pro
+为市场数据唯一来源，每日收盘后研究、下一交易日开盘执行。包括指数中的非主板股票，
+不再求主板交集，也不要求同花顺。旧 `daily-mainboard-trend/v1` 合同、任务与失败原件保留。
+实施与真实研究分开；当前完整2023–2025区间 **BLOCKED / NOT_EVALUATED**。
 
-产品 Skill 位于仓库 `skills/quantos-research`，用户目录 `~/.agents/skills/quantos-research` 指向该目录。MCP 服务名为 `quantos_research`，配置在 `~/.codex/config.toml`。安装器只管理这个 Skill 和 MCP 项；配置备份保存在 `~/.codex/backups/quantos-personal-research/`。安装或卸载后重启 Codex。
+## 实际接线与边界
 
-服务使用 `.tools/personal-research-mcp-1.26.0/bin/python -B` 和官方 MCP Python SDK 1.26.0。环境里的只读 `.pth` 将源码目录及原 `.venv` 科学环境加入解释器路径；原科学环境没有升级。
+实现位于 `contracts/personal_research.py`、`application/personal_research.py`、
+`application/personal_server_config.py`、`application/hs300_worker.py` 与
+`research/hs300_data.py`、`research/hs300_exchange.py`、`research/personal_qlib.py`。
+使用 Qlib 0.9.7 Workflow、PortAnaRecord、目标权重策略、Exchange 和 Simulator；项目不实现撮合或账户会计。
 
-以下命令可在仓库目录直接粘贴。产品数据根目录固定为本次安装所用的 `artifacts/personal-research-product-20261022/run-01/product`。
+- 主策略：基准和个股收盘高于SMA20、个股5日收益为正、当日成交额／前5日均成交额至少1.2；
+  按5日收益降序、代码升序选前10名，每名目标9%，不足10名保留现金。
+- 经典对照：相同历史池、市场环境、目标、成本与日频计划，以close/SMA20−1排序，
+  不要求成交额确认或5日收益为正。随机对照保留主策略资格，以17/41/73/101/137固定种子排序。
+- 每日更新目标，失去资格或被替换后于下一交易日尝试退出；没有固定3日持有上限。
+  原生未成交、受限持仓及实际暴露均保留，不能把目标退出描述为已成交退出。
+- 100万元本金，买0.05%、卖0.15%、最低5元为固定全包研究成本情景，非逐日历史税费重建。
+  统一200股为较粗交易单位情景，非精确分板块零股规则。每日限价采用canonical原始up/down limit，
+  在原生Exchange上按开盘价约束；复权factor用于原始股数换算。
+- ST限制同时禁买卖；原生目标订单预检可能在任一方向限价时双向跳过，且使用前一信号日预检。
+  全天成交量10%只是日频事后容量上限，不能保证开盘或集合竞价实际流动性。
+- 成员可用时间使用既有保守次交易日09:00与有界区间政策，不声称官方精确逐日生效或历史vendor vintage。
+  日线不重建盘中路径。旧质量/健康/PIT证明仅按原来源及其实际采用范围复用，不改标为新策略科学PASS。
 
-```sh
-cd /home/zjw/quant-research-os
-PYTHON=/home/zjw/quant-research-os/.tools/personal-research-mcp-1.26.0/bin/python
-ROOT=/home/zjw/quant-research-os/artifacts/personal-research-product-20261022/run-01/product
+## MCP与服务端配置
 
-"$PYTHON" -B scripts/install_personal_research.py status \
-  --repo-root /home/zjw/quant-research-os --root "$ROOT" --python "$PYTHON"
-```
+Skill 在 `skills/quantos-research`，用户目录链接与原MCP安装保留。官方SDK解释器为
+`.tools/personal-research-mcp-1.26.0/bin/python -B`；科学依赖使用已有环境，不新增研究SDK。
+固定产品根是 `artifacts/personal-research-product-20261022/run-01/product`。
 
-重新安装时将 `status` 换成 `install`。卸载产品条目与 Skill 链接用：
+新服务共16工具：研究 `research_capabilities`、`research_data_describe`、`research_history`、
+`research_retained_read`、`research_prepare`、`research_status`、`research_execute`、
+`research_cancel`、`research_results`、`research_simulation_prepare`；公告六工具沿用原入口。
+既有真实Codex只读连通收据复用；本轮只核对改变的本地工具表面与服务接口，没有重复安装或连通检查。
+运行中的MCP进程需重启后加载新工具与配置，不能把当前旧进程说成已经热更新。
 
-```sh
-"$PYTHON" -B scripts/install_personal_research.py uninstall \
-  --repo-root /home/zjw/quant-research-os --root "$ROOT" --python "$PYTHON"
-```
+服务默认读取固定产品根下的 `server-config.json`，也支持本地启动参数 `--server-config`。
+配置路径、catalog原件路径及授权文件均不属于MCP参数。配置缺省时没有数据准入或执行授权；
+当前配置保存具体来源阻塞项，`authorization_path`为null，不注册不完整市场面板。
+`approved=true`、模型自报批准和提案文字不能授予执行权。
 
-目前安装状态检查显示 Skill 与 MCP 配置均匹配，原配置中的其他项目得到保留并已备份。SDK 1.26.0 的两次独立服务连接分别从 `/tmp` 和 `/` 启动，能跨工作目录查到同一个 `BLOCKED` 任务，说明服务状态使用固定产品根目录。当前 Codex 会话不能刷新 MCP；实际新 Codex 会话的工具调用仍待确认，不能据 SDK 检查声称客户端验收通过。重启后可让新会话先列出 `quantos_research` 工具并调用 `research_capabilities`。
+可信本地授权必须另行绑定prepared/code/dataset/profile、完整七候选、实际批准原件hash、到期时间、
+wall与宿主完整增长界限及既有storage policy。真实启动复用单重worker、宿主全局存储lease、
+PID namespace和timeout。取消在候选边界生效；UNKNOWN不自动重发，终态不可续跑。
+worker只读核验任务链，不在隔离PID视图内判断宿主父进程存活。PIT硬拒绝原因跨进程保留；
+真实退出、失败和部分完成结果不改写。
 
-## 工具与研究边界
-
-服务入口在 `src/quantos/personal_research_mcp.py`，通过 `src/quantos/application/personal_research.py`、证据/历史服务及 `src/quantos/contracts/personal_research.py` 提供能力。共提供 15 个工具：
-
-- 研究：`research_capabilities`、`research_history`、`research_retained_read`、`research_prepare`、`research_status`、`research_execute`、`research_cancel`、`research_results`、`research_simulation_prepare`。
-- 公告材料：`announcement_list`、`announcement_read`、`announcement_cite`、`announcement_propose`、`announcement_review`、`announcement_import_local`。
-
-默认没有真实市场研究执行授权。`research_prepare` 保存研究提案和准备状态，不会运行回测；`research_execute` 只有在服务端已有匹配授权时才可能执行，工具参数本身不能授权。`research_simulation_prepare` 只准备条件性请求，不启动前瞻模拟或定时任务。`research_history` 和 `research_status` 在对账未知状态时可能补记状态事件，因此它们可能留下持久记录。
-
-当前有限策略方向是 `daily-mainboard-trend/v1`：收盘后形成日频信号、下一交易日开盘执行，以趋势、量价和同花顺板块资格构成提案；不把日线解释成盘中策略。具体规则由模型按可用数据提出并说明。用户无需手填哈希或普通策略参数；后续操作使用工具返回的明确任务 ID 和证据 ID。
-
-本机已有真实快照仅覆盖沪深300，不能代表全体主板。同花顺 `ths_member` 的公开接口说明目前只提供最新成分，未提供可用的纳入/剔除日期；因此真实全主板与同花顺历史成员组合仍受阻。[同花顺板块成分接口说明](https://tushare.pro/document/2?doc_id=261)。真实数据 PIT 与时点费用适配器尚未接纳。现阶段只导出了原生 Qlib 历史账户/持仓产物，尚未实现跨不同数据视图的连续账户推进，真实前瞻模拟尚未启动。
-
-已完成的小型合成演练中，主策略、经典对照和 5 个固定随机种子共 7 项均生成了 Qlib 账户输出；其科学判定仍为 `NOT_EVALUATED`。这验证的是工程路径，不代表真实市场结论或策略通过。旧诊断、REJECT 和失败记录只保留原件供读取，没有重跑或改写结论。
-
-公告入口目前列有 27 份本地材料，但权限和历史可用时间均为 `UNKNOWN`，研究准入未授予。引用检查只能核对原文位置，不能证明语义正确；辅助阅读也不能推出“没有利空”。需要明确材料 ID 后再读和引用，不要把这些材料当成历史交易特征。
-
-## 可直接使用的提问
+可在MCP发出：
 
 ```text
-请研究A股主板短线趋势，结合同花顺板块与量价，公告作为辅助风险分析。先查当前能力和已有结果，自行提出完整规则及对照，用research_prepare保存提案并解释数据缺口；普通指标参数由你决定，不执行真实研究。
-
-请只检查当前研究能力、历史目录和公告目录，列出明确的数据范围、权限和历史可用时间未知项。不要准备或执行研究；如核对历史状态会写入对账事件，请指出这一点。
-
-请根据公告目录中我指定的材料 ID 读取原文并核对精确引用，说明哪些判断只是辅助分析提案、哪些权限或可用时间仍未知。不要推断历史上没有利空，也不要把结论纳入策略。
-
-请基于当前能力说明全主板、同花顺历史成员、PIT 和费用适配分别缺什么，并给出下一步需要我审阅的具体数据或研究准备范围。不要用沪深300替代全主板，也不要启动执行。
+请读取research_capabilities、research_data_describe与research_history，说明沪深300后继的
+实际来源阻塞和固定七候选；不执行真实研究，也不采集或下载公告。
 ```
 
-目录查询可使用 `research_history`，读取已登记的旧报告可使用 `research_retained_read`；针对某项明确任务，使用 `research_status` 与 `research_results`。公告阅读链路是 `announcement_list` → `announcement_read` → `announcement_cite`，必要时再用 `announcement_propose` 和 `announcement_review`。提案和引用审查都不自动完成研究准入。
+准备请求示例（dataset_id只使用服务端实际返回的匹配ID；无匹配时准备为BLOCKED）：
 
-首个真实方向已保存为受阻提案 `a49f263b832df681ccd687193df336bd924afd4a04881ac7b34929e71c09f12c`。
-具体设计、来源差异与唯一后续审批点见 `artifacts/personal-research-product-20261022/run-01/first-study-proposal.md`；
-实际绑定包在同根 `first-study-final/`，主交接为 `handoff.md`。缺数据/真实适配时不提供伪可执行的市场运行命令。
+```json
+{"schema_version":"personal-study-request/v3","idempotency_key":"hs300-example-01","brief":"沪深300Tushare日频趋势与成交额确认","proposal":{"session_id":"outer-session"},"start_date":"2023-01-09","end_date":"2025-12-29","warmup_start":"2022-11-01"}
+```
+
+本地操作入口：
+
+```sh
+/home/zjw/quant-research-os/.tools/personal-research-mcp-1.26.0/bin/python -B \
+  /home/zjw/quant-research-os/scripts/run_hs300_study.py describe \
+  --config /home/zjw/quant-research-os/artifacts/personal-research-product-20261022/run-01/product/server-config.json
+```
+
+将 `describe` 换为 `prepare --request <明确请求文件>`，或
+`status|results|cancel|execute --task <明确task hash>`。当前 `execute` 会拒绝，不能用此命令绕过阻塞或授权。
+后继完整数据改变时必须准备新任务，不给旧BLOCKED或终态包补换输入。
+
+## 完整真实区间的具体缺口
+
+snapshot `6297a968…` / view `fc809bed…` 的原件、消费表hash与既有质量证明已核对。
+`bars.amount_cny`是实际CNY成交额，不以volume代替；bar/factor/member/status可用时间参与信号截止。
+完整预热2022-11-01、评价2023-01-09至2025-12-29的来源适配实际失败：
+
+- `600837.SH`：2025-03-04至03-31，20个成员／交易日缺bars且无suspensions。
+- `601989.SH`：2025-09-05至09-30，18个成员／交易日同样缺失。
+
+月度成员区间延伸到 `instruments.delist_date`之后。该表没有足够的生命周期历史可用时间及
+吸并/退市持仓处置证明；不能补零、按事后metadata静默裁剪成员或自造现金结算。
+`build_hs300_panel`硬拒绝，未生成可准入的完整面板，也没有运行真实策略。
+需要有时点证据的生命周期输入及可复用的原生账户处置路线，再形成明确后继包。
+既有storage policy的64 MiB scratch硬配额挂载也需宿主操作员恢复；保留原安全余量与守卫。
+
+连续前瞻账户另受原生Account完整checkpoint、初始NAV分母和reset_report清空历史约束，
+未用Position字典或历史回放冒充实现。公告权限UNKNOWN，标题/链接不等于正文或“没有利空”；
+不新增采集、外部PDF下载，不把旧27份本地材料改标为Tushare来源或历史交易特征。
+
+本轮证据、失败、运行包、检查与唯一主入口见
+`artifacts/personal-research-product-20261022/run-01/handoff.md`的沪深300实施后继链接。

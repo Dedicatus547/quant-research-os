@@ -1,7 +1,8 @@
 """Finite rule signals and Qlib-native Workflow/Record/Exchange/Simulator execution.
 
 No fills, orders, positions or account balances are computed by project code.
-This successor adapter is engineering-qualified on synthetic inputs only.
+Market execution requires the separately bound HS300 successor dataset and trusted
+server authorization. This module never grants scientific execution authority.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from quantos.artifacts.store import (
     verify_file,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
-from quantos.contracts.personal_research import PreparedStudy
+from quantos.contracts.personal_research import PreparedHS300Study, PreparedStudy
 
 PANEL_COLUMNS = (
     "trade_date",
@@ -209,6 +210,7 @@ def _metrics(report: pd.DataFrame, indicators: pd.DataFrame) -> dict[str, Any]:
     return {
         "net_total_return": _finite(wealth.iloc[-1] - 1),
         "benchmark_total_return": _finite((1 + native_report["bench"]).prod() - 1),
+        "excess_total_return": _finite(wealth.iloc[-1] - (1 + native_report["bench"]).prod()),
         "max_drawdown": _finite((wealth / wealth.cummax().clip(lower=1) - 1).min()),
         "total_cost_cny": _finite(native_report["total_cost"].iloc[-1]),
         "total_turnover": _finite(native_report["turnover"].sum()),
@@ -217,6 +219,14 @@ def _metrics(report: pd.DataFrame, indicators: pd.DataFrame) -> dict[str, Any]:
         else None,
         "mean_risk_exposure": _finite((native_report["value"] / native_report["account"]).mean()),
         "sessions": len(report),
+        "yearly_net_returns": {
+            str(year): _finite((1 + part).prod() - 1) for year, part in net.groupby(net.index.year)
+        },
+        "actual_exposure": {
+            "mean": _finite((native_report["value"] / native_report["account"]).mean()),
+            "minimum": _finite((native_report["value"] / native_report["account"]).min()),
+            "maximum": _finite((native_report["value"] / native_report["account"]).max()),
+        },
         "subperiod_net_returns": [
             {
                 "start": str(part.index[0].date()),
@@ -229,13 +239,49 @@ def _metrics(report: pd.DataFrame, indicators: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def _native_order_rows(indicator: Any) -> pd.DataFrame:
+    """Export Qlib's observed orders/fills, without reconstructing executions."""
+    parts: list[pd.DataFrame] = []
+    for session, order_indicator in indicator.order_indicator_his.items():
+        # Qlib 0.9.7's SingleData.to_series passes its custom Index directly to
+        # pandas, which newer pandas rejects. Its public to_dict export preserves
+        # the exact same observed metric values without modifying Qlib objects.
+        values = {
+            metric: pd.Series(order_indicator.get_index_data(metric).to_dict(), dtype=float)
+            for metric in (
+                "amount",
+                "deal_amount",
+                "trade_dir",
+                "trade_price",
+                "trade_value",
+                "trade_cost",
+            )
+        }
+        if not values:
+            continue
+        frame = pd.DataFrame(values).rename_axis("instrument").reset_index()
+        frame["datetime"] = session
+        parts.append(frame)
+    if not parts:
+        return pd.DataFrame(
+            columns=["datetime", "instrument", "amount", "deal_amount", "trade_dir"]
+        )
+    return pd.concat(parts, ignore_index=True)
+
+
 class PersonalQlibExecutor:
     def __init__(self, catalog: Mapping[str, Any]) -> None:
         self.catalog = dict(catalog)
 
     def __call__(
-        self, prepared: PreparedStudy, root: Path, cancelled: Callable[[], bool]
+        self,
+        prepared: PreparedStudy | PreparedHS300Study,
+        root: Path,
+        cancelled: Callable[[], bool],
     ) -> dict[str, Any]:
+        # Qlib/MLflow switches cwd while recording. Every authority output must
+        # remain bound to the caller's root across that context switch.
+        root = root.absolute()
         qlib = cast(Any, importlib.import_module("qlib"))
         D = cast(Any, importlib.import_module("qlib.data")).D
         R = cast(Any, importlib.import_module("qlib.workflow")).R
@@ -250,20 +296,25 @@ class PersonalQlibExecutor:
         )
 
         manifest = prepared.dataset_manifest
-        if manifest is None or manifest.kind != "synthetic":
+        hs300 = isinstance(prepared, PreparedHS300Study)
+        if manifest is None or (manifest.kind != "synthetic" and not hs300):
             raise PermissionError("real-market successor PIT/cost adapter is not yet qualified")
         if qlib.__version__ != "0.9.7":
             raise RuntimeError("personal native adapter requires Qlib 0.9.7")
         binding = self.catalog[manifest.dataset_id]
         if binding.manifest != manifest:
             raise ValueError("server catalog changed after prepare")
+        if hs300:
+            from quantos.research.hs300_data import verify_hs300_binding
+
+            verify_hs300_binding(binding)
         if binding.pit_evidence_path is None:
             raise ValueError("PIT evidence original is missing")
         verify_file(binding.pit_evidence_path, manifest.pit_evidence_hash)
         import json
 
         pit = json.loads(binding.pit_evidence_path.read_bytes())
-        if (
+        if not hs300 and (
             pit.get("panel_sha256") != manifest.panel_sha256
             or pit.get("snapshot_hash") != manifest.snapshot_hash
             or pit.get("kind") != "synthetic"
@@ -273,13 +324,19 @@ class PersonalQlibExecutor:
         observed = {
             path.relative_to(binding.provider_root).as_posix(): path
             for path in regular_tree_files(binding.provider_root)
+            if not (hs300 and manifest.kind == "market" and path.name == "manifest.json")
         }
         if set(observed) != set(manifest.qlib_files):
             raise ValueError("Qlib cache file inventory changed")
         for logical, digest in manifest.qlib_files.items():
             verify_file(confined_regular_file(binding.provider_root, logical), digest)
         panel = pd.read_parquet(binding.panel_path)
-        signals = compile_daily_signals(panel, prepared)
+        if hs300:
+            from quantos.research.hs300_data import compile_hs300_daily_signals
+
+            signals = compile_hs300_daily_signals(panel, prepared)
+        else:
+            signals = compile_daily_signals(panel, prepared)
         receipts: list[dict[str, Any]] = []
         receipt: dict[str, Any]
         with _WORKFLOW_LOCK:
@@ -301,6 +358,10 @@ class PersonalQlibExecutor:
                 ["qlib_id", "datetime"]
             )
             aligned = features.reindex(indexed.index)
+            # The immutable view intentionally masks suspended OHLCV as NaN.
+            if hs300:
+                indexed = indexed.loc[~indexed["is_suspended"]]
+                aligned = aligned.reindex(indexed.index)
             for column, native in (("close", "$close"), ("volume", "$volume")):
                 if not np.allclose(
                     indexed[column], aligned[native], rtol=1e-6, atol=1e-6, equal_nan=True
@@ -316,12 +377,19 @@ class PersonalQlibExecutor:
                 try:
                     signal_bytes = pickle.dumps(signals[candidate.candidate_id], protocol=4)
                     atomic_write_bytes(destination / "signal.pkl", signal_bytes)
-                    config = self._config(prepared, signals[candidate.candidate_id])
+                    config = self._config(
+                        prepared, signals[candidate.candidate_id], binding=binding
+                    )
                     atomic_write_bytes(
                         destination / "native-config.json", canonical_json_bytes(config)
                     )
                     with _workflow_tracking_runtime(runtime, "frozen-field-study/v1") as uri:  # noqa: SIM117
-                        with R.start(experiment_name="personal-synthetic-v1", uri=uri):
+                        with R.start(
+                            experiment_name="personal-hs300-v1"
+                            if hs300
+                            else "personal-synthetic-v1",
+                            uri=uri,
+                        ):
                             recorder = R.get_recorder()
                             recorder.save_objects(
                                 **{"pred.pkl": signals[candidate.candidate_id], "label.pkl": None}
@@ -359,16 +427,42 @@ class PersonalQlibExecutor:
                             exports["native-config.json"] = sha256_file(
                                 destination / "native-config.json"
                             )
+                            metrics = _metrics(report, objects["indicators_normal_1day.pkl"])
+                            if hs300:
+                                orders = _native_order_rows(
+                                    objects["indicators_normal_1day_obj.pkl"]
+                                )
+                                stream = BytesIO()
+                                orders.to_parquet(stream, index=False)
+                                atomic_write_bytes(
+                                    destination / "native-orders.parquet", stream.getvalue()
+                                )
+                                exports["native-orders.parquet"] = sha256_file(
+                                    destination / "native-orders.parquet"
+                                )
+                                metrics["native_order_count"] = int(
+                                    orders["amount"].fillna(0).ne(0).sum()
+                                )
+                                metrics["native_filled_order_count"] = int(
+                                    orders["deal_amount"].fillna(0).ne(0).sum()
+                                )
+                                metrics["native_unfilled_order_count"] = int(
+                                    (
+                                        orders["amount"].fillna(0).ne(0)
+                                        & orders["deal_amount"].fillna(0).eq(0)
+                                    ).sum()
+                                )
                             receipt = {
                                 "schema_version": "personal-native-receipt/v1",
                                 "prepared_hash": prepared.content_hash,
                                 "candidate_id": candidate.candidate_id,
                                 "run_status": "SUCCEEDED",
                                 "validation_verdict": "NOT_EVALUATED",
-                                "evidence_kind": "synthetic",
+                                "evidence_kind": manifest.kind,
+                                "exposure": manifest.exposure,
                                 "qlib_version": qlib.__version__,
                                 "recorder_id": recorder.id,
-                                "metrics": _metrics(report, objects["indicators_normal_1day.pkl"]),
+                                "metrics": metrics,
                                 "files": exports,
                                 "signal_sha256": sha256_bytes(
                                     pickle.dumps(signals[candidate.candidate_id], protocol=4)
@@ -393,7 +487,7 @@ class PersonalQlibExecutor:
                         "run_status": receipt["run_status"],
                     }
                 )
-        return {
+        outcome = {
             "schema_version": "personal-native-outcome/v1",
             "prepared_hash": prepared.content_hash,
             "run_status": "SUCCEEDED"
@@ -404,13 +498,48 @@ class PersonalQlibExecutor:
             "planned_denominator": len(prepared.candidates),
             "receipts": receipts,
         }
+        if hs300:
+            by_id = {item["candidate_id"]: item for item in receipts}
+            comparison = {
+                "schema_version": "hs300-native-comparison/v1",
+                "prepared_hash": prepared.content_hash,
+                "planned_denominator": len(prepared.candidates),
+                "validation_verdict": "NOT_EVALUATED",
+                "comparison_scope": prepared.comparison_scope,
+                "rows": [
+                    {
+                        "candidate_id": candidate.candidate_id,
+                        "role": candidate.role,
+                        "seed": candidate.seed,
+                        "run_status": by_id.get(candidate.candidate_id, {}).get(
+                            "run_status", "MISSING"
+                        ),
+                        "receipt_hash": by_id.get(candidate.candidate_id, {}).get("receipt_hash"),
+                        "metrics": json.loads(
+                            (root / candidate.candidate_id / "receipt.json").read_bytes()
+                        ).get("metrics")
+                        if candidate.candidate_id in by_id
+                        else None,
+                    }
+                    for candidate in prepared.candidates
+                ],
+                "limits": prepared.limits,
+            }
+            atomic_write_bytes(root / "comparison.json", canonical_json_bytes(comparison))
+            outcome["comparison_sha256"] = sha256_file(root / "comparison.json")
+        return outcome
 
     @staticmethod
-    def _config(prepared: PreparedStudy, signal: pd.DataFrame) -> dict[str, Any]:
-        profile = prepared.request.profile
-        manifest = prepared.dataset_manifest
+    def _config(
+        prepared: PreparedStudy | PreparedHS300Study,
+        signal: pd.DataFrame,
+        *,
+        binding: Any = None,
+    ) -> dict[str, Any]:
+        profile: Any = prepared.request.profile
+        manifest: Any = prepared.dataset_manifest
         assert manifest is not None
-        return {
+        config: dict[str, Any] = {
             "strategy": {
                 "class": "FullReplacementTopKStrategy",
                 "module_path": "quantos.backtest.strategy",
@@ -449,3 +578,32 @@ class PersonalQlibExecutor:
                 },
             },
         }
+        if isinstance(prepared, PreparedHS300Study):
+            native = config["backtest"]["exchange_kwargs"]
+            native["trade_unit"] = profile.trade_unit_shares
+            if manifest.kind == "market" or (
+                binding is not None
+                and binding.snapshot_path is not None
+                and "canonical/price_limits.parquet" in manifest.source_files
+            ):
+                if binding is None or binding.snapshot_path is None:
+                    raise ValueError("HS300 native execution requires canonical daily limits")
+                native["subscribe_fields"] = ["$is_st"]
+                config["backtest"]["exchange_kwargs"] = {
+                    "exchange": {
+                        "class": "HS300OpenLimitExchange",
+                        "module_path": "quantos.research.hs300_exchange",
+                        "kwargs": {
+                            **native,
+                            "price_limits_path": str(
+                                (
+                                    binding.snapshot_path / "canonical/price_limits.parquet"
+                                ).absolute()
+                            ),
+                            "price_limits_sha256": manifest.source_files[
+                                "canonical/price_limits.parquet"
+                            ],
+                        },
+                    },
+                }
+        return config

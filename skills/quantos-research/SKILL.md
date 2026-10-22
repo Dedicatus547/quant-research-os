@@ -17,24 +17,44 @@ of target, source preference, expenditure, or disclosure. Check data coverage be
 around it. Index constituents cannot stand for all mainboard stocks; other sectors cannot
 stand for THS; daily data cannot recreate a five-minute exit.
 
-The current finite profile is `daily-mainboard-trend/v1`: daily after-close signal and next-open
-Qlib execution, market/trend/volume/THS eligibility, top-K targets, exit on loss of eligibility or
-displacement, and no fixed three-day ceiling. Read the returned candidate rules and limits;
-this is a distinct daily proposal, not a replication of intraday intuition. Unsupported rules
-need a development successor, not arbitrary Python or a proposal flag.
+The successor profile is `hs300-daily-trend-tushare/v1`: historical HS300 members available
+as of each after-close signal, Tushare Pro as the only market source, next-session open Qlib
+execution. It includes all index boards, without a mainboard intersection or THS dependency.
+The retained `daily-mainboard-trend/v1` remains readable under its original scope.
+Call `research_data_describe` to inspect registered immutable dataset IDs and policies before
+preparation. A descriptive historical inventory is not an executable binding.
 
-Prepare with `research_prepare` using a unique idempotency key, brief, and
-`proposal: {session_id: "<this-session-label>"}`. Include a server-returned dataset ID only
-when it matches the intended scope. The outer session supplies the proposal; do not nest a
-research SDK call. Leave unobservable model identity unknown. Preparation saves a proposal
-and does not execute. Read readiness and concrete gaps before discussing a run.
+Prepare with `research_prepare` and `schema_version: "personal-study-request/v3"`, a unique
+idempotency key, brief, `proposal: {session_id: "<this-session-label>"}`, and a matching
+server-returned dataset ID. Default benchmark is SH000300. First retrospective proposal:
+start 2023-01-09, end 2025-12-29, warmup_start 2022-11-01. The profile fixes SMA20, positive
+5-session return and turnover amount divided by the preceding 5-session mean >=1.2;
+rank momentum and select top10 with 9% targets each. Keep residual cash for fewer names.
+Exit on loss of eligibility/displacement, without a fixed holding ceiling. Main, classic and
+seeds17/41/73/101/137 are retained. Read the returned candidate rules and limits.
+
+The outer host session supplies the proposal; do not nest a research SDK call. Leave
+unobservable model identity unknown. Preparation saves a proposal and does not execute.
+Read readiness and concrete gaps before discussing a run. Unsupported rules need an explicit
+successor, not arbitrary Python or a proposal flag.
 
 Execution requires a separately bound server authorization and budget. Tool input cannot
-grant it. An implementation authorization is not permission for market collection, new
+grant it. `approved=true` is rejected. Only an operator-owned server configuration may bind
+an exact prepared/code/dataset/profile hash grant, actual approval evidence, finite seven-arm
+budget, expiry, wall limit and complete-growth bound. Default authorization is absent.
+Execution uses the existing host storage supervisor and timeout; missing host quota or
+capacity is an execution preflight rejection, not permission to relax the guard. A synchronous
+MCP execute call may exceed a client wait timeout; inspect the original task and never reissue
+UNKNOWN work. An implementation authorization is not permission for market collection, new
 research, sealed access, paid services, broker orders, or a permanent scheduler. Within a
 valid run authorization, proceed to its terminal state without repeatedly asking to continue.
 Use `research_status`, `research_results`, and `research_cancel`; retain UNKNOWN or failed
 exits and never reissue an unknown execution. Repeated submissions use the original identity.
+
+For this successor, company information uses only actually returned, entitled Tushare fields.
+Announcement entitlement remains UNKNOWN unless verified independently; titles/links are not
+body text or proven risk conclusions. No new collection or external PDF downloads are enabled.
+Retained local material is not relabelled as Tushare and is not a historical trading feature.
 
 Read announcements through `announcement_read`; construct `announcement_cite` with exact
 returned Unicode offsets and text, then `announcement_propose` and `announcement_review`.
