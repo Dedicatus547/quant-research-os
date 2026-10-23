@@ -124,5 +124,24 @@ v2仅对有官方连续持股必要条件的现金选择权新增严格分支：
 未用Position字典或历史回放冒充实现。上述两次公告请求权限不足不等于全账号所有公告能力已核定；
 标题/链接不等于正文或“没有利空”，不把旧27份材料或本次官方PDF改标为Tushare来源/交易特征。
 
+## 合并其他权益逐项审计（2026-10-23）
+
+新增快照层 `quantos.data.tushare.dividend_acquisition`、离线公告解析
+`quantos.research.merger_entitlement_sources` 与登记日判断
+`quantos.research.merger_entitlement_proof`。它们不授予执行权或清除现行合并边界。
+Tushare两次采集均成功，五期实施分红日期／金额与官方原件一致；不声称返回全集或历史vintage。
+
+两起合并均将登记日收市旧股转换为新股，尾股补成整数股；同时明确保留以前未领取的现金红利。
+所以换股日空仓不能证明历史红利为空。30个账户／登记日组合中22项实际持仓0、
+3项正持仓且结清未证实、5项在旧账户停止之后未观察。三项为random-17/41/73
+在海通2023-07-27的持仓；公告派息日、后续卖出和复权价均不是这些模拟账户的到账凭证。
+正持仓也不等于已证明未付款。现有原生路径缺该项独立支付／结清记录，研究保持BLOCKED，未新跑账户。
+
+停牌期间零持仓保持的归纳解释仍须绑定完整原生有效报价路径；仅查到行情feature文件
+在停牌前结束不等于已经运行到换股登记日，不能制造未来EOD或设置rights-empty标志。
+后续若改变公司行动会计或采用明确总回报场景，必须有新的来源／语义／版本证明，不能改写旧结果。
+详细原件、30项矩阵及具体剩余依赖见
+`artifacts/personal-research-product-20261023/merger-entitlement-implementation-01/report.md`。
+
 本轮证据、失败、运行包、检查与唯一主入口见
-`artifacts/personal-research-product-20261022/run-01/handoff.md`的现金运行时后继链接。
+`artifacts/personal-research-product-20261022/run-01/handoff.md`的权益审计及现金运行时后继链接。
