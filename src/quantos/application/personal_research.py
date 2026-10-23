@@ -18,6 +18,13 @@ from quantos.artifacts.store import (
     read_regular_bytes_at,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.hs300_cash import (
+    ClassicOriginReuse,
+    HS300CashDatasetManifest,
+    HS300CashStudyRequest,
+    PreparedHS300CashStudy,
+    SignalReuseSpec,
+)
 from quantos.contracts.hs300_lifecycle import (
     HS300LifecycleDatasetManifest,
     HS300LifecycleStudyRequest,
@@ -46,9 +53,12 @@ class PersonalDatasetBinding:
     pit_evidence_path: Path | None = None
     snapshot_path: Path | None = None
     lifecycle_path: Path | None = None
+    cash_rules_path: Path | None = None
+    origin_reuse: tuple[ClassicOriginReuse, ...] = ()
+    signal_reuse: SignalReuseSpec | None = None
 
 
-Prepared = PreparedStudy | PreparedHS300Study | PreparedHS300LifecycleStudy
+Prepared = PreparedStudy | PreparedHS300Study | PreparedHS300LifecycleStudy | PreparedHS300CashStudy
 Authorizer = Callable[[Prepared], str | None]
 Executor = Callable[[Prepared, Path, Callable[[], bool]], dict[str, Any]]
 
@@ -142,7 +152,9 @@ class PersonalResearchService:
         }
         return {"sources": dependencies, "environment": environment, "python": sys.version}
 
-    def _code_hash(self, *, hs300: bool = False, lifecycle: bool = False) -> str:
+    def _code_hash(
+        self, *, hs300: bool = False, lifecycle: bool = False, cash: bool = False
+    ) -> str:
         manifest = self.dependency_manifest()
         if hs300:
             sources = cast(dict[str, str], manifest["sources"])
@@ -186,6 +198,24 @@ class PersonalResearchService:
             name = "qlib/backtest/decision.py"
             sources[name] = sha256_bytes(Path(str(native.locate_file(name))).read_bytes())
             cast(dict[str, str], manifest["environment"])["pypdf"] = version("pypdf")
+        if cash:
+            sources = cast(dict[str, str], manifest["sources"])
+            for name in (
+                "src/quantos/contracts/hs300_cash.py",
+                "src/quantos/contracts/cash_option_proof.py",
+                "src/quantos/research/hs300_cash_runtime.py",
+                "src/quantos/research/cash_option_proof.py",
+            ):
+                sources[name] = sha256_bytes((self.repo_root / name).read_bytes())
+            from importlib.metadata import distribution
+
+            native = distribution("pyqlib")
+            for name in (
+                "qlib/data/dataset/utils.py",
+                "qlib/utils/resam.py",
+                "qlib/utils/time.py",
+            ):
+                sources[name] = sha256_bytes(Path(str(native.locate_file(name))).read_bytes())
         return sha256_bytes(canonical_json_bytes(manifest))
 
     def capabilities(self) -> dict[str, Any]:
@@ -194,13 +224,19 @@ class PersonalResearchService:
             "proposal_origin": "host-session-proposal/v2",
             "retained_proposal_origins": ["host-session-proposal/v1"],
             "authenticated_model_identity": False,
-            "profile": "hs300-daily-trend-tushare-lifecycle/v1",
-            "retained_profiles": ["hs300-daily-trend-tushare/v1", "daily-mainboard-trend/v1"],
+            "profile": "hs300-daily-trend-tushare-lifecycle/v2",
+            "retained_profiles": [
+                "hs300-daily-trend-tushare-lifecycle/v1",
+                "hs300-daily-trend-tushare/v1",
+                "daily-mainboard-trend/v1",
+            ],
             "lifecycle_policy": {
                 "static_readiness": "verified source/date/coverage, never presumed zero exposure",
                 "native_event_boundary": "hard stop exposed arm; retain all seven candidates",
                 "unknown_event_state": "hard stop; never infer zero exposure",
                 "cash_settlement_accounting": "native unsupported events are not synthesized",
+                "cash_runtime": "source-bound necessary conditions on actual native orders",
+                "classic_reuse": "verified original tuple; no new native run or rewritten receipt",
             },
             "tools": [
                 "capabilities",
@@ -256,14 +292,26 @@ class PersonalResearchService:
         }
 
     def _prepare_hs300(
-        self, request: Mapping[str, object], *, lifecycle: bool = False
+        self, request: Mapping[str, object], *, lifecycle: bool = False, cash: bool = False
     ) -> dict[str, Any]:
-        request_type = HS300LifecycleStudyRequest if lifecycle else HS300StudyRequest
+        request_type = (
+            HS300CashStudyRequest
+            if cash
+            else HS300LifecycleStudyRequest
+            if lifecycle
+            else HS300StudyRequest
+        )
         proposed = request_type.model_validate(dict(request))
         binding = self.catalog.get(proposed.dataset_id or "")
         manifest = binding.manifest if binding else None
         gaps: list[str] = []
-        manifest_type = HS300LifecycleDatasetManifest if lifecycle else HS300DatasetManifest
+        manifest_type = (
+            HS300CashDatasetManifest
+            if cash
+            else HS300LifecycleDatasetManifest
+            if lifecycle
+            else HS300DatasetManifest
+        )
         if manifest is not None and type(manifest) is not manifest_type:
             raise ValueError("HS300 request and immutable dataset successor versions disagree")
         if manifest is None:
@@ -275,7 +323,11 @@ class PersonalResearchService:
 
             assert binding is not None
             try:
-                if lifecycle:
+                if cash:
+                    from quantos.research.hs300_cash_runtime import verify_hs300_cash_binding
+
+                    verify_hs300_cash_binding(binding)
+                elif lifecycle:
                     verify_hs300_lifecycle_binding(binding)
                 else:
                     verify_hs300_binding(binding)
@@ -331,12 +383,18 @@ class PersonalResearchService:
                 for seed in (17, 41, 73, 101, 137)
             ),
         )
-        prepared_type = PreparedHS300LifecycleStudy if lifecycle else PreparedHS300Study
+        prepared_type = (
+            PreparedHS300CashStudy
+            if cash
+            else PreparedHS300LifecycleStudy
+            if lifecycle
+            else PreparedHS300Study
+        )
         prepared = prepared_type.model_validate(
             dict(
                 request=proposed,
                 dataset_manifest=manifest,
-                code_hash=self._code_hash(hs300=True, lifecycle=lifecycle),
+                code_hash=self._code_hash(hs300=True, lifecycle=lifecycle, cash=cash),
                 candidates=candidates,
                 readiness="BLOCKED" if gaps else "READY_FOR_AUTHORIZATION",
                 gaps=tuple(gaps),
@@ -372,6 +430,25 @@ class PersonalResearchService:
                 ),
             )
         )
+        if cash:
+            assert isinstance(prepared, PreparedHS300CashStudy)
+            prepared = prepared.model_copy(
+                update={
+                    "origin_reuse": binding.origin_reuse if binding else (),
+                    "signal_reuse": binding.signal_reuse if binding else None,
+                }
+            )
+            from quantos.research.hs300_cash_runtime import (
+                verify_classic_origin,
+                verify_reused_signal_bindings,
+            )
+
+            if prepared.dataset_manifest is not None:
+                if prepared.signal_reuse is None or len(prepared.origin_reuse) != 1:
+                    raise ValueError("cash successor requires complete signal and classic bindings")
+                verify_reused_signal_bindings(prepared, prepared.signal_reuse)
+            for origin in prepared.origin_reuse:
+                verify_classic_origin(prepared, origin)
         if lifecycle:
             prepared = prepared.model_copy(
                 update={
@@ -398,6 +475,8 @@ class PersonalResearchService:
         from quantos.security.artifact_secrets import validate_secret_free
 
         validate_secret_free(dict(request), file_name="personal-study-request.json")
+        if request.get("schema_version") == "personal-study-request/v5":
+            return self._prepare_hs300(request, lifecycle=True, cash=True)
         if request.get("schema_version") == "personal-study-request/v4":
             return self._prepare_hs300(request, lifecycle=True)
         if request.get("schema_version") == "personal-study-request/v3":
@@ -552,7 +631,9 @@ class PersonalResearchService:
         raw = self._read(self.root / "tasks" / task_id, "prepared.json")
         schema = json.loads(raw).get("schema_version")
         contract = (
-            PreparedHS300LifecycleStudy
+            PreparedHS300CashStudy
+            if schema == "personal-study-prepared/v4"
+            else PreparedHS300LifecycleStudy
             if schema == "personal-study-prepared/v3"
             else PreparedHS300Study
             if schema == "personal-study-prepared/v2"
@@ -680,6 +761,7 @@ class PersonalResearchService:
                 if prepared.code_hash != self._code_hash(
                     hs300=isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy)),
                     lifecycle=isinstance(prepared, PreparedHS300LifecycleStudy),
+                    cash=isinstance(prepared, PreparedHS300CashStudy),
                 ):
                     self._append(task_id, "PREPARED", {"execution_denied": "changed_dependencies"})
                     raise PermissionError(
@@ -720,8 +802,31 @@ class PersonalResearchService:
                 if outcome.get("prepared_hash") != prepared.content_hash:
                     raise ArtifactIntegrityError("executor outcome is not bound to prepared study")
                 entries = outcome.get("receipts", [])
+                adopted_ids: set[str] = set()
+                if isinstance(prepared, PreparedHS300CashStudy):
+                    from quantos.research.hs300_cash_runtime import verify_classic_origin
+
+                    for entry in outcome.get("origin_reuse", []):
+                        origin = next(
+                            (
+                                item
+                                for item in prepared.origin_reuse
+                                if item.candidate_id == entry.get("candidate_id")
+                                and item.content_hash == entry.get("origin_hash")
+                            ),
+                            None,
+                        )
+                        if origin is None or origin.candidate_id in adopted_ids:
+                            raise ArtifactIntegrityError("executor origin reuse identity disagrees")
+                        verify_classic_origin(prepared, origin)
+                        adopted_ids.add(origin.candidate_id)
+                receipt_ids = [entry.get("candidate_id") for entry in entries]
                 if outcome.get("run_status") == "SUCCEEDED" and (
-                    len(entries) != len(prepared.candidates)
+                    len(entries) + len(adopted_ids) != len(prepared.candidates)
+                    or len(set(receipt_ids)) != len(entries)
+                    or set(receipt_ids) & adopted_ids
+                    or set(receipt_ids) | adopted_ids
+                    != {candidate.candidate_id for candidate in prepared.candidates}
                     or any(entry.get("run_status") != "SUCCEEDED" for entry in entries)
                 ):
                     raise ArtifactIntegrityError("successful outcome omits predeclared candidates")
@@ -793,6 +898,7 @@ class PersonalResearchService:
         committed_receipts: dict[str, str] | None = None
         comparison: dict[str, Any] | None = None
         comparison_hash: str | None = None
+        reused_origins: dict[str, Any] = {}
         if outcome_hash is not None:
             from quantos.artifacts.store import verify_file
 
@@ -819,6 +925,29 @@ class PersonalResearchService:
                         raise ArtifactIntegrityError("comparison identity or denominator disagrees")
                 elif outcome.get("run_status") == "SUCCEEDED":
                     raise ArtifactIntegrityError("HS300 success has no immutable comparison")
+            if isinstance(prepared, PreparedHS300CashStudy):
+                from quantos.research.hs300_cash_runtime import verify_classic_origin
+
+                committed_origins = outcome.get("origin_reuse", [])
+                if len(committed_origins) > 1:
+                    raise ArtifactIntegrityError("duplicate adopted classic origin")
+                for entry in committed_origins:
+                    origin = next(
+                        (
+                            item
+                            for item in prepared.origin_reuse
+                            if item.candidate_id == entry.get("candidate_id")
+                        ),
+                        None,
+                    )
+                    if origin is None or entry.get("origin_hash") != origin.content_hash:
+                        raise ArtifactIntegrityError("adopted origin identity disagrees")
+                    original = verify_classic_origin(prepared, origin)
+                    reused_origins[origin.candidate_id] = origin.model_dump(mode="json")
+                    outcomes[origin.candidate_id] = {
+                        **original,
+                        "run_status": "REUSED_ORIGIN",
+                    }
             committed_receipts = {}
             for entry in outcome.get("receipts", []):
                 candidate_id = entry["candidate_id"]
@@ -826,11 +955,19 @@ class PersonalResearchService:
                     candidate.candidate_id for candidate in prepared.candidates
                 }:
                     raise ArtifactIntegrityError("outcome receipt denominator disagrees")
+                if candidate_id in reused_origins:
+                    raise ArtifactIntegrityError("origin reuse cannot have a rewritten receipt")
                 committed_receipts[candidate_id] = entry["receipt_hash"]
         elif terminal.state == "SUCCEEDED":
             raise ArtifactIntegrityError("success has no committed immutable outcome")
         for candidate in prepared.candidates:
             directory = execution / candidate.candidate_id
+            if candidate.candidate_id in reused_origins:
+                if directory.exists():
+                    raise ArtifactIntegrityError(
+                        "adopted origin cannot have new candidate artifacts"
+                    )
+                continue
             if not directory.exists():
                 if committed_receipts is not None and candidate.candidate_id in committed_receipts:
                     raise ArtifactIntegrityError("committed candidate receipt is missing")
@@ -872,7 +1009,10 @@ class PersonalResearchService:
                 "seed": c.seed,
                 "run_status": outcomes.get(c.candidate_id, {}).get("run_status", "NOT_RUN"),
                 "metrics": outcomes.get(c.candidate_id, {}).get("metrics"),
-                "evidence_status": "VERIFIED_COMMITTED"
+                "origin_reuse": reused_origins.get(c.candidate_id),
+                "evidence_status": "VERIFIED_ORIGIN"
+                if c.candidate_id in reused_origins
+                else "VERIFIED_COMMITTED"
                 if committed_receipts is not None and c.candidate_id in committed_receipts
                 else ("UNCOMMITTED_RECEIPT" if c.candidate_id in outcomes else "MISSING"),
                 "validation_verdict": "NOT_EVALUATED",
@@ -904,6 +1044,7 @@ class PersonalResearchService:
             else "none",
             "planned_denominator": len(rows),
             "succeeded_denominator": sum(row["run_status"] == "SUCCEEDED" for row in rows),
+            "reused_denominator": len(reused_origins),
             "rows": rows,
             **(
                 {"comparison": comparison, "comparison_sha256": comparison_hash}

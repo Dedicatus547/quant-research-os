@@ -49,7 +49,8 @@ def create_server(
             "Prepare host-session proposals; execution requires server-side authorization. "
             "Tool arguments cannot grant approval. "
             "Lifecycle data readiness does not prove zero native event exposure; "
-            "exposed or unknown unsupported account events stop the arm and retain all seven. "
+            "Cash v5 checks bound rules on actual native orders; merger, delisting or "
+            "unknown exposure stop the arm and retain all seven. "
             "Report engineering and scientific status separately. "
             "Announcement conclusions remain unadmitted auxiliary proposals; exact citations "
             "verify text location only, never semantic truth or absence of adverse information. "
@@ -91,7 +92,7 @@ def create_server(
         return history.read(record_id)
 
     def research_prepare(request: dict[str, Any]) -> dict[str, Any]:
-        """Prepare a bounded versioned proposal; lifecycle v4 readiness never grants execution."""
+        """Prepare a bounded cash v5 proposal; readiness and reuse grant no execution authority."""
         return research_service.prepare(request)
 
     def research_status(task_id: str) -> dict[str, Any]:

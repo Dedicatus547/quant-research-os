@@ -17,15 +17,15 @@ of target, source preference, expenditure, or disclosure. Check data coverage be
 around it. Index constituents cannot stand for all mainboard stocks; other sectors cannot
 stand for THS; daily data cannot recreate a five-minute exit.
 
-The successor profile is `hs300-daily-trend-tushare-lifecycle/v1`: historical HS300 members available
+The successor profile is `hs300-daily-trend-tushare-lifecycle/v2`: historical HS300 members available
 as of each after-close signal, Tushare Pro as the only market source, next-session open Qlib
 execution. It includes all index boards, without a mainboard intersection or THS dependency.
-The retained `hs300-daily-trend-tushare/v1` and `daily-mainboard-trend/v1` remain readable
+The retained `hs300-daily-trend-tushare-lifecycle/v1`, `hs300-daily-trend-tushare/v1` and `daily-mainboard-trend/v1` remain readable
 under their original scopes.
 Call `research_data_describe` to inspect registered immutable dataset IDs and policies before
 preparation. A descriptive historical inventory is not an executable binding.
 
-Prepare with `research_prepare` and `schema_version: "personal-study-request/v4"`, a unique
+Prepare with `research_prepare` and `schema_version: "personal-study-request/v5"`, a unique
 idempotency key, brief, `proposal: {session_id: "<this-session-label>"}`, and a matching
 server-returned dataset ID. Default benchmark is SH000300. First retrospective proposal:
 start 2023-01-09, end 2025-12-29, warmup_start 2022-11-01. The profile fixes SMA20, positive
@@ -33,6 +33,16 @@ start 2023-01-09, end 2025-12-29, warmup_start 2022-11-01. The profile fixes SMA
 rank momentum and select top10 with 9% targets each. Keep residual cash for fewer names.
 Exit on loss of eligibility/displacement, without a fixed holding ceiling. Main, classic and
 seeds17/41/73/101/137 are retained. Read the returned candidate rules and limits.
+
+The cash successor binds exact official continuous-holding rules, native source hashes and
+cash policy to the immutable dataset and prepared package. Actual native targets and generated
+orders may establish the cash-only necessary no-acquisition condition. This does not observe a
+rights ledger, mutate accounting, prove a completed future session, or waive merger/delisting
+boundaries. Before execution the actual account remains NOT_OBSERVED.
+Only operator-owned configuration supplies cash rule bundles and read-only origin/signal specs.
+A completed classic may appear as REUSED_ORIGIN with its original prepared/receipt identity;
+it is never a new-tuple PASS or a rewritten receipt. Preserve all seven rows, execute only six
+new native accounts under a distinct v3 grant, and verify original provenance on result reads.
 
 Lifecycle facts classify structural security existence and unsupported account events; they are
 not predictive features or an anticipatory exit signal. Preparation requires immutable source,
@@ -55,10 +65,12 @@ successor, not arbitrary Python or a proposal flag.
 
 Execution requires a separately bound server authorization and budget. Tool input cannot
 grant it. `approved=true` is rejected. Only an operator-owned server configuration may bind
-an exact prepared/code/dataset/profile hash grant, actual approval evidence, finite seven-arm
+an exact prepared/code/dataset/profile hash grant, actual approval evidence, finite predeclared
 budget, expiry, wall limit and complete-growth bound. A lifecycle successor also requires a
 new grant binding the lifecycle bundle, every lifecycle source hash and native boundary policy;
-a legacy grant cannot authorize it. Default authorization is absent.
+a legacy grant cannot authorize it. Cash v5 additionally binds cash rules/policy, native sources,
+classic origin and signal reuse identities, at most six native runs, 3600 seconds and 4 GiB growth.
+Collection, training, Validation, research SDK and retries remain zero. Default authorization is absent.
 Execution uses the existing host storage supervisor and timeout; missing host quota or
 capacity is an execution preflight rejection, not permission to relax the guard. A synchronous
 MCP execute call may exceed a client wait timeout; inspect the original task and never reissue

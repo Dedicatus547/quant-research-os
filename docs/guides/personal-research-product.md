@@ -1,10 +1,12 @@
 # 个人量化研究入口
 
-当前后继是 `hs300-daily-trend-tushare-lifecycle/v1`：仅当时可获得的沪深300历史成员，Tushare Pro
+当前后继是 `hs300-daily-trend-tushare-lifecycle/v2`：仅当时可获得的沪深300历史成员，Tushare Pro
 为市场数据唯一来源，每日收盘后研究、下一交易日开盘执行。包括指数中的非主板股票，
 不再求主板交集，也不要求同花顺。旧 `daily-mainboard-trend/v1` 合同、任务与失败原件保留。
-实施与真实研究分开；完整2023–2025区间的数据准备为 **READY_FOR_AUTHORIZATION**，
-实际执行仍因既有scratch硬配额挂载和未获真实研究批准而阻塞，科学 **NOT_EVALUATED**。
+完整2023–2025区间的数据准备为 **READY_FOR_AUTHORIZATION**。用户恢复scratch并批准后，
+已完成两轮明确的真实历史数据离线执行；现金运行时后继实际越过原现金选择权边界，
+主策略及五随机随后在合并/永久停牌边界停止，整体 **FAILED / NOT_EVALUATED**。
+经典对照沿原完整721日结果复用，没有重复执行；单次运行授权均已撤下。
 
 ## 实际接线与边界
 
@@ -13,6 +15,8 @@
 `research/hs300_data.py`、`research/hs300_exchange.py`、`research/personal_qlib.py`。
 生命周期后继另在 `contracts/hs300_lifecycle.py`、`data/lifecycle_sources.py`、
 `research/hs300_lifecycle_data.py` 与 `research/hs300_native_boundary.py`。
+现金运行时后继另在 `contracts/hs300_cash.py`、`contracts/cash_option_proof.py`、
+`research/hs300_cash_runtime.py` 与 `research/cash_option_proof.py`。
 使用 Qlib 0.9.7 Workflow、PortAnaRecord、目标权重策略、Exchange 和 Simulator；项目不实现撮合或账户会计。
 
 - 主策略：基准和个股收盘高于SMA20、个股5日收益为正、当日成交额／前5日均成交额至少1.2；
@@ -43,7 +47,7 @@ Skill 在 `skills/quantos-research`，用户目录链接与原MCP安装保留。
 
 服务默认读取固定产品根下的 `server-config.json`，也支持本地启动参数 `--server-config`。
 配置路径、catalog原件路径及授权文件均不属于MCP参数。配置缺省时没有数据准入或执行授权；
-当前v2配置已注册完整不可变生命周期面板，`authorization_path`为null。
+当前v3配置保留旧catalog并注册现金运行时后继，`authorization_path`为null。
 `approved=true`、模型自报批准和提案文字不能授予执行权。
 
 可信本地授权必须另行绑定prepared/code/dataset/profile、完整七候选、实际批准原件hash、到期时间、
@@ -51,6 +55,12 @@ wall与宿主完整增长界限及既有storage policy。真实启动复用单�
 PID namespace和timeout。取消在候选边界生效；UNKNOWN不自动重发，终态不可续跑。
 worker只读核验任务链，不在隔离PID视图内判断宿主父进程存活。PIT硬拒绝原因跨进程保留；
 真实退出、失败和部分完成结果不改写。
+
+v3授权另绑定现金规则/运行政策/原生源码hash、经典原始来源和七路信号复用规格。
+本次后继为六个新账户加一个 `REUSED_ORIGIN` 经典结果，固定七候选分母；
+复用行展示原prepared/receipt，不能改写旧收据冒充新原生执行。
+原编译输入、环境、源码与科学配置/指标实现及全部原件通过窄依赖核验后才采用。
+默认没有真实科学执行权，工具参数不能授予。
 
 可在MCP发出：
 
@@ -62,7 +72,7 @@ worker只读核验任务链，不在隔离PID视图内判断宿主父进程存�
 准备请求示例（dataset_id只使用服务端实际返回的匹配ID；无匹配时准备为BLOCKED）：
 
 ```json
-{"schema_version":"personal-study-request/v4","idempotency_key":"hs300-lifecycle-example-01","dataset_id":"hs300-tushare-lifecycle-20230109-20251229-v1","brief":"沪深300Tushare日频趋势与成交额确认；生命周期结构分类及原生边界硬停","proposal":{"session_id":"outer-session"},"start_date":"2023-01-09","end_date":"2025-12-29","warmup_start":"2022-11-01"}
+{"schema_version":"personal-study-request/v5","idempotency_key":"hs300-cash-runtime-example-01","dataset_id":"hs300-cash-runtime-20230109-20251229-v1","brief":"沪深300Tushare日频趋势与成交额确认；原生订单阶段核验现金资格，其他生命周期边界仍硬停","proposal":{"session_id":"outer-session"},"start_date":"2023-01-09","end_date":"2025-12-29","warmup_start":"2022-11-01"}
 ```
 
 本地操作入口：
@@ -74,7 +84,7 @@ worker只读核验任务链，不在隔离PID视图内判断宿主父进程存�
 ```
 
 将 `describe` 换为 `prepare --request <明确请求文件>`，或
-`status|results|cancel|execute --task <明确task hash>`。当前 `execute` 会拒绝，不能用此命令绕过阻塞或授权。
+`status|results|cancel|execute --task <明确task hash>`。未授权新任务会拒绝执行；终态返回原状态、不续跑。
 后继完整数据改变时必须准备新任务，不给旧BLOCKED或终态包补换输入。
 
 ## 生命周期后继及剩余限制
@@ -92,22 +102,27 @@ snapshot `6297a968…` / view `fc809bed…` 的原件、消费表hash与既有�
 不是仅相信提案、摘要或文件hash。补充官方材料只用于结构分类/账户有效性检查，
 不生成提前卖出信号，不声称已取得历史vendor vintage。
 
-Qlib 0.9.7没有此处所需的完整换股/现金选择权会计与可观察权益台账。
-新薄适配在最早权益窗口起点起持续检查原生持仓、前次未成交订单、当前生成订单及完整历史。
-有相关暴露或未知状态就停止该臂，保留原生部分结果；七候选完整分母不变。
-仅原生状态完整且从新现金账户启动、相关股票从未持有/成交等严格条件全部成立时，
-才能在权益台账不可用的情况下推导“权益未发生”，不能称台账已观测或完整公司行动会计已实现。
-实际七账户暴露尚未观测，不能预先声称可以跑完整区间。
+Qlib 0.9.7没有此处所需的完整公司行动会计与可观察权益台账。v1的“全程从未涉及”政策仍保留。
+v2仅对有官方连续持股必要条件的现金选择权新增严格分支：先核原生持仓/未成交单/完整历史，
+再让Qlib实际生成目标和订单，确认均不涉及相关股后，在成交前保存派生现金资格0证明。
+这是对指定现金权利的推导，不称原生权益台账已观测，不做现金、换股或持仓分录。
+已知独立权益或必需观察缺失仍硬停；后续普通买入不恢复该项连续资格。
+合并、永久停牌及退市继续使用原v1硬边界，不由现金证明自动豁免。
+
+实际后继任务 `665334198da5d9be2edf456da98883fa67e73101521eec0608c93153e761200a`：
+主策略已完成628日，到2025-08-12，8月13日停在中国重工后续合并边界；
+五随机各完成499日，到2025-02-05，2月6日停在海通后续合并边界。
+相比旧任务分别多完成127日和36日，失败完整区间指标仍null，不据部分区间给出完整收益优劣。
 
 本次独立授权的Tushare定向采集取得两只股票的退市信息与停牌记录，公告接口返回权限不足；
 补充采用4份交易所/官方披露平台原件。市场价格、成交额及成员来源仍只用Tushare。
 采集原件、失败和来源身份留存在生命周期实施目录，MCP工具本身仍离线且不能发起采集。
-既有storage policy的64 MiB/4096 inode scratch硬配额挂载仍需宿主操作员恢复，
-不放松C盘32 GiB、Linux16 GiB安全余量或既有守卫。
+本次执行前，既有64 MiB/4096 inode scratch挂载已由用户恢复并通过原StorageGuard；
+不放松C盘32 GiB、Linux16 GiB安全余量或既有守卫。WSL关闭后再次启动仍需核实挂载。
 
 连续前瞻账户另受原生Account完整checkpoint、初始NAV分母和reset_report清空历史约束，
 未用Position字典或历史回放冒充实现。上述两次公告请求权限不足不等于全账号所有公告能力已核定；
 标题/链接不等于正文或“没有利空”，不把旧27份材料或本次官方PDF改标为Tushare来源/交易特征。
 
 本轮证据、失败、运行包、检查与唯一主入口见
-`artifacts/personal-research-product-20261022/run-01/handoff.md`的2026-10-23生命周期后继链接。
+`artifacts/personal-research-product-20261022/run-01/handoff.md`的现金运行时后继链接。

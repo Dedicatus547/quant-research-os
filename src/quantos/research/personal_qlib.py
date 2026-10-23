@@ -25,6 +25,7 @@ from quantos.artifacts.store import (
     verify_file,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.hs300_cash import ClassicOriginReuse, PreparedHS300CashStudy
 from quantos.contracts.hs300_lifecycle import PreparedHS300LifecycleStudy
 from quantos.contracts.personal_research import PreparedHS300Study, PreparedStudy
 
@@ -297,6 +298,7 @@ class PersonalQlibExecutor:
         )
 
         manifest = prepared.dataset_manifest
+        cash_runtime = isinstance(prepared, PreparedHS300CashStudy)
         lifecycle = isinstance(prepared, PreparedHS300LifecycleStudy)
         hs300 = isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy))
         if manifest is None or (manifest.kind != "synthetic" and not hs300):
@@ -306,7 +308,11 @@ class PersonalQlibExecutor:
         binding = self.catalog[manifest.dataset_id]
         if binding.manifest != manifest:
             raise ValueError("server catalog changed after prepare")
-        if lifecycle:
+        if cash_runtime:
+            from quantos.research.hs300_cash_runtime import verify_hs300_cash_binding
+
+            verify_hs300_cash_binding(binding)
+        elif lifecycle:
             from quantos.research.hs300_lifecycle_data import verify_hs300_lifecycle_binding
 
             verify_hs300_lifecycle_binding(binding)
@@ -337,7 +343,11 @@ class PersonalQlibExecutor:
         for logical, digest in manifest.qlib_files.items():
             verify_file(confined_regular_file(binding.provider_root, logical), digest)
         panel = pd.read_parquet(binding.panel_path)
-        if lifecycle:
+        if cash_runtime and prepared.signal_reuse is not None:
+            from quantos.research.hs300_cash_runtime import load_reused_signals
+
+            signals = load_reused_signals(prepared, prepared.signal_reuse)
+        elif lifecycle:
             from quantos.research.hs300_lifecycle_data import compile_hs300_lifecycle_signals
 
             signals = compile_hs300_lifecycle_signals(panel, prepared)
@@ -348,6 +358,22 @@ class PersonalQlibExecutor:
         else:
             signals = compile_daily_signals(panel, prepared)
         receipts: list[dict[str, Any]] = []
+        origins: dict[str, dict[str, Any]] = {}
+        origin_by_id: dict[str, ClassicOriginReuse] = {}
+        origin_reuse: list[dict[str, Any]] = []
+        if cash_runtime:
+            from quantos.research.hs300_cash_runtime import verify_classic_origin
+
+            for origin in prepared.origin_reuse:
+                origins[origin.candidate_id] = verify_classic_origin(prepared, origin)
+                origin_by_id[origin.candidate_id] = origin
+                origin_reuse.append(
+                    {
+                        "candidate_id": origin.candidate_id,
+                        "origin_hash": origin.content_hash,
+                        "origin": origin.model_dump(mode="json"),
+                    }
+                )
         receipt: dict[str, Any]
         with _WORKFLOW_LOCK:
             qlib.init(
@@ -380,12 +406,21 @@ class PersonalQlibExecutor:
             for candidate in prepared.candidates:
                 if cancelled():
                     break
+                if candidate.candidate_id in origins:
+                    continue
                 destination = root / candidate.candidate_id
                 destination.mkdir(parents=True, exist_ok=True)
                 runtime = destination / "runtime"
                 runtime.mkdir()
                 try:
-                    signal_bytes = pickle.dumps(signals[candidate.candidate_id], protocol=4)
+                    if cash_runtime and prepared.signal_reuse is not None:
+                        from quantos.research.hs300_cash_runtime import reused_signal_bytes
+
+                        signal_bytes = reused_signal_bytes(
+                            prepared.signal_reuse, candidate.candidate_id
+                        )
+                    else:
+                        signal_bytes = pickle.dumps(signals[candidate.candidate_id], protocol=4)
                     atomic_write_bytes(destination / "signal.pkl", signal_bytes)
                     config = self._config(
                         prepared,
@@ -398,7 +433,9 @@ class PersonalQlibExecutor:
                     )
                     with _workflow_tracking_runtime(runtime, "frozen-field-study/v1") as uri:  # noqa: SIM117
                         with R.start(
-                            experiment_name="personal-hs300-lifecycle-v1"
+                            experiment_name="personal-hs300-cash-v2"
+                            if cash_runtime
+                            else "personal-hs300-lifecycle-v1"
                             if lifecycle
                             else "personal-hs300-v1"
                             if hs300
@@ -479,9 +516,7 @@ class PersonalQlibExecutor:
                                 "recorder_id": recorder.id,
                                 "metrics": metrics,
                                 "files": exports,
-                                "signal_sha256": sha256_bytes(
-                                    pickle.dumps(signals[candidate.candidate_id], protocol=4)
-                                ),
+                                "signal_sha256": sha256_bytes(signal_bytes),
                             }
                 except Exception as error:
                     receipt = {
@@ -494,6 +529,15 @@ class PersonalQlibExecutor:
                         "metrics": None,
                         "files": {},
                     }
+                if cash_runtime:
+                    # Bind attempted inputs even when a boundary stops before
+                    # Qlib's terminal report/export stage.
+                    for name in ("signal.pkl", "native-config.json"):
+                        path = destination / name
+                        if path.is_file():
+                            receipt["files"][name] = sha256_file(path)
+                    if "signal.pkl" in receipt["files"]:
+                        receipt["signal_sha256"] = receipt["files"]["signal.pkl"]
                 if lifecycle:
                     boundary_root = destination / "native-boundaries"
                     boundary_receipts: list[dict[str, str]] = []
@@ -517,7 +561,13 @@ class PersonalQlibExecutor:
                             else (
                                 "HARD_STOP_UNKNOWN"
                                 if "HARD_STOP_UNKNOWN" in statuses
-                                else ("CLEARED_ZERO_EXPOSURE" if statuses else "NOT_REACHED")
+                                else (
+                                    "CLEARED_DERIVED_CASH_INELIGIBILITY"
+                                    if "CLEARED_DERIVED_CASH_INELIGIBILITY" in statuses
+                                    else "CLEARED_ZERO_EXPOSURE"
+                                    if statuses
+                                    else "NOT_REACHED"
+                                )
                             ),
                             "boundary_receipts": boundary_receipts,
                             "native_rights_observability": "UNAVAILABLE_IN_QLIB_0_9_7",
@@ -536,15 +586,22 @@ class PersonalQlibExecutor:
             "schema_version": "personal-native-outcome/v1",
             "prepared_hash": prepared.content_hash,
             "run_status": "SUCCEEDED"
-            if len(receipts) == len(prepared.candidates)
+            if len(receipts) + len(origin_reuse) == len(prepared.candidates)
             and all(item["run_status"] == "SUCCEEDED" for item in receipts)
             else "FAILED",
             "validation_verdict": "NOT_EVALUATED",
             "planned_denominator": len(prepared.candidates),
             "receipts": receipts,
+            **({"origin_reuse": origin_reuse} if cash_runtime else {}),
         }
         if hs300:
             by_id = {item["candidate_id"]: item for item in receipts}
+            for candidate_id in origins:
+                by_id[candidate_id] = {
+                    "candidate_id": candidate_id,
+                    "receipt_hash": origin_by_id[candidate_id].receipt.sha256,
+                    "run_status": "REUSED_ORIGIN",
+                }
             comparison = {
                 "schema_version": "hs300-native-comparison/v1",
                 "prepared_hash": prepared.content_hash,
@@ -560,14 +617,18 @@ class PersonalQlibExecutor:
                             "run_status", "MISSING"
                         ),
                         "receipt_hash": by_id.get(candidate.candidate_id, {}).get("receipt_hash"),
-                        "metrics": json.loads(
+                        "metrics": origins[candidate.candidate_id].get("metrics")
+                        if candidate.candidate_id in origins
+                        else json.loads(
                             (root / candidate.candidate_id / "receipt.json").read_bytes()
                         ).get("metrics")
                         if candidate.candidate_id in by_id
                         else None,
                         **(
                             {
-                                key: json.loads(
+                                key: origins[candidate.candidate_id].get(key)
+                                if candidate.candidate_id in origins
+                                else json.loads(
                                     (root / candidate.candidate_id / "receipt.json").read_bytes()
                                 ).get(key)
                                 if candidate.candidate_id in by_id
@@ -580,6 +641,11 @@ class PersonalQlibExecutor:
                                 )
                             }
                             if lifecycle
+                            else {}
+                        ),
+                        **(
+                            {"origin": origin_by_id[candidate.candidate_id].model_dump(mode="json")}
+                            if candidate.candidate_id in origins
                             else {}
                         ),
                     }
@@ -684,4 +750,15 @@ class PersonalQlibExecutor:
                     "expected_initial_cash_cny": profile.initial_cash_cny,
                 }
             )
+            if isinstance(prepared, PreparedHS300CashStudy):
+                config["strategy"]["class"] = "CashRuntimeBoundaryTopKStrategy"
+                config["strategy"]["module_path"] = "quantos.research.hs300_cash_runtime"
+                config["strategy"]["kwargs"].update(
+                    {
+                        "cash_rules": [
+                            rule.model_dump(mode="json") for rule in manifest.cash_rules
+                        ],
+                        "native_source_hashes": manifest.native_source_hashes,
+                    }
+                )
         return config

@@ -16,6 +16,12 @@ from quantos.application.personal_research import (
 )
 from quantos.artifacts.store import ArtifactIntegrityError, opened_directory, read_regular_bytes_at
 from quantos.contracts.base import CanonicalContract, sha256_bytes
+from quantos.contracts.hs300_cash import (
+    ClassicOriginReuse,
+    HS300CashDatasetManifest,
+    PreparedHS300CashStudy,
+    SignalReuseSpec,
+)
 from quantos.contracts.hs300_lifecycle import (
     HS300LifecycleDatasetManifest,
     PreparedHS300LifecycleStudy,
@@ -53,6 +59,13 @@ class CatalogRegistrationV2(_ServerDocument):
     lifecycle_path: Path
 
 
+class CatalogRegistrationV3(CatalogRegistrationV2):
+    schema_version: Literal["personal-catalog-registration/v3"] = "personal-catalog-registration/v3"  # pyright: ignore[reportIncompatibleVariableOverride]
+    cash_rules_path: Path
+    classic_origin_path: Path
+    signal_reuse_spec_path: Path
+
+
 class PersonalServerConfig(_ServerDocument):
     schema_version: Literal["personal-research-server-config/v1"] = (
         "personal-research-server-config/v1"
@@ -87,6 +100,13 @@ class PersonalServerConfigV2(_ServerDocument):
         if (self.authorization_path is None) != (self.authorization_sha256 is None):
             raise ValueError("authorization path and exact hash must be supplied together")
         return self
+
+
+class PersonalServerConfigV3(PersonalServerConfigV2):
+    schema_version: Literal["personal-research-server-config/v3"] = (  # pyright: ignore[reportIncompatibleVariableOverride]
+        "personal-research-server-config/v3"
+    )
+    catalog: tuple[CatalogRegistrationV3 | CatalogRegistrationV2 | CatalogRegistration, ...] = ()  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 class HS300ExecutionAuthorization(_ServerDocument):
@@ -187,6 +207,21 @@ class HS300LifecycleExecutionAuthorization(_ServerDocument):
         return self
 
 
+class HS300CashExecutionAuthorization(HS300LifecycleExecutionAuthorization):
+    schema_version: Literal["personal-hs300-execution-authorization/v3"] = (  # pyright: ignore[reportIncompatibleVariableOverride]
+        "personal-hs300-execution-authorization/v3"
+    )
+    native_backtests: Literal[6] = 6  # pyright: ignore[reportIncompatibleVariableOverride]
+    wall_seconds: int = Field(gt=0, le=3600)
+    growth_bytes: int = Field(gt=0, le=4 * 1024**3)
+    validation_calls: Literal[0] = 0
+    cash_runtime_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    cash_rule_hashes: tuple[str, ...]
+    native_source_hashes: dict[str, str]
+    classic_origin_hash: str = Field(pattern=SHA256_PATTERN)
+    signal_reuse_hash: str = Field(pattern=SHA256_PATTERN)
+
+
 def _read(path: Path, expected_hash: str | None = None) -> bytes:
     if not path.is_absolute():
         raise ValueError("trusted server paths must be absolute")
@@ -197,12 +232,16 @@ def _read(path: Path, expected_hash: str | None = None) -> bytes:
     return raw
 
 
-def load_server_config(path: Path) -> PersonalServerConfig | PersonalServerConfigV2:
+def load_server_config(
+    path: Path,
+) -> PersonalServerConfig | PersonalServerConfigV2 | PersonalServerConfigV3:
     import json
 
     raw = _read(path)
     config_type = (
-        PersonalServerConfigV2
+        PersonalServerConfigV3
+        if json.loads(raw).get("schema_version") == "personal-research-server-config/v3"
+        else PersonalServerConfigV2
         if json.loads(raw).get("schema_version") == "personal-research-server-config/v2"
         else PersonalServerConfig
     )
@@ -227,7 +266,9 @@ def make_trusted_service(
     for registration in config.catalog:
         manifest_bytes = _read(registration.manifest_path, registration.manifest_sha256)
         manifest_type = (
-            HS300LifecycleDatasetManifest
+            HS300CashDatasetManifest
+            if isinstance(registration, CatalogRegistrationV3)
+            else HS300LifecycleDatasetManifest
             if isinstance(registration, CatalogRegistrationV2)
             else HS300DatasetManifest
         )
@@ -245,12 +286,35 @@ def make_trusted_service(
         ):
             if location is not None and not location.is_absolute():
                 raise ValueError("trusted dataset paths must be absolute")
+        if isinstance(registration, CatalogRegistrationV3):
+            for location in (
+                registration.cash_rules_path,
+                registration.classic_origin_path,
+                registration.signal_reuse_spec_path,
+            ):
+                if not location.is_absolute():
+                    raise ValueError("trusted cash paths must be absolute")
         catalog[manifest.dataset_id] = PersonalDatasetBinding(
             manifest=manifest,
             provider_root=registration.provider_root,
             panel_path=registration.panel_path,
             pit_evidence_path=registration.pit_evidence_path,
             snapshot_path=registration.snapshot_path,
+            cash_rules_path=(
+                registration.cash_rules_path
+                if isinstance(registration, CatalogRegistrationV3)
+                else None
+            ),
+            origin_reuse=(
+                (ClassicOriginReuse.model_validate_json(_read(registration.classic_origin_path)),)
+                if isinstance(registration, CatalogRegistrationV3)
+                else ()
+            ),
+            signal_reuse=(
+                SignalReuseSpec.model_validate_json(_read(registration.signal_reuse_spec_path))
+                if isinstance(registration, CatalogRegistrationV3)
+                else None
+            ),
             lifecycle_path=(
                 registration.lifecycle_path
                 if isinstance(registration, CatalogRegistrationV2)
@@ -271,7 +335,9 @@ def make_trusted_service(
             raise PermissionError("trusted server configuration changed; restart the service")
         assert config.authorization_path is not None
         grant_type = (
-            HS300LifecycleExecutionAuthorization
+            HS300CashExecutionAuthorization
+            if isinstance(prepared, PreparedHS300CashStudy)
+            else HS300LifecycleExecutionAuthorization
             if isinstance(prepared, PreparedHS300LifecycleStudy)
             else HS300ExecutionAuthorization
         )
@@ -308,6 +374,22 @@ def make_trusted_service(
                 raise PermissionError(
                     "trusted lifecycle sources or native boundary policy disagree"
                 )
+        if isinstance(prepared, PreparedHS300CashStudy):
+            if not isinstance(grant, HS300CashExecutionAuthorization):
+                raise PermissionError("cash successor requires its own bound authorization")
+            cash_manifest = prepared.dataset_manifest
+            assert isinstance(cash_manifest, HS300CashDatasetManifest)
+            if (
+                grant.cash_runtime_policy_hash != cash_manifest.cash_runtime_policy_hash
+                or grant.cash_rule_hashes
+                != tuple(rule.content_hash for rule in cash_manifest.cash_rules)
+                or grant.native_source_hashes != cash_manifest.native_source_hashes
+                or len(prepared.origin_reuse) != 1
+                or grant.classic_origin_hash != prepared.origin_reuse[0].content_hash
+                or prepared.signal_reuse is None
+                or grant.signal_reuse_hash != prepared.signal_reuse.content_hash
+            ):
+                raise PermissionError("trusted cash policy, rules or origin reuse disagree")
         return grant
 
     def guarded_executor(prepared: Prepared) -> Any:

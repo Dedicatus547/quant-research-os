@@ -16,6 +16,7 @@ from quantos.artifacts.store import (
     verify_file,
 )
 from quantos.contracts.base import canonical_json_bytes
+from quantos.contracts.hs300_cash import PreparedHS300CashStudy
 from quantos.contracts.hs300_lifecycle import PreparedHS300LifecycleStudy
 from quantos.contracts.personal_research import PreparedHS300Study
 from quantos.infrastructure.hosted_storage import (
@@ -26,12 +27,14 @@ from quantos.infrastructure.hosted_storage import (
     supervise_storage_job,
 )
 
-HS300Prepared = PreparedHS300Study | PreparedHS300LifecycleStudy
+HS300Prepared = PreparedHS300Study | PreparedHS300LifecycleStudy | PreparedHS300CashStudy
 
 
 def _read_prepared(raw: bytes) -> HS300Prepared:
     contract = (
-        PreparedHS300LifecycleStudy
+        PreparedHS300CashStudy
+        if json.loads(raw).get("schema_version") == "personal-study-prepared/v4"
+        else PreparedHS300LifecycleStudy
         if json.loads(raw).get("schema_version") == "personal-study-prepared/v3"
         else PreparedHS300Study
     )
