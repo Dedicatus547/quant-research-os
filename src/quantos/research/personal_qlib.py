@@ -25,6 +25,7 @@ from quantos.artifacts.store import (
     verify_file,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.hs300_adjusted import PreparedHS300AdjustedStudy
 from quantos.contracts.hs300_cash import ClassicOriginReuse, PreparedHS300CashStudy
 from quantos.contracts.hs300_lifecycle import PreparedHS300LifecycleStudy
 from quantos.contracts.personal_research import PreparedHS300Study, PreparedStudy
@@ -297,8 +298,9 @@ class PersonalQlibExecutor:
             _workflow_tracking_runtime,  # pyright: ignore[reportPrivateUsage]
         )
 
-        manifest = prepared.dataset_manifest
+        manifest: Any = prepared.dataset_manifest
         cash_runtime = isinstance(prepared, PreparedHS300CashStudy)
+        adjusted_units = isinstance(prepared, PreparedHS300AdjustedStudy)
         lifecycle = isinstance(prepared, PreparedHS300LifecycleStudy)
         hs300 = isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy))
         if manifest is None or (manifest.kind != "synthetic" and not hs300):
@@ -308,7 +310,11 @@ class PersonalQlibExecutor:
         binding = self.catalog[manifest.dataset_id]
         if binding.manifest != manifest:
             raise ValueError("server catalog changed after prepare")
-        if cash_runtime:
+        if adjusted_units:
+            from quantos.research.hs300_adjusted_runtime import verify_hs300_adjusted_binding
+
+            verify_hs300_adjusted_binding(binding)
+        elif cash_runtime:
             from quantos.research.hs300_cash_runtime import verify_hs300_cash_binding
 
             verify_hs300_cash_binding(binding)
@@ -433,7 +439,9 @@ class PersonalQlibExecutor:
                     )
                     with _workflow_tracking_runtime(runtime, "frozen-field-study/v1") as uri:  # noqa: SIM117
                         with R.start(
-                            experiment_name="personal-hs300-cash-v2"
+                            experiment_name="personal-hs300-adjusted-v1"
+                            if adjusted_units
+                            else "personal-hs300-cash-v2"
                             if cash_runtime
                             else "personal-hs300-lifecycle-v1"
                             if lifecycle
@@ -538,6 +546,7 @@ class PersonalQlibExecutor:
                             receipt["files"][name] = sha256_file(path)
                     if "signal.pkl" in receipt["files"]:
                         receipt["signal_sha256"] = receipt["files"]["signal.pkl"]
+                model_proofs: dict[str, str] = {}
                 if lifecycle:
                     boundary_root = destination / "native-boundaries"
                     boundary_receipts: list[dict[str, str]] = []
@@ -552,6 +561,8 @@ class PersonalQlibExecutor:
                                 boundary_receipts.append({"file": logical, "sha256": digest})
                                 value = json.loads(path.read_bytes())
                                 statuses.extend(item["status"] for item in value["decisions"])
+                            elif path.suffix == ".proof":
+                                model_proofs[logical] = digest
                             else:
                                 partial[logical] = digest
                     receipt.update(
@@ -561,6 +572,8 @@ class PersonalQlibExecutor:
                             else (
                                 "HARD_STOP_UNKNOWN"
                                 if "HARD_STOP_UNKNOWN" in statuses
+                                else "CLEARED_DERIVED_ZERO_MERGER_INPUT"
+                                if "CLEARED_DERIVED_ZERO_MERGER_INPUT" in statuses
                                 else (
                                     "CLEARED_DERIVED_CASH_INELIGIBILITY"
                                     if "CLEARED_DERIVED_CASH_INELIGIBILITY" in statuses
@@ -574,6 +587,12 @@ class PersonalQlibExecutor:
                             "partial_native_artifacts": partial,
                         }
                     )
+                if adjusted_units:
+                    receipt["derived_model_proofs"] = model_proofs
+                    receipt["valuation_scope"] = prepared.request.profile.valuation_scope
+                    receipt["model_semantics_hash"] = manifest.adjusted_facts.semantics.content_hash
+                    receipt["adjusted_facts_hash"] = manifest.adjusted_facts.content_hash
+                    receipt["adjusted_unit_policy_hash"] = manifest.adjusted_unit_policy_hash
                 atomic_write_bytes(destination / "receipt.json", canonical_json_bytes(receipt))
                 receipts.append(
                     {
@@ -759,6 +778,20 @@ class PersonalQlibExecutor:
                             rule.model_dump(mode="json") for rule in manifest.cash_rules
                         ],
                         "native_source_hashes": manifest.native_source_hashes,
+                    }
+                )
+            if isinstance(prepared, PreparedHS300AdjustedStudy):
+                config["strategy"]["class"] = "AdjustedUnitBoundaryTopKStrategy"
+                config["strategy"]["module_path"] = "quantos.research.hs300_adjusted_runtime"
+                config["strategy"]["kwargs"].update(
+                    {
+                        "adjusted_facts": manifest.adjusted_facts.model_dump(mode="json"),
+                        "adjusted_unit_policy_hash": manifest.adjusted_unit_policy_hash,
+                        "adjusted_runtime_source_hashes": manifest.adjusted_runtime_source_hashes,
+                        "future_quote_binding": manifest.future_quote_binding.model_dump(
+                            mode="json"
+                        ),
+                        "provider_root": str(binding.provider_root.absolute()),
                     }
                 )
         return config

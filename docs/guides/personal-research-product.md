@@ -1,12 +1,14 @@
 # 个人量化研究入口
 
-当前后继是 `hs300-daily-trend-tushare-lifecycle/v2`：仅当时可获得的沪深300历史成员，Tushare Pro
+当前后继是 `hs300-daily-trend-tushare-lifecycle/v3`：仅当时可获得的沪深300历史成员，Tushare Pro
 为市场数据唯一来源，每日收盘后研究、下一交易日开盘执行。包括指数中的非主板股票，
 不再求主板交集，也不要求同花顺。旧 `daily-mainboard-trend/v1` 合同、任务与失败原件保留。
-完整2023–2025区间的数据准备为 **READY_FOR_AUTHORIZATION**。用户恢复scratch并批准后，
-已完成两轮明确的真实历史数据离线执行；现金运行时后继实际越过原现金选择权边界，
-主策略及五随机随后在合并/永久停牌边界停止，整体 **FAILED / NOT_EVALUATED**。
-经典对照沿原完整721日结果复用，没有重复执行；单次运行授权均已撤下。
+用户于2026-11-01明确选择供应商复权价格／数量单位场景。原价格、信号、成本、日期与七候选不变，
+普通现金分红只由冻结供应商因子表达，不另加现金；不声称真实到账、精确现金再投或税后总回报。
+旧两轮FAILED及权益审计按原范围保留；新任务不续跑旧终态。经典仍沿原完整721日结果复用。
+当前独立任务及实际结果见 `artifacts/personal-research-product-20261101/dividend-continuation-01/`。
+新任务 `5f491a28…` 已SUCCEEDED / NOT_EVALUATED：六新账户均721日，经典原tuple复用，
+主策略模型收益-24.14%、经典-7.79%、基准+16.54%；单次授权已撤下。
 
 ## 实际接线与边界
 
@@ -17,6 +19,7 @@
 `research/hs300_lifecycle_data.py` 与 `research/hs300_native_boundary.py`。
 现金运行时后继另在 `contracts/hs300_cash.py`、`contracts/cash_option_proof.py`、
 `research/hs300_cash_runtime.py` 与 `research/cash_option_proof.py`。
+复权单位后继另在 `contracts/hs300_adjusted.py` 与 `research/hs300_adjusted_runtime.py`。
 使用 Qlib 0.9.7 Workflow、PortAnaRecord、目标权重策略、Exchange 和 Simulator；项目不实现撮合或账户会计。
 
 - 主策略：基准和个股收盘高于SMA20、个股5日收益为正、当日成交额／前5日均成交额至少1.2；
@@ -47,7 +50,7 @@ Skill 在 `skills/quantos-research`，用户目录链接与原MCP安装保留。
 
 服务默认读取固定产品根下的 `server-config.json`，也支持本地启动参数 `--server-config`。
 配置路径、catalog原件路径及授权文件均不属于MCP参数。配置缺省时没有数据准入或执行授权；
-当前v3配置保留旧catalog并注册现金运行时后继，`authorization_path`为null。
+当前v4配置保留旧catalog并注册复权单位后继，单次任务结束后`authorization_path`恢复null。
 `approved=true`、模型自报批准和提案文字不能授予执行权。
 
 可信本地授权必须另行绑定prepared/code/dataset/profile、完整七候选、实际批准原件hash、到期时间、
@@ -57,6 +60,9 @@ worker只读核验任务链，不在隔离PID视图内判断宿主父进程存�
 真实退出、失败和部分完成结果不改写。
 
 v3授权另绑定现金规则/运行政策/原生源码hash、经典原始来源和七路信号复用规格。
+v4再绑定复权单位政策、官方事实原文、原生加载／有效报价源码及完整后续会话的12个feature文件身份。
+旧授权不能执行新模型；合并须实际持仓与订单为零、真实生成目标不涉及旧股、实际生产Exchange
+及原生报价接口证实整个固定区间不可交易。条件推导不是未来收市观察或真实红利结清记录。
 本次后继为六个新账户加一个 `REUSED_ORIGIN` 经典结果，固定七候选分母；
 复用行展示原prepared/receipt，不能改写旧收据冒充新原生执行。
 原编译输入、环境、源码与科学配置/指标实现及全部原件通过窄依赖核验后才采用。
@@ -72,7 +78,7 @@ v3授权另绑定现金规则/运行政策/原生源码hash、经典原始来源
 准备请求示例（dataset_id只使用服务端实际返回的匹配ID；无匹配时准备为BLOCKED）：
 
 ```json
-{"schema_version":"personal-study-request/v5","idempotency_key":"hs300-cash-runtime-example-01","dataset_id":"hs300-cash-runtime-20230109-20251229-v1","brief":"沪深300Tushare日频趋势与成交额确认；原生订单阶段核验现金资格，其他生命周期边界仍硬停","proposal":{"session_id":"outer-session"},"start_date":"2023-01-09","end_date":"2025-12-29","warmup_start":"2022-11-01"}
+{"schema_version":"personal-study-request/v6","idempotency_key":"hs300-vendor-unit-example-01","dataset_id":"hs300-vendor-adjusted-20230109-20251229-20261101-v1","brief":"沪深300复权单位研究；不另加现金分红，合并仅由实际原生零输入及有效报价证明放行","proposal":{"session_id":"outer-session"},"start_date":"2023-01-09","end_date":"2025-12-29","warmup_start":"2022-11-01"}
 ```
 
 本地操作入口：
@@ -88,6 +94,13 @@ v3授权另绑定现金规则/运行政策/原生源码hash、经典原始来源
 后继完整数据改变时必须准备新任务，不给旧BLOCKED或终态包补换输入。
 
 ## 生命周期后继及剩余限制
+
+2026-11-01后继明示原复权单位模型：海通2023-07-27登记、7月28日派息的每股税前0.21元
+早已存在于Tushare返回及官方公告。三随机账户raw-equivalent诊断为8000/8400/7600股，
+名义税前额1680/1764/1596元；这些不是到账或税基证明。除息因子已进入次日原生卖价，
+因此新场景不能再独立加一笔现金。旧审计的实际付款UNKNOWN没有改成PAID。
+现有收益字段只表示模型内扣交易费用的收益，不能解释为真实税后实收总收益。
+新边界不处理非零持股的换股会计；非零持仓、订单、已观察独立权益或必需未知仍硬停。
 
 snapshot `6297a968…` / view `fc809bed…` 的原件、消费表hash与既有质量证明已核对。
 `bars.amount_cny`是实际CNY成交额，不以volume代替；bar/factor/member/status可用时间参与信号截止。
@@ -107,7 +120,7 @@ v2仅对有官方连续持股必要条件的现金选择权新增严格分支：
 再让Qlib实际生成目标和订单，确认均不涉及相关股后，在成交前保存派生现金资格0证明。
 这是对指定现金权利的推导，不称原生权益台账已观测，不做现金、换股或持仓分录。
 已知独立权益或必需观察缺失仍硬停；后续普通买入不恢复该项连续资格。
-合并、永久停牌及退市继续使用原v1硬边界，不由现金证明自动豁免。
+在保留的v2中，合并、永久停牌及退市继续使用原v1硬边界，不由现金证明自动豁免。
 
 实际后继任务 `665334198da5d9be2edf456da98883fa67e73101521eec0608c93153e761200a`：
 主策略已完成628日，到2025-08-12，8月13日停在中国重工后续合并边界；
@@ -124,7 +137,7 @@ v2仅对有官方连续持股必要条件的现金选择权新增严格分支：
 未用Position字典或历史回放冒充实现。上述两次公告请求权限不足不等于全账号所有公告能力已核定；
 标题/链接不等于正文或“没有利空”，不把旧27份材料或本次官方PDF改标为Tushare来源/交易特征。
 
-## 合并其他权益逐项审计（2026-10-23）
+## 历史合并权益逐项审计（2026-10-23，保留原口径）
 
 新增快照层 `quantos.data.tushare.dividend_acquisition`、离线公告解析
 `quantos.research.merger_entitlement_sources` 与登记日判断

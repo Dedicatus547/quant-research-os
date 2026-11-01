@@ -16,6 +16,10 @@ from quantos.application.personal_research import (
 )
 from quantos.artifacts.store import ArtifactIntegrityError, opened_directory, read_regular_bytes_at
 from quantos.contracts.base import CanonicalContract, sha256_bytes
+from quantos.contracts.hs300_adjusted import (
+    HS300AdjustedDatasetManifest,
+    PreparedHS300AdjustedStudy,
+)
 from quantos.contracts.hs300_cash import (
     ClassicOriginReuse,
     HS300CashDatasetManifest,
@@ -66,6 +70,11 @@ class CatalogRegistrationV3(CatalogRegistrationV2):
     signal_reuse_spec_path: Path
 
 
+class CatalogRegistrationV4(CatalogRegistrationV3):
+    schema_version: Literal["personal-catalog-registration/v4"] = "personal-catalog-registration/v4"  # pyright: ignore[reportIncompatibleVariableOverride]
+    adjusted_facts_path: Path
+
+
 class PersonalServerConfig(_ServerDocument):
     schema_version: Literal["personal-research-server-config/v1"] = (
         "personal-research-server-config/v1"
@@ -107,6 +116,16 @@ class PersonalServerConfigV3(PersonalServerConfigV2):
         "personal-research-server-config/v3"
     )
     catalog: tuple[CatalogRegistrationV3 | CatalogRegistrationV2 | CatalogRegistration, ...] = ()  # pyright: ignore[reportIncompatibleVariableOverride]
+
+
+class PersonalServerConfigV4(PersonalServerConfigV3):
+    schema_version: Literal["personal-research-server-config/v4"] = (  # pyright: ignore[reportIncompatibleVariableOverride]
+        "personal-research-server-config/v4"
+    )
+    catalog: tuple[
+        CatalogRegistrationV4 | CatalogRegistrationV3 | CatalogRegistrationV2 | CatalogRegistration,
+        ...,
+    ] = ()  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 class HS300ExecutionAuthorization(_ServerDocument):
@@ -222,6 +241,27 @@ class HS300CashExecutionAuthorization(HS300LifecycleExecutionAuthorization):
     signal_reuse_hash: str = Field(pattern=SHA256_PATTERN)
 
 
+class HS300AdjustedExecutionAuthorization(HS300CashExecutionAuthorization):
+    schema_version: Literal["personal-hs300-execution-authorization/v4"] = (  # pyright: ignore[reportIncompatibleVariableOverride]
+        "personal-hs300-execution-authorization/v4"
+    )
+    adjusted_unit_policy_hash: str = Field(pattern=SHA256_PATTERN)
+    adjusted_facts_hash: str = Field(pattern=SHA256_PATTERN)
+    adjusted_runtime_source_hashes: dict[str, str] = Field(min_length=1)
+    future_quote_binding_hash: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def bound_adjusted_runtime_sources(self) -> HS300AdjustedExecutionAuthorization:
+        import re
+
+        if any(
+            re.fullmatch(SHA256_PATTERN, digest) is None
+            for digest in self.adjusted_runtime_source_hashes.values()
+        ):
+            raise ValueError("exact adjusted runtime source hashes are required")
+        return self
+
+
 def _read(path: Path, expected_hash: str | None = None) -> bytes:
     if not path.is_absolute():
         raise ValueError("trusted server paths must be absolute")
@@ -234,12 +274,16 @@ def _read(path: Path, expected_hash: str | None = None) -> bytes:
 
 def load_server_config(
     path: Path,
-) -> PersonalServerConfig | PersonalServerConfigV2 | PersonalServerConfigV3:
+) -> (
+    PersonalServerConfig | PersonalServerConfigV2 | PersonalServerConfigV3 | PersonalServerConfigV4
+):
     import json
 
     raw = _read(path)
     config_type = (
-        PersonalServerConfigV3
+        PersonalServerConfigV4
+        if json.loads(raw).get("schema_version") == "personal-research-server-config/v4"
+        else PersonalServerConfigV3
         if json.loads(raw).get("schema_version") == "personal-research-server-config/v3"
         else PersonalServerConfigV2
         if json.loads(raw).get("schema_version") == "personal-research-server-config/v2"
@@ -266,7 +310,9 @@ def make_trusted_service(
     for registration in config.catalog:
         manifest_bytes = _read(registration.manifest_path, registration.manifest_sha256)
         manifest_type = (
-            HS300CashDatasetManifest
+            HS300AdjustedDatasetManifest
+            if isinstance(registration, CatalogRegistrationV4)
+            else HS300CashDatasetManifest
             if isinstance(registration, CatalogRegistrationV3)
             else HS300LifecycleDatasetManifest
             if isinstance(registration, CatalogRegistrationV2)
@@ -294,12 +340,22 @@ def make_trusted_service(
             ):
                 if not location.is_absolute():
                     raise ValueError("trusted cash paths must be absolute")
+        if (
+            isinstance(registration, CatalogRegistrationV4)
+            and not registration.adjusted_facts_path.is_absolute()
+        ):
+            raise ValueError("trusted adjusted facts path must be absolute")
         catalog[manifest.dataset_id] = PersonalDatasetBinding(
             manifest=manifest,
             provider_root=registration.provider_root,
             panel_path=registration.panel_path,
             pit_evidence_path=registration.pit_evidence_path,
             snapshot_path=registration.snapshot_path,
+            adjusted_facts_path=(
+                registration.adjusted_facts_path
+                if isinstance(registration, CatalogRegistrationV4)
+                else None
+            ),
             cash_rules_path=(
                 registration.cash_rules_path
                 if isinstance(registration, CatalogRegistrationV3)
@@ -335,7 +391,9 @@ def make_trusted_service(
             raise PermissionError("trusted server configuration changed; restart the service")
         assert config.authorization_path is not None
         grant_type = (
-            HS300CashExecutionAuthorization
+            HS300AdjustedExecutionAuthorization
+            if isinstance(prepared, PreparedHS300AdjustedStudy)
+            else HS300CashExecutionAuthorization
             if isinstance(prepared, PreparedHS300CashStudy)
             else HS300LifecycleExecutionAuthorization
             if isinstance(prepared, PreparedHS300LifecycleStudy)
@@ -390,6 +448,24 @@ def make_trusted_service(
                 or grant.signal_reuse_hash != prepared.signal_reuse.content_hash
             ):
                 raise PermissionError("trusted cash policy, rules or origin reuse disagree")
+        if isinstance(prepared, PreparedHS300AdjustedStudy):
+            if not isinstance(grant, HS300AdjustedExecutionAuthorization):
+                raise PermissionError(
+                    "adjusted-unit successor requires its own bound authorization"
+                )
+            adjusted_manifest = prepared.dataset_manifest
+            assert isinstance(adjusted_manifest, HS300AdjustedDatasetManifest)
+            if (
+                grant.adjusted_unit_policy_hash != adjusted_manifest.adjusted_unit_policy_hash
+                or grant.adjusted_facts_hash != adjusted_manifest.adjusted_facts.content_hash
+                or grant.adjusted_runtime_source_hashes
+                != adjusted_manifest.adjusted_runtime_source_hashes
+                or grant.future_quote_binding_hash
+                != adjusted_manifest.future_quote_binding.content_hash
+            ):
+                raise PermissionError(
+                    "trusted adjusted-unit policy, facts, runtime or quote binding disagree"
+                )
         return grant
 
     def guarded_executor(prepared: Prepared) -> Any:

@@ -17,15 +17,15 @@ of target, source preference, expenditure, or disclosure. Check data coverage be
 around it. Index constituents cannot stand for all mainboard stocks; other sectors cannot
 stand for THS; daily data cannot recreate a five-minute exit.
 
-The successor profile is `hs300-daily-trend-tushare-lifecycle/v2`: historical HS300 members available
+The successor profile is `hs300-daily-trend-tushare-lifecycle/v3`: historical HS300 members available
 as of each after-close signal, Tushare Pro as the only market source, next-session open Qlib
 execution. It includes all index boards, without a mainboard intersection or THS dependency.
-The retained `hs300-daily-trend-tushare-lifecycle/v1`, `hs300-daily-trend-tushare/v1` and `daily-mainboard-trend/v1` remain readable
+The retained `hs300-daily-trend-tushare-lifecycle/v2`, `hs300-daily-trend-tushare-lifecycle/v1`, `hs300-daily-trend-tushare/v1` and `daily-mainboard-trend/v1` remain readable
 under their original scopes.
 Call `research_data_describe` to inspect registered immutable dataset IDs and policies before
 preparation. A descriptive historical inventory is not an executable binding.
 
-Prepare with `research_prepare` and `schema_version: "personal-study-request/v5"`, a unique
+Prepare with `research_prepare` and `schema_version: "personal-study-request/v6"`, a unique
 idempotency key, brief, `proposal: {session_id: "<this-session-label>"}`, and a matching
 server-returned dataset ID. Default benchmark is SH000300. First retrospective proposal:
 start 2023-01-09, end 2025-12-29, warmup_start 2022-11-01. The profile fixes SMA20, positive
@@ -43,6 +43,23 @@ Only operator-owned configuration supplies cash rule bundles and read-only origi
 A completed classic may appear as REUSED_ORIGIN with its original prepared/receipt identity;
 it is never a new-tuple PASS or a rewritten receipt. Preserve all seven rows, execute only six
 new native accounts under a distinct v3 grant, and verify original provenance on result reads.
+
+The v3 profile is an explicitly chosen vendor-adjusted price/quantity-unit scenario, not
+an actual broker cash-dividend ledger. Ordinary cash dividends remain expressed only by
+the frozen vendor adjustment factors. Never add a second model cash credit, label a missing
+payment PAID, or claim exact cash reinvestment, dividend tax settlement or net total return.
+Company pay dates and nominal raw-share dividend diagnostics do not establish account receipt.
+Its v6 request, dataset/v5, prepared/v5 and catalog/config/grant v4 bind official originals,
+vendor-convention HTML, model semantics, native loader/quote identities and complete fixed
+future quote sessions. Legacy grants cannot authorize this successor. Only the actual
+production Exchange and native quote instance may support the derived zero old-share-input
+branch, with fresh ordinary lineage, complete holdings/orders and actual generated targets
+and orders. Nonzero or unknown required state still stops that arm. A development probe
+cannot replace runtime observations. No company-action accounting, forced sale, new-share
+conversion or imported rights are added. Old failures and strict payment UNKNOWN findings
+remain under their original scope. Numerical returns mean model returns after specified
+trading costs; do not describe them as tax-adjusted actual cash receipts. Preserve classic
+origin and all seven rows; reuse verified inputs and raw signals without recompilation.
 
 Lifecycle facts classify structural security existence and unsupported account events; they are
 not predictive features or an anticipatory exit signal. Preparation requires immutable source,

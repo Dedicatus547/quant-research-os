@@ -23,6 +23,7 @@ from quantos.artifacts.store import atomic_write_bytes, confined_regular_file, s
 from quantos.backtest.strategy import FullReplacementTopKStrategy
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.cash_option_proof import ContinuousCashOptionRule
+from quantos.contracts.hs300_adjusted import PreparedHS300AdjustedStudy
 from quantos.contracts.hs300_cash import (
     BoundArtifact,
     CashRuntimePolicy,
@@ -106,6 +107,14 @@ def _same_scientific_inputs(old: Any, new: PreparedHS300CashStudy) -> None:
     after_manifest = new.dataset_manifest.model_dump()
     for key in ("cash_rules", "cash_runtime_policy_hash", "native_source_hashes"):
         after_manifest.pop(key, None)
+    if isinstance(new, PreparedHS300AdjustedStudy):
+        for key in (
+            "adjusted_facts",
+            "adjusted_unit_policy_hash",
+            "adjusted_runtime_source_hashes",
+            "future_quote_binding",
+        ):
+            after_manifest.pop(key)
     for key in ("schema_version", "dataset_id"):
         after_manifest[key] = before_manifest[key]
     if before_manifest != after_manifest:
@@ -116,6 +125,9 @@ def _same_scientific_inputs(old: Any, new: PreparedHS300CashStudy) -> None:
     before = old.request.profile.model_dump()
     after = new.request.profile.model_dump()
     after.pop("cash_runtime_policy_hash", None)
+    if isinstance(new, PreparedHS300AdjustedStudy):
+        for key in ("valuation_scope", "model_semantics_hash", "adjusted_unit_policy_hash"):
+            after.pop(key)
     after["schema_version"] = before["schema_version"]
     if before != after or old.candidates != new.candidates:
         raise ValueError("origin strategy parameters or candidate definitions differ")
@@ -231,7 +243,7 @@ def reused_signal_bytes(spec: SignalReuseSpec, candidate_id: str) -> bytes:
 
 
 def _verify_classic_executor_origins(spec: SignalReuseSpec) -> None:
-    """Keep v1 scientific config/metrics exact; allow only the reviewed cash wrapper."""
+    """Keep scientific AST exact after removing only explicit boundary wrappers."""
     original = _artifact(
         spec.origin_root, spec.compiler_originals["src/quantos/research/personal_qlib.py"]
     )
@@ -285,10 +297,31 @@ if isinstance(prepared, PreparedHS300CashStudy):
     ]
     if len(additions) != 1 or ast.dump(additions[0]) != ast.dump(allowed):
         raise ValueError("cash successor config branch exceeds the reviewed audit-wrapper scope")
+    adjusted = ast.parse("""
+if isinstance(prepared, PreparedHS300AdjustedStudy):
+    config["strategy"]["class"] = "AdjustedUnitBoundaryTopKStrategy"
+    config["strategy"]["module_path"] = "quantos.research.hs300_adjusted_runtime"
+    config["strategy"]["kwargs"].update(
+        {
+            "adjusted_facts": manifest.adjusted_facts.model_dump(mode="json"),
+            "adjusted_unit_policy_hash": manifest.adjusted_unit_policy_hash,
+            "adjusted_runtime_source_hashes": manifest.adjusted_runtime_source_hashes,
+            "future_quote_binding": manifest.future_quote_binding.model_dump(mode="json"),
+            "provider_root": str(binding.provider_root.absolute()),
+        }
+    )
+""").body[0]
+    adjusted_additions = [
+        node
+        for node in ast.walk(current)
+        if isinstance(node, ast.If) and ast.dump(node.test) == ast.dump(cast(ast.If, adjusted).test)
+    ]
+    if len(adjusted_additions) != 1 or ast.dump(adjusted_additions[0]) != ast.dump(adjusted):
+        raise ValueError("adjusted-unit config branch exceeds the reviewed audit-wrapper scope")
 
     class RemoveReviewedCashBranch(ast.NodeTransformer):
         def visit_If(self, node: ast.If) -> ast.AST | None:
-            if node is additions[0]:
+            if node is additions[0] or node is adjusted_additions[0]:
                 return None
             return self.generic_visit(node)
 

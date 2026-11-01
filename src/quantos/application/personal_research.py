@@ -18,6 +18,11 @@ from quantos.artifacts.store import (
     read_regular_bytes_at,
 )
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.hs300_adjusted import (
+    HS300AdjustedDatasetManifest,
+    HS300AdjustedStudyRequest,
+    PreparedHS300AdjustedStudy,
+)
 from quantos.contracts.hs300_cash import (
     ClassicOriginReuse,
     HS300CashDatasetManifest,
@@ -54,11 +59,18 @@ class PersonalDatasetBinding:
     snapshot_path: Path | None = None
     lifecycle_path: Path | None = None
     cash_rules_path: Path | None = None
+    adjusted_facts_path: Path | None = None
     origin_reuse: tuple[ClassicOriginReuse, ...] = ()
     signal_reuse: SignalReuseSpec | None = None
 
 
-Prepared = PreparedStudy | PreparedHS300Study | PreparedHS300LifecycleStudy | PreparedHS300CashStudy
+Prepared = (
+    PreparedStudy
+    | PreparedHS300Study
+    | PreparedHS300LifecycleStudy
+    | PreparedHS300CashStudy
+    | PreparedHS300AdjustedStudy
+)
 Authorizer = Callable[[Prepared], str | None]
 Executor = Callable[[Prepared, Path, Callable[[], bool]], dict[str, Any]]
 
@@ -153,7 +165,12 @@ class PersonalResearchService:
         return {"sources": dependencies, "environment": environment, "python": sys.version}
 
     def _code_hash(
-        self, *, hs300: bool = False, lifecycle: bool = False, cash: bool = False
+        self,
+        *,
+        hs300: bool = False,
+        lifecycle: bool = False,
+        cash: bool = False,
+        adjusted: bool = False,
     ) -> str:
         manifest = self.dependency_manifest()
         if hs300:
@@ -216,6 +233,14 @@ class PersonalResearchService:
                 "qlib/utils/time.py",
             ):
                 sources[name] = sha256_bytes(Path(str(native.locate_file(name))).read_bytes())
+        if adjusted:
+            sources = cast(dict[str, str], manifest["sources"])
+            for name in (
+                "src/quantos/contracts/hs300_adjusted.py",
+                "src/quantos/research/hs300_adjusted_runtime.py",
+                "src/quantos/research/merger_entitlement_sources.py",
+            ):
+                sources[name] = sha256_bytes((self.repo_root / name).read_bytes())
         return sha256_bytes(canonical_json_bytes(manifest))
 
     def capabilities(self) -> dict[str, Any]:
@@ -224,8 +249,9 @@ class PersonalResearchService:
             "proposal_origin": "host-session-proposal/v2",
             "retained_proposal_origins": ["host-session-proposal/v1"],
             "authenticated_model_identity": False,
-            "profile": "hs300-daily-trend-tushare-lifecycle/v2",
+            "profile": "hs300-daily-trend-tushare-lifecycle/v3",
             "retained_profiles": [
+                "hs300-daily-trend-tushare-lifecycle/v2",
                 "hs300-daily-trend-tushare-lifecycle/v1",
                 "hs300-daily-trend-tushare/v1",
                 "daily-mainboard-trend/v1",
@@ -237,6 +263,10 @@ class PersonalResearchService:
                 "cash_settlement_accounting": "native unsupported events are not synthesized",
                 "cash_runtime": "source-bound necessary conditions on actual native orders",
                 "classic_reuse": "verified original tuple; no new native run or rewritten receipt",
+                "adjusted_units": (
+                    "explicit supplier dividend-reinvestment model; source-bound facts; "
+                    "no separate dividend cash credit or real-account payment claim"
+                ),
             },
             "tools": [
                 "capabilities",
@@ -292,10 +322,17 @@ class PersonalResearchService:
         }
 
     def _prepare_hs300(
-        self, request: Mapping[str, object], *, lifecycle: bool = False, cash: bool = False
+        self,
+        request: Mapping[str, object],
+        *,
+        lifecycle: bool = False,
+        cash: bool = False,
+        adjusted: bool = False,
     ) -> dict[str, Any]:
         request_type = (
-            HS300CashStudyRequest
+            HS300AdjustedStudyRequest
+            if adjusted
+            else HS300CashStudyRequest
             if cash
             else HS300LifecycleStudyRequest
             if lifecycle
@@ -306,7 +343,9 @@ class PersonalResearchService:
         manifest = binding.manifest if binding else None
         gaps: list[str] = []
         manifest_type = (
-            HS300CashDatasetManifest
+            HS300AdjustedDatasetManifest
+            if adjusted
+            else HS300CashDatasetManifest
             if cash
             else HS300LifecycleDatasetManifest
             if lifecycle
@@ -323,7 +362,13 @@ class PersonalResearchService:
 
             assert binding is not None
             try:
-                if cash:
+                if adjusted:
+                    from quantos.research.hs300_adjusted_runtime import (
+                        verify_hs300_adjusted_binding,
+                    )
+
+                    verify_hs300_adjusted_binding(binding)
+                elif cash:
                     from quantos.research.hs300_cash_runtime import verify_hs300_cash_binding
 
                     verify_hs300_cash_binding(binding)
@@ -384,7 +429,9 @@ class PersonalResearchService:
             ),
         )
         prepared_type = (
-            PreparedHS300CashStudy
+            PreparedHS300AdjustedStudy
+            if adjusted
+            else PreparedHS300CashStudy
             if cash
             else PreparedHS300LifecycleStudy
             if lifecycle
@@ -394,7 +441,9 @@ class PersonalResearchService:
             dict(
                 request=proposed,
                 dataset_manifest=manifest,
-                code_hash=self._code_hash(hs300=True, lifecycle=lifecycle, cash=cash),
+                code_hash=self._code_hash(
+                    hs300=True, lifecycle=lifecycle, cash=cash, adjusted=adjusted
+                ),
                 candidates=candidates,
                 readiness="BLOCKED" if gaps else "READY_FOR_AUTHORIZATION",
                 gaps=tuple(gaps),
@@ -428,16 +477,18 @@ class PersonalResearchService:
                     "Announcement entitlement UNKNOWN; titles/links cannot prove no adverse news",
                     "No collection, external PDF, research SDK, broker or forward execution",
                 ),
+                **(
+                    {
+                        "origin_reuse": binding.origin_reuse if binding else (),
+                        "signal_reuse": binding.signal_reuse if binding else None,
+                    }
+                    if cash
+                    else {}
+                ),
             )
         )
         if cash:
             assert isinstance(prepared, PreparedHS300CashStudy)
-            prepared = prepared.model_copy(
-                update={
-                    "origin_reuse": binding.origin_reuse if binding else (),
-                    "signal_reuse": binding.signal_reuse if binding else None,
-                }
-            )
             from quantos.research.hs300_cash_runtime import (
                 verify_classic_origin,
                 verify_reused_signal_bindings,
@@ -469,12 +520,29 @@ class PersonalResearchService:
                     ),
                 }
             )
+        if adjusted:
+            prepared = prepared.model_copy(
+                update={
+                    "rationale": prepared.rationale
+                    + (
+                        " Supplier dividend-reinvestment adjusted units "
+                        "are an explicit model scenario."
+                    ),
+                    "limits": (
+                        *prepared.limits,
+                        "Model economic returns do not establish real shareholder cash settlement",
+                        "No separate dividend cash credit; no synthetic rights/account mutation",
+                    ),
+                }
+            )
         return self._persist_prepared(prepared)
 
     def prepare(self, request: Mapping[str, object]) -> dict[str, Any]:
         from quantos.security.artifact_secrets import validate_secret_free
 
         validate_secret_free(dict(request), file_name="personal-study-request.json")
+        if request.get("schema_version") == "personal-study-request/v6":
+            return self._prepare_hs300(request, lifecycle=True, cash=True, adjusted=True)
         if request.get("schema_version") == "personal-study-request/v5":
             return self._prepare_hs300(request, lifecycle=True, cash=True)
         if request.get("schema_version") == "personal-study-request/v4":
@@ -631,7 +699,9 @@ class PersonalResearchService:
         raw = self._read(self.root / "tasks" / task_id, "prepared.json")
         schema = json.loads(raw).get("schema_version")
         contract = (
-            PreparedHS300CashStudy
+            PreparedHS300AdjustedStudy
+            if schema == "personal-study-prepared/v5"
+            else PreparedHS300CashStudy
             if schema == "personal-study-prepared/v4"
             else PreparedHS300LifecycleStudy
             if schema == "personal-study-prepared/v3"
@@ -762,6 +832,7 @@ class PersonalResearchService:
                     hs300=isinstance(prepared, (PreparedHS300Study, PreparedHS300LifecycleStudy)),
                     lifecycle=isinstance(prepared, PreparedHS300LifecycleStudy),
                     cash=isinstance(prepared, PreparedHS300CashStudy),
+                    adjusted=isinstance(prepared, PreparedHS300AdjustedStudy),
                 ):
                     self._append(task_id, "PREPARED", {"execution_denied": "changed_dependencies"})
                     raise PermissionError(

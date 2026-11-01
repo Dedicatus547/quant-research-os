@@ -2,6 +2,7 @@
 
 This command cannot issue an execution grant. An operator-owned server config
 must separately bind the exact task, approval original and finite budget.
+Adjusted-unit request/v6 requires its explicit config/catalog/grant v4 bindings.
 """
 
 from __future__ import annotations
