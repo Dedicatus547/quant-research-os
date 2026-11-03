@@ -31,6 +31,7 @@ UV_CACHE_DIR=/tmp/quantos-uv-cache uv run --frozen quantos doctor
 
 | 工作 | 状态与入口 |
 |---|---|
+| 个人研究 v3 | 11月1日六新+一经典来源，七行完整、科学未评估；[协议与结果](docs/releases/personal-research-closeout-2026-11-03.md) |
 | P0–P14 确定性研究链 | 已完成各自批准范围；[当前资格与科学结果](docs/status/README.md) |
 | HM-MVP component-v2 | 已冻结，campaign 已结束、额度耗尽；[使用与运行限制](docs/status/hosted.md) |
 | FR-03 SDK/runtime | `0.162.1 + gpt-6.1-sol / medium` 确切组合 GO，实现已合入本地 main、尚未部署；[接受范围](docs/status/fr03.md) |

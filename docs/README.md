@@ -6,6 +6,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [个人研究 v3](guides/personal-research-product.md) | 沪深300/Tushare协议、有界结果接口及实际限制 |
 | [快速上手](guides/quickstart.md) | 安装、环境检查、最小离线示例 |
 | [离线工作流](guides/offline-workflows.md) | 研究、回测、验证、Registry 与 Ledger |
 | [HM-MVP 快速上手](hosted/hm-mvp-quickstart.md) | 有界 Codex-hosted 交接、当前运行条件与 CLI 模板入口 |
@@ -43,7 +44,7 @@
 | [HM-MVP 交付进度](hosted/hm-implementation-progress.md) | component-v2 已完成；接受与本地发布登记、历史追溯入口 |
 | [HM-MVP 实施复盘](hosted/hm-mvp-implementation-retrospective.md) | 超过10天的延误机制、证据限制、教训及改进对应 |
 | [Codex-hosted MVP 原始方案](roadmap/host-mediated-mvp.md) | 2026-09-29 历史审查输入，保留原字节；当前事实见交付进度 |
-| [发布记录](releases/README.md) | HM-MVP 本地发布、P14 RC 与历次冻结记录 |
+| [发布记录](releases/README.md) | 个人产品收尾、HM-MVP 本地发布、P14 RC 与历次冻结记录 |
 | [审查记录](reviews/README.md) | 源码合并审核、FR-03 接受、契约批准与历史评审 |
 | [历史文档](history/README.md) | 重组前的完整文档快照 |
 

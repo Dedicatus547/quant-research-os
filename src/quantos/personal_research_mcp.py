@@ -40,12 +40,15 @@ def create_server(
         research_service = make_trusted_service(root, repo_root, server_config)
     evidence = PersonalEvidenceService(root, repo_root)
     from quantos.application.personal_history import PersonalHistoryService
+    from quantos.application.personal_projection import PersonalResearchProjection
 
+    projection = PersonalResearchProjection(research_service)
     history = PersonalHistoryService(root, repo_root)
     server = FastMCP(
         "quantos-research",
         instructions=(
-            "Local research assistant. Read capabilities and retained history first. "
+            "Local research assistant. Prefer research_capabilities_summary and "
+            "research_results_summary. Read retained history first. "
             "Prepare host-session proposals; execution requires server-side authorization. "
             "Tool arguments cannot grant approval. "
             "Lifecycle data readiness does not prove zero native event exposure; "
@@ -113,6 +116,36 @@ def create_server(
         """Read retained results, comparison and honest missing/not-evaluated states."""
         return research_service.results(task_id)
 
+    def research_capabilities_summary(offset: int = 0, limit: int = 20) -> dict[str, Any]:
+        """Preferred bounded dataset identities, dates, source, limits and readiness summary.
+
+        Explicit successor; research_capabilities/data_describe retain their full contracts.
+        """
+        return projection.capabilities(offset, limit)
+
+    def research_results_summary(task_id: str) -> dict[str, Any]:
+        """Preferred seven-row metrics/status with original origin/comparison hashes.
+
+        Uses the original integrity path; research_results retains its full contract.
+        """
+        return projection.results(task_id)
+
+    def research_results_boundary_page(
+        task_id: str, candidate_id: str, offset: int = 0, limit: int = 20
+    ) -> dict[str, Any]:
+        """Page retained daily boundary references and original hashes, at most 100."""
+        return projection.boundary_page(task_id, candidate_id, offset, limit)
+
+    def research_results_boundary_read(
+        task_id: str,
+        candidate_id: str,
+        boundary_sha256: str,
+        start: int = 0,
+        max_chars: int = 8000,
+    ) -> dict[str, Any]:
+        """Read a hash-verified boundary text span, at most 32000 characters."""
+        return projection.boundary_read(task_id, candidate_id, boundary_sha256, start, max_chars)
+
     def research_simulation_prepare(task_id: str) -> dict[str, Any]:
         """Prepare a conditional simulation request; never start live or scheduled work."""
         return research_service.simulation_prepare(task_id)
@@ -156,6 +189,10 @@ def create_server(
     server.add_tool(research_execute, annotations=write)
     server.add_tool(research_cancel, annotations=write)
     server.add_tool(research_results, annotations=write)
+    server.add_tool(research_capabilities_summary, annotations=read)
+    server.add_tool(research_results_summary, annotations=write)
+    server.add_tool(research_results_boundary_page, annotations=write)
+    server.add_tool(research_results_boundary_read, annotations=write)
     server.add_tool(research_simulation_prepare, annotations=write)
     server.add_tool(announcement_list, annotations=read)
     server.add_tool(announcement_read, annotations=read)

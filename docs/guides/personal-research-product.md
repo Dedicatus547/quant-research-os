@@ -42,10 +42,10 @@ Skill 在 `skills/quantos-research`，用户目录链接与原MCP安装保留。
 `.tools/personal-research-mcp-1.26.0/bin/python -B`；科学依赖使用已有环境，不新增研究SDK。
 固定产品根是 `artifacts/personal-research-product-20261022/run-01/product`。
 
-新服务共16工具：研究 `research_capabilities`、`research_data_describe`、`research_history`、
+后继服务共20工具（需重启MCP进程）：新增四个展示工具见下节；原16工具保留。研究原工具为 `research_capabilities`、`research_data_describe`、`research_history`、
 `research_retained_read`、`research_prepare`、`research_status`、`research_execute`、
 `research_cancel`、`research_results`、`research_simulation_prepare`；公告六工具沿用原入口。
-既有真实Codex只读连通收据复用；本轮只核对改变的本地工具表面与服务接口，没有重复安装或连通检查。
+既有真实Codex只读连通收据复用；11月1日的本地工具表面/服务检查按原身份采用。11月3日展示后继仅做源码阅读和格式整理，未运行接口用例、重复安装或连通检查。
 运行中的MCP进程需重启后加载新工具与配置，不能把当前旧进程说成已经热更新。
 
 服务默认读取固定产品根下的 `server-config.json`，也支持本地启动参数 `--server-config`。
@@ -71,7 +71,7 @@ v4再绑定复权单位政策、官方事实原文、原生加载／有效报价
 可在MCP发出：
 
 ```text
-请读取research_capabilities、research_data_describe与research_history，说明沪深300后继的
+请读取research_capabilities_summary与research_history，说明沪深300后继的
 实际数据就绪状态、原生事件处理限制和固定七候选；不执行真实研究，也不采集或下载公告。
 ```
 
@@ -85,12 +85,12 @@ v4再绑定复权单位政策、官方事实原文、原生加载／有效报价
 
 ```sh
 /home/zjw/quant-research-os/.tools/personal-research-mcp-1.26.0/bin/python -B \
-  /home/zjw/quant-research-os/scripts/run_hs300_study.py describe \
+  /home/zjw/quant-research-os/scripts/run_hs300_study.py describe-summary \
   --config /home/zjw/quant-research-os/artifacts/personal-research-product-20261022/run-01/product/server-config.json
 ```
 
-将 `describe` 换为 `prepare --request <明确请求文件>`，或
-`status|results|cancel|execute --task <明确task hash>`。未授权新任务会拒绝执行；终态返回原状态、不续跑。
+将 `describe-summary` 换为 `prepare --request <明确请求文件>`，或
+`status|results-summary|cancel|execute --task <明确task hash>`。未授权新任务会拒绝执行；终态返回原状态、不续跑。
 后继完整数据改变时必须准备新任务，不给旧BLOCKED或终态包补换输入。
 
 ## 生命周期后继及剩余限制
@@ -158,3 +158,15 @@ Tushare两次采集均成功，五期实施分红日期／金额与官方原件�
 
 本轮证据、失败、运行包、检查与唯一主入口见
 `artifacts/personal-research-product-20261022/run-01/handoff.md`的权益审计及现金运行时后继链接。
+
+## 有界展示后继（2026-11-03）
+
+默认先用 `research_capabilities_summary(offset=0, limit=20)`，仅返回分页的数据集ID/内容哈希、日期、来源、限制与就绪摘要；不展开manifest、Qlib文件表或历史inventory。最大100个数据集/页；注册不等于获准执行，详细manifest仍用原 `research_data_describe(dataset_id)`。
+
+结果默认用 `research_results_summary(task_id)`：保留全部七候选及执行/证据/未评估状态、标量指标、经典origin的内容哈希与原prepared/receipt/outcome绑定、comparison哈希。失败或未运行的指标继续null，未观察边界count为null；部分原生产物不冒充完整区间收益。原comparison不在摘要中重复展开，年度/子期等完整指标仍通过原结果读取。
+
+边界详情先用 `research_results_boundary_page(task_id, candidate_id, offset=0, limit=20)` 读取原file/sha256引用，再用 `research_results_boundary_read(task_id, candidate_id, boundary_sha256, start=0, max_chars=8000)` 读取原JSON文本片段。分页最多100引用，文本最多32000字符；返回next_offset/next_start直至null。无对应记录不生成零持仓或权益证明。
+
+上述四个工具是明确后继；旧 `research_capabilities`、`research_data_describe`、`research_results` 以及CLI旧 `describe/results` 的完整结构保留。仓库Skill和这里的操作示例选择摘要工具作为默认，既有客户端可继续原接口；已运行的服务需重启加载。CLI对应 `describe-summary`、`results-summary --task HASH`、`boundary-page --task HASH --candidate ID --offset N --limit N`、`boundary-read --task HASH --candidate ID --boundary-sha256 HASH --start N --max-chars N`。
+
+摘要和明细先调用原service.results，继续核验不可变outcome/comparison/receipt、经典origin与文件；正文再按receipt引用核hash。此次只改显示投影，未加核验缓存、重算信号或回测，也不承诺读取提速。原检查采用范围、本次实现验证待用户明确要求及本地集成身份见[收尾发布记录](../releases/personal-research-closeout-2026-11-03.md)。

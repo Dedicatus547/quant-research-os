@@ -6,7 +6,7 @@ description: Design bounded A-share research from a user's direction, prepare an
 # Personal quantitative research
 
 Use `quantos_research` MCP tools from any working directory. Start with
-`research_capabilities`, `research_history`, and `announcement_list`; use explicit returned
+`research_capabilities_summary`, `research_history`, and `announcement_list`; use explicit returned
 task and evidence IDs for subsequent operations. If several tasks fit “continue”, show the
 choices. A client restart may be required after installation; never pretend an unavailable
 tool was called.
@@ -22,7 +22,7 @@ as of each after-close signal, Tushare Pro as the only market source, next-sessi
 execution. It includes all index boards, without a mainboard intersection or THS dependency.
 The retained `hs300-daily-trend-tushare-lifecycle/v2`, `hs300-daily-trend-tushare-lifecycle/v1`, `hs300-daily-trend-tushare/v1` and `daily-mainboard-trend/v1` remain readable
 under their original scopes.
-Call `research_data_describe` to inspect registered immutable dataset IDs and policies before
+Call `research_capabilities_summary` to inspect registered immutable dataset IDs and policies before
 preparation. A descriptive historical inventory is not an executable binding.
 
 Prepare with `research_prepare` and `schema_version: "personal-study-request/v6"`, a unique
@@ -94,7 +94,7 @@ MCP execute call may exceed a client wait timeout; inspect the original task and
 UNKNOWN work. An implementation authorization is not permission for market collection, new
 research, sealed access, paid services, broker orders, or a permanent scheduler. Within a
 valid run authorization, proceed to its terminal state without repeatedly asking to continue.
-Use `research_status`, `research_results`, and `research_cancel`; retain UNKNOWN or failed
+Use `research_status`, `research_results_summary`, and `research_cancel`; retain UNKNOWN or failed
 exits and never reissue an unknown execution. Repeated submissions use the original identity.
 
 For this successor, company information uses only actually returned, entitled Tushare fields.
@@ -121,3 +121,13 @@ Use `research_simulation_prepare` to inspect the actual native-account capabilit
 Historical synthetic replay is an engineering exercise. Actual forward simulation needs a
 fixed strategy, newly arrived immutable snapshots, an explicitly bounded observation period,
 and authorization. Never describe a signal log as an account or elapsed future observation.
+
+Default to the explicit bounded display successors `research_capabilities_summary` and
+`research_results_summary`. They return dataset identity/date/source/readiness and seven rows
+with null/failure semantics and classic origin/comparison hashes. For daily details use
+`research_results_boundary_page` (offset, limit <=100), then `research_results_boundary_read`
+with a returned hash (start, max_chars <=32000). No execution is needed. Legacy
+`research_capabilities`, `research_data_describe`, and `research_results` keep their original
+full structures for existing clients and explicit full-artifact inspection. Summary reads use
+the same immutable validation path; this does not claim faster verification. Restart an old
+MCP process before using the new tools.

@@ -1,5 +1,7 @@
 # 审查与批准记录
 
+[2026-11-03 个人研究产品本地差异与采用范围](personal-product-local-adoption-2026-11-03.md)：保留原tuple，展示后继未运行实现验证。
+
 审查记录绑定特定契约、实现或历史状态。标题中的 approved/accepted
 不能脱离其 hash 和作用域使用。当前资格由[状态页](../status/README.md)指向。
 

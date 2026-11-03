@@ -35,4 +35,8 @@
 
 展示后继新增 `application/personal_projection.py`，由 `personal_research_mcp.py` 引用；CLI和仓库Skill改用该入口。传递链为客户端/CLI → 展示投影 → 原service.results → 原outcome/comparison/receipt/origin/文件完整性路径。能力摘要直接投影服务端catalog的manifest内容身份，不运行prepare。旧capabilities/data_describe/results完整契约及原验证函数保留。
 
-当前manifest覆盖的唯一计划变化项是 `scripts/run_hs300_study.py`；它负责显示入口，旧科学运行仍按冻结脚本身份解释。MCP、投影和Skill不在该27项集合中，但属于新展示的实际依赖，不能漏报。新整体commit不影响旧结果身份，也不要求重算信号/回测。核验加速单独等待已有成本实测，未在本次实现。
+当前manifest覆盖的唯一实际变化项是 `scripts/run_hs300_study.py`；它负责显示入口，旧科学运行仍按冻结脚本身份解释。MCP、投影和Skill不在该27项集合中，但属于新展示的实际依赖，不能漏报。新整体commit不影响旧结果身份，也不要求重算信号/回测。核验加速单独等待已有成本实测，未在本次实现。
+
+## 展示后继发布与集成记录
+
+文档先提交为 `364c152`；展示后继按[本地差异审阅](../reviews/personal-product-local-adoption-2026-11-03.md)整理后，采用本地fast-forward集成。原完整工具保留，新增 `research_capabilities_summary`、`research_results_summary`、`research_results_boundary_page`、`research_results_boundary_read`，共20工具。客户端默认选择前两个后继摘要，原客户端仍可使用旧完整契约。实现验证未运行；只有后续用户明确要求时才运行受影响的既有接口/完整性用例，不启动全库矩阵或新科学。
