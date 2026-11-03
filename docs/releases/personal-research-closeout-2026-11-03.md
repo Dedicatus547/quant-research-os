@@ -40,3 +40,5 @@
 ## 展示后继发布与集成记录
 
 文档先提交为 `364c152`；展示后继按[本地差异审阅](../reviews/personal-product-local-adoption-2026-11-03.md)整理后，采用本地fast-forward集成。原完整工具保留，新增 `research_capabilities_summary`、`research_results_summary`、`research_results_boundary_page`、`research_results_boundary_read`，共20工具。客户端默认选择前两个后继摘要，原客户端仍可使用旧完整契约。实现验证未运行；只有后续用户明确要求时才运行受影响的既有接口/完整性用例，不启动全库矩阵或新科学。
+
+实际集成已完成：本地main从 `761ba39` 快进至展示源码 `a53356d`，产品分支也保留在 `a53356d`；随后仅在main登记本段集成结果。文档提交顺序为 `364c152` → 展示 `a53356d` → 集成登记。未推送远端，工作区无遗留修改；当前未重启MCP、未运行实现验证。新源码采用范围仍受本页和差异审阅限定。

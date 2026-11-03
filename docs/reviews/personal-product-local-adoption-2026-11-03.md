@@ -21,3 +21,5 @@
 | `src/quantos/application/personal_projection.py` | `不在原科学manifest中` | `5104d83fe7065202206b606452c62325664b5436e3c7cbb1d7d1c1a766eba07e` |
 | `src/quantos/personal_research_mcp.py` | `不在原科学manifest中` | `4b370e6da2ed78c8de4fc5901251e1bc5898737c664429317cd9765bb9fb7b44` |
 | `skills/quantos-research/SKILL.md` | `不在原科学manifest中` | `941176279eaa7a68979014b9419e2f4d01c9b13eac4b0ca152966543f4095c8d` |
+
+实际本地快进：`761ba39` → `a53356d`；命令 `git merge --ff-only work/personal-research-product-20261022` 正常完成。产品分支保留，main随后仅追加文档登记；没有远端发布或历史tag变更。
