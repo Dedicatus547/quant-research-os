@@ -1,5 +1,7 @@
 # quant-research-os
 
+2026-11-03 收尾（运行终态2026-11-01）：沪深300/Tushare个人研究 v3 已完成六新账户×721日，经典原tuple复用，七行齐全，`SUCCEEDED / NOT_EVALUATED`。默认授权null，旧失败与冻结报告保留；连续前瞻账户仍未资格化。本次新增科学运行0。协议、七行结果、经典来源、本地分支与主线采用范围及下一动作见[产品收尾](docs/releases/personal-research-closeout-2026-11-03.md)。
+
 面向 A 股日频研究的可审计工程系统：冻结 Tushare 数据为不可变 Parquet 快照，
 复用 Qlib 计算、训练和回测，通过确定性程序生成验证报告与历史记录。
 

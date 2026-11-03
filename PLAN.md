@@ -1,5 +1,7 @@
 # 实施路线图
 
+2026-11-03 收尾（运行终态2026-11-01）：沪深300/Tushare个人研究 v3 已完成六新账户×721日，经典原tuple复用，七行齐全，`SUCCEEDED / NOT_EVALUATED`。默认授权null，旧失败与冻结报告保留；连续前瞻账户仍未资格化。本次新增科学运行0。协议、七行结果、经典来源、本地分支与主线采用范围及下一动作见[产品收尾](docs/releases/personal-research-closeout-2026-11-03.md)。
+
 本页维护工作顺序与入口条件。系统设计见[架构文档](docs/architecture/overview.md)，
 阶段结果见[当前状态](docs/status/README.md)，精确资格绑定见[发布记录](docs/releases/README.md)。
 
@@ -8,6 +10,8 @@
 延误原因和改进依据见[HM-MVP 复盘](docs/hosted/hm-mvp-implementation-retrospective.md)。
 
 ## 当前落点
+
+以下按历史时点保留；其“未启动”不覆盖页首终态。
 
 2026-10-22 新产品方向：优先交付“用户提供方向、模型设计策略”的自用量化研究助手，
 本机任意Codex会话通过统一Skill/MCP调用，覆盖量价/公告、回测对照及条件性前瞻模拟。
