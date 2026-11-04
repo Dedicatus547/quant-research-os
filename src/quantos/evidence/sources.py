@@ -96,7 +96,9 @@ class SseAnnouncementSource:
             "START_DATE": spec.start_date.isoformat(),
             "TITLE": spec.title_keyword or "",
             "isPagination": "true",
+            "pageHelp.beginPage": str(page),
             "pageHelp.cacheSize": "1",
+            "pageHelp.endPage": str(page),
             "pageHelp.pageNo": str(page),
             "pageHelp.pageSize": str(spec.page_size),
         }
