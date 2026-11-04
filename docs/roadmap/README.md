@@ -5,11 +5,16 @@
 
 ## 当前开发入口
 
+- [完整个人研究助手实施计划（2026-11-04）](quantos-personal-research-complete-plan-2026-11-04.md)：
+  W0–W7 本地工程已交付并合入本地 `main`（交付源码 `f6382a4`），贯通策略表达、原生研究、有界迭代、反馈记忆、观察和完整原生连续账户。
+  使用见[完整指南](../guides/personal-research-complete.md)，实际接受范围及限制见[接受矩阵](../../artifacts/personal-research-complete-20261104/engineering-01/acceptance.md)和[主交接](../../artifacts/personal-research-complete-20261104/engineering-01/handoff.md)。
+  [启动指令](quantos-personal-research-complete-start-2026-11-04.txt)已实际执行，按历史保留；不重启终态旧包或转移额度。本轮未新增真实采集、市场科学运行、正式 Validation 或真实前瞻推进。
 - [自用量化研究产品实施计划（2026-10-22）](quantos-personal-research-product-2026-10-22.md)：
   用户给方向、模型设计策略；本机任意Codex会话通过统一Skill/MCP进行量价与公告研究、回测比较及条件性前瞻模拟。
   含模型/强度分工、复用方案、工作包和边界；[启动指令](quantos-personal-research-product-start-2026-10-22.txt)。
   已交付有限本地实现、用户级Skill/MCP安装与受阻真实研究准备，见[使用说明](../guides/personal-research-product.md)。
-  工程演练不代表真实市场/前瞻能力；实际Codex新会话调用待重启验证，真实研究未启动。
+  上述为早期交付；后续沪深300真实研究已完成，实际范围见[11月3日收尾](../releases/personal-research-closeout-2026-11-03.md)。
+  11月4日后继已补齐原生连续账户等本地工程能力；客户端加载与真实运行边界见[完整指南](../guides/personal-research-complete.md)，不重新执行旧启动指令。
 - [交付收敛与后续研究实施计划（2026-10-19）](quantos-delivery-consolidation-execution-plan-2026-10-19.md)：
   将项目审核落实为 R0–R4 的格式修复、独立环境准备、安全失败诊断、定向验证与源码发布；
   一个主会话按模型能力自动分工，附[完整启动指令](quantos-delivery-consolidation-start-2026-10-19.txt)。

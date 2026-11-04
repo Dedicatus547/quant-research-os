@@ -1,5 +1,11 @@
 # 实施路线图
 
+2026-11-04 完整个人研究助手：按[实施计划](docs/roadmap/quantos-personal-research-complete-plan-2026-11-04.md)完成 W0–W7 本地工程交付，交付源码 `f6382a4` 已合入本地 `main`。
+策略表达、Qlib 原生执行与比较、有界后继、引用反馈、观察和完整原生连续账户的使用入口见[完整指南](docs/guides/personal-research-complete.md)，
+实际接受范围及限制见[接受矩阵](artifacts/personal-research-complete-20261104/engineering-01/acceptance.md)和[唯一主交接](artifacts/personal-research-complete-20261104/engineering-01/handoff.md)。
+配套[Codex启动指令](docs/roadmap/quantos-personal-research-complete-start-2026-11-04.txt)已实际执行，按历史保留，不重启终态旧包或转移额度。
+本轮未新增真实采集、市场科学运行、正式 Validation 或真实前瞻推进；旧阶段事实和资格按原身份保留。
+
 2026-11-03 收尾（运行终态2026-11-01）：沪深300/Tushare个人研究 v3 已完成六新账户×721日，经典原tuple复用，七行齐全，`SUCCEEDED / NOT_EVALUATED`。默认授权null，旧失败与冻结报告保留；连续前瞻账户仍未资格化。本次新增科学运行0。协议、七行结果、经典来源、本地分支与主线采用范围及下一动作见[产品收尾](docs/releases/personal-research-closeout-2026-11-03.md)。
 
 本页维护工作顺序与入口条件。系统设计见[架构文档](docs/architecture/overview.md)，
