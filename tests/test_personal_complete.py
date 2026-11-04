@@ -51,6 +51,28 @@ def binding(tmp_path_factory):
     return runpy.run_path(str(REPO / "scripts/personal_complete_fixture.py"))["build_fixture"](root)
 
 
+@pytest.fixture
+def native_storage_policy(tmp_path):
+    """Real WSL/VHD supervision needs an explicit operator-owned host policy."""
+    import json
+
+    from quantos.infrastructure.hosted_storage import StorageGuard, StoragePolicy
+
+    configured = os.environ.get("QUANTOS_NATIVE_STORAGE_POLICY")
+    if not configured:
+        pytest.skip("explicit WSL host-volume policy required; no simulated host qualification")
+    path = Path(configured)
+    if not path.is_absolute():
+        raise ValueError("native storage policy must be absolute")
+    raw = json.loads(path.read_bytes())
+    for key in ("evidence_root", "scratch_root", "host_volume", "vhd_file"):
+        raw[key] = Path(raw[key])
+    guard = StorageGuard(StoragePolicy(**raw))
+    guard.require_root(tmp_path)
+    guard.check(512 * 1024**2)
+    return path
+
+
 def request(binding, key="study", **changes):
     data = {
         "schema_version": "personal-study-request/v7",
@@ -406,7 +428,9 @@ def test_native_intent_without_export_is_unknown_and_never_replayed(tmp_path):
     assert not (step / "completed.json").exists()
 
 
-def test_workflow_two_strategies_successor_budget_and_stop(binding, tmp_path):
+def test_workflow_two_strategies_successor_budget_and_stop(
+    binding, tmp_path, native_storage_policy
+):
     from quantos.application.personal_server_config import (
         CatalogRegistration,
         PersonalScopeRegistration,
@@ -444,9 +468,7 @@ def test_workflow_two_strategies_successor_budget_and_stop(binding, tmp_path):
     scope_path.write_bytes(scope.canonical_bytes())
     approval_path = tmp_path / "engineering-approval.txt"
     approval_path.write_bytes(approved)
-    policy_path = (
-        REPO / "artifacts/hosted-evidence/storage-control/run-1793694490653729098-2/policy.json"
-    )
+    policy_path = native_storage_policy
     config = PersonalServerConfigV5(
         product_root=tmp_path,
         repo_root=REPO,
@@ -508,7 +530,9 @@ def test_workflow_two_strategies_successor_budget_and_stop(binding, tmp_path):
     )
 
 
-def test_real_dispatch_cancel_then_resume_preserves_completed_native_origin(binding, tmp_path):
+def test_real_dispatch_cancel_then_resume_preserves_completed_native_origin(
+    binding, tmp_path, native_storage_policy
+):
     import threading
     import time
 
@@ -526,9 +550,7 @@ def test_real_dispatch_cancel_then_resume_preserves_completed_native_origin(bind
     core = PersonalResearchService(tmp_path, REPO, catalog={binding.manifest.dataset_id: binding})
     first = core.prepare(initial)
     parsed = StrategyStudyRequest.model_validate(initial)
-    policy_path = (
-        REPO / "artifacts/hosted-evidence/storage-control/run-1793694490653729098-2/policy.json"
-    )
+    policy_path = native_storage_policy
     registration = CatalogRegistration(
         manifest_path=binding.panel_path.parent / "dataset-manifest.json",
         manifest_sha256=sha256_file(binding.panel_path.parent / "dataset-manifest.json"),

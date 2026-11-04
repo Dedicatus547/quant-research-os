@@ -1,5 +1,24 @@
 # CI environment adoption
 
+## Explicit WSL host-resource test scope
+
+Two personal complete-path cases previously embedded a workstation-only path
+to a retained WSL/VHD storage policy. The real `StorageGuard` requires a bound
+Windows volume, its VHD and a separately mounted finite tmpfs; a GitHub Linux
+runner cannot satisfy this by reporting its Linux free space. These cases now
+require `QUANTOS_NATIVE_STORAGE_POLICY` explicitly. Missing configuration is
+reported as **SKIPPED**, never PASS. An explicitly supplied invalid policy or
+output outside its persistent evidence root still fails the original guard.
+
+The complete pytest command and 85% coverage threshold remain unchanged.
+Portable Qlib native full-versus-segmented continuity and the actual CI
+namespace/boundary checks remain mandatory. The two host-resource cases must
+be verified separately on the real WSL host, with their original supervisor,
+observed exits and cleanup, retained synthetic inputs, persistent test output
+and `tmp_path_retention_policy=all`. A hosted CI result cannot qualify them.
+This is a successor test-environment classification; the historical claims
+below about unchanged test selection describe the earlier split only.
+
 ## Observed AWS runner candidate
 
 Run `41852381146`, job `126651806575`, commit `4ac2f099` exposed a different
