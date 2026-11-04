@@ -428,6 +428,104 @@ def test_native_intent_without_export_is_unknown_and_never_replayed(tmp_path):
     assert not (step / "completed.json").exists()
 
 
+def test_legacy_native_comparison_retains_denominator_failures_and_exports(
+    binding, tmp_path, monkeypatch
+):
+    """Exercise the existing seven-candidate native adapter on synthetic data."""
+    import json
+    from dataclasses import replace
+
+    from quantos.artifacts.store import sha256_file
+    from quantos.contracts.base import canonical_json_bytes
+    from quantos.research.hs300_data import HS300_PANEL_COLUMNS
+    from quantos.research.personal_qlib import PersonalQlibExecutor
+
+    # Publish the legacy field projection and view binding separately, leaving
+    # the original v7 synthetic panel, PIT record and native bins unchanged.
+    panel_path = tmp_path / "legacy-panel.parquet"
+    pd.read_parquet(binding.panel_path).loc[:, list(HS300_PANEL_COLUMNS)].to_parquet(
+        panel_path, index=False
+    )
+    pit = json.loads(binding.pit_evidence_path.read_bytes())
+    pit["qlib_view_hash"] = binding.manifest.qlib_view_hash
+    pit["origin_panel_sha256"] = binding.manifest.panel_sha256
+    pit["panel_sha256"] = sha256_file(panel_path)
+    pit_path = tmp_path / "legacy-pit.json"
+    pit_path.write_bytes(canonical_json_bytes(pit))
+    binding = replace(
+        binding,
+        manifest=binding.manifest.model_copy(
+            update={
+                "pit_evidence_hash": sha256_file(pit_path),
+                "panel_sha256": sha256_file(panel_path),
+            }
+        ),
+        pit_evidence_path=pit_path,
+        panel_path=panel_path,
+    )
+    core = PersonalResearchService(
+        tmp_path / "product", REPO, catalog={binding.manifest.dataset_id: binding}
+    )
+    raw = {
+        "schema_version": "personal-study-request/v3",
+        "idempotency_key": "synthetic-legacy-native",
+        "brief": "Synthetic native receipt and comparison regression; no research conclusion",
+        "proposal": {"session_id": "synthetic-engineering"},
+        "dataset_id": binding.manifest.dataset_id,
+        "warmup_start": str(binding.manifest.warmup_start),
+        "start_date": "2024-02-05",
+        "end_date": "2024-02-07",
+    }
+    ready = core.prepare(raw)
+    assert ready["readiness"] == "READY_FOR_AUTHORIZATION"
+    prepared = core._prepared(ready["task_id"])
+    executor = PersonalQlibExecutor(core.catalog)
+    directory = tmp_path / "native-comparison"
+    result = executor(prepared, directory, lambda: False)
+    receipts = [
+        json.loads((directory / row["candidate_id"] / "receipt.json").read_bytes())
+        for row in result["receipts"]
+    ]
+    assert result["run_status"] == "SUCCEEDED", receipts
+    assert result["validation_verdict"] == "NOT_EVALUATED"
+    assert result["planned_denominator"] == len(result["receipts"]) == 7
+    comparison = json.loads((directory / "comparison.json").read_bytes())
+    assert comparison["planned_denominator"] == len(comparison["rows"]) == 7
+    assert sha256_file(directory / "comparison.json") == result["comparison_sha256"]
+    for receipt in receipts:
+        folder = directory / receipt["candidate_id"]
+        assert receipt["evidence_kind"] == "synthetic"
+        assert receipt["metrics"] is not None
+        assert "native-orders.parquet" in receipt["files"]
+        assert all(
+            sha256_file(folder / name) == digest for name, digest in receipt["files"].items()
+        )
+
+    cancelled_root = tmp_path / "cancelled-comparison"
+    cancelled_root.mkdir()
+    cancelled = executor(prepared, cancelled_root, lambda: True)
+    assert cancelled["run_status"] == "FAILED"
+    assert cancelled["receipts"] == []
+    cancelled_rows = json.loads((cancelled_root / "comparison.json").read_bytes())["rows"]
+    assert len(cancelled_rows) == 7
+    assert all(row["run_status"] == "MISSING" and row["metrics"] is None for row in cancelled_rows)
+
+    def rejected_config(*_args, **_kwargs):
+        raise RuntimeError("synthetic native setup rejection")
+
+    monkeypatch.setattr(executor, "_config", rejected_config)
+    failed_root = tmp_path / "failed-comparison"
+    failed = executor(prepared, failed_root, lambda: False)
+    assert failed["run_status"] == "FAILED"
+    assert failed["planned_denominator"] == len(failed["receipts"]) == 7
+    for row in failed["receipts"]:
+        receipt = json.loads((failed_root / row["candidate_id"] / "receipt.json").read_bytes())
+        assert receipt["run_status"] == "FAILED"
+        assert receipt["metrics"] is None
+        assert receipt["validation_verdict"] == "NOT_EVALUATED"
+        assert receipt["error_type"] == "RuntimeError"
+
+
 def test_workflow_two_strategies_successor_budget_and_stop(
     binding, tmp_path, native_storage_policy
 ):
