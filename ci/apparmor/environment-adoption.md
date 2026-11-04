@@ -1,5 +1,32 @@
 # CI environment adoption
 
+## Observed successor tuple
+
+Run `41789472035`, job `126439213904`, commit `6dd5969b` observed image
+`20261101.360.1`, kernel `7.0.0-1017-azure` and AppArmor
+`4.0.1really4.0.1-0ubuntu0.24.04.9`. The parser SHA256 is
+`85e67b4ebc2559cc84c7d256d14890b8a7521e0278aedd544e13a3204a387d05`.
+The bwrap and candidate profile bytes are unchanged; bwrap is root-owned mode
+755, both restriction sysctls are 1 and its actual pre-namespace execution label
+is unconfined. The complete stable inventory has 123 profiles, no additional
+namespaces and no reserved name. Its 100 unknown attachment exports remain
+unresolved; adoption uses the existing execution-scoped label guard, not an
+assertion that unrelated attachments have been reconstructed.
+
+The observed parser exactly matches the retained `.9` package and offline syntax
+proof in `ci/apparmor/sources.json`; the retained parser, package and compiled
+profile hashes were rechecked. This reuses that syntax proof only, without
+claiming it proved the new kernel. The live job still compiles the unchanged
+profile before loading, checks root namespaces/stacking, refuses replacement,
+observes the loaded label, executes the original boundary checks and complete
+tests, and performs the original cleanup. Only the four observed identity values
+change. Full runtime acceptance remains contingent on those actual checks.
+
+The initial successor's `static` and `offline-unit` jobs passed remotely; its
+`isolated-tests` failed at the old identity guard as expected. That failure is
+retained, not rewritten. Diagnostic originals and local hash checks are retained
+under `artifacts/review-followup-20261104/engineering-01/`.
+
 ## Follow-up repair (2026-11-04)
 
 The successor adds an independent `offline-unit` job for the explicitly inspected
@@ -35,7 +62,7 @@ policy above; 32 file-only tests passed. YAML/shell syntax and byte-for-byte
 preservation of the original isolated job steps were checked. These results do
 not claim hosted CI recovery, real market execution or forward observations.
 
-## Original split and adoption boundary
+## Original split and adoption boundary (historical)
 
 2026-11-04 successor layout: `.github/workflows/ci.yml` has independent `static`
 and `isolated-tests` jobs. Both use Ubuntu 24.04 and Python 3.11 with the existing
