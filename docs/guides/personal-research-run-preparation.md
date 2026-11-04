@@ -1,8 +1,14 @@
 # 个人研究运行准备：示例与证据范围
 
 本页提供可审阅的准备模板，配合[本地完整路径](personal-research-complete.md)使用。
-截至 2026-11-04，用户尚未提供新的真实研究 brief；本模板未提交 `research_prepare`，
-未请求或获得真实运行授权，也未执行市场回测、采集或真实前瞻账户。
+本模板最初未提交 `research_prepare`，也未取得真实运行授权。2026-11-04 后续用户已批准
+独立的沪深300低波动／高波动前瞻方案与预算；已实际采集日历和初始行情，但尚未冻结
+正式观察、创建影子账户或推进交易。本页下方历史示例不因该授权自动变成获准任务。
+新方案及逐步证据见
+[前瞻任务目录](../../artifacts/hosted-evidence/hs300-lowvol-forward-20261104-01/)。
+已完成的真实采集共410次API尝试；初始快照及独立未来日历视图已发布，后者没有未来价格。
+当前停在全池公司行动覆盖不足，尚未安装每日调度或运行scope；完整缺口、原件身份及
+恢复顺序见[当前状态](../../artifacts/hosted-evidence/hs300-lowvol-forward-20261104-01/status-01.json)。
 工程接受、模型提案和正式科学状态分别记录，完整交付状态以
 [唯一主 handoff](../../artifacts/personal-research-complete-20261104/engineering-01/handoff.md)为准。
 
