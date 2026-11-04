@@ -3,6 +3,7 @@ import pytest
 from quantos.data.forward_actions import (
     EVENT_FIELDS,
     compare_dividend_variants,
+    derive_sse_cash_notice,
     derive_szse_cash_notice,
 )
 
@@ -82,3 +83,27 @@ def test_cash_notice_rejects_conflicting_explicit_terms(notice, monkeypatch, ext
     )
     with pytest.raises(ValueError, match=r"ambiguous|conflicting stock"):
         derive_szse_cash_notice(b"fixture", "002241.SZ")
+
+
+@pytest.mark.parametrize("extra", ["", "每股派发现金红利0.2元(含税)"])
+def test_sse_cash_table_and_conflicting_gross_terms(monkeypatch, extra):
+    from quantos.research.merger_entitlement_sources import _Document
+
+    text = (
+        "证券代码:600000权益分派实施公告"
+        "股份类别股权登记日最后交易日除权(息)日现金红利发放日"
+        "A股2024/1/8-2024/1/92024/1/9。每股派发现金红利0.1元(含税)"
+    ) + extra
+    monkeypatch.setattr(
+        _Document, "read", classmethod(lambda cls, raw: cls("a" * 64, (text,), text))
+    )
+    if extra:
+        with pytest.raises(ValueError, match="ambiguous"):
+            derive_sse_cash_notice(b"fixture", "600000.SH")
+    else:
+        fact = derive_sse_cash_notice(b"fixture", "600000.SH")
+        assert fact["record_date"] == "2024-01-08"
+        assert fact["cash_div_tax"] == "0.1"
+        assert fact["payment_observed"] is False
+        with pytest.raises(ValueError, match="issuer"):
+            derive_sse_cash_notice(b"fixture", "000001.SZ")

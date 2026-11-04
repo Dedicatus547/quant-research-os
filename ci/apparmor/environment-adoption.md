@@ -1,5 +1,30 @@
 # CI environment adoption
 
+## Second observed image with unchanged execution dependencies
+
+Run `41815870682`, job `126526345689`, commit `86a615fd` failed before
+policy installation because the host exported `ImageVersion=20261026.354.1`.
+The runner's introductory banner instead said `20261025.353.1`; neither label
+is treated as a proof of isolation. The retained diagnostic commands observed
+the same kernel `7.0.0-1017-azure`, AppArmor `.9`, parser and bwrap SHA256,
+root-owned mode 755, enabled restriction sysctls and actual unconfined bwrap
+label as the first successor. The grouped inventory was complete, with no
+additional namespace; unknown attachments remain unresolved.
+
+The successor accepts the two explicitly observed image environment values.
+It preserves the separate exact kernel, package, binary, profile, inventory,
+namespace, actual-label and negative-boundary checks. An arbitrary new image
+is still rejected. No historical runtime proof is relabelled: this failed job
+did not install policy or run the isolated tests; acceptance requires the
+next job's actual checks. Static and offline-unit jobs passed independently.
+The test command additionally exports coverage JSON, and an always-run step
+retains XML/JSON plus the original combined and subprocess coverage databases.
+This permits missing-measurement diagnosis without repeating the hour-long
+suite just to recover its files. The suite, branch denominator and 85% threshold
+remain unchanged; local copies must be retained before artifact expiry.
+The original diagnostic log is retained at
+`artifacts/hosted-evidence/hs300-lowvol-forward-20261104-01/ci-isolated-86a615f.log`.
+
 ## Observed successor tuple
 
 Run `41789472035`, job `126439213904`, commit `6dd5969b` observed image
