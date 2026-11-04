@@ -66,27 +66,87 @@ class PersonalHistoryService:
             records.append(entry)
         return records
 
-    def search(self, query: str = "", limit: int = 20) -> dict[str, Any]:
-        if len(query) > 256 or not 1 <= limit <= 100:
+    def entries(self) -> list[dict[str, Any]]:
+        """Return verified index references; callers must still read originals."""
+        return self._entries()
+
+    def search(
+        self,
+        query: str = "",
+        limit: int = 20,
+        *,
+        tags: tuple[str, ...] = (),
+        as_of: str | None = None,
+    ) -> dict[str, Any]:
+        """Search old references and cited derived JSON without changing their authority.
+
+        Old catalog entries have no authenticated availability timestamp. They remain
+        readable today, but cannot enter an explicit historical as_of result.
+        """
+        from quantos.application.personal_memory import (
+            MEMORY_ORIGIN,
+            MemoryNotAvailableError,
+            PersonalMemoryService,
+            aware_time,
+        )
+
+        if (
+            len(query) > 256
+            or type(limit) is not int
+            or not 1 <= limit <= 100
+            or len(tags) > 16
+            or any(re.fullmatch(r"[a-z0-9_-]{1,64}", tag) is None for tag in tags)
+        ):
             raise ValueError("history search exceeds limits")
+        stamp = aware_time(as_of) if as_of is not None else None
         entries = self._entries()
-        hits = [
-            entry
-            for entry in entries
-            if query.lower() in (entry["record_id"] + " " + entry["label"]).lower()
-        ]
+        hits: list[dict[str, Any]] = []
+        eligible = 0
+        memory = None
+        for entry in entries:
+            if entry["origin"] != MEMORY_ORIGIN:
+                if stamp is not None or tags:
+                    continue
+                eligible += 1
+                if query.lower() in (entry["record_id"] + " " + entry["label"]).lower():
+                    hits.append(entry)
+                continue
+            if memory is None:
+                memory = PersonalMemoryService(self.root, self.repo_root)
+            try:
+                record = memory.read_entry(entry, stamp)
+            except MemoryNotAvailableError:
+                continue
+            eligible += 1
+            if not set(tags) <= set(record.draft.tags):
+                continue
+            text = json.dumps(record.model_dump(mode="json"), ensure_ascii=False).casefold()
+            if all(term in text for term in query.casefold().split()):
+                hits.append(
+                    {
+                        **entry,
+                        "tags": list(record.draft.tags),
+                        "recorded_at": record.model_dump(mode="json")["recorded_at"],
+                    }
+                )
         return {
             "records": hits[:limit],
             "matched": len(hits),
-            "total": len(entries),
+            "total": eligible,
             "authority": "REFERENCES_ONLY_READ_ORIGINAL_FOR_OUTCOME",
             "rerun_performed": False,
         }
 
-    def read(self, record_id: str) -> dict[str, Any]:
+    def read(self, record_id: str, as_of: str | None = None) -> dict[str, Any]:
         entry = next((entry for entry in self._entries() if entry["record_id"] == record_id), None)
         if entry is None:
             raise ValueError("history record is not in the explicit catalog")
+        from quantos.application.personal_memory import MEMORY_ORIGIN, PersonalMemoryService
+
+        if entry["origin"] == MEMORY_ORIGIN:
+            return PersonalMemoryService(self.root, self.repo_root).read(record_id, as_of)
+        if as_of is not None:
+            raise ValueError("old history source availability is unknown for as_of")
         source = confined_regular_file(self.repo_root, entry["path"])
         # Recheck bytes actually returned, rather than trusting a preceding file lookup.
         raw = source.read_bytes()
