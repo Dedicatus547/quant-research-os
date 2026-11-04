@@ -101,7 +101,7 @@ def create_server(
         return history.read(record_id)
 
     def research_prepare(request: dict[str, Any]) -> dict[str, Any]:
-        """Prepare executable v7 strategies or retained v6 proposals; readiness grants no authority."""
+        """Prepare v7 strategies or retained v6 proposals; readiness grants no authority."""
         return research_service.prepare(request)
 
     def research_status(task_id: str) -> dict[str, Any]:

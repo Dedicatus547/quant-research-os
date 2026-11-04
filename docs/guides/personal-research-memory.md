@@ -38,10 +38,10 @@ Python示例（使用实际绝对产品根和仓库根）：
 from pathlib import Path
 from quantos.application.personal_memory import PersonalMemoryService
 
-memory = PersonalMemoryService(product_root, Path('/home/zjw/quant-research-os'))
-hits = memory.search('confirm2', tags=('counterevidence',))
-record = memory.read('hs300-confirm2-not-supported-20261103')
-report = memory.diagnostic_report('hs300-confirm2-not-supported-20261103')
+memory = PersonalMemoryService(product_root, Path("/home/zjw/quant-research-os"))
+hits = memory.search("confirm2", tags=("counterevidence",))
+record = memory.read("hs300-confirm2-not-supported-20261103")
+report = memory.diagnostic_report("hs300-confirm2-not-supported-20261103")
 ```
 
 MCP可继续让 `research_history` 和 `research_retained_read` 使用这些兼容方法，

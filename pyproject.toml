@@ -63,6 +63,18 @@ select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
+# Completed, immutable confirm2 runner; exact bytes checked by CI (ci/frozen-style.sha256).
+# This exception is not available to new research scripts.
+"scripts/run_hs300_eligibility_successor.py" = ["B904", "E501", "E701", "E702", "F401", "I001", "RUF005", "SIM117"]
+
+[tool.ruff.format]
+# Formatting these execution dependencies would invalidate legacy account readers.
+# Preserve the originals; see ci/frozen-style.sha256 and environment-adoption.md.
+exclude = [
+  "src/quantos/research/hs300_data.py",
+  "src/quantos/research/hs300_exchange.py",
+  "scripts/run_hs300_eligibility_successor.py",
+]
 
 [tool.pyright]
 include = ["src"]
@@ -70,6 +82,7 @@ pythonVersion = "3.11"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
+stubPath = "typings"
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers --disable-socket"

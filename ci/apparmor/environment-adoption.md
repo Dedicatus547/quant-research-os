@@ -1,5 +1,42 @@
 # CI environment adoption
 
+## Follow-up repair (2026-11-04)
+
+The successor adds an independent `offline-unit` job for the explicitly inspected
+file-only fixtures in `test_personal_memory.py` and `test_personal_scope.py`.
+They exercise immutable JSON, references and budget accounting with synthetic
+exit records; they do not start Qlib accounts, namespaces, acquisition or models.
+Both files still run in the complete isolated suite. Its original steps, native
+preflight and 85% coverage denominator are unchanged.
+
+Format, lint and type checks now report independently even after another static
+check fails. `typings/qlib/backtest/exchange.pyi` describes only the Qlib 0.9.7
+surface consumed by the frozen adapter, without altering its runtime bytes.
+
+Three historical source files retain their exact bytes under
+`ci/frozen-style.sha256`: the two legacy execution dependencies are exempt only
+from formatting; the completed confirm2 script also retains its enumerated lint
+diagnostics. CI verifies the hashes before accepting those exceptions. Changed
+bytes require review, not automatic expansion of the exception. This is explicit
+historical style debt, not a claim that the original script is lint-clean. Other
+files keep the existing rules; no scientific or safety check is waived.
+
+The failed environment preflight now emits read-only OS/image/kernel, package,
+binary/mode, sysctl, actual bwrap-label and grouped AppArmor inventory diagnostics.
+Every probe reports its actual exit. The path cannot install policy or adopt an
+environment, and the original failure stays failed. This fixes the absence of
+evidence when image drift is detected before inventory collection. A hosted run
+and review of its actual tuple are still required before changing accepted
+identities; the old date is not replaced speculatively.
+
+Local retained checks: `artifacts/review-followup-20261104/engineering-01/`.
+Format/lint and strict type checks passed with the explicit historical style
+policy above; 32 file-only tests passed. YAML/shell syntax and byte-for-byte
+preservation of the original isolated job steps were checked. These results do
+not claim hosted CI recovery, real market execution or forward observations.
+
+## Original split and adoption boundary
+
 2026-11-04 successor layout: `.github/workflows/ci.yml` has independent `static`
 and `isolated-tests` jobs. Both use Ubuntu 24.04 and Python 3.11 with the existing
 frozen uv lock. Static tools do not require AppArmor policy installation or user

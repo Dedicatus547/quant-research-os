@@ -4,5 +4,6 @@
   "typeCheckingMode": "strict",
   "venvPath": "../..",
   "venv": ".venv",
+  "stubPath": "../../typings",
   "extraPaths": ["../../src", "../../.tools/personal-research-mcp-typing"]
 }

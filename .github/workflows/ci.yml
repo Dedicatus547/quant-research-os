@@ -30,9 +30,34 @@ jobs:
           uv venv --python .venv/bin/python .tools/personal-research-mcp-1.26.0
           uv pip sync --python .tools/personal-research-mcp-1.26.0/bin/python --require-hashes configs/personal-research/mcp-requirements.lock
           uv run python scripts/prepare_personal_mcp_typing.py
-      - run: uv run ruff format --check
-      - run: uv run ruff check
-      - run: uv run pyright --project configs/personal-research/pyright.json
+      - name: Verify immutable historical style exceptions
+        run: sha256sum --check --strict ci/frozen-style.sha256
+      - name: Format
+        if: ${{ !cancelled() }}
+        run: uv run ruff format --check
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: uv run ruff check
+      - name: Types
+        if: ${{ !cancelled() }}
+        run: uv run pyright --project configs/personal-research/pyright.json
+
+  offline-unit:
+    # Explicitly inspected file-only fixtures: no native account or namespace launch.
+    # These also remain in the full isolated suite and its unchanged coverage denominator.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.25"
+          enable-cache: true
+      - run: uv sync --frozen --extra agent-openai
+      - name: File-only memory and scope checks
+        run: uv run pytest tests/test_personal_memory.py tests/test_personal_scope.py
 
   isolated-tests:
     # This label selects an OS family, not an immutable kernel/image. The exact
@@ -106,6 +131,30 @@ jobs:
           sudo /sbin/apparmor_parser --config-file /dev/null --skip-cache --add /etc/apparmor.d/quantos-ci-bwrap
           sudo cat /sys/kernel/security/apparmor/profiles | grep '^quantos_ci_bwrap '
           /usr/bin/python3 -I -B ci/apparmor/runtime_guard.py label --expected quantos_ci_bwrap
+      - name: Retain read-only environment evidence on preflight failure
+        if: ${{ failure() }}
+        run: |
+          # Never load policy or change host settings from the diagnostic path.
+          # Each probe's exit is printed, including unavailable data. The failed
+          # original step remains failed; observations do not adopt a new tuple.
+          set +e
+          printf 'ImageVersion=%s\n' "${ImageVersion:-UNAVAILABLE}"
+          cat /etc/os-release
+          printf 'os-release exit=%s\n' "$?"
+          uname -r
+          printf 'kernel exit=%s\n' "$?"
+          dpkg-query -W -f='${Package} ${Version}\n' apparmor bubblewrap libseccomp2
+          printf 'packages exit=%s\n' "$?"
+          stat -c '%a %u:%g %n' /usr/bin/bwrap /sbin/apparmor_parser
+          printf 'file-identity exit=%s\n' "$?"
+          sha256sum /sbin/apparmor_parser /usr/bin/bwrap ci/apparmor/quantos-ci-bwrap.profile
+          printf 'hashes exit=%s\n' "$?"
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns /proc/sys/kernel/unprivileged_userns_clone
+          printf 'sysctls exit=%s\n' "$?"
+          /usr/bin/python3 -I -B ci/apparmor/runtime_guard.py label --expected unconfined
+          printf 'pre-namespace label exit=%s\n' "$?"
+          sudo /usr/bin/python3 -I -B ci/apparmor/identity_v2/collect.py
+          printf 'grouped inventory exit=%s\n' "$?"
       - name: Check offline test namespace prerequisites
         run: |
           /usr/bin/bwrap --version
