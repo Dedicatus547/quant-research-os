@@ -1,5 +1,27 @@
 # CI environment adoption
 
+## Observed AWS runner candidate
+
+Run `41852381146`, job `126651806575`, commit `4ac2f099` exposed a different
+hosted pool: image `20261018.96.1`, kernel `7.0.0-1014-aws`, Ubuntu 24.04.
+The retained read-only diagnostics show the identical AppArmor `.9` package,
+parser, bwrap and profile hashes, root-owned mode 755, both restriction sysctls
+enabled and the actual non-root bwrap execution label `unconfined`. The stable,
+complete grouped inventory has 124 profiles, no additional namespaces and 100
+unresolved attachment exports. This is evidence for a candidate environment,
+not a runtime isolation PASS or a reconstruction of unknown attachments.
+
+The successor binds the three observed **image/kernel pairs** explicitly;
+cross-combinations and unknown pairs fail. The new AWS kernel must pass the
+unchanged live namespace/stacking, reserved-name, parser compilation, actual
+loaded-label, nested namespace/capability, unrelated-denial and cleanup checks
+on its own runner. Neither the old Azure proof nor the identical parser bytes
+qualify that kernel. No historical proof or frozen verifier is rewritten.
+Full tests and the original 85% coverage requirement remain mandatory.
+The failed preflight did not load policy or execute tests. Its original log is
+`artifacts/hosted-evidence/hs300-lowvol-forward-20261104-01/ci-isolated-4ac2f09.log`;
+the independent static and offline-unit jobs passed.
+
 ## Second observed image with unchanged execution dependencies
 
 Run `41815870682`, job `126526345689`, commit `86a615fd` failed before

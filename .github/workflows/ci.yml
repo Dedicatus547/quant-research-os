@@ -82,13 +82,12 @@ jobs:
           set -euo pipefail
           . /etc/os-release
           test "$ID:$VERSION_ID" = ubuntu:24.04
-          # Both observed images use the same separately checked kernel/tools.
-          # Keep an explicit reviewed set; never accept arbitrary image labels.
-          case "${ImageVersion:-}" in
-            20261101.360.1|20261026.354.1) ;;
-            *) echo 'Hosted image is outside the reviewed set.' >&2; exit 1 ;;
+          # Bind observed image/kernel pairs, including the AWS runner pool.
+          # These are candidates for the mandatory live isolation checks below.
+          case "${ImageVersion:-}:$(uname -r)" in
+            20261101.360.1:7.0.0-1017-azure|20261026.354.1:7.0.0-1017-azure|20261018.96.1:7.0.0-1014-aws) ;;
+            *) echo 'Hosted image/kernel pair is outside the reviewed set.' >&2; exit 1 ;;
           esac
-          test "$(uname -r)" = 7.0.0-1017-azure
           test "$(id -u)" != 0
           test "$(dpkg-query -W -f='${Version}' apparmor)" = 4.0.1really4.0.1-0ubuntu0.24.04.9
           test "$(stat -c '%a %u:%g' /usr/bin/bwrap)" = '755 0:0'
