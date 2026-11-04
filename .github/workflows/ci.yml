@@ -192,6 +192,15 @@ jobs:
       - name: Verify nested namespaces, capabilities and unrelated denial
         run: /usr/bin/python3 -I -B ci/apparmor/runtime_guard.py boundaries
       - run: uv sync --frozen --extra agent-openai
+      - name: Acquire exact official Qlib fixture tools
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/qlib
+          ref: da920b7f954f48ab1bb64117c976710de198373e
+          path: .tools/qlib-0.9.7
+          persist-credentials: false
+      - name: Verify official Qlib fixture tools before offline tests
+        run: uv run python -c 'from pathlib import Path; from quantos.integrations.qlib import verify_official_qlib_tools; verify_official_qlib_tools(Path(".tools/qlib-0.9.7"))'
       - run: uv run pytest --cov=quantos --cov-report=term-missing --cov-report=xml
       - name: Retain candidate AppArmor audit and remove only this job's policy
         if: always()

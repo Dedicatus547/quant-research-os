@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import sys
 import tomllib
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def test_upgrade_retains_other_configuration_mode_and_private_backup(tmp_path):
     os.chmod(config, 0o640)
     product = tmp_path / "product"
     product.mkdir()
-    python = REPO / ".tools/personal-research-mcp-1.26.0/bin/python"
+    python = Path(sys.executable)
     module.install(REPO, product, python, tmp_path, "install")
     # Reconstruct the exactly known predecessor, rather than accepting arbitrary settings.
     config.write_text(
@@ -52,7 +53,7 @@ def test_upgrade_retains_other_configuration_mode_and_private_backup(tmp_path):
 def test_upgrade_refuses_unknown_product_edit_and_preserves_original(tmp_path):
     product = tmp_path / "product"
     product.mkdir()
-    python = REPO / ".tools/personal-research-mcp-1.26.0/bin/python"
+    python = Path(sys.executable)
     module.install(REPO, product, python, tmp_path, "install")
     config = tmp_path / ".codex/config.toml"
     config.write_text(
