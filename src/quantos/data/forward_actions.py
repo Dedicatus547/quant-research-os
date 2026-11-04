@@ -145,3 +145,52 @@ def derive_szse_cash_notice(raw: bytes, instrument_id: str) -> dict[str, Any]:
         "payment_observed": False,
         "historical_vintage_established": False,
     }
+
+
+def derive_sse_cash_notice(raw: bytes, instrument_id: str) -> dict[str, Any]:
+    """Explicit SSE A-share cash/date table, retaining the original parser boundary."""
+    from quantos.research.merger_entitlement_sources import (
+        _Document,  # pyright: ignore[reportPrivateUsage]
+        _issuer,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    if re.fullmatch(r"[0-9]{6}\.SH", instrument_id) is None:
+        raise ValueError("SSE issuer required")
+    document = _Document.read(raw)
+    identity = _issuer(document, instrument_id)
+    title = document.matches(r"(?:权益分派|分红派息)实施公告")[0]
+    header = document.matches(r"股份类别股权登记日最后交易日除权\(息\)日现金红利发放日")[0]
+    date_pattern = r"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}"
+    matches = document.matches(
+        r"A股(" + date_pattern + r")[-—](" + date_pattern + r")(" + date_pattern + r")(?![0-9])"
+    )
+    values = {
+        tuple(date(*(int(p) for p in m[i].split("/"))).isoformat() for i in (1, 2, 3))
+        for m in matches
+    }
+    cash = document.matches(r"每股派发现金红利(?:人民币)?([0-9]+(?:\.[0-9]+)?)元\(含税\)")
+    amounts = {Decimal(m[1]) for m in cash}
+    if len(values) != 1 or len(amounts) != 1 or next(iter(amounts)) <= 0:
+        raise ValueError("SSE cash terms are ambiguous or invalid")
+    record, ex, pay = next(iter(values))
+    if not record < ex or pay < record:
+        raise ValueError("SSE notice date order is invalid")
+    return {
+        "schema_version": "forward-sse-cash-notice/v1",
+        "instrument_id": instrument_id,
+        "source_sha256": document.raw_hash,
+        "record_date": record,
+        "ex_date": ex,
+        "scheduled_depository_pay_date": pay,
+        "cash_div_tax": format(next(iter(amounts)).normalize(), "f"),
+        "spans": {
+            "issuer": document.span(identity),
+            "title": document.span(title),
+            "header": document.span(header),
+            "dates": document.span(matches[0]),
+            "cash": document.span(cash[0]),
+        },
+        "coverage_granted": False,
+        "payment_observed": False,
+        "historical_vintage_established": False,
+    }

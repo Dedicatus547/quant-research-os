@@ -101,6 +101,33 @@ class SnapshotArrival(CanonicalContract):
         return self
 
 
+class SnapshotArrivalV2(SnapshotArrival):
+    schema_version: Literal["personal-snapshot-arrival/v2"] = "personal-snapshot-arrival/v2"  # pyright: ignore[reportIncompatibleVariableOverride]
+    corporate_actions: Literal["SUPPORTED_IN_DECLARED_SOURCE_SCOPE", "UNSUPPORTED_OR_UNKNOWN"] = (  # pyright: ignore[reportIncompatibleVariableOverride]
+        "UNSUPPORTED_OR_UNKNOWN"
+    )
+    assessment_hash: str = Field(pattern=SHA256_PATTERN)
+    assessment_end_date: date
+    fresh_account_start: date
+
+
+def parse_snapshot_arrival(value: Mapping[str, Any]) -> SnapshotArrival:
+    model = (
+        SnapshotArrivalV2
+        if value.get("schema_version") == "personal-snapshot-arrival/v2"
+        else SnapshotArrival
+    )
+    return model.model_validate(value)
+
+
+def corporate_actions_supported(arrival: SnapshotArrival | None, day: date | None = None) -> bool:
+    if isinstance(arrival, SnapshotArrivalV2):
+        return arrival.corporate_actions == "SUPPORTED_IN_DECLARED_SOURCE_SCOPE" and (
+            day is None or day == arrival.assessment_end_date
+        )
+    return arrival is not None and arrival.corporate_actions == "KNOWN_NONE_IN_SCOPE"
+
+
 class PersonalObservationRequest(CanonicalContract):
     schema_version: Literal["personal-observation-request/v1"] = "personal-observation-request/v1"
     idempotency_key: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
@@ -241,8 +268,8 @@ class PersonalObservationService:
                 gaps.append("SNAPSHOT_ARRIVAL_METADATA_REQUIRED")
             if self.compiler_runtime_hash is None:
                 gaps.append("COMPILER_RUNTIME_IDENTITY_REQUIRED")
-            if data["arrival"] is not None and (
-                data["arrival"]["corporate_actions"] != "KNOWN_NONE_IN_SCOPE"
+            if data["arrival"] is not None and not corporate_actions_supported(
+                parse_snapshot_arrival(data["arrival"])
             ):
                 gaps.append("CORPORATE_ACTION_SCOPE_UNKNOWN")
             expressions = [
@@ -462,12 +489,27 @@ class PersonalObservationService:
         keys = ["trade_date", "qlib_id"]
         old = old.set_index(keys).sort_index()
         new = new.set_index(keys).sort_index()
+        successor = (
+            arrival is not None and arrival.get("schema_version") == "personal-snapshot-arrival/v2"
+        )
+        if successor:
+            from quantos.application.forward_continuity import align_historical_prefix
+
+            try:
+                new = align_historical_prefix(old, new)
+            except ValueError:
+                return False, [*reasons, "HISTORICAL_GRID_CHANGED_OR_UNOBSERVABLE"]
         if old.empty or not old.index.equals(new.index):
             return False, [*reasons, "HISTORICAL_GRID_CHANGED_OR_UNOBSERVABLE"]
         for name in _UNIT_COLUMNS:
             left = np.asarray(old[name], dtype=float)
             right = np.asarray(new[name], dtype=float)
-            if name == "adjustment_factor" and (
+            if name == "adjustment_factor" and successor:
+                from quantos.application.forward_continuity import source_observable_factors
+
+                if not source_observable_factors(old) or not source_observable_factors(new):
+                    reasons.append("ADJUSTMENT_FACTOR_UNOBSERVABLE")
+            elif name == "adjustment_factor" and (
                 not np.isfinite(left).all()
                 or not np.isfinite(right).all()
                 or (left <= 0).any()
@@ -636,9 +678,7 @@ class PersonalObservationService:
                 if records
                 else self._stored_input(plan["initial_input_hash"])
             )
-            arrival = (
-                None if data["arrival"] is None else SnapshotArrival.model_validate(data["arrival"])
-            )
+            arrival = None if data["arrival"] is None else parse_snapshot_arrival(data["arrival"])
             after_fact = recompute or (
                 plan["scope"] != "ENGINEERING_REPLAY"
                 and datetime.fromisoformat(plan["frozen_at"]) > cutoff
@@ -727,7 +767,7 @@ class PersonalObservationService:
     ) -> None:
         if arrival is None:
             return
-        if arrival.corporate_actions != "KNOWN_NONE_IN_SCOPE":
+        if not corporate_actions_supported(arrival, date.fromisoformat(record["day"])):
             record.update(status="STOPPED", reason="UNSUPPORTED_OR_UNKNOWN_CORPORATE_ACTION")
             return
         if arrival.received_at > observed_at or (

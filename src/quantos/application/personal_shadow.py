@@ -16,6 +16,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from quantos.application.personal_observation import (
+    SnapshotArrivalV2,
+    corporate_actions_supported,
+)
 from quantos.artifacts.store import (
     ArtifactIntegrityError,
     atomic_write_bytes,
@@ -64,6 +68,9 @@ class PersonalShadowService:
         start, end = date.fromisoformat(start_date), date.fromisoformat(end_date)
         if start > end:
             raise ValueError("account observation period reversed")
+        arrival = self.observations.metadata.get(request["dataset_id"])
+        if isinstance(arrival, SnapshotArrivalV2) and start != arrival.fresh_account_start:
+            raise PermissionError("source assessment is bound to a different fresh account start")
         calendar = [date.fromisoformat(d) for d in observation["calendar_sessions"]]
         if start not in calendar or end not in calendar or calendar.index(start) == 0:
             raise ValueError(
@@ -124,8 +131,12 @@ class PersonalShadowService:
         if binding is None:
             raise ValueError("execution dataset not registered")
         arrival = self.observations.metadata.get(execution_dataset_id)
-        if arrival is None or arrival.corporate_actions != "KNOWN_NONE_IN_SCOPE":
+        if arrival is None or not corporate_actions_supported(arrival, day):
             raise PermissionError("execution snapshot arrival or corporate action state unknown")
+        if isinstance(
+            arrival, SnapshotArrivalV2
+        ) and arrival.fresh_account_start != date.fromisoformat(plan["start_date"]):
+            raise PermissionError("execution assessment changed the fresh account origin")
         calendar = [
             pd.Timestamp(x).date()
             for x in pd.read_csv(binding.provider_root / "calendars/day.txt", header=None)[0]
@@ -167,9 +178,19 @@ class PersonalShadowService:
         keys = ["trade_date", "qlib_id"]
         old = old.loc[old.trade_date <= boundary].set_index(keys).sort_index()
         new = new.loc[new.trade_date <= boundary].set_index(keys).sort_index()
+        if isinstance(arrival, SnapshotArrivalV2):
+            from quantos.application.forward_continuity import align_historical_prefix
+
+            new = align_historical_prefix(old, new)
         if not old.index.equals(new.index):
             raise PermissionError("execution snapshot changes historical universe or session keys")
         for frame in (old, new):
+            if isinstance(arrival, SnapshotArrivalV2):
+                from quantos.application.forward_continuity import source_observable_factors
+
+                if not source_observable_factors(frame):
+                    raise PermissionError("execution snapshot units/factors unknown")
+                continue
             if (
                 "adjustment_factor" not in frame
                 or not np.isfinite(np.asarray(frame["adjustment_factor"], dtype=float)).all()

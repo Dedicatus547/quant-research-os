@@ -175,11 +175,15 @@ class PersonalResourceDispatcher:
         self._config()
 
     def _config(self) -> Any:
-        from quantos.application.personal_server_config import PersonalServerConfigV5
-
-        config = PersonalServerConfigV5.model_validate_json(
-            _read(self.config_path, self.config_sha256)
+        from quantos.application.personal_server_config import (
+            PersonalServerConfigV5,
+            load_server_config,
         )
+
+        _read(self.config_path, self.config_sha256)
+        config = load_server_config(self.config_path)
+        if not isinstance(config, PersonalServerConfigV5):
+            raise PermissionError("dispatch requires a product configuration")
         if config.product_root != self.root or config.repo_root != self.repo_root:
             raise PermissionError("dispatch configuration roots disagree")
         return config
@@ -196,8 +200,13 @@ class PersonalResourceDispatcher:
         contract = (
             PersonalResearchScope if operation == "research_execute" else PersonalForwardScope
         )
-        scope = contract.model_validate_json(
-            _read(registration.scope_path, registration.scope_sha256)
+        from quantos.contracts.forward import parse_forward_scope
+
+        raw_scope = _read(registration.scope_path, registration.scope_sha256)
+        scope = (
+            contract.model_validate_json(raw_scope)
+            if operation == "research_execute"
+            else parse_forward_scope(raw_scope)
         )
         _read(registration.approval_evidence_path, scope.approval_evidence_sha256)
         if require_live and scope.expires_at <= datetime.now(UTC):
@@ -258,8 +267,12 @@ class PersonalResourceDispatcher:
             "scope_hash": scope.content_hash,
             "storage_policy_path": str(registration.storage_policy_path),
             "storage_policy_sha256": registration.storage_policy_sha256,
-            "wall_seconds": scope.wall_seconds,
-            "complete_growth_bytes": scope.growth_bytes,
+            "wall_seconds": min(
+                scope.wall_seconds, getattr(scope, "per_job_wall_seconds", scope.wall_seconds)
+            ),
+            "complete_growth_bytes": min(
+                scope.growth_bytes, getattr(scope, "per_job_growth_bytes", scope.growth_bytes)
+            ),
             "python_executable": str(self.python_executable),
             "python_resolved_path": str(self.python_executable.resolve(strict=True)),
             "python_sha256": sha256_file(self.python_executable.resolve(strict=True)),
