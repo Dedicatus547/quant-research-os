@@ -82,6 +82,10 @@ namespace。scope 先保留总剩余额度，真实 supervisor wait/namespace �
 实际订单/成交分别保留；周频计划与实际动作分开，部分/未成交不被改成成功退出。
 新 v7 的原生 `targets/`、`native-orders.parquet`、`portfolio.parquet` 和完整原生导出都在
 候选 receipt 的哈希集合中。缺失指标保持 null，S/T/B 仅在原定义适用时引用。
+新 v7 摘要为 `personal-research-result-summary/v2`，保留实际候选分母；
+`research_results_boundary_page` / `research_results_boundary_read` 也可分页读取已核验的
+目标 trace。复用账户仍指向原任务、候选和 receipt，不重标原 hash。
+trace 的 `orders_generated` 表示生成委托；实际成交仍以原生订单制品为准。
 
 新 v7 终态可用 `research_feedback_record(task_id, interpretation, recommendation, reason)`
 从已核验 receipt 形成记忆；自由解释明确标为 MODEL_INTERPRETATION。

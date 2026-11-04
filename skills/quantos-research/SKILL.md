@@ -36,7 +36,8 @@ reuse its original account; changed strategy, actual signal, data, policy, perio
 requires a distinct binding. Preserve all proposed and attempted rows, including failures and reuse.
 
 Use only supported mapped OHLC, adjusted volume and actual CNY amount. `amount_cny` is not volume
-or close×volume. Windows/nodes/constants/candidates have published limits. `Rank` is time-series;
+or close×volume. Use returned `field_mapping_profile` and `dataset_binding_hash`; preserve old
+cache and manifest identities. Windows/nodes/constants/candidates have published limits. `Rank` is time-series;
 cross-sectional selection sorts only finite, eligible contemporaneous members with deterministic
 instrument ties. Fixed slots leave cash when there are too few names. Input lag and next-session
 execution lag each apply once. Unknown availability, future inputs, missing source fields or
