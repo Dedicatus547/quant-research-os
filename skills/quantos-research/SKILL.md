@@ -1,133 +1,107 @@
 ---
 name: quantos-research
-description: Design bounded A-share research from a user's direction, prepare and inspect persistent studies, compare deterministic Qlib results, and read cited local company announcements through the quantos_research MCP server.
+description: Turn an A-share research direction into bounded executable daily strategies, compare Qlib results, use cited research memory, and prepare frozen signal observations and native shadow accounts through the local quantos_research MCP server.
 ---
 
-# Personal quantitative research
+# Personal research assistant
 
-Use `quantos_research` MCP tools from any working directory. Start with
-`research_capabilities_summary`, `research_history`, and `announcement_list`; use explicit returned
-task and evidence IDs for subsequent operations. If several tasks fit “continue”, show the
-choices. A client restart may be required after installation; never pretend an unavailable
-tool was called.
+Use the local `quantos_research` MCP server from any working directory. Read
+`research_capabilities_summary`, `research_strategy_capabilities(include_schema=True)`, `research_history` and
+`research_scope_status` before designing or resuming work. Tools absent from the active client
+require a client restart; never claim they were called. The operator CLI is
+`scripts/personal_complete.py <actual_tool_name> --config <operator_config> --arguments <json_file>`
+using the installed MCP interpreter. CLI arguments cannot grant authority.
 
-The user supplies the research direction; design the supported complete strategy and
-explain the choices. Choose ordinary parameters yourself. Ask only about a material change
-of target, source preference, expenditure, or disclosure. Check data coverage before designing
-around it. Index constituents cannot stand for all mainboard stocks; other sectors cannot
-stand for THS; daily data cannot recreate a five-minute exit.
+The default is historical HS300 membership, Tushare Pro, daily data, supplier-adjusted price and
+quantity units, after-close signals and execution at the next actual session's open. STAR and
+ChiNext constituents are included. Do not return to the old mainboard/THS requirement. Ordinary
+cash dividends are represented by supplier factors; no separate dividend cash credit, payment
+claim, tax accounting or share-conversion ledger is provided. Daily coarse lots, full-day volume
+capacity and native sell restrictions do not establish full historical exchange-rule qualification.
 
-The successor profile is `hs300-daily-trend-tushare-lifecycle/v3`: historical HS300 members available
-as of each after-close signal, Tushare Pro as the only market source, next-session open Qlib
-execution. It includes all index boards, without a mainboard intersection or THS dependency.
-The retained `hs300-daily-trend-tushare-lifecycle/v2`, `hs300-daily-trend-tushare-lifecycle/v1`, `hs300-daily-trend-tushare/v1` and `daily-mainboard-trend/v1` remain readable
-under their original scopes.
-Call `research_capabilities_summary` to inspect registered immutable dataset IDs and policies before
-preparation. A descriptive historical inventory is not an executable binding.
+## From a direction to a result
 
-Prepare with `research_prepare` and `schema_version: "personal-study-request/v6"`, a unique
-idempotency key, brief, `proposal: {session_id: "<this-session-label>"}`, and a matching
-server-returned dataset ID. Default benchmark is SH000300. First retrospective proposal:
-start 2023-01-09, end 2025-12-29, warmup_start 2022-11-01. The profile fixes SMA20, positive
-5-session return and turnover amount divided by the preceding 5-session mean >=1.2;
-rank momentum and select top10 with 9% targets each. Keep residual cash for fewer names.
-Exit on loss of eligibility/displacement, without a fixed holding ceiling. Main, classic and
-seeds17/41/73/101/137 are retained. Read the returned candidate rules and limits.
+The user supplies a direction and material constraints. Design the hypothesis, executable
+strategy and smallest sufficient controls yourself; select returned dataset identities and
+prepare through `research_prepare`. Ask only for missing decisions that change scope or meaning,
+not internal hashes or routine implementation choices. The outer session generates proposals
+and explanations. Leave unauthenticated model identity unknown and do not start a nested SDK.
 
-The cash successor binds exact official continuous-holding rules, native source hashes and
-cash policy to the immutable dataset and prepared package. Actual native targets and generated
-orders may establish the cash-only necessary no-acquisition condition. This does not observe a
-rights ledger, mutate accounting, prove a completed future session, or waive merger/delisting
-boundaries. Before execution the actual account remains NOT_OBSERVED.
-Only operator-owned configuration supplies cash rule bundles and read-only origin/signal specs.
-A completed classic may appear as REUSED_ORIGIN with its original prepared/receipt identity;
-it is never a new-tuple PASS or a rewritten receipt. Preserve all seven rows, execute only six
-new native accounts under a distinct v3 grant, and verify original provenance on result reads.
+For new directions use `personal-study-request/v7` and the capability tool's bounded
+`personal-strategy/v1` / `safe-qlib-expression/v3`. Put algorithms in score, eligibility and market
+expressions, ranking direction, Top-K/explicit weights, caps/risk, rebalance and holding rules.
+Brief text and main/control/successor roles are descriptive. Never dispatch an algorithm by its
+report role or claim a changed brief changes execution. The same complete execution tuple may
+reuse its original account; changed strategy, actual signal, data, policy, period or runtime
+requires a distinct binding. Preserve all proposed and attempted rows, including failures and reuse.
 
-The v3 profile is an explicitly chosen vendor-adjusted price/quantity-unit scenario, not
-an actual broker cash-dividend ledger. Ordinary cash dividends remain expressed only by
-the frozen vendor adjustment factors. Never add a second model cash credit, label a missing
-payment PAID, or claim exact cash reinvestment, dividend tax settlement or net total return.
-Company pay dates and nominal raw-share dividend diagnostics do not establish account receipt.
-Its v6 request, dataset/v5, prepared/v5 and catalog/config/grant v4 bind official originals,
-vendor-convention HTML, model semantics, native loader/quote identities and complete fixed
-future quote sessions. Legacy grants cannot authorize this successor. Only the actual
-production Exchange and native quote instance may support the derived zero old-share-input
-branch, with fresh ordinary lineage, complete holdings/orders and actual generated targets
-and orders. Nonzero or unknown required state still stops that arm. A development probe
-cannot replace runtime observations. No company-action accounting, forced sale, new-share
-conversion or imported rights are added. Old failures and strict payment UNKNOWN findings
-remain under their original scope. Numerical returns mean model returns after specified
-trading costs; do not describe them as tax-adjusted actual cash receipts. Preserve classic
-origin and all seven rows; reuse verified inputs and raw signals without recompilation.
+Use only supported mapped OHLC, adjusted volume and actual CNY amount. `amount_cny` is not volume
+or close×volume. Windows/nodes/constants/candidates have published limits. `Rank` is time-series;
+cross-sectional selection sorts only finite, eligible contemporaneous members with deterministic
+instrument ties. Fixed slots leave cash when there are too few names. Input lag and next-session
+execution lag each apply once. Unknown availability, future inputs, missing source fields or
+intraday requests must fail at preparation. An unsupported idea never silently falls back to main.
 
-Lifecycle facts classify structural security existence and unsupported account events; they are
-not predictive features or an anticipatory exit signal. Preparation requires immutable source,
-date and coverage bindings. `READY_FOR_AUTHORIZATION` still grants no execution authority.
-At the first unsupported event boundary, inspect the native account, held position, pending
-orders and the rights/exposure history required by the frozen policy. Exposed or UNKNOWN state
-hard-stops that arm without custom settlement/accounting. Keep its durable failure/audit and all
-seven candidates. Pre-run native exposure is NOT_OBSERVED; never call it zero exposure. A
-failed/unknown/missing arm is not a completed zero-return comparison.
+Read the complete preparation, exact policy/data dependencies, controls, budget estimates and
+gaps. `READY_FOR_AUTHORIZATION` grants no permission. Execution uses an operator-owned, expiring,
+finite scope over strategy/data/policy/runtime identities and total attempts/accounts/resources.
+`approved` fields or model assertions cannot authorize anything. New collection, real training/
+backtest/Validation, forward advances, paid calls and external disclosure require applicable user
+authority. Engineering authorization alone permits only its bounded synthetic exercises and
+existing-evidence reads. Preserve prior valid authorization without asking again within scope.
 
-Lifecycle gaps may be acquired only under the user's separate bounded acquisition authority:
-Tushare first, then explicitly permitted credible sources, with exact source identities and
-non-vintage limits. These MCP tools do not acquire data. Acquisition approval does not grant
-the real seven-account research run; the old BLOCKED/terminal task remains immutable.
+With a valid scope, use `research_execute`, `research_status` and `research_results_summary` /
+`research_results`. Continue to the authorized terminal state. Use `research_cancel` to request
+cooperative stopping. `research_reconcile` verifies completed outputs and actual ownership/exit;
+UNKNOWN is never automatically resent. Resume unfinished work through an explicit successor
+request with `parent_task_id`, retained feedback references and a matching remaining scope.
+Terminal parent requests, receipts and grants remain unchanged. Research may stop after one
+informative comparison; no fixed search count or profitability target is required.
 
-The outer host session supplies the proposal; do not nest a research SDK call. Leave
-unobservable model identity unknown. Preparation saves a proposal and does not execute.
-Read readiness and concrete gaps before discussing a run. Unsupported rules need an explicit
-successor, not arbitrary Python or a proposal flag.
+## Explain and remember
 
-Execution requires a separately bound server authorization and budget. Tool input cannot
-grant it. `approved=true` is rejected. Only an operator-owned server configuration may bind
-an exact prepared/code/dataset/profile hash grant, actual approval evidence, finite predeclared
-budget, expiry, wall limit and complete-growth bound. A lifecycle successor also requires a
-new grant binding the lifecycle bundle, every lifecycle source hash and native boundary policy;
-a legacy grant cannot authorize it. Cash v5 additionally binds cash rules/policy, native sources,
-classic origin and signal reuse identities, at most six native runs, 3600 seconds and 4 GiB growth.
-Collection, training, Validation, research SDK and retries remain zero. Default authorization is absent.
-Execution uses the existing host storage supervisor and timeout; missing host quota or
-capacity is an execution preflight rejection, not permission to relax the guard. A synchronous
-MCP execute call may exceed a client wait timeout; inspect the original task and never reissue
-UNKNOWN work. An implementation authorization is not permission for market collection, new
-research, sealed access, paid services, broker orders, or a permanent scheduler. Within a
-valid run authorization, proceed to its terminal state without repeatedly asking to continue.
-Use `research_status`, `research_results_summary`, and `research_cancel`; retain UNKNOWN or failed
-exits and never reissue an unknown execution. Repeated submissions use the original identity.
+Use `research_history(query, tags, as_of)` and `research_retained_read` for prior evidence.
+`research_feedback_record` forms a cited record from a settled v7 task and your labelled
+interpretation/continue-or-STOP rationale; `research_memory_record` appends cited JSON facts and separately labelled model interpretation or
+engineering experience. JSON Pointers copy facts from hash-verified originals; Markdown is not
+passed to the legacy JSON reader. Revisions append a new record, never edit a prior conclusion.
+`research_diagnostic_read` rechecks references and supplies applicability, observations,
+counterevidence, uncertainty and continue/STOP rationale. Historical as_of excludes unknown or
+future source/record availability. Memory is a derived index, not a second scientific authority.
 
-For this successor, company information uses only actually returned, entitled Tushare fields.
-Announcement entitlement remains UNKNOWN unless verified independently; titles/links are not
-body text or proven risk conclusions. These MCP tools do not collect data or fetch PDFs;
-separately authorized lifecycle evidence uses the bounded acquisition path.
-Retained local material is not relabelled as Tushare and is not a historical trading feature.
+Explain net wealth/return and drawdown alongside cash/exposure, fees, turnover, yearly descriptions,
+qualification→target→orders/fills, partial/unfilled orders and limits where observed. Missing
+metrics remain null. Strategy-specific S/T/B need their original definitions. Sell-path categories
+are descriptive, not causal identification. Retain failed and cancelled denominators.
 
-Read announcements through `announcement_read`; construct `announcement_cite` with exact
-returned Unicode offsets and text, then `announcement_propose` and `announcement_review`.
-Citation integrity proves location, not semantic correctness. Human review and research
-admission remain separate. UNKNOWN availability cannot become a historical feature; partial
-source coverage cannot support “no adverse news”. Label these outputs auxiliary analysis
-when they are not admitted trading features. Do not externally disclose material merely
-because it is readable locally.
+The old v6/v3 seven-arm results and classic origin remain readable under their original tuple;
+new v7 studies have a question-specific denominator. confirm2 ended
+SUCCEEDED / NOT_SUPPORTED / NOT_EVALUATED: the hypothesis was not supported in that scope.
+Do not restart 1/3/5-day confirmation searches or rewrite it as independent validation.
 
-Explain results in plain Chinese, separating engineering status, scientific verdict,
-proposal, and actual account outcomes. Keep missing metrics null and every fixed random
-seed, failed candidate, and attempted variant in the denominator. Read retained evidence
-without rerunning it. A strategy REJECT is a legitimate research result. Do not claim alpha,
-independent blind evaluation, vendor-vintage PIT, or profitability from engineering success.
+For announcements use `announcement_list/read/cite/propose/review` and the existing bounded local
+intake. Cite exact returned page/text offsets. A citation proves location, not semantic truth or
+absence of adverse information. These tools do not acquire data. Unknown availability cannot
+become a historical trading feature, and auxiliary materials keep their actual source identity.
 
-Use `research_simulation_prepare` to inspect the actual native-account capability and gaps.
-Historical synthetic replay is an engineering exercise. Actual forward simulation needs a
-fixed strategy, newly arrived immutable snapshots, an explicitly bounded observation period,
-and authorization. Never describe a signal log as an account or elapsed future observation.
+## Frozen observation and native account
 
-Default to the explicit bounded display successors `research_capabilities_summary` and
-`research_results_summary`. They return dataset identity/date/source/readiness and seven rows
-with null/failure semantics and classic origin/comparison hashes. For daily details use
-`research_results_boundary_page` (offset, limit <=100), then `research_results_boundary_read`
-with a returned hash (start, max_chars <=32000). No execution is needed. Legacy
-`research_capabilities`, `research_data_describe`, and `research_results` keep their original
-full structures for existing clients and explicit full-artifact inspection. Summary reads use
-the same immutable validation path; this does not claim faster verification. Restart an old
-MCP process before using the new tools.
+`research_snapshot_prepare` inspects a registered immutable snapshot/view and trusted arrival
+metadata; it does not fetch market data. `research_observation_prepare` freezes a strategy/policy
+and finite planned signal dates. `research_observation_observe` records EMITTED, ABSTAIN, MISSING,
+STOPPED or FAILED; late recomputation appends an after-the-fact record without overwriting a
+missing day. Use status/recover/stop tools for that explicit observation ID. Revisions keep the
+previous snapshot and issued signals. A historical synthetic ENGINEERING_REPLAY is never real
+forward observation; actual recorded/publication time is retained separately from its test clock.
+
+Use `research_shadow_prepare` then authorized `research_shadow_advance` with the frozen prior
+signal record and a server-returned execution snapshot. It advances a complete native Qlib
+Account, preserving Position, cumulative costs/turnover, report history, strategy state, clock,
+decisions and fills. Use `research_shadow_status` / `research_shadow_stop` across restarts.
+Checks reject late signals, missing sessions, changed historical units/factors, incorrect snapshot
+predecessors and unknown company actions. No Position import or independent cash/matching engine
+substitutes for continuity. Executed/exported days reconcile before publication and are not replayed.
+
+Use `research_scope_stop(kind, reason)` for a legal research/forward STOP. State engineering
+acceptance, exploratory conclusions and formal scientific status separately. Successful synthetic
+execution is not alpha, vendor-vintage PIT, independent blind evaluation or future performance.

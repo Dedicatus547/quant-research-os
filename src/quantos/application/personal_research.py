@@ -46,6 +46,7 @@ from quantos.contracts.personal_research import (
     PreparedHS300Study,
     PreparedStudy,
 )
+from quantos.contracts.personal_strategy import PreparedStrategyStudy
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,9 @@ class PersonalDatasetBinding:
     adjusted_facts_path: Path | None = None
     origin_reuse: tuple[ClassicOriginReuse, ...] = ()
     signal_reuse: SignalReuseSpec | None = None
+    field_mapping_profile: Literal["native-bins/v1", "canonical-personal-fields/v1"] = (
+        "native-bins/v1"
+    )
 
 
 Prepared = (
@@ -70,6 +74,7 @@ Prepared = (
     | PreparedHS300LifecycleStudy
     | PreparedHS300CashStudy
     | PreparedHS300AdjustedStudy
+    | PreparedStrategyStudy
 )
 Authorizer = Callable[[Prepared], str | None]
 Executor = Callable[[Prepared, Path, Callable[[], bool]], dict[str, Any]]
@@ -91,6 +96,41 @@ def _process_identity(pid: int) -> str | None:
         return None
 
 
+def execution_owner_active(detail: Mapping[str, object]) -> bool:
+    """Resolve a supervised namespace owner without treating its PID as a host PID."""
+    import fcntl
+    import json
+
+    name = detail.get("supervisor_lease")
+    if name is None:
+        return _process_identity(int(cast(Any, detail["pid"]))) == detail["process_identity"]
+    if not isinstance(name, str) or not Path(name).is_absolute():
+        raise ArtifactIntegrityError("supervised task lease path invalid")
+    run = Path(name)
+    with opened_directory(run) as directory:
+        policy_raw = read_regular_bytes_at(directory, "policy.json", max_bytes=16384)
+        prelaunch = json.loads(read_regular_bytes_at(directory, "prelaunch.json", max_bytes=16384))
+    policy = json.loads(policy_raw)
+    digest = sha256_bytes(policy_raw)
+    if (
+        digest != detail.get("supervisor_policy_hash")
+        or prelaunch["policy_hash"] != digest
+        or run.parent != Path(policy["evidence_root"]) / "storage-control"
+    ):
+        raise ArtifactIntegrityError("supervised task lease binding differs")
+    with opened_directory(run.parent) as directory:
+        descriptor = os.open("lease.lock", os.O_RDWR | os.O_NOFOLLOW, dir_fd=directory)
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                owner = json.loads(os.pread(descriptor, 16385, 0))
+                return owner == {"run": str(run), "policy_hash": digest}
+            return False
+        finally:
+            os.close(descriptor)
+
+
 class PersonalResearchService:
     """Thin offline compiler, hash-chained task ledger and one-worker dispatcher.
 
@@ -107,6 +147,7 @@ class PersonalResearchService:
         data_blockers: tuple[str, ...] = (),
         execution_authorizer: Authorizer | None = None,
         executor: Executor | None = None,
+        strategy_authority: Any = None,
     ) -> None:
         self.root = root.absolute()
         self.repo_root = repo_root.absolute()
@@ -117,8 +158,37 @@ class PersonalResearchService:
                 raise ValueError("dataset catalog identity disagrees")
         self._authorizer = execution_authorizer
         self._executor = executor
+        self.strategy_authority = strategy_authority
+        self.strategy_dispatcher: Any = None
+        self.product_services: Any = None
         with opened_directory(self.root, create=True):
             pass
+        self._startup_runtime = self.dependency_manifest()
+        from quantos.application.personal_strategy import SOURCES
+
+        startup_files = (
+            *SOURCES,
+            "src/quantos/application/personal_product.py",
+            "src/quantos/application/personal_observation.py",
+            "src/quantos/application/personal_shadow.py",
+            "src/quantos/application/personal_forward_authority.py",
+            "src/quantos/application/personal_server_config.py",
+            "src/quantos/application/personal_dispatch.py",
+            "src/quantos/personal_worker.py",
+            "src/quantos/personal_research_mcp.py",
+            "src/quantos/personal_product_mcp.py",
+        )
+        self._startup_product_sources = {
+            name: sha256_bytes((self.repo_root / name).read_bytes()) for name in startup_files
+        }
+
+    def require_unchanged_runtime(self) -> None:
+        """A live process cannot adopt edited source bytes as its already-loaded code."""
+        if self.dependency_manifest() != self._startup_runtime or any(
+            sha256_bytes((self.repo_root / name).read_bytes()) != digest
+            for name, digest in self._startup_product_sources.items()
+        ):
+            raise PermissionError("product runtime changed on disk; restart this local service")
 
     def _write(self, directory: Path, name: str, value: object) -> None:
         with opened_directory(directory, create=True) as fd:
@@ -127,6 +197,15 @@ class PersonalResearchService:
     def _read(self, directory: Path, name: str) -> bytes:
         with opened_directory(directory) as fd:
             return read_regular_bytes_at(fd, name, max_bytes=4 * 1024 * 1024)
+
+    @property
+    def execution_authorization_configured(self) -> bool:
+        """Report trusted configuration presence without granting execution rights."""
+        return self._authorizer is not None
+
+    def read_artifact_bytes(self, directory: Path, name: str) -> bytes:
+        """Use the same bounded, no-alias reader for projection artifact spans."""
+        return self._read(directory, name)
 
     def dependency_manifest(self) -> dict[str, object]:
         files = (
@@ -541,6 +620,10 @@ class PersonalResearchService:
         from quantos.security.artifact_secrets import validate_secret_free
 
         validate_secret_free(dict(request), file_name="personal-study-request.json")
+        if request.get("schema_version") == "personal-study-request/v7":
+            from quantos.application.personal_strategy import PersonalStrategyResearch
+
+            return PersonalStrategyResearch(self).prepare(dict(request))
         if request.get("schema_version") == "personal-study-request/v6":
             return self._prepare_hs300(request, lifecycle=True, cash=True, adjusted=True)
         if request.get("schema_version") == "personal-study-request/v5":
@@ -699,7 +782,9 @@ class PersonalResearchService:
         raw = self._read(self.root / "tasks" / task_id, "prepared.json")
         schema = json.loads(raw).get("schema_version")
         contract = (
-            PreparedHS300AdjustedStudy
+            PreparedStrategyStudy
+            if schema == "personal-study-prepared/v6"
+            else PreparedHS300AdjustedStudy
             if schema == "personal-study-prepared/v5"
             else PreparedHS300CashStudy
             if schema == "personal-study-prepared/v4"
@@ -765,10 +850,7 @@ class PersonalResearchService:
             last = events[-1]
             if last.state in {"RUNNING", "CANCEL_REQUESTED"}:
                 owner = next(e for e in reversed(events) if e.state == "RUNNING")
-                if (
-                    _process_identity(int(cast(Any, owner.detail["pid"])))
-                    != owner.detail["process_identity"]
-                ):
+                if not execution_owner_active(owner.detail):
                     self._append(
                         task_id,
                         "UNKNOWN",
@@ -814,6 +896,10 @@ class PersonalResearchService:
 
     def execute(self, task_id: str) -> dict[str, Any]:
         prepared = self._prepared(task_id)
+        if isinstance(prepared, PreparedStrategyStudy):
+            from quantos.application.personal_strategy import PersonalStrategyResearch
+
+            return PersonalStrategyResearch(self).execute(prepared)
         # Worker lock and task authority locks are separate: cancellation remains responsive.
         with exclusive_directory_lock(self.root / "worker"):
             with exclusive_directory_lock(self.root):
@@ -958,9 +1044,13 @@ class PersonalResearchService:
         return self.status(task_id)
 
     def results(self, task_id: str) -> dict[str, Any]:
+        prepared = self._prepared(task_id)
+        if isinstance(prepared, PreparedStrategyStudy):
+            from quantos.application.personal_strategy import PersonalStrategyResearch
+
+            return PersonalStrategyResearch(self).results(prepared)
         import json
 
-        prepared = self._prepared(task_id)
         current = self.status(task_id)
         execution = self.root / "tasks" / task_id / "execution"
         outcomes: dict[str, Any] = {}
@@ -1131,6 +1221,15 @@ class PersonalResearchService:
 
     def simulation_prepare(self, task_id: str) -> dict[str, Any]:
         prepared = self._prepared(task_id)
+        if isinstance(prepared, PreparedStrategyStudy):
+            return {
+                "task_id": task_id,
+                "state": "NOT_STARTED",
+                "strategy_hashes": prepared.strategy_hashes,
+                "policy_hash": prepared.policy_hash,
+                "authorization_inherited": False,
+                "gaps": ["Separate trusted observation and native account authorization required"],
+            }
         return {
             "task_id": task_id,
             "strategy_hash": prepared.request.profile.content_hash,

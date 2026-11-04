@@ -1,0 +1,368 @@
+{
+  "$defs": {
+    "PersonalExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "safe-qlib-expression/v3",
+          "default": "safe-qlib-expression/v3",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "expression_id": {
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+          "title": "Expression Id",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SafeExpressionNode"
+              },
+              {
+                "$ref": "#/$defs/ScalarNode"
+              },
+              {
+                "$ref": "#/$defs/PredicateNode"
+              }
+            ]
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Nodes",
+          "type": "array"
+        },
+        "output_node_id": {
+          "title": "Output Node Id",
+          "type": "string"
+        },
+        "input_lag_trading_days": {
+          "default": 0,
+          "maximum": 20,
+          "minimum": 0,
+          "title": "Input Lag Trading Days",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expression_id",
+        "nodes",
+        "output_node_id"
+      ],
+      "title": "PersonalExpression",
+      "type": "object"
+    },
+    "PredicateNode": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "safe-predicate-node/v1",
+          "default": "safe-predicate-node/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "node_id": {
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "gt",
+            "ge",
+            "lt",
+            "le",
+            "eq",
+            "and",
+            "or",
+            "not"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "operator",
+        "inputs"
+      ],
+      "title": "PredicateNode",
+      "type": "object"
+    },
+    "SafeExpressionNode": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "safe-expression-node/v1",
+          "default": "safe-expression-node/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "node_id": {
+          "minLength": 1,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "operator": {
+          "$ref": "#/$defs/SafeQlibOperator"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "field_name": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field Name"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window"
+        }
+      },
+      "required": [
+        "node_id",
+        "operator"
+      ],
+      "title": "SafeExpressionNode",
+      "type": "object"
+    },
+    "SafeQlibOperator": {
+      "enum": [
+        "abs",
+        "field",
+        "ref",
+        "return",
+        "rolling_mean",
+        "rolling_std",
+        "add",
+        "subtract",
+        "multiply",
+        "divide",
+        "rank",
+        "delta",
+        "rolling_sum",
+        "rolling_min",
+        "rolling_max"
+      ],
+      "title": "SafeQlibOperator",
+      "type": "string"
+    },
+    "ScalarNode": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "safe-scalar-node/v1",
+          "default": "safe-scalar-node/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "node_id": {
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "operator": {
+          "const": "constant",
+          "default": "constant",
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000000000.0,
+          "minimum": -1000000000.0,
+          "title": "Value",
+          "type": "number"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "value"
+      ],
+      "title": "ScalarNode",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "personal-strategy/v1",
+      "default": "personal-strategy/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "score": {
+      "$ref": "#/$defs/PersonalExpression"
+    },
+    "eligibility": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PersonalExpression"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "market_condition": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PersonalExpression"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "rank_direction": {
+      "default": "descending",
+      "enum": [
+        "descending",
+        "ascending"
+      ],
+      "title": "Rank Direction",
+      "type": "string"
+    },
+    "tie_break": {
+      "const": "instrument_ascending",
+      "default": "instrument_ascending",
+      "title": "Tie Break",
+      "type": "string"
+    },
+    "cross_section": {
+      "const": "eligible_finite_scores",
+      "default": "eligible_finite_scores",
+      "title": "Cross Section",
+      "type": "string"
+    },
+    "top_k": {
+      "default": 10,
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Top K",
+      "type": "integer"
+    },
+    "max_weight": {
+      "default": 0.1,
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "title": "Max Weight",
+      "type": "number"
+    },
+    "risk_degree": {
+      "default": 0.9,
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "title": "Risk Degree",
+      "type": "number"
+    },
+    "target_weights": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Weights"
+    },
+    "rebalance": {
+      "default": "daily",
+      "enum": [
+        "daily",
+        "weekly_first_session"
+      ],
+      "title": "Rebalance",
+      "type": "string"
+    },
+    "rank_buffer": {
+      "default": 0,
+      "maximum": 20,
+      "minimum": 0,
+      "title": "Rank Buffer",
+      "type": "integer"
+    },
+    "max_holding_sessions": {
+      "anyOf": [
+        {
+          "maximum": 120,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Holding Sessions"
+    },
+    "rule_priority": {
+      "const": "eligibility_max_age_then_schedule_buffer",
+      "default": "eligibility_max_age_then_schedule_buffer",
+      "title": "Rule Priority",
+      "type": "string"
+    },
+    "signal_time": {
+      "const": "after_close_2359_Asia_Shanghai",
+      "default": "after_close_2359_Asia_Shanghai",
+      "title": "Signal Time",
+      "type": "string"
+    },
+    "execution_time": {
+      "const": "next_actual_session_open",
+      "default": "next_actual_session_open",
+      "title": "Execution Time",
+      "type": "string"
+    }
+  },
+  "required": [
+    "score"
+  ],
+  "title": "PersonalStrategy",
+  "type": "object"
+}

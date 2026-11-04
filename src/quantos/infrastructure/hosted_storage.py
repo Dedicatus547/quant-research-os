@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from functools import lru_cache
@@ -325,7 +326,12 @@ def storage_checkpoint(
 
 
 def supervise_storage_job(
-    guard: StorageGuard, argv: tuple[str, ...], *, stage: str, expected_new_bytes: int
+    guard: StorageGuard,
+    argv: tuple[str, ...],
+    *,
+    stage: str,
+    expected_new_bytes: int,
+    run_observer: Callable[[Path], None] | None = None,
 ) -> Path:
     """Single host job lease, bounded monitoring, actual wait, immutable safe records.
 
@@ -365,6 +371,8 @@ def supervise_storage_job(
                 raise StorageRejected("STORAGE_PREVIOUS_JOB_UNRECONCILED") from None
         run = control / f"run-{time.time_ns()}-{os.getpid()}"
         run.mkdir(mode=0o700)
+        if run_observer is not None:
+            run_observer(run)
         owner = canonical_json_bytes({"run": str(run), "policy_hash": guard.policy_hash})
         os.ftruncate(lock, 0)
         os.write(lock, owner)

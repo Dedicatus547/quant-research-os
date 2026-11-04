@@ -12,8 +12,32 @@ permissions:
   contents: read
 
 jobs:
-  checks:
-    runs-on: ubuntu-latest
+  static:
+    # Static feedback must remain available when the isolated runtime cannot be adopted.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.25"
+          enable-cache: true
+      - run: uv sync --frozen --extra agent-openai
+      - name: Prepare pinned optional MCP typing environment
+        run: |
+          uv venv --python .venv/bin/python .tools/personal-research-mcp-1.26.0
+          uv pip sync --python .tools/personal-research-mcp-1.26.0/bin/python --require-hashes configs/personal-research/mcp-requirements.lock
+          uv run python scripts/prepare_personal_mcp_typing.py
+      - run: uv run ruff format --check
+      - run: uv run ruff check
+      - run: uv run pyright --project configs/personal-research/pyright.json
+
+  isolated-tests:
+    # This label selects an OS family, not an immutable kernel/image. The exact
+    # reviewed tuple below is still mandatory; see ci/apparmor/environment-adoption.md.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -119,9 +143,6 @@ jobs:
       - name: Verify nested namespaces, capabilities and unrelated denial
         run: /usr/bin/python3 -I -B ci/apparmor/runtime_guard.py boundaries
       - run: uv sync --frozen --extra agent-openai
-      - run: uv run ruff format --check
-      - run: uv run ruff check
-      - run: uv run pyright
       - run: uv run pytest --cov=quantos --cov-report=term-missing --cov-report=xml
       - name: Retain candidate AppArmor audit and remove only this job's policy
         if: always()

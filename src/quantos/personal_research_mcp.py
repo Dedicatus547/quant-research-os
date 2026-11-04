@@ -85,11 +85,15 @@ def create_server(
         """Describe server-bound immutable datasets, availability policies and source gaps."""
         return research_service.data_describe(dataset_id)
 
-    def research_history(limit: int = 20, query: str = "") -> dict[str, Any]:
+    def research_history(
+        limit: int = 20, query: str = "", tags: list[str] | None = None, as_of: str | None = None
+    ) -> dict[str, Any]:
         """Find persisted research tasks across sessions, without mutable latest selection."""
         return {
             **research_service.history(limit=limit),
-            "retained_history": history.search(query=query, limit=limit),
+            "retained_history": history.search(
+                query=query, limit=limit, tags=tuple(tags or ()), as_of=as_of
+            ),
         }
 
     def research_retained_read(record_id: str) -> dict[str, Any]:
@@ -97,7 +101,7 @@ def create_server(
         return history.read(record_id)
 
     def research_prepare(request: dict[str, Any]) -> dict[str, Any]:
-        """Prepare adjusted-unit v6 or retained proposals; readiness grants no authority."""
+        """Prepare executable v7 strategies or retained v6 proposals; readiness grants no authority."""
         return research_service.prepare(request)
 
     def research_status(task_id: str) -> dict[str, Any]:
@@ -124,7 +128,7 @@ def create_server(
         return projection.capabilities(offset, limit)
 
     def research_results_summary(task_id: str) -> dict[str, Any]:
-        """Preferred seven-row metrics/status with original origin/comparison hashes.
+        """Preferred bounded strategy results or retained seven-row metrics with original hashes.
 
         Uses the original integrity path; research_results retains its full contract.
         """
@@ -133,7 +137,7 @@ def create_server(
     def research_results_boundary_page(
         task_id: str, candidate_id: str, offset: int = 0, limit: int = 20
     ) -> dict[str, Any]:
-        """Page retained daily boundary references and original hashes, at most 100."""
+        """Page verified strategy target traces or retained boundary references, at most 100."""
         return projection.boundary_page(task_id, candidate_id, offset, limit)
 
     def research_results_boundary_read(
@@ -143,7 +147,7 @@ def create_server(
         start: int = 0,
         max_chars: int = 8000,
     ) -> dict[str, Any]:
-        """Read a hash-verified boundary text span, at most 32000 characters."""
+        """Read a hash-verified target/boundary text span, at most 32000 characters."""
         return projection.boundary_read(task_id, candidate_id, boundary_sha256, start, max_chars)
 
     def research_simulation_prepare(task_id: str) -> dict[str, Any]:
@@ -200,6 +204,9 @@ def create_server(
     server.add_tool(announcement_propose, annotations=write)
     server.add_tool(announcement_review, annotations=read)
     server.add_tool(announcement_import_local, annotations=write)
+    from quantos.personal_product_mcp import register_product_tools
+
+    register_product_tools(server, research_service, read, write)
     return server
 
 
@@ -221,7 +228,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Operator-owned config; default <root>/server-config.json if present",
     )
     args = parser.parse_args(argv)
-    server = create_server(args.root, args.repo_root, server_config=args.server_config)
+    # New product composition imports native scientific adapters as well. Their
+    # optional-dependency notices must never enter the STDIO JSON-RPC stream.
+    with redirect_stdout(sys.stderr):
+        server = create_server(args.root, args.repo_root, server_config=args.server_config)
     server.run(transport="stdio")
     return 0
 

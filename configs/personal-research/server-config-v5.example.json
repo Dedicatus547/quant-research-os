@@ -1,0 +1,14 @@
+{
+  "schema_version": "personal-research-server-config/v5",
+  "product_root": "/home/zjw/quant-research-os/artifacts/personal-research-product-20261022/run-01/product",
+  "repo_root": "/home/zjw/quant-research-os",
+  "catalog": [],
+  "data_blockers": [
+    "Example only: merge existing trusted catalog entries; do not overwrite live configuration"
+  ],
+  "authorization_path": null,
+  "authorization_sha256": null,
+  "research_scope": null,
+  "forward_scope": null,
+  "snapshot_arrivals": []
+}

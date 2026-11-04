@@ -1,0 +1,8 @@
+{
+  "include": ["../../src"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "strict",
+  "venvPath": "../..",
+  "venv": ".venv",
+  "extraPaths": ["../../src", "../../.tools/personal-research-mcp-typing"]
+}

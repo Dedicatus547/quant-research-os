@@ -75,6 +75,11 @@ class CatalogRegistrationV4(CatalogRegistrationV3):
     adjusted_facts_path: Path
 
 
+class CatalogRegistrationV5(CatalogRegistrationV4):
+    schema_version: Literal["personal-catalog-registration/v5"] = "personal-catalog-registration/v5"  # pyright: ignore[reportIncompatibleVariableOverride]
+    field_mapping_profile: Literal["canonical-personal-fields/v1"] = "canonical-personal-fields/v1"
+
+
 class PersonalServerConfig(_ServerDocument):
     schema_version: Literal["personal-research-server-config/v1"] = (
         "personal-research-server-config/v1"
@@ -124,6 +129,40 @@ class PersonalServerConfigV4(PersonalServerConfigV3):
     )
     catalog: tuple[
         CatalogRegistrationV4 | CatalogRegistrationV3 | CatalogRegistrationV2 | CatalogRegistration,
+        ...,
+    ] = ()  # pyright: ignore[reportIncompatibleVariableOverride]
+
+
+class PersonalScopeRegistration(_ServerDocument):
+    schema_version: Literal["personal-scope-registration/v1"] = "personal-scope-registration/v1"
+    scope_path: Path
+    scope_sha256: str = Field(pattern=SHA256_PATTERN)
+    approval_evidence_path: Path
+    storage_policy_path: Path
+    storage_policy_sha256: str = Field(pattern=SHA256_PATTERN)
+
+
+class SnapshotArrivalRegistration(_ServerDocument):
+    schema_version: Literal["personal-arrival-registration/v1"] = "personal-arrival-registration/v1"
+    dataset_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    metadata_path: Path
+    metadata_sha256: str = Field(pattern=SHA256_PATTERN)
+    evidence_path: Path
+
+
+class PersonalServerConfigV5(PersonalServerConfigV4):
+    schema_version: Literal["personal-research-server-config/v5"] = (  # pyright: ignore[reportIncompatibleVariableOverride]
+        "personal-research-server-config/v5"
+    )
+    research_scope: PersonalScopeRegistration | None = None
+    forward_scope: PersonalScopeRegistration | None = None
+    snapshot_arrivals: tuple[SnapshotArrivalRegistration, ...] = ()
+    catalog: tuple[
+        CatalogRegistrationV5
+        | CatalogRegistrationV4
+        | CatalogRegistrationV3
+        | CatalogRegistrationV2
+        | CatalogRegistration,
         ...,
     ] = ()  # pyright: ignore[reportIncompatibleVariableOverride]
 
@@ -275,13 +314,19 @@ def _read(path: Path, expected_hash: str | None = None) -> bytes:
 def load_server_config(
     path: Path,
 ) -> (
-    PersonalServerConfig | PersonalServerConfigV2 | PersonalServerConfigV3 | PersonalServerConfigV4
+    PersonalServerConfig
+    | PersonalServerConfigV2
+    | PersonalServerConfigV3
+    | PersonalServerConfigV4
+    | PersonalServerConfigV5
 ):
     import json
 
     raw = _read(path)
     config_type = (
-        PersonalServerConfigV4
+        PersonalServerConfigV5
+        if json.loads(raw).get("schema_version") == "personal-research-server-config/v5"
+        else PersonalServerConfigV4
         if json.loads(raw).get("schema_version") == "personal-research-server-config/v4"
         else PersonalServerConfigV3
         if json.loads(raw).get("schema_version") == "personal-research-server-config/v3"
@@ -293,7 +338,7 @@ def load_server_config(
 
 
 def make_trusted_service(
-    root: Path, repo_root: Path, config_path: Path | None = None
+    root: Path, repo_root: Path, config_path: Path | None = None, *, worker_mode: bool = False
 ) -> PersonalResearchService:
     """Load the operator's explicit config, retaining default-deny when none exists.
 
@@ -351,6 +396,11 @@ def make_trusted_service(
             panel_path=registration.panel_path,
             pit_evidence_path=registration.pit_evidence_path,
             snapshot_path=registration.snapshot_path,
+            field_mapping_profile=(
+                registration.field_mapping_profile
+                if isinstance(registration, CatalogRegistrationV5)
+                else "native-bins/v1"
+            ),
             adjusted_facts_path=(
                 registration.adjusted_facts_path
                 if isinstance(registration, CatalogRegistrationV4)
@@ -378,9 +428,14 @@ def make_trusted_service(
             ),
         )
     if config.authorization_path is None:
-        return PersonalResearchService(
+        service = PersonalResearchService(
             root, repo_root, catalog=catalog, data_blockers=config.data_blockers
         )
+        if isinstance(config, PersonalServerConfigV5):
+            from quantos.application.personal_product import configure_personal_product
+
+            configure_personal_product(service, config, path, worker_mode=worker_mode)
+        return service
 
     def grant_for(
         prepared: Prepared,
@@ -491,7 +546,7 @@ def make_trusted_service(
     ) -> dict[str, Any]:
         return guarded_executor(prepared)(prepared, output_root, cancelled)
 
-    return PersonalResearchService(
+    service = PersonalResearchService(
         root,
         repo_root,
         catalog=catalog,
@@ -499,3 +554,8 @@ def make_trusted_service(
         execution_authorizer=authorize,
         executor=execute,
     )
+    if isinstance(config, PersonalServerConfigV5):
+        from quantos.application.personal_product import configure_personal_product
+
+        configure_personal_product(service, config, path, worker_mode=worker_mode)
+    return service

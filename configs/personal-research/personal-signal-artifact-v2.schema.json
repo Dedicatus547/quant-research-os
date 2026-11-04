@@ -1,0 +1,122 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "personal-signal-artifact/v2",
+      "default": "personal-signal-artifact/v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "strategy_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Strategy Hash",
+      "type": "string"
+    },
+    "dataset_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Dataset Hash",
+      "type": "string"
+    },
+    "snapshot_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Snapshot Hash",
+      "type": "string"
+    },
+    "qlib_view_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Qlib View Hash",
+      "type": "string"
+    },
+    "panel_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Panel Sha256",
+      "type": "string"
+    },
+    "pit_evidence_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Pit Evidence Hash",
+      "type": "string"
+    },
+    "runtime_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Runtime Hash",
+      "type": "string"
+    },
+    "expression_translation_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Expression Translation Hash",
+      "type": "string"
+    },
+    "transform_lineage_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Transform Lineage Hash",
+      "type": "string"
+    },
+    "signal_content_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Signal Content Hash",
+      "type": "string"
+    },
+    "signals_parquet_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Signals Parquet Sha256",
+      "type": "string"
+    },
+    "start_date": {
+      "format": "date",
+      "title": "Start Date",
+      "type": "string"
+    },
+    "end_date": {
+      "format": "date",
+      "title": "End Date",
+      "type": "string"
+    },
+    "row_count": {
+      "exclusiveMinimum": 0,
+      "title": "Row Count",
+      "type": "integer"
+    },
+    "input_lag": {
+      "const": "expression_once",
+      "default": "expression_once",
+      "title": "Input Lag",
+      "type": "string"
+    },
+    "execution_lag": {
+      "const": "native_previous_actual_session_once",
+      "default": "native_previous_actual_session_once",
+      "title": "Execution Lag",
+      "type": "string"
+    },
+    "source_vintage": {
+      "title": "Source Vintage",
+      "type": "string"
+    },
+    "field_mapping_profile": {
+      "const": "canonical-personal-fields/v1",
+      "default": "canonical-personal-fields/v1",
+      "title": "Field Mapping Profile",
+      "type": "string"
+    }
+  },
+  "required": [
+    "strategy_hash",
+    "dataset_hash",
+    "snapshot_hash",
+    "qlib_view_hash",
+    "panel_sha256",
+    "pit_evidence_hash",
+    "runtime_hash",
+    "expression_translation_hash",
+    "transform_lineage_hash",
+    "signal_content_hash",
+    "signals_parquet_sha256",
+    "start_date",
+    "end_date",
+    "row_count",
+    "source_vintage"
+  ],
+  "title": "PersonalSignalArtifactV2",
+  "type": "object"
+}

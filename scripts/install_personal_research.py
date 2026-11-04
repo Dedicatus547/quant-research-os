@@ -56,9 +56,10 @@ def install(repo: Path, root: Path, python: Path, user_home: Path, action: str) 
             str(repo),
         ],
         "startup_timeout_sec": 30,
-        "tool_timeout_sec": 120,
+        "tool_timeout_sec": 3600,
     }
     current = parsed.get("mcp_servers", {}).get(NAME)
+    predecessor = {**entry, "tool_timeout_sec": 120}
     if action == "status":
         return {
             "entry_matches": current == entry,
@@ -66,8 +67,12 @@ def install(repo: Path, root: Path, python: Path, user_home: Path, action: str) 
             "config": str(config),
             "skill": str(skill),
         }
-    if action == "install":
-        if current is not None and current != entry:
+    if action in {"install", "upgrade"}:
+        if (
+            current is not None
+            and current != entry
+            and not (action == "upgrade" and current == predecessor)
+        ):
             raise ValueError("existing product MCP entry differs; no unrelated config overwritten")
         if (skill.exists() or skill.is_symlink()) and (
             not skill.is_symlink() or skill.resolve() != source_skill
@@ -80,9 +85,19 @@ def install(repo: Path, root: Path, python: Path, user_home: Path, action: str) 
             + "\n"
             + END
         ).encode()
-        after = before if current == entry else before + block
+        if current == entry:
+            after = before
+        elif current == predecessor:
+            text = before.decode()
+            if text.count(BEGIN) != 1 or text.count(END) != 1:
+                raise ValueError("managed markers missing; upgrade preserved config")
+            start = text.index(BEGIN)
+            stop = text.index(END, start) + len(END)
+            after = (text[:start] + block.decode() + text[stop:]).encode()
+        else:
+            after = before + block
     else:
-        if current is not None and current != entry:
+        if current is not None and current not in (entry, predecessor):
             raise ValueError("product entry changed since install; automatic removal refused")
         text = before.decode()
         if current is not None:
@@ -121,7 +136,7 @@ def install(repo: Path, root: Path, python: Path, user_home: Path, action: str) 
     if changed:
         _replace(config, after, mode)
     try:
-        if action == "install":
+        if action in {"install", "upgrade"}:
             skill.parent.mkdir(parents=True, exist_ok=True)
             if not skill.is_symlink():
                 skill.symlink_to(source_skill, target_is_directory=True)
@@ -152,7 +167,7 @@ def install(repo: Path, root: Path, python: Path, user_home: Path, action: str) 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["install", "uninstall", "status"])
+    parser.add_argument("action", choices=["install", "upgrade", "uninstall", "status"])
     parser.add_argument("--repo-root", type=Path, required=True)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--python", type=Path, required=True)

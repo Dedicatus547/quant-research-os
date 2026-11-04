@@ -1,0 +1,116 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "personal-forward-scope/v1",
+      "default": "personal-forward-scope/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "purpose": {
+      "enum": [
+        "SYNTHETIC_ENGINEERING",
+        "FORWARD_OBSERVATION"
+      ],
+      "title": "Purpose",
+      "type": "string"
+    },
+    "strategy_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Strategy Hash",
+      "type": "string"
+    },
+    "policy_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Hash",
+      "type": "string"
+    },
+    "runtime_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Runtime Hash",
+      "type": "string"
+    },
+    "allowed_dataset_hashes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "title": "Allowed Dataset Hashes",
+      "type": "array"
+    },
+    "start_date": {
+      "format": "date",
+      "title": "Start Date",
+      "type": "string"
+    },
+    "end_date": {
+      "format": "date",
+      "title": "End Date",
+      "type": "string"
+    },
+    "max_observations": {
+      "exclusiveMinimum": 0,
+      "maximum": 120,
+      "title": "Max Observations",
+      "type": "integer"
+    },
+    "max_native_steps": {
+      "exclusiveMinimum": 0,
+      "maximum": 120,
+      "title": "Max Native Steps",
+      "type": "integer"
+    },
+    "wall_seconds": {
+      "exclusiveMinimum": 0,
+      "maximum": 3600,
+      "title": "Wall Seconds",
+      "type": "integer"
+    },
+    "growth_bytes": {
+      "exclusiveMinimum": 0,
+      "maximum": 536870912,
+      "title": "Growth Bytes",
+      "type": "integer"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "approval_evidence_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Approval Evidence Sha256",
+      "type": "string"
+    },
+    "acquisition_calls": {
+      "const": 0,
+      "default": 0,
+      "title": "Acquisition Calls",
+      "type": "integer"
+    },
+    "sdk_calls": {
+      "const": 0,
+      "default": 0,
+      "title": "Sdk Calls",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "purpose",
+    "strategy_hash",
+    "policy_hash",
+    "runtime_hash",
+    "allowed_dataset_hashes",
+    "start_date",
+    "end_date",
+    "max_observations",
+    "max_native_steps",
+    "wall_seconds",
+    "growth_bytes",
+    "expires_at",
+    "approval_evidence_sha256"
+  ],
+  "title": "PersonalForwardScope",
+  "type": "object"
+}

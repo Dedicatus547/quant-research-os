@@ -1,0 +1,587 @@
+{
+  "$defs": {
+    "CatalogRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-catalog-registration/v1",
+          "default": "personal-catalog-registration/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "manifest_path": {
+          "format": "path",
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "provider_root": {
+          "format": "path",
+          "title": "Provider Root",
+          "type": "string"
+        },
+        "panel_path": {
+          "format": "path",
+          "title": "Panel Path",
+          "type": "string"
+        },
+        "pit_evidence_path": {
+          "format": "path",
+          "title": "Pit Evidence Path",
+          "type": "string"
+        },
+        "snapshot_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Path"
+        }
+      },
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "provider_root",
+        "panel_path",
+        "pit_evidence_path"
+      ],
+      "title": "CatalogRegistration",
+      "type": "object"
+    },
+    "CatalogRegistrationV2": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-catalog-registration/v2",
+          "default": "personal-catalog-registration/v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "manifest_path": {
+          "format": "path",
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "provider_root": {
+          "format": "path",
+          "title": "Provider Root",
+          "type": "string"
+        },
+        "panel_path": {
+          "format": "path",
+          "title": "Panel Path",
+          "type": "string"
+        },
+        "pit_evidence_path": {
+          "format": "path",
+          "title": "Pit Evidence Path",
+          "type": "string"
+        },
+        "snapshot_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Path"
+        },
+        "lifecycle_path": {
+          "format": "path",
+          "title": "Lifecycle Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "provider_root",
+        "panel_path",
+        "pit_evidence_path",
+        "lifecycle_path"
+      ],
+      "title": "CatalogRegistrationV2",
+      "type": "object"
+    },
+    "CatalogRegistrationV3": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-catalog-registration/v3",
+          "default": "personal-catalog-registration/v3",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "manifest_path": {
+          "format": "path",
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "provider_root": {
+          "format": "path",
+          "title": "Provider Root",
+          "type": "string"
+        },
+        "panel_path": {
+          "format": "path",
+          "title": "Panel Path",
+          "type": "string"
+        },
+        "pit_evidence_path": {
+          "format": "path",
+          "title": "Pit Evidence Path",
+          "type": "string"
+        },
+        "snapshot_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Path"
+        },
+        "lifecycle_path": {
+          "format": "path",
+          "title": "Lifecycle Path",
+          "type": "string"
+        },
+        "cash_rules_path": {
+          "format": "path",
+          "title": "Cash Rules Path",
+          "type": "string"
+        },
+        "classic_origin_path": {
+          "format": "path",
+          "title": "Classic Origin Path",
+          "type": "string"
+        },
+        "signal_reuse_spec_path": {
+          "format": "path",
+          "title": "Signal Reuse Spec Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "provider_root",
+        "panel_path",
+        "pit_evidence_path",
+        "lifecycle_path",
+        "cash_rules_path",
+        "classic_origin_path",
+        "signal_reuse_spec_path"
+      ],
+      "title": "CatalogRegistrationV3",
+      "type": "object"
+    },
+    "CatalogRegistrationV4": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-catalog-registration/v4",
+          "default": "personal-catalog-registration/v4",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "manifest_path": {
+          "format": "path",
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "provider_root": {
+          "format": "path",
+          "title": "Provider Root",
+          "type": "string"
+        },
+        "panel_path": {
+          "format": "path",
+          "title": "Panel Path",
+          "type": "string"
+        },
+        "pit_evidence_path": {
+          "format": "path",
+          "title": "Pit Evidence Path",
+          "type": "string"
+        },
+        "snapshot_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Path"
+        },
+        "lifecycle_path": {
+          "format": "path",
+          "title": "Lifecycle Path",
+          "type": "string"
+        },
+        "cash_rules_path": {
+          "format": "path",
+          "title": "Cash Rules Path",
+          "type": "string"
+        },
+        "classic_origin_path": {
+          "format": "path",
+          "title": "Classic Origin Path",
+          "type": "string"
+        },
+        "signal_reuse_spec_path": {
+          "format": "path",
+          "title": "Signal Reuse Spec Path",
+          "type": "string"
+        },
+        "adjusted_facts_path": {
+          "format": "path",
+          "title": "Adjusted Facts Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "provider_root",
+        "panel_path",
+        "pit_evidence_path",
+        "lifecycle_path",
+        "cash_rules_path",
+        "classic_origin_path",
+        "signal_reuse_spec_path",
+        "adjusted_facts_path"
+      ],
+      "title": "CatalogRegistrationV4",
+      "type": "object"
+    },
+    "CatalogRegistrationV5": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-catalog-registration/v5",
+          "default": "personal-catalog-registration/v5",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "manifest_path": {
+          "format": "path",
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "provider_root": {
+          "format": "path",
+          "title": "Provider Root",
+          "type": "string"
+        },
+        "panel_path": {
+          "format": "path",
+          "title": "Panel Path",
+          "type": "string"
+        },
+        "pit_evidence_path": {
+          "format": "path",
+          "title": "Pit Evidence Path",
+          "type": "string"
+        },
+        "snapshot_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Path"
+        },
+        "lifecycle_path": {
+          "format": "path",
+          "title": "Lifecycle Path",
+          "type": "string"
+        },
+        "cash_rules_path": {
+          "format": "path",
+          "title": "Cash Rules Path",
+          "type": "string"
+        },
+        "classic_origin_path": {
+          "format": "path",
+          "title": "Classic Origin Path",
+          "type": "string"
+        },
+        "signal_reuse_spec_path": {
+          "format": "path",
+          "title": "Signal Reuse Spec Path",
+          "type": "string"
+        },
+        "adjusted_facts_path": {
+          "format": "path",
+          "title": "Adjusted Facts Path",
+          "type": "string"
+        },
+        "field_mapping_profile": {
+          "const": "canonical-personal-fields/v1",
+          "default": "canonical-personal-fields/v1",
+          "title": "Field Mapping Profile",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "provider_root",
+        "panel_path",
+        "pit_evidence_path",
+        "lifecycle_path",
+        "cash_rules_path",
+        "classic_origin_path",
+        "signal_reuse_spec_path",
+        "adjusted_facts_path"
+      ],
+      "title": "CatalogRegistrationV5",
+      "type": "object"
+    },
+    "PersonalScopeRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-scope-registration/v1",
+          "default": "personal-scope-registration/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope_path": {
+          "format": "path",
+          "title": "Scope Path",
+          "type": "string"
+        },
+        "scope_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Scope Sha256",
+          "type": "string"
+        },
+        "approval_evidence_path": {
+          "format": "path",
+          "title": "Approval Evidence Path",
+          "type": "string"
+        },
+        "storage_policy_path": {
+          "format": "path",
+          "title": "Storage Policy Path",
+          "type": "string"
+        },
+        "storage_policy_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Storage Policy Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope_path",
+        "scope_sha256",
+        "approval_evidence_path",
+        "storage_policy_path",
+        "storage_policy_sha256"
+      ],
+      "title": "PersonalScopeRegistration",
+      "type": "object"
+    },
+    "SnapshotArrivalRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-arrival-registration/v1",
+          "default": "personal-arrival-registration/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "dataset_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,128}$",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "metadata_path": {
+          "format": "path",
+          "title": "Metadata Path",
+          "type": "string"
+        },
+        "metadata_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Metadata Sha256",
+          "type": "string"
+        },
+        "evidence_path": {
+          "format": "path",
+          "title": "Evidence Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "metadata_path",
+        "metadata_sha256",
+        "evidence_path"
+      ],
+      "title": "SnapshotArrivalRegistration",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "personal-research-server-config/v5",
+      "default": "personal-research-server-config/v5",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "product_root": {
+      "format": "path",
+      "title": "Product Root",
+      "type": "string"
+    },
+    "repo_root": {
+      "format": "path",
+      "title": "Repo Root",
+      "type": "string"
+    },
+    "catalog": {
+      "default": [],
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CatalogRegistrationV5"
+          },
+          {
+            "$ref": "#/$defs/CatalogRegistrationV4"
+          },
+          {
+            "$ref": "#/$defs/CatalogRegistrationV3"
+          },
+          {
+            "$ref": "#/$defs/CatalogRegistrationV2"
+          },
+          {
+            "$ref": "#/$defs/CatalogRegistration"
+          }
+        ]
+      },
+      "title": "Catalog",
+      "type": "array"
+    },
+    "data_blockers": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Blockers",
+      "type": "array"
+    },
+    "authorization_path": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorization Path"
+    },
+    "authorization_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorization Sha256"
+    },
+    "research_scope": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PersonalScopeRegistration"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "forward_scope": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PersonalScopeRegistration"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "snapshot_arrivals": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/SnapshotArrivalRegistration"
+      },
+      "title": "Snapshot Arrivals",
+      "type": "array"
+    }
+  },
+  "required": [
+    "product_root",
+    "repo_root"
+  ],
+  "title": "PersonalServerConfigV5",
+  "type": "object"
+}

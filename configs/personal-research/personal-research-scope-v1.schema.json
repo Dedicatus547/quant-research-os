@@ -1,0 +1,143 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "personal-research-scope/v1",
+      "default": "personal-research-scope/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "purpose": {
+      "enum": [
+        "SYNTHETIC_ENGINEERING",
+        "MARKET_RESEARCH"
+      ],
+      "title": "Purpose",
+      "type": "string"
+    },
+    "dataset_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Dataset Hash",
+      "type": "string"
+    },
+    "policy_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Hash",
+      "type": "string"
+    },
+    "runtime_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Runtime Hash",
+      "type": "string"
+    },
+    "allowed_strategy_hashes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Allowed Strategy Hashes",
+      "type": "array"
+    },
+    "start_date": {
+      "format": "date",
+      "title": "Start Date",
+      "type": "string"
+    },
+    "end_date": {
+      "format": "date",
+      "title": "End Date",
+      "type": "string"
+    },
+    "max_attempts": {
+      "maximum": 8,
+      "minimum": 1,
+      "title": "Max Attempts",
+      "type": "integer"
+    },
+    "max_native_accounts": {
+      "maximum": 16,
+      "minimum": 1,
+      "title": "Max Native Accounts",
+      "type": "integer"
+    },
+    "wall_seconds": {
+      "exclusiveMinimum": 0,
+      "maximum": 3600,
+      "title": "Wall Seconds",
+      "type": "integer"
+    },
+    "growth_bytes": {
+      "exclusiveMinimum": 0,
+      "maximum": 536870912,
+      "title": "Growth Bytes",
+      "type": "integer"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "approval_evidence_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Approval Evidence Sha256",
+      "type": "string"
+    },
+    "acquisition_calls": {
+      "const": 0,
+      "default": 0,
+      "title": "Acquisition Calls",
+      "type": "integer"
+    },
+    "sdk_calls": {
+      "const": 0,
+      "default": 0,
+      "title": "Sdk Calls",
+      "type": "integer"
+    },
+    "validation_calls": {
+      "const": 0,
+      "default": 0,
+      "title": "Validation Calls",
+      "type": "integer"
+    },
+    "stop_on": {
+      "default": [
+        "BUDGET",
+        "EXPIRY",
+        "CANCEL",
+        "UNKNOWN",
+        "OPERATOR_STOP"
+      ],
+      "items": {
+        "enum": [
+          "BUDGET",
+          "EXPIRY",
+          "CANCEL",
+          "UNKNOWN",
+          "OPERATOR_STOP"
+        ],
+        "type": "string"
+      },
+      "title": "Stop On",
+      "type": "array"
+    }
+  },
+  "required": [
+    "purpose",
+    "dataset_hash",
+    "policy_hash",
+    "runtime_hash",
+    "allowed_strategy_hashes",
+    "start_date",
+    "end_date",
+    "max_attempts",
+    "max_native_accounts",
+    "wall_seconds",
+    "growth_bytes",
+    "expires_at",
+    "approval_evidence_sha256"
+  ],
+  "title": "PersonalResearchScope",
+  "type": "object"
+}

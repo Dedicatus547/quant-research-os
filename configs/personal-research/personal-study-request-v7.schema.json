@@ -1,0 +1,667 @@
+{
+  "$defs": {
+    "HostSessionProposalV2": {
+      "additionalProperties": false,
+      "description": "Successor metadata; v1 canonical bytes remain readable byte-for-byte.",
+      "properties": {
+        "session_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "origin": {
+          "const": "outer-codex-session",
+          "default": "outer-codex-session",
+          "title": "Origin",
+          "type": "string"
+        },
+        "model_claim": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Claim"
+        },
+        "model_identity_authenticated": {
+          "const": false,
+          "default": false,
+          "title": "Model Identity Authenticated",
+          "type": "boolean"
+        },
+        "sdk_invocation": {
+          "const": false,
+          "default": false,
+          "title": "Sdk Invocation",
+          "type": "boolean"
+        },
+        "authority": {
+          "const": "PROPOSAL_ONLY",
+          "default": "PROPOSAL_ONLY",
+          "title": "Authority",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "host-session-proposal/v2",
+          "default": "host-session-proposal/v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "public_references": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Public References",
+          "type": "array"
+        },
+        "explanation": {
+          "anyOf": [
+            {
+              "maxLength": 8000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Explanation"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "title": "HostSessionProposalV2",
+      "type": "object"
+    },
+    "PersonalExecutionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-execution-policy/v1",
+          "default": "personal-execution-policy/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "engine": {
+          "const": "Qlib-0.9.7",
+          "default": "Qlib-0.9.7",
+          "title": "Engine",
+          "type": "string"
+        },
+        "units": {
+          "const": "supplier_adjusted_price_and_quantity",
+          "default": "supplier_adjusted_price_and_quantity",
+          "title": "Units",
+          "type": "string"
+        },
+        "initial_cash_cny": {
+          "default": 1000000,
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000.0,
+          "title": "Initial Cash Cny",
+          "type": "number"
+        },
+        "buy_cost": {
+          "default": 0.0005,
+          "maximum": 0.01,
+          "minimum": 0,
+          "title": "Buy Cost",
+          "type": "number"
+        },
+        "sell_cost": {
+          "default": 0.0015,
+          "maximum": 0.02,
+          "minimum": 0,
+          "title": "Sell Cost",
+          "type": "number"
+        },
+        "minimum_cost_cny": {
+          "default": 5,
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Minimum Cost Cny",
+          "type": "number"
+        },
+        "trade_unit_shares": {
+          "default": 200,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Trade Unit Shares",
+          "type": "integer"
+        },
+        "volume_participation": {
+          "default": 0.1,
+          "exclusiveMinimum": 0,
+          "maximum": 0.1,
+          "title": "Volume Participation",
+          "type": "number"
+        },
+        "settlement": {
+          "const": "native_cash_daily_no_full_exchange_qualification",
+          "default": "native_cash_daily_no_full_exchange_qualification",
+          "title": "Settlement",
+          "type": "string"
+        },
+        "unsupported_actions": {
+          "const": "HARD_STOP",
+          "default": "HARD_STOP",
+          "title": "Unsupported Actions",
+          "type": "string"
+        }
+      },
+      "title": "PersonalExecutionPolicy",
+      "type": "object"
+    },
+    "PersonalExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "safe-qlib-expression/v3",
+          "default": "safe-qlib-expression/v3",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "expression_id": {
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+          "title": "Expression Id",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SafeExpressionNode"
+              },
+              {
+                "$ref": "#/$defs/ScalarNode"
+              },
+              {
+                "$ref": "#/$defs/PredicateNode"
+              }
+            ]
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Nodes",
+          "type": "array"
+        },
+        "output_node_id": {
+          "title": "Output Node Id",
+          "type": "string"
+        },
+        "input_lag_trading_days": {
+          "default": 0,
+          "maximum": 20,
+          "minimum": 0,
+          "title": "Input Lag Trading Days",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expression_id",
+        "nodes",
+        "output_node_id"
+      ],
+      "title": "PersonalExpression",
+      "type": "object"
+    },
+    "PersonalStrategy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-strategy/v1",
+          "default": "personal-strategy/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "score": {
+          "$ref": "#/$defs/PersonalExpression"
+        },
+        "eligibility": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PersonalExpression"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "market_condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PersonalExpression"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "rank_direction": {
+          "default": "descending",
+          "enum": [
+            "descending",
+            "ascending"
+          ],
+          "title": "Rank Direction",
+          "type": "string"
+        },
+        "tie_break": {
+          "const": "instrument_ascending",
+          "default": "instrument_ascending",
+          "title": "Tie Break",
+          "type": "string"
+        },
+        "cross_section": {
+          "const": "eligible_finite_scores",
+          "default": "eligible_finite_scores",
+          "title": "Cross Section",
+          "type": "string"
+        },
+        "top_k": {
+          "default": 10,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Top K",
+          "type": "integer"
+        },
+        "max_weight": {
+          "default": 0.1,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Max Weight",
+          "type": "number"
+        },
+        "risk_degree": {
+          "default": 0.9,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Risk Degree",
+          "type": "number"
+        },
+        "target_weights": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Weights"
+        },
+        "rebalance": {
+          "default": "daily",
+          "enum": [
+            "daily",
+            "weekly_first_session"
+          ],
+          "title": "Rebalance",
+          "type": "string"
+        },
+        "rank_buffer": {
+          "default": 0,
+          "maximum": 20,
+          "minimum": 0,
+          "title": "Rank Buffer",
+          "type": "integer"
+        },
+        "max_holding_sessions": {
+          "anyOf": [
+            {
+              "maximum": 120,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Holding Sessions"
+        },
+        "rule_priority": {
+          "const": "eligibility_max_age_then_schedule_buffer",
+          "default": "eligibility_max_age_then_schedule_buffer",
+          "title": "Rule Priority",
+          "type": "string"
+        },
+        "signal_time": {
+          "const": "after_close_2359_Asia_Shanghai",
+          "default": "after_close_2359_Asia_Shanghai",
+          "title": "Signal Time",
+          "type": "string"
+        },
+        "execution_time": {
+          "const": "next_actual_session_open",
+          "default": "next_actual_session_open",
+          "title": "Execution Time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "score"
+      ],
+      "title": "PersonalStrategy",
+      "type": "object"
+    },
+    "PredicateNode": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "safe-predicate-node/v1",
+          "default": "safe-predicate-node/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "node_id": {
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "gt",
+            "ge",
+            "lt",
+            "le",
+            "eq",
+            "and",
+            "or",
+            "not"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "operator",
+        "inputs"
+      ],
+      "title": "PredicateNode",
+      "type": "object"
+    },
+    "SafeExpressionNode": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "safe-expression-node/v1",
+          "default": "safe-expression-node/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "node_id": {
+          "minLength": 1,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "operator": {
+          "$ref": "#/$defs/SafeQlibOperator"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "field_name": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field Name"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window"
+        }
+      },
+      "required": [
+        "node_id",
+        "operator"
+      ],
+      "title": "SafeExpressionNode",
+      "type": "object"
+    },
+    "SafeQlibOperator": {
+      "enum": [
+        "abs",
+        "field",
+        "ref",
+        "return",
+        "rolling_mean",
+        "rolling_std",
+        "add",
+        "subtract",
+        "multiply",
+        "divide",
+        "rank",
+        "delta",
+        "rolling_sum",
+        "rolling_min",
+        "rolling_max"
+      ],
+      "title": "SafeQlibOperator",
+      "type": "string"
+    },
+    "ScalarNode": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "safe-scalar-node/v1",
+          "default": "safe-scalar-node/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "node_id": {
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "operator": {
+          "const": "constant",
+          "default": "constant",
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000000000.0,
+          "minimum": -1000000000.0,
+          "title": "Value",
+          "type": "number"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "value"
+      ],
+      "title": "ScalarNode",
+      "type": "object"
+    },
+    "StrategyCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "personal-strategy-candidate/v1",
+          "default": "personal-strategy-candidate/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,48}$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "main",
+            "control",
+            "successor"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "hypothesis": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Hypothesis",
+          "type": "string"
+        },
+        "strategy": {
+          "$ref": "#/$defs/PersonalStrategy"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "role",
+        "hypothesis",
+        "strategy"
+      ],
+      "title": "StrategyCandidate",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "personal-study-request/v7",
+      "default": "personal-study-request/v7",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "pattern": "^[A-Za-z0-9_-]{1,64}$",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "brief": {
+      "maxLength": 12000,
+      "minLength": 1,
+      "title": "Brief",
+      "type": "string"
+    },
+    "proposal": {
+      "$ref": "#/$defs/HostSessionProposalV2"
+    },
+    "dataset_id": {
+      "pattern": "^[A-Za-z0-9_-]{1,128}$",
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "start_date": {
+      "format": "date",
+      "title": "Start Date",
+      "type": "string"
+    },
+    "end_date": {
+      "format": "date",
+      "title": "End Date",
+      "type": "string"
+    },
+    "warmup_start": {
+      "format": "date",
+      "title": "Warmup Start",
+      "type": "string"
+    },
+    "benchmark": {
+      "default": "SH000300",
+      "pattern": "^(SH|SZ)[0-9]{6}$",
+      "title": "Benchmark",
+      "type": "string"
+    },
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/StrategyCandidate"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Candidates",
+      "type": "array"
+    },
+    "policy": {
+      "$ref": "#/$defs/PersonalExecutionPolicy"
+    },
+    "parent_task_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Task Id"
+    },
+    "feedback_hashes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Feedback Hashes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "idempotency_key",
+    "brief",
+    "proposal",
+    "dataset_id",
+    "start_date",
+    "end_date",
+    "warmup_start",
+    "candidates"
+  ],
+  "title": "StrategyStudyRequest",
+  "type": "object"
+}
