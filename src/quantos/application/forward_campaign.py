@@ -126,6 +126,13 @@ def register_successor(
     plan: dict[str, Any], result: dict[str, Any], prior: dict[str, Any]
 ) -> dict[str, Any]:
     root, day = Path(plan["root"]), result["day"]
+    previous_registry = (
+        plan["initial_registry"]
+        if prior["day"] == plan["initial_date"]
+        else reference(root / "registry" / (prior["day"] + ".json"))
+    )
+    if read_ref(previous_registry) != prior:
+        raise PermissionError("successor prior registry differs from its explicit original")
     previous = read_ref(prior["acquisition_result"])
     arrival = arrival_registration(root, result, previous["snapshot_hash"])
     entry = ForwardDatasetAdmission(
@@ -148,7 +155,7 @@ def register_successor(
         configs[arm["name"]] = reference(path)
     value = {
         "day": day,
-        "previous_registry": reference(root / "registry" / (prior["day"] + ".json")),
+        "previous_registry": previous_registry,
         "acquisition_result": reference(root / "days" / day / "acquisition-result.json"),
         "configs": configs,
     }

@@ -152,7 +152,8 @@ def acquire_day(campaign: dict[str, Any], previous: dict[str, Any], day: date) -
             item["receipt"] = ref(page_folder / "response.json")
             pages.append(item)
             candidates.extend(candidate.model_dump(mode="json") for candidate in page.candidates)
-            if number == page.total_pages:
+            # A zero-result interval still has one retained HTTP response.
+            if number >= max(1, page.total_pages):
                 break
         inputs["announcement_inventories"].append(
             {"venue": str(source.venue), "spec": ref(folder / "spec.json"), "pages": pages}

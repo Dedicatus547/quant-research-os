@@ -225,7 +225,9 @@ def assess_actions(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
             if reported_total is not None and page.reported_total != reported_total:
                 raise ValueError("unstable announcement inventory total")
             reported_total = page.reported_total
-            if page.total_pages != len(inventory["pages"]):
+            # Empty intervals require their original first response and receipt,
+            # not an absent inventory or repeated empty pages.
+            if max(1, page.total_pages) != len(inventory["pages"]):
                 raise ValueError("incomplete announcement pagination")
             for candidate in page.candidates:
                 if candidate.source_id in seen:

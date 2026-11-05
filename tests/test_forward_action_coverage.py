@@ -1,6 +1,7 @@
 """Source inventory joins reject missing or conflicting prospective event evidence."""
 
 import copy
+import json
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -151,6 +152,40 @@ def test_complete_declared_inventory_does_not_claim_universal_absence(sources):
     (root / "SSE/page.json").write_bytes(b"revised")
     with pytest.raises(ValueError, match="original changed"):
         assess_actions(root, spec)
+
+
+@pytest.mark.parametrize("attack", [None, "missing", "duplicate", "receipt", "contradiction"])
+def test_empty_official_interval_requires_exactly_one_consistent_original(sources, attack):
+    root, spec, save, _ = sources
+    for inventory in spec["announcement_inventories"]:
+        venue = inventory["venue"]
+        page = (
+            {"pageHelp": {"pageNo": 1, "total": 0, "pageCount": 0}, "result": []}
+            if venue == "SSE"
+            else {"announceCount": 0, "data": []}
+        )
+        if attack == "contradiction" and venue == "SSE":
+            page["result"] = json.loads((root / "SSE/page.json").read_bytes())["result"]
+        ref = save(venue + "/empty.json", page)
+        ref["receipt"] = save(
+            venue + "/empty-receipt.json",
+            {
+                "received_at": datetime(2024, 1, 5, tzinfo=UTC),
+                "http_status": 200,
+                "sha256": "a" * 64 if attack == "receipt" else ref["sha256"],
+            },
+        )
+        inventory["pages"] = [] if attack == "missing" else [ref]
+        if attack == "duplicate":
+            inventory["pages"].append(ref)
+    if attack is None:
+        result = assess_actions(root, spec)
+        assert result["announcement_counts"] == {"SSE": 0, "SZSE": 0}
+        assert result["status"] == "SUPPORTED_IN_DECLARED_SOURCE_SCOPE"
+        assert result["pool_announcements"] == 0
+    else:
+        with pytest.raises(ValueError, match=r"(incomplete|receipt differs|total differs)"):
+            assess_actions(root, spec)
 
 
 @pytest.mark.parametrize(

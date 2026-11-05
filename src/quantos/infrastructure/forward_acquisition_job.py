@@ -30,7 +30,11 @@ def acquire_job(plan: dict[str, Any], plan_path: Path, previous: Path, day: str)
     used_wall = plan["initial_wall_charge_seconds"]
     for prior in prior_jobs:
         result = json.loads((prior / "exit.json").read_bytes())
-        if not result["cleanup_verified"] or result["actual_return_code"] != 0:
+        if (
+            not result["cleanup_verified"]
+            or result["actual_return_code"] != 0
+            or result.get("failure") is not None
+        ):
             raise PermissionError("failed/unknown acquisition requires explicit reconciliation")
         used_wall += result["wall_seconds"]
     if len(prior_jobs) >= 61 or used_wall >= plan["acquisition_wall_seconds"]:
