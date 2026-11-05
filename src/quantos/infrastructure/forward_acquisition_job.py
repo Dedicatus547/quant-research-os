@@ -27,7 +27,9 @@ def acquire_job(plan: dict[str, Any], plan_path: Path, previous: Path, day: str)
     jobs = root / "acquisition-jobs"
     jobs.mkdir(exist_ok=True)
     prior_jobs = sorted(jobs.iterdir())
-    used_wall = plan["initial_wall_charge_seconds"]
+    used_wall = plan.get(
+        "initial_acquisition_wall_charge_seconds", plan["initial_wall_charge_seconds"]
+    )
     for prior in prior_jobs:
         result = json.loads((prior / "exit.json").read_bytes())
         if (
@@ -107,7 +109,10 @@ def acquire_job(plan: dict[str, Any], plan_path: Path, previous: Path, day: str)
             resource.setrlimit(resource.RLIMIT_AS, (8 * 1024**3, 8 * 1024**3))
             os.sched_setaffinity(0, sorted(os.sched_getaffinity(0))[:2])
 
-        before = retained_size(root)
+        accounting_root = Path(plan.get("accounting_root", root))
+        if not root.resolve().is_relative_to(accounting_root.resolve()):
+            raise ValueError("campaign must be inside its cumulative accounting root")
+        before = retained_size(accounting_root)
         with (job / "process.log").open("xb") as output:
             process = subprocess.Popen(
                 argv,
@@ -120,7 +125,7 @@ def acquire_job(plan: dict[str, Any], plan_path: Path, previous: Path, day: str)
             )
             while process.poll() is None:
                 guard.check(32 * 1024**3)
-                size = retained_size(root)
+                size = retained_size(accounting_root)
                 acquisition_size = size - sum(
                     retained_size(Path(arm["product_root"])) for arm in plan["arms"]
                 )

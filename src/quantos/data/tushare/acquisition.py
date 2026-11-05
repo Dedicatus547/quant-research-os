@@ -411,10 +411,41 @@ class TusharePlanExecutor:
     @staticmethod
     def _validate_cross_request_primary_keys(plan: TushareRequestPlan, staging_root: Path) -> None:
         partitions: set[tuple[str, str, str]] = set()
-        date_ranges: dict[str, list[tuple[str, str]]] = {}
+        date_ranges: dict[tuple[str, ...], list[tuple[str, str]]] = {}
         seen: dict[str, set[tuple[object, ...]]] = {}
         for request in plan.requests:
             partition: tuple[str, str, str] | None = None
+            if (
+                request.endpoint == "trade_cal"
+                and {"exchange", "cal_date"} <= set(request.primary_key)
+                and {"exchange", "start_date", "end_date"} <= request.params.keys()
+            ):
+                candidate = (request.params["start_date"], request.params["end_date"])
+                ranges = date_ranges.setdefault((request.endpoint, request.params["exchange"]), [])
+                if candidate[0] > candidate[1] or any(
+                    not (candidate[1] < earlier[0] or earlier[1] < candidate[0])
+                    for earlier in ranges
+                ):
+                    raise TushareAcquisitionError(
+                        ReasonCode.SCHEMA_INVALID,
+                        "calendar request ranges overlap or are reversed",
+                    )
+                response = staging_root / "raw-requests" / f"sha256-{request.content_hash}.parquet"
+                calendar = pq.read_table(  # pyright: ignore[reportUnknownMemberType]
+                    response, columns=["exchange", "cal_date"]
+                )
+                if any(
+                    row["exchange"] != request.params["exchange"]
+                    or not isinstance(row["cal_date"], str)
+                    or not candidate[0] <= row["cal_date"] <= candidate[1]
+                    for row in calendar.to_pylist()
+                ):
+                    raise TushareAcquisitionError(
+                        ReasonCode.SCHEMA_INVALID,
+                        "calendar response escapes its requested partition",
+                    )
+                ranges.append(candidate)
+                continue
             if "exchange" in request.primary_key and "exchange" in request.params:
                 partition = (request.endpoint, "exchange", request.params["exchange"])
             elif "trade_date" in request.primary_key and "trade_date" in request.params:
@@ -433,7 +464,7 @@ class TusharePlanExecutor:
                 and "end_date" in request.params
             ):
                 candidate = (request.params["start_date"], request.params["end_date"])
-                ranges = date_ranges.setdefault(request.endpoint, [])
+                ranges = date_ranges.setdefault((request.endpoint,), [])
                 if any(
                     not (candidate[1] < existing[0] or existing[1] < candidate[0])
                     for existing in ranges

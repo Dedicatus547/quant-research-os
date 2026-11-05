@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from quantos.artifacts.store import atomic_write_bytes, sha256_file
+from quantos.artifacts.store import atomic_write_bytes, sha256_file, verify_file
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
 from quantos.contracts.evidence_acquisition import (
     EvidenceCollectionSpec,
@@ -42,22 +42,45 @@ def acquire_day(campaign: dict[str, Any], previous: dict[str, Any], day: date) -
     sessions = [
         date.fromisoformat(value) for value in campaign["calendar_sessions"] if value <= str(day)
     ]
-    bridge = 2 if str(day) == campaign["signal_dates"][0] else 1
     acquisition = output / "prices"
-    price_result = acquire_snapshot(
-        acquisition,
-        sessions,
-        sessions[0],
-        reuse_root=Path(previous["acquisition_root"]),
-        successor_dataset_id="hs300-forward-" + day.strftime("%Y%m%d") + "-v1",
-        initial_bridge_sessions=bridge,
-    )
+    recovery = campaign.get("price_recoveries", {}).get(str(day))
+    prior_attempts = 0
+    if recovery is None:
+        bridge = sum(session > parent_end for session in sessions)
+        maximum_bridge = 2 if str(day) == campaign["signal_dates"][0] else 1
+        if not 1 <= bridge <= maximum_bridge:
+            raise ValueError("daily successor exceeds its bounded session bridge")
+        price_result = acquire_snapshot(
+            acquisition,
+            sessions,
+            sessions[0],
+            reuse_root=Path(previous["acquisition_root"]),
+            successor_dataset_id="hs300-forward-" + day.strftime("%Y%m%d") + "-v1",
+            initial_bridge_sessions=bridge,
+        )
+    else:
+        acquisition = Path(recovery["root"])
+        if not acquisition.resolve().is_relative_to(root.resolve()):
+            raise ValueError("recovered acquisition must belong to this successor campaign")
+        verify_file(acquisition / "exit.json", recovery["exit_sha256"])
+        price_result = json.loads((acquisition / "exit.json").read_bytes())
+        spec = json.loads((acquisition / "spec.json").read_bytes())
+        if spec["end_date"] != str(day) or price_result["request_attempts"] != 0:
+            raise ValueError("recovered prices require exact day and an offline completion")
+        prior_attempts = recovery["prior_attempts"]
+        if type(prior_attempts) is not int or not 0 <= prior_attempts <= 500:
+            raise ValueError("invalid retained daily attempt charge")
     if price_result["status"] != "SUCCEEDED":
         raise RuntimeError("daily snapshot acquisition failed; retained parent is not replayed")
     digest = price_result["snapshot"]["sha256"]
     snapshot = acquisition / "snapshots" / ("sha256-" + digest)
+    # Dividend intake is bounded to at most 350 issuers; reserve before calling it.
+    if prior_attempts + price_result["request_attempts"] + 350 > 500:
+        raise RuntimeError("daily acquisition attempt budget exhausted")
     dividends = acquire_dividends(output / "dividends", snapshot, digest)
-    attempts = price_result["request_attempts"] + dividends["request_attempts"]
+    attempts = prior_attempts + price_result["request_attempts"] + dividends["request_attempts"]
+    if attempts > 500:
+        raise RuntimeError("daily acquisition attempt budget exhausted")
     if dividends["completed_securities"] != dividends["expected_securities"]:
         raise RuntimeError("daily dividend inventory incomplete")
     inputs = copy.deepcopy(previous["action_inputs"])

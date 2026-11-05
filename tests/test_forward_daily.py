@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from quantos.artifacts.store import ArtifactIntegrityError
 from quantos.contracts.base import canonical_json_bytes
 from quantos.data.tushare import forward_daily as daily
 from test_forward_action_coverage import sources as sources
@@ -132,8 +133,11 @@ def acquisition(sources, monkeypatch):
 
 
 @pytest.mark.parametrize("empty", [False, True])
-def test_one_empty_response_is_retained_as_zero_inventory(acquisition, empty):
+@pytest.mark.parametrize("bridge", [1, 2])
+def test_one_empty_response_is_retained_as_zero_inventory(acquisition, empty, bridge):
     root, campaign, previous, state = acquisition
+    if bridge == 2:
+        campaign["calendar_sessions"].insert(-1, "2024-01-06")
     state.empty = empty
     before = copy.deepcopy(previous)
     result = daily.acquire_day(campaign, previous, date(2024, 1, 8))
@@ -141,7 +145,7 @@ def test_one_empty_response_is_retained_as_zero_inventory(acquisition, empty):
     assert result["request_attempts"] == 7
     assert result["assessment"]["status"] == "SUPPORTED_IN_DECLARED_SOURCE_SCOPE"
     assert result["assessment"]["announcement_counts"] == {"SSE": 1 if empty else 2, "SZSE": 1}
-    assert state.price_args[2]["initial_bridge_sessions"] == 2
+    assert state.price_args[2]["initial_bridge_sessions"] == bridge
     assert state.price_args[0][-1] == date(2024, 1, 8)
     assert previous == before
     assert len(state.builds) == 1
@@ -199,3 +203,44 @@ def test_unknown_action_original_is_retained_without_admission(acquisition):
         json.loads((root / doc["receipt"]["path"]).read_bytes())["status"]
         == "RETAINED_NOT_ADMITTED"
     )
+
+
+@pytest.mark.parametrize("change", [None, "hash", "day", "attempts", "budget"])
+def test_explicit_offline_recovery_preserves_attempt_charge(acquisition, monkeypatch, change):
+    root, campaign, previous, state = acquisition
+    recovery = root / "recovered-prices"
+    price = daily.acquire_snapshot(recovery, [], date(2024, 1, 4))
+    price["request_attempts"] = 1 if change == "attempts" else 0
+    (recovery / "exit.json").write_bytes(canonical_json_bytes(price))
+    (recovery / "spec.json").write_bytes(
+        canonical_json_bytes({"end_date": "2024-01-05" if change == "day" else "2024-01-08"})
+    )
+    campaign["price_recoveries"] = {
+        "2024-01-08": {
+            "root": str(recovery),
+            "exit_sha256": daily.sha256_file(recovery / "exit.json"),
+            "prior_attempts": 151 if change == "budget" else 17,
+        }
+    }
+    if change == "hash":
+        (recovery / "exit.json").write_bytes(b"{}")
+
+    def no_prices(*args, **kwargs):
+        raise AssertionError("retained price requests must not be sent again")
+
+    monkeypatch.setattr(daily, "acquire_snapshot", no_prices)
+    if change:
+        expected = (
+            ArtifactIntegrityError
+            if change == "hash"
+            else RuntimeError
+            if change == "budget"
+            else ValueError
+        )
+        with pytest.raises(expected):
+            daily.acquire_day(campaign, previous, date(2024, 1, 8))
+        assert not state.calls and not state.builds
+    else:
+        result = daily.acquire_day(campaign, previous, date(2024, 1, 8))
+        assert result["request_attempts"] == 20
+        assert result["acquisition_root"] == str(recovery)

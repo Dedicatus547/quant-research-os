@@ -130,6 +130,19 @@ def test_acquisition_reserves_budget_and_keeps_actual_process_exit(supervised):
     assert options["env"]["OPENBLAS_NUM_THREADS"] == "1"
 
 
+def test_successor_charges_prior_wall_and_counts_parent_storage(supervised, monkeypatch):
+    root, plan, state, _ = supervised
+    seen = []
+    plan["initial_acquisition_wall_charge_seconds"] = 250
+    plan["accounting_root"] = str(root.parent)
+    monkeypatch.setattr(job, "retained_size", lambda p: seen.append(p) or 0)
+    run(root, plan)
+    prelaunch = json.loads((root / "acquisition-jobs/2024-01-08/prelaunch.json").read_bytes())
+    assert prelaunch["used_wall_seconds_with_initial_charge"] == 250
+    assert seen.count(root.parent) == 2
+    assert state.waits == 2
+
+
 @pytest.mark.parametrize("failure", ["exit", "spawn", "timeout", "growth", "lingering"])
 def test_failed_acquisition_retains_actual_exit_and_never_reissues(supervised, failure):
     root, plan, state, _ = supervised

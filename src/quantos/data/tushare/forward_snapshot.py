@@ -18,6 +18,7 @@ from quantos.contracts.base import canonical_json_bytes
 from quantos.contracts.snapshot import DEFAULT_SYNTHETIC_ENDPOINTS, SnapshotBuildSpec
 from quantos.data.tushare.acquisition import (
     RequestLedgerEntry,
+    TushareAcquisitionError,
     TushareExecutionPolicy,
     TusharePlanExecutor,
     TushareRequest,
@@ -196,6 +197,8 @@ def acquire(
             "received_at": datetime.now(UTC),
         }
     except Exception as error:
+        if isinstance(error, TushareAcquisitionError):
+            failure = str(error.reason_code)
         result = {"status": "FAILED", "reason": failure, "request_attempts": attempts}
         report = getattr(error, "quality_report", None)
         if report is not None:
