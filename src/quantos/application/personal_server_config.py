@@ -16,6 +16,7 @@ from quantos.application.personal_research import (
 )
 from quantos.artifacts.store import ArtifactIntegrityError, opened_directory, read_regular_bytes_at
 from quantos.contracts.base import CanonicalContract, sha256_bytes
+from quantos.contracts.forward import ForwardDatasetAdmission
 from quantos.contracts.hs300_adjusted import (
     HS300AdjustedDatasetManifest,
     PreparedHS300AdjustedStudy,
@@ -77,6 +78,13 @@ class CatalogRegistrationV4(CatalogRegistrationV3):
 
 class CatalogRegistrationV5(CatalogRegistrationV4):
     schema_version: Literal["personal-catalog-registration/v5"] = "personal-catalog-registration/v5"  # pyright: ignore[reportIncompatibleVariableOverride]
+    field_mapping_profile: Literal["canonical-personal-fields/v1"] = "canonical-personal-fields/v1"
+
+
+class CatalogRegistrationV6(CatalogRegistrationV2):
+    """Canonical fields for new lifecycle inputs without legacy seven-arm reuse files."""
+
+    schema_version: Literal["personal-catalog-registration/v6"] = "personal-catalog-registration/v6"  # pyright: ignore[reportIncompatibleVariableOverride]
     field_mapping_profile: Literal["canonical-personal-fields/v1"] = "canonical-personal-fields/v1"
 
 
@@ -159,6 +167,24 @@ class PersonalServerConfigV5(PersonalServerConfigV4):
     snapshot_arrivals: tuple[SnapshotArrivalRegistration, ...] = ()
     catalog: tuple[
         CatalogRegistrationV5
+        | CatalogRegistrationV4
+        | CatalogRegistrationV3
+        | CatalogRegistrationV2
+        | CatalogRegistration,
+        ...,
+    ] = ()  # pyright: ignore[reportIncompatibleVariableOverride]
+
+
+class PersonalServerConfigV6(PersonalServerConfigV5):
+    schema_version: Literal["personal-research-server-config/v6"] = (  # pyright: ignore[reportIncompatibleVariableOverride]
+        "personal-research-server-config/v6"
+    )
+    forward_dataset_admissions: tuple[ForwardDatasetAdmission, ...] = Field(
+        default=(), max_length=61
+    )
+    catalog: tuple[
+        CatalogRegistrationV6
+        | CatalogRegistrationV5
         | CatalogRegistrationV4
         | CatalogRegistrationV3
         | CatalogRegistrationV2
@@ -324,7 +350,9 @@ def load_server_config(
 
     raw = _read(path)
     config_type = (
-        PersonalServerConfigV5
+        PersonalServerConfigV6
+        if json.loads(raw).get("schema_version") == "personal-research-server-config/v6"
+        else PersonalServerConfigV5
         if json.loads(raw).get("schema_version") == "personal-research-server-config/v5"
         else PersonalServerConfigV4
         if json.loads(raw).get("schema_version") == "personal-research-server-config/v4"
@@ -398,7 +426,7 @@ def make_trusted_service(
             snapshot_path=registration.snapshot_path,
             field_mapping_profile=(
                 registration.field_mapping_profile
-                if isinstance(registration, CatalogRegistrationV5)
+                if isinstance(registration, (CatalogRegistrationV5, CatalogRegistrationV6))
                 else "native-bins/v1"
             ),
             adjusted_facts_path=(

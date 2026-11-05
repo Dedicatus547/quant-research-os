@@ -30,9 +30,34 @@ jobs:
           uv venv --python .venv/bin/python .tools/personal-research-mcp-1.26.0
           uv pip sync --python .tools/personal-research-mcp-1.26.0/bin/python --require-hashes configs/personal-research/mcp-requirements.lock
           uv run python scripts/prepare_personal_mcp_typing.py
-      - run: uv run ruff format --check
-      - run: uv run ruff check
-      - run: uv run pyright --project configs/personal-research/pyright.json
+      - name: Verify immutable historical style exceptions
+        run: sha256sum --check --strict ci/frozen-style.sha256
+      - name: Format
+        if: ${{ !cancelled() }}
+        run: uv run ruff format --check
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: uv run ruff check
+      - name: Types
+        if: ${{ !cancelled() }}
+        run: uv run pyright --project configs/personal-research/pyright.json
+
+  offline-unit:
+    # Explicitly inspected file-only fixtures: no native account or namespace launch.
+    # These also remain in the full isolated suite and its unchanged coverage denominator.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.25"
+          enable-cache: true
+      - run: uv sync --frozen --extra agent-openai
+      - name: File-only memory and scope checks
+        run: uv run pytest tests/test_personal_memory.py tests/test_personal_scope.py
 
   isolated-tests:
     # This label selects an OS family, not an immutable kernel/image. The exact
@@ -57,12 +82,16 @@ jobs:
           set -euo pipefail
           . /etc/os-release
           test "$ID:$VERSION_ID" = ubuntu:24.04
-          test "${ImageVersion:-}" = 20261012.334.1
-          test "$(uname -r)" = 6.17.0-1022-azure
+          # Bind observed image/kernel pairs, including the AWS runner pool.
+          # These are candidates for the mandatory live isolation checks below.
+          case "${ImageVersion:-}:$(uname -r)" in
+            20261101.360.1:7.0.0-1017-azure|20261026.354.1:7.0.0-1017-azure|20261018.96.1:7.0.0-1014-aws) ;;
+            *) echo 'Hosted image/kernel pair is outside the reviewed set.' >&2; exit 1 ;;
+          esac
           test "$(id -u)" != 0
-          test "$(dpkg-query -W -f='${Version}' apparmor)" = 4.0.1really4.0.1-0ubuntu0.24.04.8
+          test "$(dpkg-query -W -f='${Version}' apparmor)" = 4.0.1really4.0.1-0ubuntu0.24.04.9
           test "$(stat -c '%a %u:%g' /usr/bin/bwrap)" = '755 0:0'
-          printf '%s  %s\n' ad542ad50c2ccd43cf1b1e8d242bc0329b6375cd49ff3bec1233b6ededfed94e /sbin/apparmor_parser | sha256sum --check --strict
+          printf '%s  %s\n' 85e67b4ebc2559cc84c7d256d14890b8a7521e0278aedd544e13a3204a387d05 /sbin/apparmor_parser | sha256sum --check --strict
           printf '%s  %s\n' e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71 /usr/bin/bwrap | sha256sum --check --strict
           printf '%s  %s\n' 45aab8ec644fc7a5a4356eb1c5a633770f51276633d0065df7ad18f929201b8f ci/apparmor/quantos-ci-bwrap.profile | sha256sum --check --strict
           test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
@@ -106,6 +135,30 @@ jobs:
           sudo /sbin/apparmor_parser --config-file /dev/null --skip-cache --add /etc/apparmor.d/quantos-ci-bwrap
           sudo cat /sys/kernel/security/apparmor/profiles | grep '^quantos_ci_bwrap '
           /usr/bin/python3 -I -B ci/apparmor/runtime_guard.py label --expected quantos_ci_bwrap
+      - name: Retain read-only environment evidence on preflight failure
+        if: ${{ failure() }}
+        run: |
+          # Never load policy or change host settings from the diagnostic path.
+          # Each probe's exit is printed, including unavailable data. The failed
+          # original step remains failed; observations do not adopt a new tuple.
+          set +e
+          printf 'ImageVersion=%s\n' "${ImageVersion:-UNAVAILABLE}"
+          cat /etc/os-release
+          printf 'os-release exit=%s\n' "$?"
+          uname -r
+          printf 'kernel exit=%s\n' "$?"
+          dpkg-query -W -f='${Package} ${Version}\n' apparmor bubblewrap libseccomp2
+          printf 'packages exit=%s\n' "$?"
+          stat -c '%a %u:%g %n' /usr/bin/bwrap /sbin/apparmor_parser
+          printf 'file-identity exit=%s\n' "$?"
+          sha256sum /sbin/apparmor_parser /usr/bin/bwrap ci/apparmor/quantos-ci-bwrap.profile
+          printf 'hashes exit=%s\n' "$?"
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns /proc/sys/kernel/unprivileged_userns_clone
+          printf 'sysctls exit=%s\n' "$?"
+          /usr/bin/python3 -I -B ci/apparmor/runtime_guard.py label --expected unconfined
+          printf 'pre-namespace label exit=%s\n' "$?"
+          sudo /usr/bin/python3 -I -B ci/apparmor/identity_v2/collect.py
+          printf 'grouped inventory exit=%s\n' "$?"
       - name: Check offline test namespace prerequisites
         run: |
           /usr/bin/bwrap --version
@@ -143,7 +196,30 @@ jobs:
       - name: Verify nested namespaces, capabilities and unrelated denial
         run: /usr/bin/python3 -I -B ci/apparmor/runtime_guard.py boundaries
       - run: uv sync --frozen --extra agent-openai
-      - run: uv run pytest --cov=quantos --cov-report=term-missing --cov-report=xml
+      - name: Acquire exact official Qlib fixture tools
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/qlib
+          ref: da920b7f954f48ab1bb64117c976710de198373e
+          path: .tools/qlib-0.9.7
+          persist-credentials: false
+      - name: Verify official Qlib fixture tools before offline tests
+        run: uv run python -c 'from pathlib import Path; from quantos.integrations.qlib import verify_official_qlib_tools; verify_official_qlib_tools(Path(".tools/qlib-0.9.7"))'
+      - run: uv run pytest --cov=quantos --cov-report=term-missing --cov-report=xml --cov-report=json --durations=30 --junitxml=pytest-results.xml
+      - name: Retain coverage originals even when the suite fails
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: isolated-coverage-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            pytest-results.xml
+            coverage.xml
+            coverage.json
+            .coverage
+            .coverage.*
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
       - name: Retain candidate AppArmor audit and remove only this job's policy
         if: always()
         run: |

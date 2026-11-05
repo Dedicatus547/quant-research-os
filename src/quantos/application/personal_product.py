@@ -12,7 +12,12 @@ from quantos.application.personal_forward_authority import (
     forward_operation_identity,
 )
 from quantos.application.personal_memory import PersonalMemoryService
-from quantos.application.personal_observation import PersonalObservationService, SnapshotArrival
+from quantos.application.personal_observation import (
+    PersonalObservationService,
+    SnapshotArrival,
+    SnapshotArrivalV2,
+    parse_snapshot_arrival,
+)
 from quantos.application.personal_shadow import PersonalShadowService
 from quantos.application.personal_strategy import PersonalStrategyResearch
 from quantos.application.personal_strategy_authority import (
@@ -21,6 +26,7 @@ from quantos.application.personal_strategy_authority import (
 )
 from quantos.artifacts.store import sha256_file
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.forward import PersonalForwardScopeV2, parse_forward_scope
 from quantos.contracts.personal_strategy import PersonalForwardScope, PersonalResearchScope
 
 
@@ -47,6 +53,11 @@ class PersonalProductServices:
                             "src/quantos/application/personal_observation.py",
                             "src/quantos/application/personal_shadow.py",
                             "src/quantos/application/personal_forward_authority.py",
+                            "src/quantos/contracts/forward.py",
+                            "src/quantos/application/forward_registration.py",
+                            "src/quantos/application/forward_continuity.py",
+                            "src/quantos/data/forward_action_coverage.py",
+                            "src/quantos/data/forward_actions.py",
                         )
                     },
                 }
@@ -85,6 +96,10 @@ class PersonalProductServices:
             if forward_authority is None:
                 return None
             plan, data = context["plan"], context["input"]
+            if isinstance(forward_authority.scope, PersonalForwardScopeV2) and (
+                plan["observation_id"] != forward_authority.scope.observation_id
+            ):
+                raise PermissionError("observation plan is outside the frozen forward scope")
             return forward_authority.authorize(
                 strategy_hash=plan["strategy_hash"],
                 policy_hash=plan["policy_hash"],
@@ -110,6 +125,10 @@ class PersonalProductServices:
         ) -> str | None:
             if forward_authority is None:
                 return None
+            if isinstance(forward_authority.scope, PersonalForwardScopeV2) and (
+                sha256_bytes(canonical_json_bytes(plan)) != forward_authority.scope.shadow_id
+            ):
+                raise PermissionError("native account is outside the frozen forward scope")
             from quantos.research.personal_signal import dataset_binding_hash
 
             binding = next(
@@ -338,10 +357,19 @@ def configure_personal_product(
     for registration in config.snapshot_arrivals:
         if registration.dataset_id not in core.catalog or registration.dataset_id in metadata:
             raise ValueError("arrival registration has no unique dataset binding")
-        arrival = SnapshotArrival.model_validate_json(
-            _read(registration.metadata_path, registration.metadata_sha256)
+        arrival = parse_snapshot_arrival(
+            json.loads(_read(registration.metadata_path, registration.metadata_sha256))
         )
-        _read(registration.evidence_path, arrival.evidence_sha256)
+        evidence = _read(registration.evidence_path, arrival.evidence_sha256)
+        if isinstance(arrival, SnapshotArrivalV2):
+            from quantos.application.forward_registration import verify_arrival_assessment
+
+            verify_arrival_assessment(
+                arrival,
+                json.loads(evidence),
+                registration.evidence_path.parent,
+                core.catalog[registration.dataset_id],
+            )
         metadata[registration.dataset_id] = arrival
 
     def resource_check(registration: Any, scope: Any) -> None:
@@ -366,8 +394,11 @@ def configure_personal_product(
     ):
         if registration is None:
             continue
-        scope: Any = contract.model_validate_json(
-            _read(registration.scope_path, registration.scope_sha256)
+        raw_scope = _read(registration.scope_path, registration.scope_sha256)
+        scope: Any = (
+            contract.model_validate_json(raw_scope)
+            if attribute == "research"
+            else parse_forward_scope(raw_scope)
         )
         approval = _read(registration.approval_evidence_path, scope.approval_evidence_sha256)
 
@@ -382,11 +413,16 @@ def configure_personal_product(
                 resource_check=check_scope,
             )
         else:
+            from quantos.application.forward_registration import verify_dataset_admissions
+
+            admissions = getattr(config, "forward_dataset_admissions", ())
+            verify_dataset_admissions(scope, admissions, core.catalog, metadata)
             forward_authority = PersonalForwardAuthority(
                 core.root,
                 scope,
                 approval,
                 resource_check=check_scope,
+                dataset_admissions=admissions,
             )
         if not worker_mode:
             from quantos.application.personal_dispatch import PersonalResourceDispatcher

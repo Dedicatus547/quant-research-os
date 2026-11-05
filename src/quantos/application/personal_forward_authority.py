@@ -6,9 +6,10 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from quantos.application.personal_strategy_authority import ScopeBudgetJournal
+from quantos.application.personal_strategy_authority import ScopeBudgetJournal, budget_event_detail
 from quantos.artifacts.store import exclusive_directory_lock
 from quantos.contracts.base import canonical_json_bytes, sha256_bytes
+from quantos.contracts.forward import ForwardDatasetAdmission, PersonalForwardScopeV2
 from quantos.contracts.personal_strategy import PersonalForwardScope
 
 
@@ -46,12 +47,42 @@ class PersonalForwardAuthority:
         approval: bytes,
         *,
         resource_check: Any,
+        dataset_admissions: tuple[ForwardDatasetAdmission, ...] = (),
     ) -> None:
         if sha256_bytes(approval) != scope.approval_evidence_sha256:
             raise PermissionError("forward approval original differs")
         self.root = product_root.absolute() / "campaigns" / scope.content_hash
         self.scope, self.resource_check = scope, resource_check
+        self.dataset_admissions = dataset_admissions
+        if dataset_admissions and not isinstance(scope, PersonalForwardScopeV2):
+            raise PermissionError("v1 forward scope cannot admit successor datasets")
+        if isinstance(scope, PersonalForwardScopeV2):
+            if len(dataset_admissions) > scope.max_dataset_successors:
+                raise PermissionError("forward dataset successor budget exceeded")
+            previous = scope.allowed_dataset_hashes[0]
+            seen = {previous}
+            last_date: date | None = None
+            for admission in dataset_admissions:
+                if (
+                    admission.previous_dataset_hash != previous
+                    or admission.dataset_hash in seen
+                    or (last_date is not None and admission.end_date <= last_date)
+                    or admission.end_date > scope.end_date
+                ):
+                    raise PermissionError("forward dataset admission chain differs")
+                previous, last_date = admission.dataset_hash, admission.end_date
+                seen.add(previous)
         self.journal = ScopeBudgetJournal(self.root, scope, flat=True)
+
+    def _dataset_allowed(self, digest: str, events: list[dict[str, Any]]) -> bool:
+        admitted = {a.dataset_hash: a for a in self.dataset_admissions}
+        for event in events:
+            if event["kind"] == "DATASET_ADMITTED":
+                detail = budget_event_detail(event)
+                entry = admitted.get(detail["dataset_hash"])
+                if entry is None or entry.content_hash != detail["admission_hash"]:
+                    raise PermissionError("previous dataset admission removed or changed")
+        return digest in self.scope.allowed_dataset_hashes or digest in admitted
 
     def _limits(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         limits = self.journal.resources(events)
@@ -93,7 +124,7 @@ class PersonalForwardAuthority:
                 strategy_hash != scope.strategy_hash
                 or policy_hash != scope.policy_hash
                 or runtime_hash != scope.runtime_hash
-                or dataset_hash not in scope.allowed_dataset_hashes
+                or not self._dataset_allowed(dataset_hash, events)
                 or not scope.start_date <= day <= scope.end_date
                 or kind not in {"market", "synthetic"}
                 or (kind == "market") != (scope.purpose == "FORWARD_OBSERVATION")
@@ -101,6 +132,11 @@ class PersonalForwardAuthority:
                 raise PermissionError("forward operation outside trusted scope")
             if operation not in {"observe", "shadow_advance"}:
                 raise PermissionError("unsupported forward operation")
+            if any(
+                a.dataset_hash == dataset_hash and a.end_date != day
+                for a in self.dataset_admissions
+            ):
+                raise PermissionError("successor dataset is bound to a different actual session")
             self.journal.identity({"identity": operation_identity})
             attempts = self.journal.reservations(events)
             if operation_identity in attempts:
@@ -130,6 +166,27 @@ class PersonalForwardAuthority:
             if self.resource_check is None:
                 raise PermissionError("trusted resource dispatcher unavailable")
             self.resource_check(scope)
+            if dataset_hash not in scope.allowed_dataset_hashes and not any(
+                event["kind"] == "DATASET_ADMITTED"
+                and budget_event_detail(event)["dataset_hash"] == dataset_hash
+                for event in events
+            ):
+                retained = {
+                    budget_event_detail(event)["dataset_hash"]
+                    for event in events
+                    if event["kind"] == "DATASET_ADMITTED"
+                }
+                for admission in self.dataset_admissions:
+                    if admission.dataset_hash not in retained:
+                        self.journal.append(
+                            "DATASET_ADMITTED",
+                            {
+                                "dataset_hash": admission.dataset_hash,
+                                "admission_hash": admission.content_hash,
+                            },
+                        )
+                    if admission.dataset_hash == dataset_hash:
+                        break
             self.journal.append(
                 "RESERVED",
                 {
