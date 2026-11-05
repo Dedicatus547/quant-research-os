@@ -1,10 +1,37 @@
 # 前瞻等待期间的维护与报告
 
-2026-11-05：冻结采集和账户运行继续使用原工作目录；报告与测试维护在独立 worktree
+2026-11-06：首日采集缺陷已修复，后继计划 `recovery-05/campaign-plan-05.json` 已通过
+实际运行目录的预检并接管两个定时器。下一次采集为11月6日22:30，信号观察为11月7日
+00:01（UTC+8）。注册行情截至11月5日，两组scope均为OPEN，仍是0条信号、0次原生推进。
+11月5日缺失保留，剩余59个信号日，首次计划执行改为11月9日，结束日仍为2027年1月29日。
+
+修复包含同一交易所的非重叠日历分区、准确失败原因、恢复时预算继承、首日1/2交易日
+衔接，以及Qlib原子发布期间目录容量扫描的改名竞争。新增公告规则只识别国联民生
+2026-060号公告中的明确交易主体；核验合并方、被合并方、换股取得方及子公司股权条款，
+不能仅凭“子公司”标题放行上市主体换股。
+
+421份行情检查点全部离线复用。真实补采完成301家分红和35次官方HTTP请求，加上原来
+17次行情请求，恢复相关实际请求为353次；后续离线完成没有再请求供应商。初始与恢复
+累计实际1892次，保守初始计费2539次，保留两个失败作业共1000次预留，仍在初始5000次
+额度内。后续每日作业继续最多500次，总4万次、48小时和32GiB上限不变。
+总墙钟保守计费15496秒，旧失败退出与UNKNOWN评估不改写；第二次恢复复用已发布且
+完整核验的Qlib视图，仅补做未来日历扩展、目录构建和新版公司行动评估。
+
+- [恢复后的状态报告](../../artifacts/forward-recovery-20261106/run-01/report-05/report.md)
+- [部署、真实退出与最终核验](../../artifacts/forward-recovery-20261106/run-01)
+- [后继计划与原缺失日期说明](../../artifacts/hosted-evidence/hs300-lowvol-forward-20261104-01/recovery-05/migration/migration.json)
+- [定时器安装回执](../../artifacts/hosted-evidence/hs300-lowvol-forward-20261104-01/recovery-05/migration/scheduler-installed.json)
+
+修复源码已推送至`cf6df45c9918619ab636df8c632f8aeff6dbfdab`。
+[该提交CI](https://github.com/Dedicatus547/quant-research-os/actions/runs/42076674574)
+的static和offline-unit已通过；此页更新时isolated-tests仍在运行，尚无本次最终覆盖率。
+局部检查及两次真实离线恢复已经通过，不能据此把旧85.12%覆盖率标为新提交结果。
+
+以下保留11月5日等待期间的维护背景：冻结采集和账户运行使用原工作目录；维护在独立 worktree
 `artifacts/development/waiting-maintenance-20261105` 完成，没有修改运行中的130项源码绑定。
 新报告仅读取已有原件。没有新增行情请求、研究账户、信号观察或账户推进。
 
-## 当前报告
+## 11月5日报告原件
 
 - [前瞻状态报告](../../artifacts/maintenance-20261105/run-01/forward-report-02/report.md)：
   读取时两组均为0条观察、0次原生推进，状态WAITING；行情注册截至11月3日。
@@ -23,9 +50,9 @@
 ```sh
 .venv/bin/python -B \
   artifacts/development/waiting-maintenance-20261105/scripts/forward_report.py \
-  --plan artifacts/hosted-evidence/hs300-lowvol-forward-20261104-01/campaign-plan-03.json \
-  --sha256 1373f6d040a940f4733bbf440c7ac38769bdbde608527ef1916b08a39d7ce67d \
-  --output-dir artifacts/maintenance-20261105/report-manual-01
+  --plan artifacts/hosted-evidence/hs300-lowvol-forward-20261104-01/recovery-05/campaign-plan-05.json \
+  --sha256 4eb75fdf0c93959d37184e18633dcceea4e7ca27eeddcb954d0a38db06e7c416 \
+  --output-dir artifacts/forward-recovery-20261106/report-manual-01
 ```
 
 新克隆或后续开发工作区可直接调用 `scripts/forward_report.py`。市场原件不随Git分发，
