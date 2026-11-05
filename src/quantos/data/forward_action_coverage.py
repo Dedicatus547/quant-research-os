@@ -331,6 +331,23 @@ def assess_actions(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
             doc.exact("信达证券")
             doc.matches(r"(?:中金公司|中国国际金融)")
             classification = "SOURCE_BOUND_MERGER_BEFORE_FRESH_ACCOUNT"
+        elif instrument == "601456.SH" and title == (
+            "国联民生证券股份有限公司关于全资子公司民生证券参与国联期货换股吸收合并民生期货暨关联交易的公告"
+        ):
+            # This explicit subsidiary transaction exchanges unlisted futures
+            # company equity, not the listed issuer's shares held by the account.
+            doc = _Document.read(raw)
+            for clause in (
+                "证券代码:601456",
+                "公告编号:2026-060号",
+                "甲方(吸收合并方/存续方):国联期货股份有限公司",
+                "乙方(被吸收合并方/解散方):民生期货有限公司",
+                "丙方(乙方股东/换股股份取得方):民生证券股份有限公司",
+                "由甲方向乙方唯一股东丙方发行股份作为合并对价",
+                "公司全资子公司民生证券将所持民生期货100%股权转换为国联期货52.57%股份",
+            ):
+                doc.exact(clause)
+            classification = "SUBSIDIARY_MERGER_NO_LISTED_SHARE_EXCHANGE"
         elif "超额配股权失效" in title:
             doc = _Document.read(raw)
             doc.exact("证券代码:" + instrument[:6])

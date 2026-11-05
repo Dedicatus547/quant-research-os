@@ -206,3 +206,24 @@ def test_budget_and_unverified_prior_cleanup_stop_before_spawn(supervised, bound
         run(root, plan)
     assert not state.spawned
     assert not (root / "acquisition-jobs/2024-01-08").exists()
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError, PermissionError])
+def test_growth_scan_tolerates_rename_but_not_unreadable_files(tmp_path, monkeypatch, error):
+    stable = tmp_path / "stable"
+    stable.write_bytes(b"retained")
+    moving = tmp_path / "moving"
+    moving.write_bytes(b"staging")
+    original = Path.stat
+
+    def race(path, *args, **kwargs):
+        if path == moving:
+            raise error("simulated directory publication race")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", race)
+    if error is FileNotFoundError:
+        assert job.retained_size(tmp_path) == 8
+    else:
+        with pytest.raises(PermissionError):
+            job.retained_size(tmp_path)

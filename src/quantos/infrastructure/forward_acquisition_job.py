@@ -7,6 +7,7 @@ import json
 import os
 import resource
 import signal
+import stat
 import subprocess
 import time
 from contextlib import suppress
@@ -19,7 +20,16 @@ from quantos.infrastructure.hosted_storage import StorageGuard, StoragePolicy
 
 
 def retained_size(root: Path) -> int:
-    return sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+    total = 0
+    for path in root.rglob("*"):
+        try:
+            info = path.stat()
+        except FileNotFoundError:
+            # Qlib atomically renames completed staging trees during this scan.
+            continue
+        if stat.S_ISREG(info.st_mode):
+            total += info.st_size
+    return total
 
 
 def acquire_job(plan: dict[str, Any], plan_path: Path, previous: Path, day: str) -> None:

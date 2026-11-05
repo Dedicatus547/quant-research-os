@@ -267,3 +267,52 @@ def test_inventory_gaps_and_receipt_mismatches_reject(sources, change):
         first["pages"][0]["receipt"] = save("changed-receipt.json", receipt)
     with pytest.raises(ValueError):
         assess_actions(root, spec)
+
+
+@pytest.mark.parametrize("issuer_is_party", [False, True])
+def test_subsidiary_merger_requires_exact_exchange_parties(sources, monkeypatch, issuer_is_party):
+    from quantos.research import merger_entitlement_sources as merger
+
+    root, _, save, refresh = sources
+    title = (
+        "国联民生证券股份有限公司关于全资子公司民生证券参与"
+        "国联期货换股吸收合并民生期货暨关联交易的公告"
+    )
+    spec = refresh(title=title)
+    pd.DataFrame({"instrument_id": ["601456.SH"]}).to_parquet(root / "members.parquet")
+    spec["membership"]["sha256"] = sha256_file(root / "members.parquet")
+    spec["dividends"][0]["instrument_id"] = "601456.SH"
+    page = json.loads((root / "SSE/page.json").read_bytes())
+    page["result"][0][0]["SECURITY_CODE"] = "601456"
+    ref = save("SSE/page.json", page)
+    receipt = json.loads((root / "SSE/receipt.json").read_bytes())
+    receipt["sha256"] = ref["sha256"]
+    ref["receipt"] = save("SSE/receipt.json", receipt)
+    spec["announcement_inventories"][0]["pages"] = [ref]
+    raw = b"%PDF-synthetic-party-fixture"
+    spec["documents"]["sse1"]["pdf"] = save("document.pdf", raw)
+    receipt = json.loads((root / "document-receipt.json").read_bytes())
+    receipt["source_sha256"] = sha256_bytes(raw)
+    spec["documents"]["sse1"]["receipt"] = save("document-receipt.json", receipt)
+    text = (
+        "证券代码:601456 公告编号:2026-060号\n"
+        "甲方(吸收合并方/存续方):国联期货股份有限公司\n"
+        "乙方(被吸收合并方/解散方):民生期货有限公司\n"
+        "丙方(乙方股东/换股股份取得方):民生证券股份有限公司\n"
+        "由甲方向乙方唯一股东丙方发行股份作为合并对价\n"
+        "公司全资子公司民生证券将所持民生期货100%股权转换为国联期货52.57%股份"
+    )
+    if issuer_is_party:
+        text = text.replace(
+            "甲方(吸收合并方/存续方):国联期货", "甲方(吸收合并方/存续方):国联民生证券"
+        )
+    monkeypatch.setattr(merger, "_pdf_pages", lambda _: (text,))
+    if issuer_is_party:
+        with pytest.raises(ValueError, match="source clause"):
+            assess_actions(root, spec)
+    else:
+        result = assess_actions(root, spec)
+        assert result["status"] == "SUPPORTED_IN_DECLARED_SOURCE_SCOPE"
+        assert result["classified"] == [
+            {"source_id": "sse1", "classification": "SUBSIDIARY_MERGER_NO_LISTED_SHARE_EXCHANGE"}
+        ]
