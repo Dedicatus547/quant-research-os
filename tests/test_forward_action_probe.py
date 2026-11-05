@@ -1,11 +1,22 @@
 """Action probes retain independent results and suppress credential-bearing output."""
 
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from quantos.data.tushare.forward_action_probe import probe
+
+
+@pytest.fixture(autouse=True)
+def inert_provider_limiter(monkeypatch):
+    # These fixtures never contact a provider; no background event loop is needed.
+    from quantos.data.tushare import acquisition
+
+    monkeypatch.setattr(
+        acquisition, "_default_limiter", lambda _: SimpleNamespace(try_acquire=lambda _: True)
+    )
 
 
 @pytest.mark.parametrize("mode", ["denied", "echo", "ok"])

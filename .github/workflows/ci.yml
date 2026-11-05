@@ -205,13 +205,14 @@ jobs:
           persist-credentials: false
       - name: Verify official Qlib fixture tools before offline tests
         run: uv run python -c 'from pathlib import Path; from quantos.integrations.qlib import verify_official_qlib_tools; verify_official_qlib_tools(Path(".tools/qlib-0.9.7"))'
-      - run: uv run pytest --cov=quantos --cov-report=term-missing --cov-report=xml --cov-report=json
+      - run: uv run pytest --cov=quantos --cov-report=term-missing --cov-report=xml --cov-report=json --durations=30 --junitxml=pytest-results.xml
       - name: Retain coverage originals even when the suite fails
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: isolated-coverage-${{ github.sha }}-${{ github.run_attempt }}
           path: |
+            pytest-results.xml
             coverage.xml
             coverage.json
             .coverage
